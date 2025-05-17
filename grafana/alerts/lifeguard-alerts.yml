@@ -1,0 +1,80 @@
+apiVersion: 1
+
+groups:
+  - name: lifeguard-alerts
+    folder: Lifeguard Alerts
+    interval: 30s
+    rules:
+      - uid: queue-depth-alert
+        title: High Queue Depth
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: lifeguard_pool_queue_depth
+              interval: ""
+              legendFormat: ""
+              refId: A
+          - refId: B
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: "50"
+              refId: B
+        execErrState: Alerting
+        noDataState: NoData
+        for: 1m
+        annotations:
+          summary: Lifeguard pool queue is too deep!
+        labels:
+          severity: critical
+        conditions:
+          - evaluator:
+              params: [50]
+              type: gt
+            operator: and
+            query:
+              refId: A
+            reducer:
+              type: last
+            type: query
+        dashboardUid: lifeguard-telemetry
+        panelId: 2
+
+      - uid: latency-p99-alert
+        title: High p99 Latency
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: histogram_quantile(0.99, rate(lifeguard_query_duration_seconds_bucket[1m]))
+              refId: A
+        for: 1m
+        execErrState: Alerting
+        noDataState: NoData
+        annotations:
+          summary: p99 latency is too high!
+        labels:
+          severity: warning
+        conditions:
+          - evaluator:
+              params: [0.1]
+              type: gt
+            operator: and
+            query:
+              refId: A
+            reducer:
+              type: last
+            type: query
+        dashboardUid: lifeguard-performance
+        panelId: 3

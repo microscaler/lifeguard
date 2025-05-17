@@ -1,0 +1,4 @@
+[book]
+title = "Lifeguard"
+authors = ["charles.sibbald@microscaler.com"]
+description = "Coroutine-friendly PostgreSQL connection pool manager for SeaORM"
