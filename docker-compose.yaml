@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/postgres?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./grafana/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./grafana/dashboards/:/etc/grafana/dashboards/
+      - ./grafana/alerts:/etc/grafana/provisioning/alerting/
+    depends_on:
+      - prometheus
+      - loki
+
+
+  loki:
+    image: grafana/loki:2.9.3
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./config/loki-config.yml:/etc/loki/loki-config.yml
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.97.0
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./config/otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9464:9464"   # Prometheus scrape endpoint
+
+  mailhog:
+      image: mailhog/mailhog:v1.0.1
+      ports:
+        - "1025:1025"   # SMTP
+        - "8025:8025"   # Web UI
+
+#  redis:
+#    image: redis:latest
+#    ports:
+#      - "6379:6379"
+#    volumes:
+#      - redis-data:/data
+#      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf
+#      - ./config/redis/redis-init.lua:/usr/local/etc/redis/redis-init.lua
+#      - ./config/redis/redis-setup.sh:/usr/local/bin/redis-setup.sh
+
+
+volumes:
+  pgdata:
+  grafana-storage:

@@ -1,0 +1,9 @@
+[database]
+# Postgres connection URL
+url = "postgres://postgres:postgres@localhost:5432/postgres"
+default_db_url = "postgres://postgres:postgres@localhost:5432/postgres"
+default_max_connections = 10
+# Max number of concurrent DB connections in the pool
+max_connections = 10
+
+pool_timeout_seconds = 5

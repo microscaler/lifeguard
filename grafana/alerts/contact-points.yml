@@ -1,0 +1,27 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: Slack Notify
+    receivers:
+      - uid: slack
+        type: slack
+        settings:
+          url: __SLACK_WEBHOOK_URL__
+          text: '{{ template "default.message" . }}'
+
+  - orgId: 1
+    name: Email Notify
+    receivers:
+      - uid: email
+        type: email
+        settings:
+          addresses: you@example.com
+
+  - orgId: 1
+    name: Webhook Notify
+    receivers:
+      - uid: webhook
+        type: webhook
+        settings:
+          url: https://your-api.example.com/lifeguard/alerts
