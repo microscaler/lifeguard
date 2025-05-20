@@ -1,4 +1,4 @@
-use config::{Config, ConfigError, File, Environment};
+use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Default)]
@@ -25,7 +25,7 @@ fn default_pool_timeout_seconds() -> u64 {
 
 impl DatabaseConfig {
     /// Load the database configuration from `config/config.toml`, falling back to env vars.
-    pub fn load(verbose: bool) -> Result<Self, ConfigError> {
+    pub fn load() -> Result<Self, ConfigError> {
         // Build configuration by reading the TOML file (optional) and environment variables
         let builder = Config::builder()
             .add_source(File::with_name("config/config.toml").required(false))
@@ -37,9 +37,10 @@ impl DatabaseConfig {
             Err(err) => {
                 // If the file existed but was unreadable (parse error, permission issue, etc.), log a warning and retry with env only
                 if std::path::Path::new("config/config.toml").exists() {
-                    if verbose {
-                        eprintln!("Warning: failed to load config file, falling back to env. Error: {}", err);
-                    }
+                    eprintln!(
+                        "Warning: failed to load config file, falling back to env. Error: {}",
+                        err
+                    );
                 }
                 // Retry using only environment variables as source
                 Config::builder()
@@ -56,16 +57,15 @@ impl DatabaseConfig {
         };
 
         // Deserialize the configuration into our DatabaseConfig struct
-        let db_config: DatabaseConfig = settings.get::<DatabaseConfig>("database").map_err(|e| {
-            // Provide a clear error if the database config section is missing or invalid
-            ConfigError::Message(format!(
-                "Database configuration could not be loaded from file or environment: {}",
-                e
-            ))
-        })?;
-        
+        let db_config: DatabaseConfig =
+            settings.get::<DatabaseConfig>("database").map_err(|e| {
+                // Provide a clear error if the database config section is missing or invalid
+                ConfigError::Message(format!(
+                    "Database configuration could not be loaded from file or environment: {}",
+                    e
+                ))
+            })?;
+
         Ok(db_config)
     }
-
- 
 }
