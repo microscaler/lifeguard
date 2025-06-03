@@ -9,7 +9,7 @@ macro_rules! lifeguard_txn {
     ($pool:expr, $block:block) => {{
         $pool.execute(|db| Box::pin(async move {
             let txn = db.begin().await?;
-            let out = (|| async $block)().await;
+            let out = (|| async move $block)().await;
             match out {
                 Ok(val) => {
                     txn.commit().await?;
