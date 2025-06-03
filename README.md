@@ -85,9 +85,11 @@ The following table lists the main Lifeguard macros:
 | `lifeguard_query` | run SeaORM query and return result |
 | `lifeguard_insert_many` | `insert_many` |
 | `lifeguard_txn` | transaction wrapper |
+| `test_pool!` | create a mock `DbPoolManager` |
 
 ```rust
 // Using Lifeguard macros
+let pool = test_pool!();
 lifeguard_execute!(pool, { /* raw statement */ });
 let row = lifeguard_query!(pool, Entity::find().one(db));
 lifeguard_insert_many!(pool, pets::Entity, models);
@@ -166,6 +168,13 @@ just setup             # Start database + apply migrations
 just metrics-server    # Expose Prometheus metrics on :9898
 just seed-db-heavy n=100000 -- --batch-size=500
 just test              # Run tests
+```
+
+Use `test_pool!()` inside unit tests to create a mock `DbPoolManager` without a
+database:
+
+```rust
+let pool = test_pool!();
 ```
 
 ---
