@@ -19,7 +19,6 @@ src/
   test_helpers.rs   # utilities for tests
   tests_cfg/        # schemas and entities used by integration tests
 examples/           # database schema and generated SeaORM models
-deprecated/         # old examples and tests
 book/               # mdBook documentation
 config/             # Prometheus/Grafana/otel configs
 grafana/            # dashboards and alert rules
@@ -40,7 +39,7 @@ The usage guide in the book demonstrates how to create a pool, spawn coroutines 
 
 ## Testing & examples
 
-A small schema and SeaORM models reside under `examples/` and `src/tests_cfg/`. Integration tests (previously in `deprecated/tests/`) cover configuration, initialization, and query behavior. Helpers in `test_helpers.rs` manage temporary tables for tests.
+A small schema and SeaORM models reside under `examples/` and `src/tests_cfg/`. Integration tests cover configuration, initialization, and query behavior. Helpers in `test_helpers.rs` manage temporary tables for tests.
 
 ## Next steps for learning
 

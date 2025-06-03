@@ -34,7 +34,7 @@ build:
 	cargo build
 
 test:
-	DATABASE_URL={{DATABASE_URL}} cargo test --test integration -- --nocapture
+        DATABASE_URL={{DATABASE_URL}} cargo test -- --nocapture
 
 
 setup:
