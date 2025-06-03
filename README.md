@@ -196,6 +196,34 @@ Alerts for:
 
 See grafana/alerts/lifeguard-alerts.yml
 
+## 🚧 Roadmap
+
+The macros below are planned but not yet implemented. They will mirror common
+SeaORM operations for a smoother developer experience.
+
+| Macro                                     | Maps to SeaORM API                   |
+|-------------------------------------------|--------------------------------------|
+| `lifeguard_connect!`                      | `sea_orm::Database::connect!`        |
+| `lifeguard_execute`                       | `execute`                            |
+| `lifeguard_query`                         | `query`                              |
+| `lifeguard_insert`                        | `insert`                             |
+| `lifeguard_update`                        | `update`                             |
+| `lifeguard_delete`                        | `delete`                             |
+| `lifeguard_find`                          | `find`                               |
+| `lifeguard_find_one`                      | `find_one`                           |
+| `lifeguard_find_many`                     | `find_many`                          |
+| `lifeguard_find_by`                       | `find_by`                            |
+| `lifeguard_find_by_one`                   | `find_by_one`                        |
+| `lifeguard_find_by_many`                  | `find_by_many`                       |
+| `lifeguard_find_by_count`                 | `find_by_count`                      |
+| `lifeguard_find_by_exists`                | `find_by_exists`                     |
+| `lifeguard_find_by_exists_one`            | `find_by_exists_one`                 |
+| `lifeguard_find_by_exists_many`           | `find_by_exists_many`                |
+| `lifeguard_find_by_exists_count`          | `find_by_exists_count`               |
+
+### Task list
+
+- [ ] Implement all macros listed above
 
 
 # 🙌 Acknowledgements
