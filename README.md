@@ -165,7 +165,7 @@ let pool = DbPoolManager::from_config(&cfg)?;
 just setup             # Start database + apply migrations
 just metrics-server    # Expose Prometheus metrics on :9898
 just seed-db-heavy n=100000 -- --batch-size=500
-just test              # Run integration + unit tests
+just test              # Run tests
 ```
 
 ---
