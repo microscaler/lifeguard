@@ -51,15 +51,18 @@ impl DbPoolManager {
 
         thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            rt.block_on(async move {
+            if let Err(e) = rt.block_on(async move {
                 let mut options = ConnectOptions::new(db_url.clone());
                 options.max_connections(max_connections);
                 let db = Database::connect(options)
                     .await
-                    .expect("Failed to connect to the database");
+                    .map_err(|e| DbErr::Custom(format!("Failed to connect: {e}")))?;
 
                 run_worker_loop(rx, db).await;
-            });
+                Ok::<(), DbErr>(())
+            }) {
+                eprintln!("Database worker initialization error: {e}");
+            }
         });
 
         Ok(Self { request_tx: tx })
