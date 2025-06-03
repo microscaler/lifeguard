@@ -75,45 +75,27 @@ rapid assimilation by developers adopting the library.
 
 High-volume seed or ingest operations are supported through efficient batched inserts (handling 500+ rows per query).
 
-The following table shows the mapping of Lifeguard macros to SeaORM API calls:
+The following table lists the main Lifeguard macros:
 
-| Macro                                     | Maps to SeaORM API                   |
-|-------------------------------------------|--------------------------------------|
-| `lifeguard_connect!`                      | `sea_orm::Database::connect!`        |
-| `lifeguard_execute`                       | `execute`                            |
-| `lifeguard_query`                         | `query`                              |
-| `lifeguard_insert`                        | `insert`                             |
-| `lifeguard_update`                        | `update`                             |
-| `lifeguard_delete`                        | `delete`                             |
-| `lifeguard_find`                          | `find`                               |
-| `lifeguard_find_one`                      | `find_one`                           |
-| `lifeguard_find_many`                     | `find_many`                          |
-| `lifeguard_find_by`                       | `find_by`                            |
-| `lifeguard_find_by_one`                   | `find_by_one`                        |
-| `lifeguard_find_by_many`                  | `find_by_many`                       |
-| `lifeguard_find_by_count`                 | `find_by_count`                      |
-| `lifeguard_find_by_exists`                | `find_by_exists`                     |
-| `lifeguard_find_by_exists_one`            | `find_by_exists_one`                 |
-| `lifeguard_find_by_exists_many`           | `find_by_exists_many`                |
-| `lifeguard_find_by_exists_count`          | `find_by_exists_count`               |
+| Macro | Description |
+|----------------|------------------------------|
 
+| `lifeguard_go` | spawn a `may::go!` coroutine and run a query |
+| `lifeguard_execute` | `execute` |
+| `lifeguard_query` | run SeaORM query and return result |
+| `lifeguard_insert_many` | `insert_many` |
+| `lifeguard_txn` | transaction wrapper |
 
+```rust
+// Using Lifeguard macros
+lifeguard_execute!(pool, { /* raw statement */ });
+let row = lifeguard_query!(pool, Entity::find().one(db));
+lifeguard_insert_many!(pool, pets::Entity, models);
+lifeguard_txn!(pool, { /* transactional work */ });
+lifeguard_go!(pool, result, { /* query */ });
+```
 ---
 
-### ✅ Redis cached operations
-
-Lifeguard supports Redis caching for query results, allowing you to cache the results of expensive queries and reduce 
-the load on your database as well as the latency of your application.
-
-Caching is transparent to the user and can be enabled by setting the `LIFEGUARD_CACHE` environment variable to `true`.
-
-The caching is implemented internally within the macros and toggled by the `LIFEGUARD_CACHE` environment variable.
-
-Caching operations havebsensible defaults and can be configured globally via the `LIFEGUARD_CACHE_*` environment 
-variables as well as overidden on a per-query basis on each macro invocation.
-
-
----
 
 
 ### ✅ Built-in Prometheus metrics
