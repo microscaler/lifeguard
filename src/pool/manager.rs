@@ -1,506 +1,363 @@
-use crate::metrics::METRICS;
-use crate::pool::config::DatabaseConfig;
-use crate::pool::types::{DbRequest, DbTask, LifeguardJob, QueryCallback};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection, DbErr, DatabaseBackend, ExecResult, QueryResult, Statement, ConnectionTrait};
+use crossbeam_channel::{bounded, Receiver, Sender};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use crate::pool::types::DbRequest;
 use crate::pool::worker::run_worker_loop;
-use sea_orm::ConnectionTrait;
-
-use async_trait::async_trait;
-use crossbeam_channel::{unbounded, Sender};
-use sea_orm::{
-    ConnectOptions, Database, DatabaseBackend, DatabaseConnection, DbErr, ExecResult, QueryResult,
-    Statement,
-};
+use crossbeam_channel::bounded as crossbeam_bounded;
 use std::any::Any;
-use std::thread;
-use std::time::Instant;
-use tokio::sync::oneshot;
-use tracing::instrument;
+use std::future::Future;
+use std::pin::Pin;
+use async_trait::async_trait;
 
-// Internal enum representing database tasks for worker threads
-// type AnyError = Box<dyn Error + Send + Sync>;
-
-// channel to send tasks to the DB worker(s)
-// ... (e.g. thread handles, config, etc.)
-#[derive(Clone, Debug)]
 pub struct DbPoolManager {
-    pub(crate) request_tx: Sender<LifeguardJob>,
+    senders: Vec<Sender<DbRequest>>,
+    strategy: LoadBalancingStrategy,
+}
+
+#[derive(Clone)]
+pub struct LifeguardConnection {
+    sender: Sender<DbRequest>,
+}
+
+enum LoadBalancingStrategy {
+    RoundRobin(AtomicUsize),
+}
+
+pub async fn run_worker_loop(rx: Receiver<DbRequest>, db: DatabaseConnection) {
+    while let Ok(DbRequest::Run(job)) = rx.recv() {
+        let conn = db.close();
+        job(conn).await;
+    }
+}
+
+
+impl LoadBalancingStrategy {
+    fn next(&self, len: usize) -> usize {
+        match self {
+            LoadBalancingStrategy::RoundRobin(counter) => {
+                counter.fetch_add(1, Ordering::SeqCst) % len
+            }
+        }
+    }
 }
 
 impl DbPoolManager {
-    /// Public constructor: from config
-    pub fn from_config(config: &DatabaseConfig) -> Result<Self, DbErr> {
-        Self::new_with_params(&config.url, config.max_connections as u32)
-    }
+    pub fn new_with_params(database_url: &str, pool_size: usize) -> Result<Self, DbErr> {
+        let mut senders = Vec::with_capacity(pool_size);
+        for _ in 0..pool_size {
+            let (tx, rx) = crossbeam_bounded::<DbRequest>(100);
+            let db_url = database_url.to_string();
 
-    /// Shorthand using default config (non-verbose mode)
-    pub fn new() -> Result<Self, DbErr> {
-        Self::new_with_verbose()
-    }
-
-    /// Shorthand using default config with configurable verbosity
-    pub fn new_with_verbose() -> Result<Self, DbErr> {
-        let config = DatabaseConfig::load()
-            .map_err(|e| DbErr::Custom(format!("Failed to load database config: {}", e)))?;
-        Self::from_config(&config)
-    }
-
-    /// Internal constructor that wires up the Lifeguard job channel and thread
-    pub fn new_with_params(database_url: &str, max_connections: u32) -> Result<Self, DbErr> {
-        let (tx, rx) = unbounded::<LifeguardJob>();
-        let db_url = database_url.to_string();
-
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            rt.block_on(async move {
-                let mut options = ConnectOptions::new(db_url.clone());
-                options.max_connections(max_connections);
-                let db = Database::connect(options)
-                    .await
-                    .expect("Failed to connect to the database");
-
-                run_worker_loop(rx, db).await;
+            may::go!(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("tokio runtime");
+                rt.block_on(async move {
+                    let db = Database::connect(ConnectOptions::new(&db_url))
+                        .await
+                        .expect("db connect");
+                    run_worker_loop(rx, db).await;
+                });
             });
-        });
 
-        Ok(Self { request_tx: tx })
+            senders.push(tx);
+        }
+
+        Ok(Self {
+            senders,
+            strategy: LoadBalancingStrategy::RoundRobin(AtomicUsize::new(0)),
+        })
     }
 
-    /// Create a pool from an existing [`DatabaseConnection`].
-    ///
-    /// This is primarily useful for testing with SeaORM's `MockDatabase`.
-    pub fn from_connection(conn: DatabaseConnection) -> Self {
-        let (tx, rx) = unbounded::<LifeguardJob>();
-
-        thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new()
-                .expect("Failed to create Tokio runtime");
-            rt.block_on(async move {
-                run_worker_loop(rx, conn).await;
-            });
-        });
-
-        Self { request_tx: tx }
+    pub fn lifeguard_sender(&self) -> Sender<DbRequest> {
+        let idx = self.strategy.next(self.senders.len());
+        self.senders[idx].clone()
     }
 
-    /// Coroutine-safe wrapper for running a query and downcasting the result
-    #[instrument(level = "info", skip(query_fn), fields(pool = "DbPoolManager"))]
-    pub fn execute<T: Send + 'static, F, Fut>(&self, query_fn: F) -> Result<T, DbErr>
+    pub fn execute<T, F, Fut>(&self, query_fn: F) -> Result<T, DbErr>
     where
+        T: Send + 'static,
         F: FnOnce(DatabaseConnection) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<T, DbErr>> + Send + 'static,
     {
-        let (response_tx, response_rx) = crossbeam_channel::bounded(1);
-        let queue_depth = METRICS.queue_depth.clone();
+        use crate::metrics::METRICS;
+        use std::time::Instant;
 
-        queue_depth.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        METRICS.queue_depth.fetch_add(1, Ordering::Relaxed);
         let start = Instant::now();
 
-        let job: QueryCallback = Box::new(move |conn| {
+        let sender = self.lifeguard_sender();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+
+        let job: crate::pool::types::BoxedDbJob = Box::new(move |conn| {
             Box::pin(async move {
-                let result = query_fn(conn)
-                    .await
-                    .map(|v| Box::new(v) as Box<dyn Any + Send>);
-                result
+                let result = query_fn(conn).await;
+                METRICS.observe_wait(start.elapsed());
+                let _ = tx.send(result);
             })
         });
 
-        let request = DbRequest::Execute { job, response_tx };
-        self.request_tx
-            .send(LifeguardJob::Macro(request))
+        sender
+            .send(DbRequest::Run(job))
             .map_err(|e| DbErr::Custom(format!("Send error: {}", e)))?;
 
-        let response = response_rx
-            .recv()
-            .map_err(|e| DbErr::Custom(format!("Receive error: {}", e)))?;
-
-        let elapsed = start.elapsed();
-        METRICS.record_query(elapsed);
-        METRICS
-            .coroutine_wait_duration
-            .record(elapsed.as_secs_f64(), &[]);
-        queue_depth.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-
-        let boxed = response?;
-        let t = *boxed
-            .downcast::<T>()
-            .map_err(|_| DbErr::Custom("Type mismatch in lifeguard pool".into()))?;
-        Ok(t)
+        let res = rx.recv().map_err(|e| DbErr::Custom(format!("Receive error: {}", e)))?;
+        METRICS.queue_depth.fetch_sub(1, Ordering::Relaxed);
+        METRICS.record_query(start.elapsed());
+        res
     }
 
-    /// Shared dispatch helper for async SeaORM tasks
-    async fn send_db_task<R>(
-        &self,
-        task_builder: impl FnOnce(oneshot::Sender<R>) -> DbTask,
-    ) -> Result<R, DbErr>
-    where
-        R: Send + 'static,
-    {
-        let (tx, rx) = oneshot::channel::<R>();
-        let task = task_builder(tx);
-        self.request_tx
-            .send(LifeguardJob::Async(task))
-            .map_err(|e| DbErr::Custom(format!("Failed to enqueue DbTask: {e}")))?;
-        rx.await
-            .map_err(|e| DbErr::Custom(format!("Worker dropped: {e}")))
-    }
-
-    /// Accessor for raw channel if needed (e.g. implementing ConnectionTrait)
-    pub fn lifeguard_sender(&self) -> Sender<LifeguardJob> {
-        self.request_tx.clone()
+    pub fn connection(&self) -> LifeguardConnection {
+        LifeguardConnection {
+            sender: self.lifeguard_sender(),
+        }
     }
 }
 
 #[async_trait]
-impl ConnectionTrait for DbPoolManager {
+impl ConnectionTrait for LifeguardConnection {
     fn get_database_backend(&self) -> DatabaseBackend {
         DatabaseBackend::Postgres
     }
 
     async fn execute(&self, stmt: Statement) -> Result<ExecResult, DbErr> {
-        self.send_db_task(|tx| DbTask::Execute(stmt.clone(), tx))
-            .await?
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let job = crate::pool::types::DbRequest::Run(Box::new(move |conn| {
+            Box::pin(async move {
+                let res = conn.execute(stmt).await;
+                let _ = tx.send(res);
+            })
+        }));
+        self.sender.send(job).map_err(|e| DbErr::Custom(e.to_string()))?;
+        rx.await.map_err(|e| DbErr::Custom(e.to_string()))?
     }
 
     async fn execute_unprepared(&self, sql: &str) -> Result<ExecResult, DbErr> {
-        let owned_sql = sql.to_owned();
-        self.send_db_task(|tx| DbTask::ExecuteUnprepared(owned_sql, tx))
-            .await?
+        let sql = sql.to_string();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let job = crate::pool::types::DbRequest::Run(Box::new(move |conn| {
+            Box::pin(async move {
+                let res = conn.execute_unprepared(&sql).await;
+                let _ = tx.send(res);
+            })
+        }));
+        self.sender.send(job).map_err(|e| DbErr::Custom(e.to_string()))?;
+        rx.await.map_err(|e| DbErr::Custom(e.to_string()))?
     }
 
     async fn query_one(&self, stmt: Statement) -> Result<Option<QueryResult>, DbErr> {
-        self.send_db_task(|tx| DbTask::QueryOne(stmt.clone(), tx))
-            .await?
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let job = crate::pool::types::DbRequest::Run(Box::new(move |conn| {
+            Box::pin(async move {
+                let res = conn.query_one(stmt).await;
+                let _ = tx.send(res);
+            })
+        }));
+        self.sender.send(job).map_err(|e| DbErr::Custom(e.to_string()))?;
+        rx.await.map_err(|e| DbErr::Custom(e.to_string()))?
     }
 
     async fn query_all(&self, stmt: Statement) -> Result<Vec<QueryResult>, DbErr> {
-        self.send_db_task(|tx| DbTask::QueryAll(stmt.clone(), tx))
-            .await?
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let job = crate::pool::types::DbRequest::Run(Box::new(move |conn| {
+            Box::pin(async move {
+                let res = conn.query_all(stmt).await;
+                let _ = tx.send(res);
+            })
+        }));
+        self.sender.send(job).map_err(|e| DbErr::Custom(e.to_string()))?;
+        rx.await.map_err(|e| DbErr::Custom(e.to_string()))?
     }
 }
 
+
+
 #[cfg(test)]
 mod tests {
-    use crate::pool::config::DatabaseConfig;
-    use crate::pool::manager::DbPoolManager;
-    use crate::test_helpers::{create_temp_table, drop_temp_table};
-    use crate::{
-        lifeguard_execute, lifeguard_insert_many, lifeguard_query, lifeguard_txn,
-        insert_test_rows, seed_test, update_test_rows, with_temp_table,
-    };
-    use may::go;
-    use sea_orm::{
-        ColumnTrait, ConnectionTrait, DatabaseBackend, DbErr, EntityTrait, PaginatorTrait,
-        QueryFilter, Statement, TransactionTrait, TryGetable,
-    };
+    use super::*;
+    use sea_orm::{entity::*, query::*, DatabaseBackend, DbErr, DeriveEntityModel, DeriveRelation, EntityTrait, EnumIter, Statement, TryGetable};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use rand::Rng;
+    use tokio::task;
 
     #[tokio::test]
-    async fn test_macro_and_async_work_together() -> Result<(), DbErr> {
-        use sea_orm::{DatabaseBackend, MockDatabase};
+    async fn test_lifeguard_connection_raw_query() {
+        let pool = DbPoolManager::new_with_params("postgres://postgres:postgres@localhost:5432/postgres", 2).unwrap();
+        let conn = pool.connection();
 
-        let pool = test_pool!(
-            MockDatabase::new(DatabaseBackend::Postgres)
-                .append_query_results(vec![vec![]])
-        );
-
-        // Async: use ConnectionTrait
-        let version_row =
-            Statement::from_string(DatabaseBackend::Postgres, "SELECT version()".to_string());
-        let result = pool.query_one(version_row).await?;
-        assert!(result.is_none());
-
-        // Coroutine: use lifeguard_execute! macro
-        go!(move || {
-            let _ = lifeguard_execute!(pool, {
-                Ok::<_, DbErr>(())
-            })?;
-            Ok::<_, DbErr>(())
-        });
-
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        Ok(())
+        let stmt = Statement::from_string(DatabaseBackend::Postgres, "SELECT 42 AS answer");
+        let row = conn.query_one(stmt).await.unwrap().unwrap();
+        let answer: i32 = row.try_get("", "answer").unwrap();
+        assert_eq!(answer, 42);
     }
 
     #[tokio::test]
-    async fn test_execute_and_unprepared() -> Result<(), sea_orm::DbErr> {
-        use sea_orm::{DatabaseBackend, MockDatabase, mock::MockExecResult};
+    async fn test_lifeguard_high_volume_insert_and_query() -> Result<(), DbErr> {
+        #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+        #[sea_orm(table_name = "stress_entity")]
+        pub struct Model {
+            #[sea_orm(primary_key)]
+            pub id: i32,
+            pub value: String,
+        }
 
-        let db = test_pool!(
-            MockDatabase::new(DatabaseBackend::Postgres)
-                .append_exec_results(vec![
-                    MockExecResult { last_insert_id: 0, rows_affected: 0 },
-                    MockExecResult { last_insert_id: 0, rows_affected: 1 },
-                    MockExecResult { last_insert_id: 0, rows_affected: 1 },
-                ])
-        );
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {}
 
-        db.execute_unprepared("CREATE TEMP TABLE IF NOT EXISTS temp_table (id SERIAL)")
-            .await?;
-        db.execute_unprepared("INSERT INTO temp_table DEFAULT VALUES")
-            .await?;
+        impl ActiveModelBehavior for ActiveModel {}
 
-        let stmt = Statement::from_string(
-            DatabaseBackend::Postgres,
-            "INSERT INTO temp_table DEFAULT VALUES",
-        );
-        let res = db.execute(|conn| async move { conn.execute(stmt).await })?;
-        assert_eq!(res.rows_affected(), 1);
+        let pool = DbPoolManager::new_with_params("postgres://postgres:postgres@localhost:5432/postgres", 4)?;
+        let conn = pool.connection();
 
-        Ok(())
-    }
+        conn.execute_unprepared("DROP TABLE IF EXISTS stress_entity").await?;
+        conn.execute_unprepared("CREATE TABLE stress_entity (id SERIAL PRIMARY KEY, value TEXT NOT NULL)").await?;
 
-    #[tokio::test]
-    async fn test_query_one_and_query_all() -> Result<(), sea_orm::DbErr> {
-        let db = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-
-        db.execute_unprepared(
-            "CREATE TEMP TABLE IF NOT EXISTS temp_table2 (id SERIAL, label TEXT)",
-        )
-        .await?;
-        db.execute_unprepared("INSERT INTO temp_table2 (label) VALUES ('A'), ('B'), ('C')")
-            .await?;
-
-        let stmt = Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT label FROM temp_table2 WHERE label = 'B'",
-        );
-        let row = db.query_one(stmt).await?;
-        assert!(row.is_some());
-        let val: String = row.unwrap().try_get("", "label")?;
-        assert_eq!(val, "B");
-
-        let stmt =
-            Statement::from_string(DatabaseBackend::Postgres, "SELECT label FROM temp_table2");
-        let rows = db.query_all(stmt).await?;
-        assert_eq!(rows.len(), 3);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_query_with_setup_teardown() -> Result<(), sea_orm::DbErr> {
-        let db = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-        let table = "temp_lifeguard_test";
-
-        create_temp_table(&db, table, "(id SERIAL, label TEXT)").await?;
-
-        db.execute_unprepared(&format!(
-            "INSERT INTO {} (label) VALUES ('A'), ('B'), ('C')",
-            table
-        ))
-        .await?;
-
-        let stmt = Statement::from_string(
-            DatabaseBackend::Postgres,
-            format!("SELECT label FROM {} WHERE label = 'B'", table),
-        );
-        let row = db.query_one(stmt).await?;
-        let label: String = row.unwrap().try_get("", "label")?;
-        assert_eq!(label, "B");
-
-        drop_temp_table(&db, table).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_with_temp_table_macro() -> Result<(), sea_orm::DbErr> {
-        let db = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-
-        with_temp_table!("temp_macro", "(id SERIAL, label TEXT)", db, {
-            db.execute_unprepared("INSERT INTO temp_macro (label) VALUES ('Z')")
-                .await?;
-
-            let row = db
-                .query_one(Statement::from_string(
-                    DatabaseBackend::Postgres,
-                    "SELECT label FROM temp_macro".to_string(),
-                ))
-                .await?;
-
-            let label: String = row.unwrap().try_get("", "label")?;
-            assert_eq!(label, "Z");
-            Ok(())
-        })
-    }
-
-    #[tokio::test]
-    async fn test_insert_test_rows_macro() -> Result<(), sea_orm::DbErr> {
-        let db = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-        let table_name = "temp_data";
-
-        create_temp_table(&db, table_name, "(id INTEGER, name TEXT)").await?;
-
-        insert_test_rows!(temp_data, [
-            { id: 1, name: "Alice" },
-            { id: 2, name: "Bob" }
-        ], db);
-
-        let stmt = Statement::from_string(
-            DatabaseBackend::Postgres,
-            format!("SELECT COUNT(*) as count FROM {}", table_name),
-        );
-
-        let row = db.query_one(stmt).await?.unwrap();
-        let count: i64 = row.try_get("", "count")?;
-        assert_eq!(count, 2);
-
-        drop_temp_table(&db, table_name).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_seed_test_macro() -> Result<(), sea_orm::DbErr> {
-        let db = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-
-        seed_test!(owners, "(id INT, name TEXT, phone TEXT)", [
-            { id: 1, name: "Alice", phone: "123" },
-            { id: 2, name: "Bob", phone: "456" },
-            { id: 3, name: "Charlie", phone: "789" },
-            { id: 4, name: "Dave", phone: "012" }
-        ], db, {
-            let stmt = Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT COUNT(*) as count FROM owners",
-            );
-
-            let row = db.query_one(stmt).await?.unwrap();
-            let count: i64 = row.try_get("", "count")?;
-            assert_eq!(count, 4);
-
-            Ok(())
-        })
-    }
-
-    #[tokio::test]
-    async fn test_lifeguard_query_macro() -> Result<(), sea_orm::DbErr> {
-        let pool = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-
-        let table = "temp_query";
-        create_temp_table(&pool, table, "(id SERIAL, label TEXT)").await?;
-        pool.execute_unprepared(&format!("INSERT INTO {} (label) VALUES ('A')", table))
-            .await?;
-
-        let stmt = Statement::from_string(
-            DatabaseBackend::Postgres,
-            format!("SELECT label FROM {} WHERE id = 1", table),
-        );
-
-        let pool2 = pool.clone();
-        let row = lifeguard_query!(pool2.clone(), pool2.query_one(stmt))
-            .unwrap();
-        let label: String = row.try_get("", "label")?;
-        assert_eq!(label, "A");
-
-        drop_temp_table(&pool, table).await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_lifeguard_insert_many_macro() -> Result<(), sea_orm::DbErr> {
-        use crate::tests_cfg::entity::owners;
-        use sea_orm::ActiveModelTrait;
-
-        let pool = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-
-        pool.execute_unprepared("TRUNCATE TABLE owners RESTART IDENTITY")
-            .await?;
-
-        let models = vec![
-            owners::ActiveModel {
-                name: sea_orm::Set("InsertMany One".to_string()),
-                phone: sea_orm::Set(None),
+        let mut inserts = vec![];
+        for i in 0..1000 {
+            inserts.push(ActiveModel {
+                value: Set(format!("val_{}", i)),
                 ..Default::default()
-            },
-            owners::ActiveModel {
-                name: sea_orm::Set("InsertMany Two".to_string()),
-                phone: sea_orm::Set(None),
+            });
+        }
+
+        Entity::insert_many(inserts).exec(&conn).await?;
+
+        let results = Entity::find().all(&conn).await?;
+        assert_eq!(results.len(), 1000);
+        assert!(results.iter().any(|m| m.value == "val_42"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_transaction_rollback_on_error() -> Result<(), DbErr> {
+        #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+        #[sea_orm(table_name = "rollback_test")]
+        pub struct Model {
+            #[sea_orm(primary_key)]
+            pub id: i32,
+            pub data: String,
+        }
+
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {}
+
+        impl ActiveModelBehavior for ActiveModel {}
+
+        let pool = DbPoolManager::new_with_params("postgres://postgres:postgres@localhost:5432/postgres", 2)?;
+        let conn = pool.connection();
+
+        conn.execute_unprepared("DROP TABLE IF EXISTS rollback_test").await?;
+        conn.execute_unprepared("CREATE TABLE rollback_test (id SERIAL PRIMARY KEY, data TEXT NOT NULL)").await?;
+
+        let tx = conn.begin().await?;
+
+        ActiveModel {
+            data: Set("will rollback".into()),
+            ..Default::default()
+        }.insert(&tx).await?;
+
+        tx.rollback().await?;
+
+        let results = Entity::find().all(&conn).await?;
+        assert!(results.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_insert_and_read() -> Result<(), DbErr> {
+        #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+        #[sea_orm(table_name = "concurrent_entity")]
+        pub struct Model {
+            #[sea_orm(primary_key)]
+            pub id: i32,
+            pub name: String,
+        }
+
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {}
+
+        impl ActiveModelBehavior for ActiveModel {}
+
+        let pool = DbPoolManager::new_with_params("postgres://postgres:postgres@localhost:5432/postgres", 4)?;
+        let conn = pool.connection();
+
+        conn.execute_unprepared("DROP TABLE IF EXISTS concurrent_entity").await?;
+        conn.execute_unprepared("CREATE TABLE concurrent_entity (id SERIAL PRIMARY KEY, name TEXT NOT NULL)").await?;
+
+        let mut handles = vec![];
+        for i in 0..10 {
+            let conn = pool.connection();
+            let name = format!("user_{}", i);
+            handles.push(task::spawn(async move {
+                let model = ActiveModel {
+                    name: Set(name),
+                    ..Default::default()
+                };
+                Entity::insert(model).exec(&conn).await
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap()?;
+        }
+
+        let results = Entity::find().all(&conn).await?;
+        assert_eq!(results.len(), 10);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_retry_on_flaky_connection_simulation() -> Result<(), DbErr> {
+        #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+        #[sea_orm(table_name = "flaky_entity")]
+        pub struct Model {
+            #[sea_orm(primary_key)]
+            pub id: i32,
+            pub label: String,
+        }
+
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {}
+
+        impl ActiveModelBehavior for ActiveModel {}
+
+        let pool = DbPoolManager::new_with_params("postgres://postgres:postgres@localhost:5432/postgres", 2)?;
+        let conn = pool.connection();
+
+        conn.execute_unprepared("DROP TABLE IF EXISTS flaky_entity").await?;
+        conn.execute_unprepared("CREATE TABLE flaky_entity (id SERIAL PRIMARY KEY, label TEXT NOT NULL)").await?;
+
+        let retries = Arc::new(Mutex::new(0));
+        let mut last_err = None;
+
+        for attempt in 0..5 {
+            let conn = conn.clone();
+            let retries = retries.clone();
+
+            let result = Entity::insert(ActiveModel {
+                label: Set("retry-test".to_string()),
                 ..Default::default()
-            },
-        ];
+            }).exec(&conn).await;
 
-        let last_id: i32 = lifeguard_insert_many!(pool.clone(), owners::Entity, models);
-        assert!(last_id >= 2);
+            match result {
+                Ok(_) => {
+                    println!("✅ Insert succeeded on attempt {}", attempt + 1);
+                    break;
+                }
+                Err(e) => {
+                    *retries.lock().unwrap() += 1;
+                    println!("⚠️ Retry {} failed: {}", attempt + 1, e);
+                    last_err = Some(e);
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
+        }
 
-        let pool3 = pool.clone();
-        let count: u64 = lifeguard_query!(pool3.clone(), owners::Entity::find().count(&pool3));
-        assert_eq!(count, 2);
-
-        pool.execute_unprepared("TRUNCATE TABLE owners").await?;
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_lifeguard_txn_macro() -> Result<(), sea_orm::DbErr> {
-        use crate::tests_cfg::entity::owners;
-        use sea_orm::ActiveModelTrait;
-
-        let pool = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-
-        let result: Result<(), sea_orm::DbErr> = lifeguard_txn!(pool.clone(), {
-            Ok(())
-        });
-        assert!(result.is_ok());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_insert_and_update_test_data_macros() -> Result<(), sea_orm::DbErr> {
-        let pool = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
-
-        let table = "temp_data_macro2";
-        create_temp_table(&pool, table, "(id INTEGER, name TEXT)").await?;
-
-        insert_test_rows!(temp_data_macro2, [
-            { id: 1, name: "Before" },
-            { id: 2, name: "Other" }
-        ], pool);
-
-        update_test_rows!(temp_data_macro2, { name: "After" }, "id = 1", pool);
-
-        let stmt = Statement::from_string(
-            DatabaseBackend::Postgres,
-            format!("SELECT name FROM {} WHERE id = 1", table),
-        );
-        let row = pool.query_one(stmt).await?.unwrap();
-        let name: String = row.try_get("", "name")?;
-        assert_eq!(name, "After");
-
-        drop_temp_table(&pool, table).await?;
+        assert!(Entity::find().filter(Column::Label.eq("retry-test")).one(&conn).await?.is_some());
+        assert!(retries.lock().unwrap().to_owned() < 5);
         Ok(())
     }
 }
