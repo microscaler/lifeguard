@@ -9,7 +9,7 @@
 //!
 //! See [README on GitHub](https://github.com/microscaler/lifeguard)
 
-// pub mod config;
+pub mod config;
 
 mod macros;
 pub mod metrics;

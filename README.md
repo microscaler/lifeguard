@@ -146,6 +146,17 @@ go!(move || {
 
 ```
 
+### 3. Load configuration
+Lifeguard can read `config/config.toml` or environment variables with the
+`LIFEGUARD__` prefix.
+
+```rust
+use lifeguard::{DbPoolManager, config::DatabaseConfig};
+
+let cfg = DatabaseConfig::load()?;
+let pool = DbPoolManager::from_config(&cfg)?;
+```
+
 ---
 
 ### 🧪 Development & Testing
