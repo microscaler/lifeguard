@@ -65,6 +65,23 @@ impl DbPoolManager {
         Ok(Self { request_tx: tx })
     }
 
+    /// Create a pool from an existing [`DatabaseConnection`].
+    ///
+    /// This is primarily useful for testing with SeaORM's `MockDatabase`.
+    pub fn from_connection(conn: DatabaseConnection) -> Self {
+        let (tx, rx) = unbounded::<LifeguardJob>();
+
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new()
+                .expect("Failed to create Tokio runtime");
+            rt.block_on(async move {
+                run_worker_loop(rx, conn).await;
+            });
+        });
+
+        Self { request_tx: tx }
+    }
+
     /// Coroutine-safe wrapper for running a query and downcasting the result
     #[instrument(level = "info", skip(query_fn), fields(pool = "DbPoolManager"))]
     pub fn execute<T: Send + 'static, F, Fut>(&self, query_fn: F) -> Result<T, DbErr>
