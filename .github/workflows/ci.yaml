@@ -47,5 +47,10 @@ jobs:
       - name: Run tests
         run: cargo test --all -- --nocapture
 
+      - name: Code coverage
+        run: |
+          cargo install cargo-tarpaulin --locked
+          cargo tarpaulin --ignore-tests --fail-under 80
+
       - name: Lint
         run: cargo clippy --all-targets --all-features -- -D warnings || true

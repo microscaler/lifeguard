@@ -166,9 +166,15 @@ mod tests {
     use crate::pool::config::DatabaseConfig;
     use crate::pool::manager::DbPoolManager;
     use crate::test_helpers::{create_temp_table, drop_temp_table};
-    use crate::{lifeguard_execute, with_temp_table};
+    use crate::{
+        lifeguard_execute, lifeguard_insert_many, lifeguard_query, lifeguard_txn,
+        insert_test_rows, seed_test, update_test_rows, with_temp_table,
+    };
     use may::go;
-    use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement, TryGetable};
+    use sea_orm::{
+        ColumnTrait, ConnectionTrait, DatabaseBackend, DbErr, EntityTrait, PaginatorTrait,
+        QueryFilter, Statement, TransactionTrait, TryGetable,
+    };
 
     #[tokio::test]
     async fn test_macro_and_async_work_together() -> Result<(), DbErr> {
@@ -318,62 +324,173 @@ mod tests {
         })
     }
 
-    // #[tokio::test]
-    // async fn test_insert_test_rows_macro() -> Result<(), sea_orm::DbErr> {
-    //     let db = DbPoolManager::from_config(&DatabaseConfig {
-    //         url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-    //         max_connections: 1,
-    //         pool_timeout_seconds: 5,
-    //     })?;
-    //     let suffix = std::time::SystemTime::now()
-    //         .duration_since(std::time::UNIX_EPOCH)
-    //         .unwrap()
-    //         .subsec_nanos() % 100000;
-    //     let table_name = format!("temp_data_{}", suffix);
-    //
-    //     with_temp_table!(&table_name, "(id INTEGER, name TEXT)", db, {
-    //         insert_test_rows!(temp_data, [
-    //         { id: 1, name: "Alice" },
-    //         { id: 2, name: "Bob" }
-    //     ], db);
-    //
-    //         let stmt = Statement::from_string(
-    //             DatabaseBackend::Postgres,
-    //             format!("SELECT COUNT(*) as count FROM {}", &table_name).to_owned(),
-    //         );
-    //
-    //         let row = db.query_one(stmt).await?.unwrap();
-    //         let count: i64 = row.try_get("", "count")?;
-    //         assert_eq!(count, 2);
-    //
-    //         Ok(())
-    //     })
-    // }
+    #[tokio::test]
+    async fn test_insert_test_rows_macro() -> Result<(), sea_orm::DbErr> {
+        let db = DbPoolManager::from_config(&DatabaseConfig {
+            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
+            max_connections: 1,
+            pool_timeout_seconds: 5,
+        })?;
+        let table_name = "temp_data";
 
-    // #[tokio::test]
-    // async fn test_seed_test_macro() -> Result<(), sea_orm::DbErr> {
-    //     let db = DbPoolManager::from_config(&DatabaseConfig {
-    //         url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-    //         max_connections: 1,
-    //         pool_timeout_seconds: 5,
-    //     })?;
-    //
-    //     seed_test!(owners, "(id INT, name TEXT, phone TEXT)", [
-    //         { id: 1, name: "Alice", phone: "123" },
-    //         { id: 2, name: "Bob", phone: "456" },
-    //         { id: 3, name: "Charlie", phone: "789" },
-    //         { id: 4, name: "Dave", phone: "012" }
-    //     ], db, {
-    //         let stmt = Statement::from_string(
-    //             DatabaseBackend::Postgres,
-    //             "SELECT COUNT(*) as count FROM owners"
-    //         );
-    //
-    //         let row = db.query_one(stmt).await?.unwrap();
-    //         let count: i64 = row.try_get("", "count")?;
-    //         assert_eq!(count, 4);
-    //
-    //         Ok(())
-    //     })
-    // }
+        create_temp_table(&db, table_name, "(id INTEGER, name TEXT)").await?;
+
+        insert_test_rows!(temp_data, [
+            { id: 1, name: "Alice" },
+            { id: 2, name: "Bob" }
+        ], db);
+
+        let stmt = Statement::from_string(
+            DatabaseBackend::Postgres,
+            format!("SELECT COUNT(*) as count FROM {}", table_name),
+        );
+
+        let row = db.query_one(stmt).await?.unwrap();
+        let count: i64 = row.try_get("", "count")?;
+        assert_eq!(count, 2);
+
+        drop_temp_table(&db, table_name).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_seed_test_macro() -> Result<(), sea_orm::DbErr> {
+        let db = DbPoolManager::from_config(&DatabaseConfig {
+            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
+            max_connections: 1,
+            pool_timeout_seconds: 5,
+        })?;
+
+        seed_test!(owners, "(id INT, name TEXT, phone TEXT)", [
+            { id: 1, name: "Alice", phone: "123" },
+            { id: 2, name: "Bob", phone: "456" },
+            { id: 3, name: "Charlie", phone: "789" },
+            { id: 4, name: "Dave", phone: "012" }
+        ], db, {
+            let stmt = Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT COUNT(*) as count FROM owners",
+            );
+
+            let row = db.query_one(stmt).await?.unwrap();
+            let count: i64 = row.try_get("", "count")?;
+            assert_eq!(count, 4);
+
+            Ok(())
+        })
+    }
+
+    #[tokio::test]
+    async fn test_lifeguard_query_macro() -> Result<(), sea_orm::DbErr> {
+        let pool = DbPoolManager::from_config(&DatabaseConfig {
+            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
+            max_connections: 1,
+            pool_timeout_seconds: 5,
+        })?;
+
+        let table = "temp_query";
+        create_temp_table(&pool, table, "(id SERIAL, label TEXT)").await?;
+        pool.execute_unprepared(&format!("INSERT INTO {} (label) VALUES ('A')", table))
+            .await?;
+
+        let stmt = Statement::from_string(
+            DatabaseBackend::Postgres,
+            format!("SELECT label FROM {} WHERE id = 1", table),
+        );
+
+        let pool2 = pool.clone();
+        let row = lifeguard_query!(pool2.clone(), pool2.query_one(stmt))
+            .unwrap();
+        let label: String = row.try_get("", "label")?;
+        assert_eq!(label, "A");
+
+        drop_temp_table(&pool, table).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_lifeguard_insert_many_macro() -> Result<(), sea_orm::DbErr> {
+        use crate::tests_cfg::entity::owners;
+        use sea_orm::ActiveModelTrait;
+
+        let pool = DbPoolManager::from_config(&DatabaseConfig {
+            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
+            max_connections: 1,
+            pool_timeout_seconds: 5,
+        })?;
+
+        pool.execute_unprepared("TRUNCATE TABLE owners RESTART IDENTITY")
+            .await?;
+
+        let models = vec![
+            owners::ActiveModel {
+                name: sea_orm::Set("InsertMany One".to_string()),
+                phone: sea_orm::Set(None),
+                ..Default::default()
+            },
+            owners::ActiveModel {
+                name: sea_orm::Set("InsertMany Two".to_string()),
+                phone: sea_orm::Set(None),
+                ..Default::default()
+            },
+        ];
+
+        let last_id: i32 = lifeguard_insert_many!(pool.clone(), owners::Entity, models);
+        assert!(last_id >= 2);
+
+        let pool3 = pool.clone();
+        let count: u64 = lifeguard_query!(pool3.clone(), owners::Entity::find().count(&pool3));
+        assert_eq!(count, 2);
+
+        pool.execute_unprepared("TRUNCATE TABLE owners").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_lifeguard_txn_macro() -> Result<(), sea_orm::DbErr> {
+        use crate::tests_cfg::entity::owners;
+        use sea_orm::ActiveModelTrait;
+
+        let pool = DbPoolManager::from_config(&DatabaseConfig {
+            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
+            max_connections: 1,
+            pool_timeout_seconds: 5,
+        })?;
+
+        let result: Result<(), sea_orm::DbErr> = lifeguard_txn!(pool.clone(), {
+            Ok(())
+        });
+        assert!(result.is_ok());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_update_test_data_macros() -> Result<(), sea_orm::DbErr> {
+        let pool = DbPoolManager::from_config(&DatabaseConfig {
+            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
+            max_connections: 1,
+            pool_timeout_seconds: 5,
+        })?;
+
+        let table = "temp_data_macro2";
+        create_temp_table(&pool, table, "(id INTEGER, name TEXT)").await?;
+
+        insert_test_rows!(temp_data_macro2, [
+            { id: 1, name: "Before" },
+            { id: 2, name: "Other" }
+        ], pool);
+
+        update_test_rows!(temp_data_macro2, { name: "After" }, "id = 1", pool);
+
+        let stmt = Statement::from_string(
+            DatabaseBackend::Postgres,
+            format!("SELECT name FROM {} WHERE id = 1", table),
+        );
+        let row = pool.query_one(stmt).await?.unwrap();
+        let name: String = row.try_get("", "name")?;
+        assert_eq!(name, "After");
+
+        drop_temp_table(&pool, table).await?;
+        Ok(())
+    }
 }
