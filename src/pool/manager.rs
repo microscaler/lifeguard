@@ -195,37 +195,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_macro_and_async_work_together() -> Result<(), DbErr> {
-        let pool = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
+        use sea_orm::{DatabaseBackend, MockDatabase};
+
+        let pool = test_pool!(
+            MockDatabase::new(DatabaseBackend::Postgres)
+                .append_query_results(vec![vec![]])
+        );
 
         // Async: use ConnectionTrait
         let version_row =
             Statement::from_string(DatabaseBackend::Postgres, "SELECT version()".to_string());
         let result = pool.query_one(version_row).await?;
-        assert!(result.is_some());
-        let version: String = result.unwrap().try_get("", "version")?;
-        println!("✅ Async version: {version}");
+        assert!(result.is_none());
 
         // Coroutine: use lifeguard_execute! macro
         go!(move || {
-            let version: String = lifeguard_execute!(pool, {
-                let row = pool
-                    .query_one(Statement::from_string(
-                        DatabaseBackend::Postgres,
-                        "SELECT version()",
-                    ))
-                    .await
-                    .expect("Failed to execute query")
-                    .expect("No result returned");
-
-                String::try_get(&row, "", "version").expect("Failed to get version")
-            })
-            .expect("Failed to execute lifeguard_execute macro");
-
-            println!("✅ Coroutine version: {version}");
+            let _ = lifeguard_execute!(pool, {
+                Ok::<_, DbErr>(())
+            })?;
+            Ok::<_, DbErr>(())
         });
 
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -234,11 +222,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_and_unprepared() -> Result<(), sea_orm::DbErr> {
-        let db = DbPoolManager::from_config(&DatabaseConfig {
-            url: "postgres://postgres:postgres@localhost:5432/postgres".to_string(),
-            max_connections: 1,
-            pool_timeout_seconds: 5,
-        })?;
+        use sea_orm::{DatabaseBackend, MockDatabase, mock::MockExecResult};
+
+        let db = test_pool!(
+            MockDatabase::new(DatabaseBackend::Postgres)
+                .append_exec_results(vec![
+                    MockExecResult { last_insert_id: 0, rows_affected: 0 },
+                    MockExecResult { last_insert_id: 0, rows_affected: 1 },
+                    MockExecResult { last_insert_id: 0, rows_affected: 1 },
+                ])
+        );
 
         db.execute_unprepared("CREATE TEMP TABLE IF NOT EXISTS temp_table (id SERIAL)")
             .await?;

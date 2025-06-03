@@ -21,4 +21,7 @@ macro_rules! test_pool {
             MockDatabase::new(DatabaseBackend::Postgres).into_connection(),
         )
     }};
+    ($mock:expr) => {{
+        $crate::DbPoolManager::from_connection($mock.into_connection())
+    }};
 }
