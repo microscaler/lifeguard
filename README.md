@@ -184,6 +184,31 @@ may::go!(move || {
 });
 ```
 
+
+```mermaid
+graph TD
+    Pool[DbPoolManager] --> Metrics[METRICS_record_query]
+    Worker --> Metrics
+    Metrics --> Exporter[Prometheus Exporter]
+    Exporter --> Scraper[Prometheus Server]
+    Scraper --> Grafana
+```
+
+```mermaid
+sequenceDiagram
+    participant TestApp
+    participant Pool
+    participant Worker
+    participant DB
+    loop per batch
+        TestApp->>Pool: execute insert/query task
+        Pool->>Worker: send job
+        Worker->>DB: run query
+        DB-->>Worker: result
+        Worker-->>TestApp: Ok / Err
+    end
+```
+
 ---
 
 ## 📊 Observability
