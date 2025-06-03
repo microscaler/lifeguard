@@ -2,176 +2,234 @@
   <img src="/docs/images/Lifeguard_cropped.png" alt="Lifeguard logo" />
 </p>
 
-# 🛟 Lifeguard
+# 🛟 Lifeguard: Coroutine-Driven Database Runtime for Rust
 
-**Lifeguard** is a coroutine-friendly, high-performance PostgreSQL connection pool designed for Rust applications using [SeaORM](https://www.sea-ql.org/SeaORM/) and the [`may`](https://github.com/Xudong-Huang/may) coroutine runtime.
+**Lifeguard** is a coroutine-first, high-performance PostgreSQL connection pool built for Rust using [SeaORM](https://www.sea-ql.org/SeaORM/) and the [may](https://github.com/Xudong-Huang/may) coroutine runtime.
 
-It aims to provide efficient database interaction with:
-- **Minimal thread usage**
-- **Fully coroutine-to-async bridging**
-- **Real-time observability**
-- **High insert throughput with batching**
-
-> Designed for use in microservice stacks, data ingest pipelines, and performance-sensitive Rust backends.
-> 
-> Implemented through the use of `may::go!` with `pool.execute(...)` to safely run queries inside green threads.
-
+It provides predictable, low-latency execution for async workloads while reducing thread and memory overhead.
 
 ---
 
-## 🚀 Goals
+## 🔥 Why Lifeguard?
 
-- ⚡ **Fast**: Handle up to millions of queries per second using low-overhead coroutines
-- 🧠 **Simple**: Just plug into your SeaORM + may app and go
-- 📊 **Observable**: Integrated metrics via OpenTelemetry, Prometheus, and Grafana
-- 🔁 **Flexible**: Supports single queries or high-volume batch inserts
-- 📦 **Portable**: Fully testable with `docker-compose.test.yml` including Postgres, Loki, Grafana, and Prometheus
-
----
-
-## 🧱 Why Use Lifeguard?
-You should consider Lifeguard if you:
-
-- ✅ Are building microservices in Rust with high query throughput
-- ✅ Want to limit thread usage with efficient coroutine handling
-- ✅ Need transparent Prometheus metrics + dashboards
-- ✅ Want to scale up ingest/batching with predictable latency
+- ⚡ Built from scratch using coroutine workers (`may::go!`) for efficiency.
+- ✅ No thread-per-connection overhead.
+- ✅ Clean task model: one type-safe job per coroutine.
+- ✅ Fully typed `execute<T>` method — no `Any`, no boxing.
+- ✅ Strong observability: OpenTelemetry + Prometheus support.
+- ✅ Designed for concurrency and correctness.
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture Overview
 
-```
-┌────────────┐         ┌────────────────┐         ┌────────────────────────┐
-│ may::go!   │─────▶──▶│  DbPoolManager │─────▶──▶   tokio + SeaORM client │
-└────────────┘         └────────────────┘         └─────────────▲──────────┘
-                                                            async await
+```text
+┌────────────┐         ┌─────────────────────┐         ┌────────────────────────────┐
+│ may::go!   │─────▶──▶  DbPoolManager       │─────▶──▶   SeaORM / raw SQL queries  │
+└────────────┘         └─────────────────────┘         └────────────────────────────┘
 ```
 
+- **DbPoolManager**: distributes tasks to coroutine workers via a bounded channel.
+- **Worker Runtimes**: each runs a local tokio runtime and a shared SeaORM `DatabaseConnection`.
 
-### Components
+```mermaid
+sequenceDiagram
+    participant App
+    participant Config
+    participant PoolManager
+    participant Workers
+    participant Tokio
+    participant SeaORM
+    participant DB
 
-| Component                 | Description                                                                     |
-|---------------------------|---------------------------------------------------------------------------------|
-| `Lifeguard library`       | Main API — sends coroutine-safe query jobs to SeaORM                            |
-| `Postgress`               | Postgres database (Implementer may chose a flavour of their choice)             |
-| `Postgress Plugins`       | Compatible with Postgres plugins such as pgJWT                                  |
-| `Redis`                   | Redis caching layer - (Optional and entirely transparent to the developer)      |
-| `metrics`                 | Lifeguard exposes real-time metrics via OpenTelemetry                           |
-| `Logging`                 | Loki for logging                                                                |
-| `Grafana`                 | Grafana for real-time dashboards and alerts                                     |
-| `docker-compose`          | Local dev/test stack for Postgres, Grafana, Loki, Prometheus, OTel              |
+    App->>Config: load() from config.toml and ENV
+    Config-->>App: DatabaseConfig
 
+    App->>PoolManager: new_with_params(url, pool_size)
+    loop for each worker
+        PoolManager->>Workers: spawn may::go! coroutine
+        Workers->>Tokio: build current-thread Runtime
+        Tokio->>SeaORM: Database::connect(url)
+        SeaORM-->>Workers: DatabaseConnection
+        Workers->>run_worker_loop: loop(rx, db)
+    end
 
+    App->>PoolManager: execute(|conn| async { ... })
+    PoolManager->>Workers: send DbRequest::Run(Box<...>)
+    Workers->>SeaORM: run closure: db.query_*/execute
+    SeaORM->>DB: actual SQL
+    DB-->>SeaORM: result
+    SeaORM-->>Workers: query result
+    Workers-->>App: Result<T, DbErr>
 
----
+    App->>App: continue with result
 
-## 🔧 Features
-
-### ✅ Coroutine-safe execution
-
-`DbPoolManager` uses `may::go!` to run queries in green threads with Macro wrappers around the SeaORM API to allow for 
-rapid assimilation by developers adopting the library.
-
-High-volume seed or ingest operations are supported through efficient batched inserts (handling 500+ rows per query).
-
-The following table lists the main Lifeguard macros:
-
-| Macro | Description |
-|----------------|------------------------------|
-
-| `lifeguard_go` | spawn a `may::go!` coroutine and run a query |
-| `lifeguard_execute` | `execute` |
-| `lifeguard_query` | run SeaORM query and return result |
-| `lifeguard_insert_many` | `insert_many` |
-| `lifeguard_txn` | transaction wrapper |
-| `test_pool!` | create a mock `DbPoolManager` |
-
-```rust
-// Using Lifeguard macros
-let pool = test_pool!();
-lifeguard_execute!(pool, { /* raw statement */ });
-let row = lifeguard_query!(pool, Entity::find().one(db));
-lifeguard_insert_many!(pool, pets::Entity, models);
-lifeguard_txn!(pool, { /* transactional work */ });
-lifeguard_go!(pool, result, { /* query */ });
 ```
+
+
+```mermaid
+graph TD
+    App[Application]
+    Config[Config Loader]
+    Metrics[Metrics Exporter]
+    Pool[DbPoolManager]
+    Worker[Coroutine Workers]
+    Tokio[Tokio Runtime]
+    SeaORM[SeaORM ORM]
+    PG[(PostgreSQL)]
+
+    App --> Config
+    App --> Pool
+    App --> Metrics
+    Pool -->|spawn| Worker
+    Worker --> Tokio
+    Worker --> SeaORM
+    SeaORM --> PG
+    Metrics -->|records| Pool
+    Metrics -->|records| Worker
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Spawned
+    Spawned --> Initializing_Runtime : build_runtime
+    Initializing_Runtime --> Connecting : db_connect
+    Connecting --> Running : start_loop
+
+    state Running {
+        [*] --> Idle
+        Idle --> Receiving : recv_job
+        Receiving --> Executing : run_closure
+        Executing --> Idle
+        Receiving --> [*] : shutdown
+    }
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> Spawned
+    Spawned --> InitRuntime : ok
+    InitRuntime --> Connecting : db_ok
+    Connecting --> Running
+
+    state Running {
+        [*] --> Idle
+        Idle --> Receiving : job_received
+        Receiving --> Executing : run_ok
+        Executing --> Idle
+
+        Executing --> JobError : panic / query_fail
+        JobError --> Idle : recovered
+
+        Receiving --> [*] : rx_closed
+    }
+
+    InitRuntime --> FatalError : runtime_fail
+    Connecting --> FatalError : db_connect_fail
+```
+
+```mermaid
+graph TD
+    App[Application]
+    Pool[DbPoolManager]
+    Channel[bounded_100_channel]
+    Worker1[Worker 1]
+    Worker2[Worker 2]
+    Blocked[Blocked Caller]
+
+    App -->|submit job| Pool
+    Pool -->|send| Channel
+    Channel --> Worker1
+    Channel --> Worker2
+    Channel -->|queue full| Blocked
+```
+
+```mermaid
+graph TD
+    macro["lifeguard_execute!"]
+    pool["DbPoolManager"]
+    closure["FnOnce wrapper"]
+    channel["DbRequest::Run"]
+    worker["Worker Thread"]
+    dbcall["SeaORM Operation"]
+
+    macro --> pool
+    pool --> closure
+    closure --> channel
+    channel --> worker
+    worker --> dbcall
+```
+
+
+
+
+
 ---
 
-
-
-### ✅ Built-in Prometheus metrics
-
-| Metric                             | Description                         |
-|------------------------------------|-------------------------------------|
-| `lifeguard_queries_total`          | Total queries executed              |
-| `lifeguard_query_duration_seconds` | Histogram for DB execution time     |
-| `lifeguard_coroutine_wait_seconds` | Time a coroutine waits for result   |
-| `lifeguard_pool_queue_depth`       | Number of coroutines waiting        |
-
-
-### ✅ Dashboards + Alerts
-
-Grafana dashboards for:
-- Real-time query throughput
-- Latency p95/p99
-- Pool queue depth
-- Alerting to Slack / Webhook / Email
-
----
-
-## 💻 Usage
-
-### 1. Add to your project
+## 💻 Getting Started
 
 ```toml
 [dependencies]
-lifeguard = { path = "./lifeguard" }
+lifeguard = { git = "https://github.com/microscaler/lifeguard", branch = "overhaul" }
 ```
 
-### 2. Create a connection pool
 ```rust
-use lifeguard::DbPoolManager;
-use may::go;
+let config = DatabaseConfig::load()?;
+let pool = DbPoolManager::new_with_params(&config.url, config.max_connections)?;
 
-let pool = DbPoolManager::new("postgres://...", 10)?;
-
-go!(move || {
-    let result = pool.execute(|db| {
-        Box::pin(async move {
-            // Use SeaORM
-            let rows = MyEntity::find().all(db).await?;
-            Ok::<_, DbErr>(rows)
-        })
+may::go!(move || {
+    let users = pool.execute(|db| async move {
+        MyEntity::find().all(&db).await
     });
 });
-
 ```
 
-### 3. Load configuration
-Lifeguard can read `config/config.toml` or environment variables with the
-`LIFEGUARD__` prefix.
 
-```rust
-use lifeguard::{DbPoolManager, config::DatabaseConfig};
+```mermaid
+graph TD
+    Pool[DbPoolManager] --> Metrics[METRICS_record_query]
+    Worker --> Metrics
+    Metrics --> Exporter[Prometheus Exporter]
+    Exporter --> Scraper[Prometheus Server]
+    Scraper --> Grafana
+```
 
-let cfg = DatabaseConfig::load()?;
-let pool = DbPoolManager::from_config(&cfg)?;
+```mermaid
+sequenceDiagram
+    participant TestApp
+    participant Pool
+    participant Worker
+    participant DB
+    loop per batch
+        TestApp->>Pool: execute insert/query task
+        Pool->>Worker: send job
+        Worker->>DB: run query
+        DB-->>Worker: result
+        Worker-->>TestApp: Ok / Err
+    end
 ```
 
 ---
 
-### 🧪 Development & Testing
+## 📊 Observability
 
+Powered by `opentelemetry` + `opentelemetry-prometheus`.
+
+- `lifeguard_queries_total`
+- `lifeguard_query_duration_seconds`
+- `lifeguard_coroutine_wait_seconds`
+- `lifeguard_pool_queue_depth`
+
+Enable scraping via:
 ```bash
-just setup             # Start database + apply migrations
-just metrics-server    # Expose Prometheus metrics on :9898
-just seed-db-heavy n=100000 -- --batch-size=500
-just test              # Run tests
+just metrics-server
 ```
 
-Use `test_pool!()` inside unit tests to create a mock `DbPoolManager` without a
-database:
+---
+
+## 🔧 Testing
+
+Lifeguard includes a `test_pool!()` macro that creates a mock connection pool for unit testing with SeaORM’s `MockDatabase`.
 
 ```rust
 let pool = test_pool!();
@@ -179,86 +237,30 @@ let pool = test_pool!();
 
 ---
 
+## 🚀 Roadmap to Alpha Release
 
-#### 🧪 Coverage Summary
+### ✅ Implemented
+- [x] Coroutine-backed worker pool
+- [x] `execute<T>` dispatch method
+- [x] Fully typed `DbRequest` with closure-based jobs
+- [x] OpenTelemetry metrics instrumentation
+- [x] Configuration from TOML + env
+- [x] Entity CRUD tests
+- [x] Transaction rollback validation
+- [x] Concurrent task handling
+- [x] Retry loop simulation
 
-| Test Case                                 | Covered |
-|--------------------------------------------|---------|
-| Config defaults & fallback logic           | ✅       |
-| Env overrides                             | ✅       |
-| DB PoolManager initialization              | ✅       |
-| Execute with failing query                 | ✅       |
-| Multiple concurrent queries (non-blocking) | ✅       |
-
+### 🧩 To Implement
+- [ ] Tracing integration via `tracing::instrument`
+- [ ] Expose `/metrics` via HTTP
+- [ ] Retry policies with exponential backoff
+- [ ] Graceful shutdown signal to worker loop
+- [ ] Macros for `lifeguard_execute!`, `lifeguard_txn!`
+- [ ] CLI: metrics reporter or local benchmark runner
+- [ ] Dashboards for Grafana
 
 ---
 
-### 📊 Observability Stack
+## 📜 License
 
-```bash
-docker compose -f docker-compose.test.yml up -d
-```
-
-Then visit:
-
-- [Grafana](http://localhost:3000/) — user: admin / admin
-- [Prometheus](http://localhost:9090/)
-- [Metrics endpoint](http://localhost:9898/)
-
-
-
-#### 🔔 Alerts
-Alerts for:
-
-- Queue depth > 50
-- p99 latency > 100ms
-- Delivered via Slack / Email / Webhooks
-
-See grafana/alerts/lifeguard-alerts.yml
-
-## 🚧 Roadmap
-
-The macros below are planned but not yet implemented. They will mirror common
-SeaORM operations for a smoother developer experience.
-
-| Macro                                     | Maps to SeaORM API                   |
-|-------------------------------------------|--------------------------------------|
-| `lifeguard_connect!`                      | `sea_orm::Database::connect!`        |
-| `lifeguard_execute`                       | `execute`                            |
-| `lifeguard_query`                         | `query`                              |
-| `lifeguard_insert`                        | `insert`                             |
-| `lifeguard_update`                        | `update`                             |
-| `lifeguard_delete`                        | `delete`                             |
-| `lifeguard_find`                          | `find`                               |
-| `lifeguard_find_one`                      | `find_one`                           |
-| `lifeguard_find_many`                     | `find_many`                          |
-| `lifeguard_find_by`                       | `find_by`                            |
-| `lifeguard_find_by_one`                   | `find_by_one`                        |
-| `lifeguard_find_by_many`                  | `find_by_many`                       |
-| `lifeguard_find_by_count`                 | `find_by_count`                      |
-| `lifeguard_find_by_exists`                | `find_by_exists`                     |
-| `lifeguard_find_by_exists_one`            | `find_by_exists_one`                 |
-| `lifeguard_find_by_exists_many`           | `find_by_exists_many`                |
-| `lifeguard_find_by_exists_count`          | `find_by_exists_count`               |
-
-### Task list
-
-- [ ] Implement all macros listed above
-
-
-# 🙌 Acknowledgements
-- may — green-thread coroutine runtime
-- SeaORM — async database ORM
-- OpenTelemetry — metrics framework
-- Grafana — metrics visualization
-- Prometheus — metrics collection
-- Loki — logging
-- Redis — caching
-- Postgres — database
-- Tokio — async runtime
-- Fang — Out of process task runner
-
-# 📜 License
-
-Apache-2.0 — use freely, contribute openly.
-
+Licensed under Apache-2.0.
