@@ -3,7 +3,6 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use crate::pool::types::DbRequest;
-use crate::pool::worker::run_worker_loop;
 use crossbeam_channel::bounded as crossbeam_bounded;
 use std::any::Any;
 use std::future::Future;
@@ -26,7 +25,7 @@ enum LoadBalancingStrategy {
 
 pub async fn run_worker_loop(rx: Receiver<DbRequest>, db: DatabaseConnection) {
     while let Ok(DbRequest::Run(job)) = rx.recv() {
-        let conn = db.close();
+        let conn = db.clone();
         job(conn).await;
     }
 }
