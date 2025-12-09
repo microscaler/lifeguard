@@ -329,12 +329,6 @@ sequenceDiagram
         Postgres-->>LifeModel: Data
         LifeModel->>Redis: SETEX lifeguard:model:table:42 <TTL> <Serialized Data>
     end
-
-    style LifeRecord fill:#90ee90,stroke:#333,stroke-width:2px
-    style Postgres fill:#c0c0c0,stroke:#333,stroke-width:2px
-    style LifeReflector fill:#add8e6,stroke:#333,stroke-width:2px
-    style Redis fill:#ffcccb,stroke:#333,stroke-width:2px
-    style LifeModel fill:#90ee90,stroke:#333,stroke-width:2px
 ```
 
 
