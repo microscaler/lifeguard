@@ -734,11 +734,6 @@ Lifeguard is being rebuilt from scratch. We welcome:
 
 See [EPICS](./docs/EPICS/) for current development priorities.
 
----
-
-## 📄 License
-
-Licensed under Apache-2.0.
 
 ---
 
