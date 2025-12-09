@@ -19,9 +19,9 @@
 **The Solution:** Build a complete ORM from scratch using `may_postgres` (coroutine-native PostgreSQL client). No async runtime. No Tokio. Pure coroutine I/O.
 
 **Why This Matters:**
-- **BRRTRouter** needs blistering fast database access for 100,000+ requests/second
-- **rerp** needs fast database access for enterprise ERP workloads
-- **Pricewhisperer** needs extreme scale: 50,000 concurrent users, millions of requests/second, with only 100-500 database connections available
+- **BRRTRouter** (the coroutine API framework) needs blistering fast database access for high-throughput applications
+- High-performance microservices need predictable, low-latency database access without async overhead
+- Applications with extreme scale requirements (millions of requests/second) need efficient connection pooling when database connections are limited
 - Coroutines offer deterministic scheduling, lower memory overhead, and predictable latency
 - But without a proper ORM, developers are forced to choose: async ORM (overhead) or raw SQL (no safety)
 
@@ -84,7 +84,7 @@ A sophisticated connection pool designed for extreme scale:
 - **Aggressive reuse:** Every connection handles thousands of requests per second
 - **Coroutine-native:** No async runtime, pure coroutine I/O
 
-**For Pricewhisperer:** With only 100-500 database connections available and millions of requests per second, connection pooling becomes a matter of survival. LifeguardPool makes 100 connections (the 300 Spartans) handle millions of requests (the Persian Empire) through superior pooling tactics.
+**For High-Scale Applications:** When database connections are limited (e.g., 100-500 connections) but traffic is extreme (millions of requests per second), connection pooling becomes critical. LifeguardPool makes a small number of connections (the 300 Spartans) handle massive traffic (the Persian Empire) through aggressive connection reuse and intelligent pooling tactics.
 
 ### The Killer Feature: LifeReflector
 
@@ -210,11 +210,21 @@ graph TD
 
 ```mermaid
 graph TD
-    subgraph Application
-        App[Application Code]
-        BRRTRouter[BRRTRouter]
-        rerp[rerp]
-        Pricewhisperer[Pricewhisperer]
+    subgraph Frontend["Frontend / Clients"]
+        Web[Web App]
+        Mobile[Mobile App]
+        API[API Clients]
+    end
+    
+    subgraph BFF["BFF Layer<br/>Built with BRRTRouter"]
+        BFF_Service[Backend for Frontend<br/>API Gateway / Router]
+    end
+    
+    subgraph Backend["Backend Microservices<br/>Your Business Logic"]
+        MS1[User Service]
+        MS2[Product Service]
+        MS3[Order Service]
+        MSN[Service N<br/>Your Domain]
     end
     
     subgraph Lifeguard
@@ -234,10 +244,19 @@ graph TD
         Reflector[LifeReflector Leader]
     end
     
-    App --> Pool
-    BRRTRouter --> Pool
-    rerp --> Pool
-    Pricewhisperer --> Pool
+    Web --> BFF_Service
+    Mobile --> BFF_Service
+    API --> BFF_Service
+    
+    BFF_Service --> MS1
+    BFF_Service --> MS2
+    BFF_Service --> MS3
+    BFF_Service --> MSN
+    
+    MS1 --> Pool
+    MS2 --> Pool
+    MS3 --> Pool
+    MSN --> Pool
     
     Pool --> Executor
     Executor --> LifeModel
@@ -246,11 +265,24 @@ graph TD
     Executor --> may_postgres
     may_postgres --> PostgreSQL
     
-    App --> Redis
+    MS1 --> Redis
+    MS2 --> Redis
+    MS3 --> Redis
+    MSN --> Redis
     PostgreSQL -- NOTIFY --> Reflector
     Reflector --> Redis
     
-    style App fill:#add8e6
+    style Frontend fill:#e1f5ff
+    style Web fill:#e1f5ff
+    style Mobile fill:#e1f5ff
+    style API fill:#e1f5ff
+    style BFF fill:#add8e6
+    style BFF_Service fill:#add8e6
+    style Backend fill:#d4edda
+    style MS1 fill:#d4edda
+    style MS2 fill:#d4edda
+    style MS3 fill:#d4edda
+    style MSN fill:#d4edda
     style Pool fill:#90ee90
     style Executor fill:#90ee90
     style LifeModel fill:#90ee90
@@ -635,7 +667,7 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 ### Use Case Recommendations
 
 **Choose Lifeguard if:**
-- ✅ You're using `may` coroutine runtime (BRRTRouter, rerp, Pricewhisperer)
+- ✅ You're using `may` coroutine runtime (BRRTRouter)
 - ✅ You need distributed cache coherence (microservices)
 - ✅ You need extreme scale (millions of requests/second)
 - ✅ You need predictable latency (API routers, real-time systems)
@@ -671,9 +703,9 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 - Lower memory footprint than async alternatives
 
 **Real-World Use Cases:**
-- **BRRTRouter**: 100,000+ requests/second with sub-millisecond database access
-- **rerp**: Enterprise ERP with fast inventory updates and financial calculations
-- **Pricewhisperer**: 50,000 concurrent users, millions of requests/second, with only 100-500 database connections
+- **BRRTRouter**: High-throughput API routing with sub-millisecond database access (100,000+ requests/second)
+- **High-Scale Microservices**: Applications requiring millions of requests/second with limited database connections
+- **Low-Latency Systems**: Real-time applications needing predictable p99 latency (< 5ms) for database operations
 
 ---
 
