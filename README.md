@@ -664,33 +664,37 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 
 *Note: Performance numbers are estimates based on architecture. Actual benchmarks will be published after implementation.*
 
-### Use Case Recommendations
+### Ecosystem Compatibility
 
-**Choose Lifeguard if:**
-- ✅ You're using `may` coroutine runtime (BRRTRouter)
-- ✅ You need distributed cache coherence (microservices)
-- ✅ You need extreme scale (millions of requests/second)
-- ✅ You need predictable latency (API routers, real-time systems)
-- ✅ You're PostgreSQL-only (enables advanced features)
-- ✅ You want Oracle Coherence-level functionality
+**⚠️ Important: BRRTRouter and Lifeguard are a parallel ecosystem, separate from async/await Rust.**
 
-**Choose SeaORM if:**
-- ✅ You're using Tokio/async-await
-- ✅ You need multi-database support
-- ✅ You want mature, well-documented ORM
-- ✅ You don't need cache coherence
+These are **two incompatible worlds** with the only commonality being Rust itself:
 
-**Choose Diesel if:**
-- ✅ You want maximum compile-time safety
-- ✅ You prefer sync-only operations
-- ✅ You need multi-database support
-- ✅ You're comfortable with complex type system
+| Ecosystem | Runtime | ORM Options | Incompatible With |
+|-----------|---------|-------------|-------------------|
+| **BRRTRouter + Lifeguard** | `may` coroutines | Lifeguard only | SeaORM, Diesel (async), SQLx, Tokio |
+| **Tokio + Async ORMs** | `async/await` | SeaORM, Diesel, SQLx | BRRTRouter, Lifeguard, `may` |
 
-**Choose SQLx if:**
-- ✅ You prefer raw SQL with compile-time checks
-- ✅ You need multi-database support
-- ✅ You want minimal abstraction
-- ✅ You're using Tokio/async-await
+**You cannot mix and match.** If you're using BRRTRouter, you **must** use Lifeguard. The async/await ORMs (SeaORM, Diesel, SQLx) are fundamentally incompatible with the `may` coroutine runtime.
+
+### When to Use Each Ecosystem
+
+**Use BRRTRouter + Lifeguard if:**
+- ✅ You're building with **BRRTRouter** (the coroutine API framework)
+- ✅ You need **distributed cache coherence** (LifeReflector - unique to Lifeguard)
+- ✅ You need **extreme scale** (millions of requests/second)
+- ✅ You need **predictable latency** (API routers, real-time systems)
+- ✅ You're **PostgreSQL-only** (enables advanced features)
+- ✅ You want **Oracle Coherence-level functionality**
+
+**Use Tokio + Async ORMs if:**
+- ✅ You're using **Tokio/async-await** runtime
+- ✅ You need **multi-database support** (PostgreSQL, MySQL, SQLite, MSSQL)
+- ✅ You want **mature, well-documented ORMs** (SeaORM, Diesel, SQLx)
+- ✅ You don't need distributed cache coherence
+- ✅ You're building traditional async/await microservices
+
+**The choice is made at the ecosystem level, not the ORM level.** Once you choose BRRTRouter, Lifeguard is your only ORM option. Once you choose Tokio, you can choose between SeaORM, Diesel, or SQLx—but you cannot use BRRTRouter.
 
 ---
 
