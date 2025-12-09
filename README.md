@@ -560,7 +560,7 @@ The testkit provides:
 - ✅ Query cache support
 - ✅ Cache statistics & monitoring
 
-### Epic 06: Enterprise Features (Quarter 3)
+### Epic 06: Enterprise Features (Weeks 15 - 20)
 - ✅ PostGIS support
 - ✅ Partitioning
 - ✅ Triggers and stored procedures
