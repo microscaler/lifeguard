@@ -172,6 +172,21 @@ pub mod tracing_helpers {
     pub fn release_connection_span() -> Span {
         tracing::span!(tracing::Level::INFO, "lifeguard.release_connection")
     }
+
+    /// Create a span for beginning a transaction
+    pub fn begin_transaction_span() -> Span {
+        tracing::span!(tracing::Level::INFO, "lifeguard.begin_transaction")
+    }
+
+    /// Create a span for committing a transaction
+    pub fn commit_transaction_span() -> Span {
+        tracing::span!(tracing::Level::INFO, "lifeguard.commit_transaction")
+    }
+
+    /// Create a span for rolling back a transaction
+    pub fn rollback_transaction_span() -> Span {
+        tracing::span!(tracing::Level::INFO, "lifeguard.rollback_transaction")
+    }
 }
 
 /// No-op tracing helpers when tracing feature is disabled
@@ -180,6 +195,9 @@ pub mod tracing_helpers {
     pub fn acquire_connection_span() {}
     pub fn execute_query_span(_query: &str) {}
     pub fn release_connection_span() {}
+    pub fn begin_transaction_span() {}
+    pub fn commit_transaction_span() {}
+    pub fn rollback_transaction_span() {}
 }
 
 #[cfg(test)]
