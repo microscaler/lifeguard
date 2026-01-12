@@ -7,6 +7,7 @@ mod temp_table;
 mod test_data;
 pub mod txn;
 mod mock;
+mod db_pool;
 
 #[allow(unused_imports)]
 use crate::pool::config::DatabaseConfig;

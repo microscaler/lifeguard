@@ -15,7 +15,7 @@ macro_rules! lifeguard_go {
         let $ret = {
             let handle = may::go!(move || {
                 pool.execute(|conn| {
-                    let _db = conn.close(); // Clone db so it's accessible in the async block
+                    let _db = conn.clone(); // Clone db so it's accessible in the async block
                     Box::pin(async move {
                         // Execute the block with db in scope
                         $block

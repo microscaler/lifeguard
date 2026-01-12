@@ -3,7 +3,6 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use crate::pool::types::DbRequest;
-use crate::pool::worker::run_worker_loop;
 use crossbeam_channel::bounded as crossbeam_bounded;
 use std::any::Any;
 use std::future::Future;
