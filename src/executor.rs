@@ -58,11 +58,12 @@ impl From<PostgresError> for LifeError {
 /// # Examples
 ///
 /// ```no_run
-/// use lifeguard::executor::{LifeExecutor, LifeError};
-/// use lifeguard::connection::connect;
+/// use lifeguard::{MayPostgresExecutor, LifeExecutor, LifeError, connect};
 /// use may_postgres::Row;
 ///
-/// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")?;
+/// # fn main() -> Result<(), LifeError> {
+/// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
+///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
 /// let executor = MayPostgresExecutor::new(client);
 ///
 /// // Execute a statement
@@ -75,7 +76,8 @@ impl From<PostgresError> for LifeError {
 /// // Query multiple rows
 /// let rows = executor.query_all("SELECT id FROM users", &[])?;
 /// let user_ids: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
-/// # Ok::<(), LifeError>(())
+/// # Ok(())
+/// # }
 /// ```
 pub trait LifeExecutor {
     /// Execute a SQL statement and return the number of rows affected
@@ -93,9 +95,10 @@ pub trait LifeExecutor {
     ///
     /// ```no_run
     /// # use lifeguard::executor::LifeExecutor;
-    /// # let executor: &dyn LifeExecutor = todo!();
-    /// let rows = executor.execute("UPDATE users SET active = $1 WHERE id = $2", &[&true as &dyn _, &42i64 as &dyn _])?;
-    /// # Ok::<(), lifeguard::executor::LifeError>(())
+    /// # fn example(executor: &dyn LifeExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    /// let rows = executor.execute("UPDATE users SET active = $1 WHERE id = $2", &[&true, &42i64])?;
+    /// # Ok(())
+    /// # }
     /// ```
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError>;
 

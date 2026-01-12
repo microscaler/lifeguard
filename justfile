@@ -33,8 +33,31 @@ generate-entities:
 build:
 	cargo build
 
+# Run tests with nextest (faster, parallel test runner)
+# Shows full test output for all tests (success and failure)
+nt:
+	@echo "🧪 Running tests with nextest (full output)..."
+	@DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features
+
+# Run tests with nextest (no capture - passes through stdout/stderr directly)
+nt-verbose:
+	@echo "🧪 Running tests with nextest (no capture - full output)..."
+	@DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture
+
+# Run tests with nextest (CI profile)
+nt-ci:
+	@echo "🧪 Running tests with nextest (CI profile)..."
+	@DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci
+
+# Run unit tests only with nextest
+nt-unit:
+	@echo "🧪 Running unit tests with nextest..."
+	@DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --test-group unit
+
+# Run tests with standard cargo (fallback)
 test:
-        DATABASE_URL={{DATABASE_URL}} cargo test -- --nocapture
+	@echo "🧪 Running tests with cargo..."
+	@DATABASE_URL={{DATABASE_URL}} cargo test --all -- --nocapture
 
 
 setup:
