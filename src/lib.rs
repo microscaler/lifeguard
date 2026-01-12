@@ -38,8 +38,9 @@ pub mod metrics;
 // Pool will be rebuilt in Epic 04
 // pub mod pool;
 
-// Test helpers will be rebuilt in Epic 01 Story 08
-// mod test_helpers;
+// Test helpers - Epic 01 Story 08
+#[cfg(test)]
+pub mod test_helpers;
 
 // Entity tests will be rebuilt in Epic 03
 // mod tests_cfg;

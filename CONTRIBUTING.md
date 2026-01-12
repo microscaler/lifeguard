@@ -45,7 +45,7 @@ A small schema and SeaORM models reside under `examples/` and `src/tests_cfg/`. 
 
 1. **Explore the macros** – review each macro in `src/macros/` to understand how coroutine code interacts with SeaORM queries.
 2. **Check the worker design** – read through `DbPoolManager` and `worker.rs` to see how requests are queued and executed on the async runtime.
-3. **Run the observability stack** – use the provided `just` commands (`just setup`, `just metrics-server`) and `docker-compose.yaml` to spin up Postgres, Prometheus and Grafana. Dashboards and alert configs in `grafana/` show how to monitor your application.
+3. **Run the test infrastructure** – use the provided `just` commands (`just dev-up`) to spin up a Kind cluster with PostgreSQL for testing. See `docs/TEST_INFRASTRUCTURE.md` for details.
 4. **Look into performance tuning** – see `book/src/performance.md` for tips on pool size and batch insert options.
 
 Overall the repository combines a lightweight coroutine model with SeaORM for efficient PostgreSQL access while offering integrated metrics and a ready-to-run observability stack. This makes it suited for Rust microservices that require high throughput with good visibility into database operations.
