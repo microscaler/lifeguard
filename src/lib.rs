@@ -27,6 +27,9 @@ pub mod executor;
 // Raw SQL helpers - Epic 01 Story 04
 pub mod raw_sql;
 
+// Transaction module - Epic 01 Story 06
+pub mod transaction;
+
 // Macros will be rebuilt in Epic 02-03
 // mod macros;
 
@@ -54,3 +57,6 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 pub use raw_sql::{
     execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
 };
+
+// Re-export transaction types for convenience
+pub use transaction::{Transaction, TransactionError, IsolationLevel};
