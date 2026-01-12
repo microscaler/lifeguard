@@ -178,6 +178,64 @@ impl MayPostgresExecutor {
     pub fn into_client(self) -> Client {
         self.client
     }
+
+    /// Start a new transaction
+    ///
+    /// This begins a new transaction with the default isolation level (ReadCommitted).
+    /// The transaction must be committed or rolled back before the executor can be used again.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, LifeExecutor, LifeError, connect};
+    /// use lifeguard::transaction::IsolationLevel;
+    ///
+    /// # fn main() -> Result<(), LifeError> {
+    /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
+    ///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+    /// let executor = MayPostgresExecutor::new(client);
+    ///
+    /// // Start a transaction
+    /// let mut transaction = executor.begin()?;
+    ///
+    /// // Perform operations
+    /// transaction.execute("INSERT INTO users (name) VALUES ($1)", &[&"Alice"])?;
+    ///
+    /// // Commit
+    /// transaction.commit()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn begin(&self) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+        crate::transaction::Transaction::new(self.client.clone())
+    }
+
+    /// Start a new transaction with a specific isolation level
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, LifeExecutor, LifeError, connect};
+    /// use lifeguard::transaction::{IsolationLevel, Transaction};
+    ///
+    /// # fn main() -> Result<(), LifeError> {
+    /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
+    ///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+    /// let executor = MayPostgresExecutor::new(client);
+    ///
+    /// // Start a serializable transaction
+    /// let mut transaction = executor.begin_with_isolation(IsolationLevel::Serializable)?;
+    /// transaction.execute("INSERT INTO users (name) VALUES ($1)", &[&"Bob"])?;
+    /// transaction.commit()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn begin_with_isolation(
+        &self,
+        isolation_level: crate::transaction::IsolationLevel,
+    ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+        crate::transaction::Transaction::new_with_isolation(self.client.clone(), isolation_level)
+    }
 }
 
 impl LifeExecutor for MayPostgresExecutor {
