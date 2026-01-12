@@ -15,7 +15,7 @@ readme = "README.md"
 [dependencies]
 # Coroutine runtime
 may = "0.3"
-# may_postgres will be added in Story 02 - checking correct crate name/source
+may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
 
 # Channel utilities (may be used for new pool design)
 crossbeam-channel = "0.5"

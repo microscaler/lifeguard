@@ -18,6 +18,9 @@
 
 pub mod config;
 
+// Connection module - Epic 01 Story 02
+pub mod connection;
+
 // Macros will be rebuilt in Epic 02-03
 // mod macros;
 
@@ -34,3 +37,6 @@ pub mod metrics;
 
 // Public API will be rebuilt in Epic 04
 // pub use pool::LifeguardPool;
+
+// Re-export connection types for convenience
+pub use connection::{connect, validate_connection_string, ConnectionError, ConnectionString};
