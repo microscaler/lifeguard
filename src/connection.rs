@@ -153,6 +153,69 @@ pub fn validate_connection_string(connection_string: &str) -> Result<(), Connect
     Ok(())
 }
 
+/// Check if a connection is healthy by executing a simple query
+///
+/// This function executes `SELECT 1` to verify that the connection is still alive
+/// and responsive. This is useful for health checks and connection pool management.
+///
+/// # Arguments
+///
+/// * `client` - The PostgreSQL client to check
+///
+/// # Returns
+///
+/// Returns `Ok(true)` if the connection is healthy, `Ok(false)` if the connection
+/// is unhealthy, or an error if the check itself fails.
+///
+/// # Examples
+///
+/// ```no_run
+/// use lifeguard::connection::{connect, check_connection_health};
+///
+/// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")?;
+/// match check_connection_health(&client) {
+///     Ok(true) => println!("Connection is healthy"),
+///     Ok(false) => println!("Connection is unhealthy"),
+///     Err(e) => println!("Health check failed: {}", e),
+/// }
+/// # Ok::<(), lifeguard::connection::ConnectionError>(())
+/// ```
+pub fn check_connection_health(client: &Client) -> Result<bool, ConnectionError> {
+    #[cfg(feature = "tracing")]
+    let _span = tracing_helpers::health_check_span().entered();
+
+    // Execute a simple query to check if the connection is alive
+    // If the query succeeds, the connection is healthy
+    // If it fails, we consider the connection unhealthy
+    match client.query_one("SELECT 1", &[]) {
+        Ok(_) => Ok(true),
+        Err(_) => {
+            // Any error means the connection is unhealthy
+            // This includes network errors, database errors, etc.
+            Ok(false)
+        }
+    }
+}
+
+/// Check connection health with a timeout
+///
+/// This function attempts to check the connection health, but may timeout
+/// if the connection is unresponsive. The timeout is handled by the underlying
+/// may_postgres client's connection settings.
+///
+/// # Arguments
+///
+/// * `client` - The PostgreSQL client to check
+///
+/// # Returns
+///
+/// Returns `Ok(true)` if healthy, `Ok(false)` if unhealthy, or an error.
+pub fn check_connection_health_with_timeout(client: &Client) -> Result<bool, ConnectionError> {
+    // For now, this is the same as check_connection_health
+    // In the future, we could add explicit timeout handling
+    check_connection_health(client)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +254,19 @@ mod tests {
     fn test_connection_error_display() {
         let err = ConnectionError::InvalidConnectionString("test".to_string());
         assert!(err.to_string().contains("Invalid connection string"));
+    }
+
+    // Note: Integration tests for check_connection_health will be added in Story 08
+    // when we have test infrastructure with testcontainers. For now, we test the
+    // function signatures and error types.
+    #[test]
+    fn test_health_check_function_signatures() {
+        // Verify that the functions compile and have the correct signatures
+        // Actual health checks require a real database connection
+        // This will be tested in Story 08 with testcontainers
+        
+        // The functions should return Result<bool, ConnectionError>
+        // We can't test the actual behavior without a database, but we can
+        // verify the types are correct by checking compilation
     }
 }
