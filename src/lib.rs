@@ -48,7 +48,10 @@ pub mod metrics;
 // pub use pool::LifeguardPool;
 
 // Re-export connection types for convenience
-pub use connection::{connect, validate_connection_string, ConnectionError, ConnectionString};
+pub use connection::{
+    connect, validate_connection_string, check_connection_health,
+    check_connection_health_with_timeout, ConnectionError, ConnectionString,
+};
 
 // Re-export executor types for convenience
 pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};

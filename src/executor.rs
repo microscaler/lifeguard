@@ -236,6 +236,48 @@ impl MayPostgresExecutor {
     ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
         crate::transaction::Transaction::new_with_isolation(self.client.clone(), isolation_level)
     }
+
+    /// Check if the underlying connection is healthy
+    ///
+    /// This method executes a simple query (`SELECT 1`) to verify that the
+    /// connection is still alive and responsive. This is useful for connection
+    /// pool health monitoring and automatic reconnection.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(true)` if the connection is healthy, `Ok(false)` if unhealthy,
+    /// or an error if the health check itself fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, LifeError, connect};
+    ///
+    /// # fn main() -> Result<(), LifeError> {
+    /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
+    ///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+    /// let executor = MayPostgresExecutor::new(client);
+    ///
+    /// match executor.check_health() {
+    ///     Ok(true) => println!("Connection is healthy"),
+    ///     Ok(false) => println!("Connection is unhealthy - may need reconnection"),
+    ///     Err(e) => println!("Health check failed: {}", e),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn check_health(&self) -> Result<bool, LifeError> {
+        crate::connection::check_connection_health(&self.client)
+            .map_err(|e| LifeError::Other(format!("Health check error: {}", e)))
+    }
+
+    /// Check connection health with timeout
+    ///
+    /// Similar to `check_health()`, but may timeout if the connection is unresponsive.
+    pub fn check_health_with_timeout(&self) -> Result<bool, LifeError> {
+        crate::connection::check_connection_health_with_timeout(&self.client)
+            .map_err(|e| LifeError::Other(format!("Health check error: {}", e)))
+    }
 }
 
 impl LifeExecutor for MayPostgresExecutor {
