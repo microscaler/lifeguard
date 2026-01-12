@@ -11,6 +11,10 @@
 
 use may_postgres::{Client, Error as PostgresError};
 use std::fmt;
+use std::time::Instant;
+
+#[cfg(feature = "tracing")]
+use crate::metrics::tracing_helpers;
 
 /// Connection string for PostgreSQL
 ///
@@ -84,6 +88,11 @@ impl From<PostgresError> for ConnectionError {
 /// is established synchronously and returns immediately with a `Client`
 /// that can be used for queries.
 pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
+    #[cfg(feature = "tracing")]
+    let _span = tracing_helpers::acquire_connection_span().entered();
+    
+    let start = Instant::now();
+    
     // Validate connection string format
     validate_connection_string(connection_string)?;
 
@@ -92,6 +101,10 @@ pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
     // It returns a Client directly (no separate connection handle to manage)
     let client = may_postgres::connect(connection_string)
         .map_err(|e| ConnectionError::PostgresError(e))?;
+
+    let duration = start.elapsed();
+    #[cfg(feature = "metrics")]
+    crate::metrics::METRICS.record_connection_wait(duration);
 
     Ok(client)
 }
