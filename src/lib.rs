@@ -24,6 +24,9 @@ pub mod connection;
 // Executor module - Epic 01 Story 03
 pub mod executor;
 
+// Raw SQL helpers - Epic 01 Story 04
+pub mod raw_sql;
+
 // Macros will be rebuilt in Epic 02-03
 // mod macros;
 
@@ -46,3 +49,8 @@ pub use connection::{connect, validate_connection_string, ConnectionError, Conne
 
 // Re-export executor types for convenience
 pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
+
+// Re-export raw SQL helpers for convenience
+pub use raw_sql::{
+    execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
+};

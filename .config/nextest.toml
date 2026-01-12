@@ -1,0 +1,47 @@
+# Nextest configuration for Lifeguard
+# See https://nexte.st/book/config-file.html for documentation
+
+[profile.default]
+# Retry flaky tests up to 3 times
+retries = 3
+
+# Test output style
+# Use all available cores
+test-threads = "num-cpus"
+
+# Timeout configuration
+slow-timeout = { period = "60s" }
+leak-timeout = { period = "5s" }
+
+# Test output - show summary only, no detailed stdout for successful tests
+failure-output = "immediate-final"  # Show output immediately on failure
+success-output = "never"  # Don't show stdout for successful tests
+status-level = "all"  # Show all test statuses
+
+# JUnit XML output for CI
+junit = { path = "test-results.xml" }
+
+# Test groups for organizing tests
+# Note: test-groups are defined at the workspace level, not in profiles
+# They can be used with --test-group flag
+
+# Override slow timeout for integration tests
+[profile.ci]
+retries = 3
+test-threads = "num-cpus"
+slow-timeout = { period = "300s" }  # 5 minutes for integration tests
+leak-timeout = { period = "5s" }
+failure-output = "immediate-final"  # Show output immediately on failure
+success-output = "never"  # Don't show stdout for successful tests
+status-level = "all"  # Show all test statuses
+junit = { path = "test-results.xml" }
+
+# Development profile with verbose output
+[profile.dev]
+retries = 3
+test-threads = "num-cpus"
+slow-timeout = { period = "60s" }
+leak-timeout = { period = "5s" }
+failure-output = "immediate-final"  # Show output immediately on failure
+success-output = "never"  # Don't show stdout for successful tests
+status-level = "all"  # Show all test statuses
