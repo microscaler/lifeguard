@@ -21,6 +21,9 @@ pub mod config;
 // Connection module - Epic 01 Story 02
 pub mod connection;
 
+// Executor module - Epic 01 Story 03
+pub mod executor;
+
 // Macros will be rebuilt in Epic 02-03
 // mod macros;
 
@@ -40,3 +43,6 @@ pub mod metrics;
 
 // Re-export connection types for convenience
 pub use connection::{connect, validate_connection_string, ConnectionError, ConnectionString};
+
+// Re-export executor types for convenience
+pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
