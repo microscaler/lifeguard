@@ -187,6 +187,11 @@ pub mod tracing_helpers {
     pub fn rollback_transaction_span() -> Span {
         tracing::span!(tracing::Level::INFO, "lifeguard.rollback_transaction")
     }
+
+    /// Create a span for connection health check
+    pub fn health_check_span() -> Span {
+        tracing::span!(tracing::Level::INFO, "lifeguard.health_check")
+    }
 }
 
 /// No-op tracing helpers when tracing feature is disabled
@@ -198,6 +203,7 @@ pub mod tracing_helpers {
     pub fn begin_transaction_span() {}
     pub fn commit_transaction_span() {}
     pub fn rollback_transaction_span() {}
+    pub fn health_check_span() {}
 }
 
 #[cfg(test)]
