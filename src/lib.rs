@@ -1,20 +1,36 @@
 //! # Lifeguard
 //!
-//! Coroutine-safe PostgreSQL pool for SeaORM using the `may` runtime.
+//! Coroutine-native PostgreSQL ORM and data access platform for Rust's `may` runtime.
 //!
 //! See [README on GitHub](https://github.com/microscaler/lifeguard) for full architecture.
-
-//! # Lifeguard
-//! Coroutine-safe PostgreSQL pool for SeaORM using the `may` runtime.
 //!
-//! See [README on GitHub](https://github.com/microscaler/lifeguard)
+//! ## Status
+//!
+//! Currently being rebuilt from scratch. Epic 01 in progress.
+//!
+//! ## Architecture
+//!
+//! - **may_postgres**: Coroutine-native PostgreSQL client (foundation)
+//! - **LifeQuery**: SQL builder layer (Epic 02)
+//! - **LifeModel/LifeRecord**: ORM layer (Epic 03)
+//! - **LifeExecutor**: Database execution abstraction (Epic 04)
+//! - **LifeguardPool**: Persistent connection pool (Epic 04)
 
 pub mod config;
 
-mod macros;
-pub mod metrics;
-pub mod pool;
-mod test_helpers;
-mod tests_cfg;
+// Macros will be rebuilt in Epic 02-03
+// mod macros;
 
-pub use pool::DbPoolManager;
+pub mod metrics;
+
+// Pool will be rebuilt in Epic 04
+// pub mod pool;
+
+// Test helpers will be rebuilt in Epic 01 Story 08
+// mod test_helpers;
+
+// Entity tests will be rebuilt in Epic 03
+// mod tests_cfg;
+
+// Public API will be rebuilt in Epic 04
+// pub use pool::LifeguardPool;
