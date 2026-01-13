@@ -58,6 +58,10 @@ pub use connection::{
 // Re-export executor types for convenience
 pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 
+// Query builder - Epic 02 Story 03
+pub mod query;
+pub use query::{SelectQuery, FromRow};
+
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{
     execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
