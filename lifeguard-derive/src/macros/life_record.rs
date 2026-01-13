@@ -169,6 +169,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                         }
                     }
                     query.value(UpdateColumnName, sea_query::Expr::val(val.clone()));
+                    set_count += 1;
                 }
             });
         }
@@ -359,8 +360,16 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let mut query = sea_query::UpdateStatement::default();
                 query.table(TableName);
                 
+                // Track how many SET clauses are added
+                let mut set_count = 0;
+                
                 // Add SET clauses for dirty fields only (skip primary key)
                 #(#update_sets)*
+                
+                // Validate that at least one field was set
+                if set_count == 0 {
+                    return Err(lifeguard::LifeError::Other("No fields to update".to_string()));
+                }
                 
                 // Add WHERE clause
                 query.and_where(Expr::col(ColumnName).eq(id));
