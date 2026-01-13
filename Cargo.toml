@@ -8,8 +8,9 @@ repository = "https://github.com/microscaler/lifeguard"
 documentation = "https://docs.rs/lifeguard"
 readme = "README.md"
 
-#[[example]]
-#name = "basic"
+[[example]]
+name = "query_builder"
+path = "examples/query_builder_example.rs"
 
 
 [dependencies]
@@ -39,6 +40,10 @@ chrono = { version = "0.4.41", features = ["serde"] }
 # SQL Builder (borrowed, runtime-agnostic)
 sea-query = "1.0.0-rc.29"
 
+# Security: Force protobuf 3.7.2 to address CVE-2025-53605
+# Adding as direct dependency forces all transitive dependencies to use this version
+protobuf = "3.7.2"
+
 # Development/testing utilities
 may_minihttp = "0.1.11"
 csv = "1"
@@ -55,4 +60,3 @@ metrics = ["dep:opentelemetry", "dep:opentelemetry-prometheus", "dep:prometheus"
 # Enable OpenTelemetry tracing
 tracing = ["dep:tracing"]
 mock = []
-

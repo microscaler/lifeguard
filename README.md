@@ -6,8 +6,6 @@
 
 **Lifeguard** is a **complete, production-grade ORM and data access platform** built from the ground up for Rust's `may` coroutine runtime. This is not a wrapper or adapter—it's a **parallel universe ORM** that provides SeaORM-like functionality but is architected natively for coroutines.
 
-**Status:** Currently being rebuilt from scratch. See [EPICS](./docs/EPICS/) for development progress.
-
 ---
 
 ## 🔥 Why Lifeguard?
