@@ -8,8 +8,9 @@ repository = "https://github.com/microscaler/lifeguard"
 documentation = "https://docs.rs/lifeguard"
 readme = "README.md"
 
-#[[example]]
-#name = "basic"
+[[example]]
+name = "query_builder"
+path = "examples/query_builder_example.rs"
 
 
 [dependencies]
