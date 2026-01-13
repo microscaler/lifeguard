@@ -42,6 +42,10 @@ pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
 }
 
 /// Extract all column attributes from a field
+/// 
+/// This struct is a placeholder for future functionality that will support
+/// additional column attributes like unique, indexed, nullable, etc.
+#[allow(dead_code)]
 pub struct ColumnAttributes {
     pub is_primary_key: bool,
     pub column_name: Option<String>,
@@ -71,6 +75,11 @@ impl Default for ColumnAttributes {
 }
 
 /// Parse all column attributes from a field
+/// 
+/// This function is a placeholder for future functionality that will parse
+/// all column attributes at once. Currently, attributes are parsed individually
+/// as needed.
+#[allow(dead_code)]
 pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
     let mut attrs = ColumnAttributes::default();
     
