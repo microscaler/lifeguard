@@ -59,7 +59,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     };
     
     // Extract table name from attributes
-    let table_name = attributes::extract_table_name(&input.attrs)
+    let _table_name = attributes::extract_table_name(&input.attrs)
         .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
     
     // Track primary key field for insert/update operations

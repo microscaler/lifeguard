@@ -30,6 +30,10 @@ pub fn pascal_case(s: &str) -> String {
 }
 
 /// Convert string to camelCase
+/// 
+/// This function is a placeholder for future functionality that may need
+/// camelCase conversion (e.g., for JavaScript/TypeScript code generation).
+#[allow(dead_code)]
 pub fn camel_case(s: &str) -> String {
     let mut result = String::new();
     let mut capitalize = false;
