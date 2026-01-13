@@ -241,7 +241,15 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                         sea_query::Value::TinyUnsigned(u) => ints.push(*u as i32),
                         sea_query::Value::SmallUnsigned(u) => ints.push(*u as i32),
                         sea_query::Value::Unsigned(u) => big_ints.push(*u as i64),
-                        sea_query::Value::BigUnsigned(u) => big_ints.push(*u as i64),
+                        sea_query::Value::BigUnsigned(u) => {
+                            if *u > i64::MAX as u64 {
+                                return Err(lifeguard::LifeError::Other(format!(
+                                    "BigUnsigned value {} exceeds i64::MAX ({}), cannot be safely cast to i64",
+                                    u, i64::MAX
+                                )));
+                            }
+                            big_ints.push(*u as i64);
+                        },
                         sea_query::Value::Float(f) => floats.push(*f),
                         sea_query::Value::Double(d) => doubles.push(*d),
                         sea_query::Value::Json(j) => strings.push(j.clone()),
@@ -386,7 +394,15 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                         sea_query::Value::TinyUnsigned(u) => ints.push(*u as i32),
                         sea_query::Value::SmallUnsigned(u) => ints.push(*u as i32),
                         sea_query::Value::Unsigned(u) => big_ints.push(*u as i64),
-                        sea_query::Value::BigUnsigned(u) => big_ints.push(*u as i64),
+                        sea_query::Value::BigUnsigned(u) => {
+                            if *u > i64::MAX as u64 {
+                                return Err(lifeguard::LifeError::Other(format!(
+                                    "BigUnsigned value {} exceeds i64::MAX ({}), cannot be safely cast to i64",
+                                    u, i64::MAX
+                                )));
+                            }
+                            big_ints.push(*u as i64);
+                        },
                         sea_query::Value::Float(f) => floats.push(*f),
                         sea_query::Value::Double(d) => doubles.push(*d),
                         sea_query::Value::Json(j) => strings.push(j.clone()),

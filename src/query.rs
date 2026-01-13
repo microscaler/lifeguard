@@ -242,7 +242,15 @@ where
                 sea_query::Value::TinyUnsigned(Some(u)) => ints.push(*u as i32),
                 sea_query::Value::SmallUnsigned(Some(u)) => ints.push(*u as i32),
                 sea_query::Value::Unsigned(Some(u)) => big_ints.push(*u as i64),
-                sea_query::Value::BigUnsigned(Some(u)) => big_ints.push(*u as i64),
+                sea_query::Value::BigUnsigned(Some(u)) => {
+                    if *u > i64::MAX as u64 {
+                        return Err(LifeError::Other(format!(
+                            "BigUnsigned value {} exceeds i64::MAX ({}), cannot be safely cast to i64",
+                            u, i64::MAX
+                        )));
+                    }
+                    big_ints.push(*u as i64);
+                },
                 sea_query::Value::Float(Some(f)) => floats.push(*f),
                 sea_query::Value::Double(Some(d)) => doubles.push(*d),
                 sea_query::Value::TinyInt(None) | sea_query::Value::SmallInt(None) |
@@ -382,7 +390,15 @@ where
                 sea_query::Value::TinyUnsigned(Some(u)) => ints.push(*u as i32),
                 sea_query::Value::SmallUnsigned(Some(u)) => ints.push(*u as i32),
                 sea_query::Value::Unsigned(Some(u)) => big_ints.push(*u as i64),
-                sea_query::Value::BigUnsigned(Some(u)) => big_ints.push(*u as i64),
+                sea_query::Value::BigUnsigned(Some(u)) => {
+                    if *u > i64::MAX as u64 {
+                        return Err(LifeError::Other(format!(
+                            "BigUnsigned value {} exceeds i64::MAX ({}), cannot be safely cast to i64",
+                            u, i64::MAX
+                        )));
+                    }
+                    big_ints.push(*u as i64);
+                },
                 sea_query::Value::Float(Some(f)) => floats.push(*f),
                 sea_query::Value::Double(Some(d)) => doubles.push(*d),
                 sea_query::Value::TinyInt(None) | sea_query::Value::SmallInt(None) |
