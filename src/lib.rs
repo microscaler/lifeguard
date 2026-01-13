@@ -1,3 +1,4 @@
+
 //! # Lifeguard
 //!
 //! Coroutine-native PostgreSQL ORM and data access platform for Rust's `may` runtime.
