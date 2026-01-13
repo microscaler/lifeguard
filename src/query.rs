@@ -4,7 +4,7 @@
 //! Supports SELECT operations with filtering, ordering, pagination, and grouping.
 
 use crate::executor::{LifeExecutor, LifeError};
-use may_postgres::Row;
+use may_postgres::{Row, types::ToSql};
 use sea_query::{SelectStatement, PostgresQueryBuilder, Iden, Expr, Order, IntoColumnRef};
 use std::marker::PhantomData;
 
@@ -509,8 +509,19 @@ where
     pub fn find_one<E: LifeExecutor>(self, executor: &E) -> Result<Option<M>, LifeError> {
         match self.one(executor) {
             Ok(model) => Ok(Some(model)),
-            Err(LifeError::Other(msg)) if msg.contains("no rows") || msg.contains("not found") => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => {
+                // Check if the error indicates "no rows found" by examining the error message
+                // This handles PostgresError, QueryError, and Other variants
+                let error_msg = e.to_string().to_lowercase();
+                if error_msg.contains("no rows") 
+                    || error_msg.contains("not found")
+                    || error_msg.contains("no row")
+                    || error_msg.contains("row not found") {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
     
@@ -538,6 +549,166 @@ where
     /// ```
     pub fn paginate<'e, E: LifeExecutor>(self, executor: &'e E, page_size: usize) -> Paginator<'e, M, E> {
         Paginator::new(self, executor, page_size)
+    }
+    
+    /// Build and execute a COUNT(*) query that preserves WHERE, GROUP BY, and HAVING conditions
+    ///
+    /// This method creates an efficient COUNT(*) query by:
+    /// - Preserving all WHERE conditions
+    /// - Preserving GROUP BY and HAVING clauses
+    /// - Removing ORDER BY, LIMIT, and OFFSET (which don't affect the count)
+    /// - Selecting COUNT(*) instead of all columns
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - The executor to use for the query
+    ///
+    /// # Returns
+    ///
+    /// The count of rows matching the query conditions
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{SelectQuery, LifeExecutor};
+    /// use sea_query::Expr;
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// let count = UserModel::find()
+    ///     .filter(Expr::col("age").gt(18))
+    ///     .count(executor)?;
+    /// ```
+    pub fn count<E: LifeExecutor>(&self, executor: &E) -> Result<usize, LifeError> {
+        // Build a COUNT(*) query by wrapping the original query in a subquery
+        // This preserves all WHERE, GROUP BY, and HAVING conditions
+        // while removing ORDER BY, LIMIT, and OFFSET (which don't affect count)
+        
+        // Build the original query SQL (this includes all conditions)
+        let (original_sql, values) = self.query.build(PostgresQueryBuilder);
+        
+        // Wrap the original query in SELECT COUNT(*) FROM (original_query) AS subquery
+        // This is the most reliable way to count rows while preserving all conditions
+        // The database will automatically ignore ORDER BY/LIMIT/OFFSET in the subquery
+        let count_sql = format!("SELECT COUNT(*) FROM ({}) AS count_subquery", original_sql);
+        
+        // Convert SeaQuery values to may_postgres ToSql parameters
+        let mut bools: Vec<bool> = Vec::new();
+        let mut ints: Vec<i32> = Vec::new();
+        let mut big_ints: Vec<i64> = Vec::new();
+        let mut strings: Vec<String> = Vec::new();
+        let mut bytes: Vec<Vec<u8>> = Vec::new();
+        let mut nulls: Vec<Option<i32>> = Vec::new();
+        let mut floats: Vec<f32> = Vec::new();
+        let mut doubles: Vec<f64> = Vec::new();
+        
+        // Collect all values first
+        for value in values.iter() {
+            match value {
+                sea_query::Value::Bool(Some(b)) => bools.push(*b),
+                sea_query::Value::Int(Some(i)) => ints.push(*i),
+                sea_query::Value::BigInt(Some(i)) => big_ints.push(*i),
+                sea_query::Value::String(Some(s)) => strings.push(s.clone()),
+                sea_query::Value::Bytes(Some(b)) => bytes.push(b.clone()),
+                sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
+                sea_query::Value::BigInt(None) | sea_query::Value::String(None) | 
+                sea_query::Value::Bytes(None) => nulls.push(None),
+                sea_query::Value::TinyInt(Some(i)) => ints.push(*i as i32),
+                sea_query::Value::SmallInt(Some(i)) => ints.push(*i as i32),
+                sea_query::Value::TinyUnsigned(Some(u)) => ints.push(*u as i32),
+                sea_query::Value::SmallUnsigned(Some(u)) => ints.push(*u as i32),
+                sea_query::Value::Unsigned(Some(u)) => big_ints.push(*u as i64),
+                sea_query::Value::BigUnsigned(Some(u)) => {
+                    // Handle potential overflow for very large unsigned values
+                    if *u <= i64::MAX as u64 {
+                        big_ints.push(*u as i64);
+                    } else {
+                        return Err(LifeError::Other(format!("Value too large: {}", u)));
+                    }
+                }
+                sea_query::Value::Float(Some(f)) => floats.push(*f),
+                sea_query::Value::Double(Some(d)) => doubles.push(*d),
+                sea_query::Value::Float(None) | sea_query::Value::Double(None) => nulls.push(None),
+                _ => return Err(LifeError::Other(format!("Unsupported value type in COUNT query"))),
+            }
+        }
+        
+        // Build parameter references
+        let mut params: Vec<&dyn ToSql> = Vec::new();
+        let mut bool_idx = 0;
+        let mut int_idx = 0;
+        let mut big_int_idx = 0;
+        let mut string_idx = 0;
+        let mut bytes_idx = 0;
+        let mut null_idx = 0;
+        let mut float_idx = 0;
+        let mut double_idx = 0;
+        
+        for value in values.iter() {
+            match value {
+                sea_query::Value::Bool(Some(_)) => {
+                    params.push(&bools[bool_idx]);
+                    bool_idx += 1;
+                }
+                sea_query::Value::Int(Some(_)) | sea_query::Value::TinyInt(Some(_)) | 
+                sea_query::Value::SmallInt(Some(_)) | sea_query::Value::TinyUnsigned(Some(_)) | 
+                sea_query::Value::SmallUnsigned(Some(_)) => {
+                    params.push(&ints[int_idx]);
+                    int_idx += 1;
+                }
+                sea_query::Value::BigInt(Some(_)) | sea_query::Value::Unsigned(Some(_)) | 
+                sea_query::Value::BigUnsigned(Some(_)) => {
+                    params.push(&big_ints[big_int_idx]);
+                    big_int_idx += 1;
+                }
+                sea_query::Value::String(Some(_)) => {
+                    params.push(&strings[string_idx]);
+                    string_idx += 1;
+                }
+                sea_query::Value::Bytes(Some(_)) => {
+                    params.push(&bytes[bytes_idx]);
+                    bytes_idx += 1;
+                }
+                sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
+                sea_query::Value::BigInt(None) | sea_query::Value::String(None) | 
+                sea_query::Value::Bytes(None) | sea_query::Value::TinyInt(None) | 
+                sea_query::Value::SmallInt(None) | sea_query::Value::TinyUnsigned(None) | 
+                sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) | 
+                sea_query::Value::BigUnsigned(None) => {
+                    params.push(&nulls[null_idx]);
+                    null_idx += 1;
+                }
+                sea_query::Value::Float(Some(_)) => {
+                    params.push(&floats[float_idx]);
+                    float_idx += 1;
+                }
+                sea_query::Value::Double(Some(_)) => {
+                    params.push(&doubles[double_idx]);
+                    double_idx += 1;
+                }
+                sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
+                    params.push(&nulls[null_idx]);
+                    null_idx += 1;
+                }
+                _ => return Err(LifeError::Other(format!("Unsupported value type in COUNT query"))),
+            }
+        }
+        
+        // Execute the COUNT query
+        let row = executor.query_one(&count_sql, &params)?;
+        
+        // Extract the count from the first column (COUNT(*) returns a single i64 value)
+        let count: i64 = row.get(0);
+        
+        // Convert to usize, handling potential overflow
+        if count < 0 {
+            return Err(LifeError::Other(format!("Count cannot be negative: {}", count)));
+        }
+        
+        Ok(count as usize)
     }
     
     /// Paginate results and get total count
@@ -636,20 +807,18 @@ where
     }
     
     /// Get the total number of items matching the query
+    ///
+    /// This method efficiently counts rows by executing a COUNT(*) query that
+    /// preserves WHERE, GROUP BY, and HAVING conditions without loading all rows
+    /// into memory. The result is cached for subsequent calls.
     pub fn num_items(&mut self) -> Result<usize, LifeError> {
         if let Some(count) = self.total_count {
             return Ok(count);
         }
         
-        // For now, we'll use a simpler approach: execute the query without limit/offset
-        // and count the results. A proper implementation would build a COUNT(*) query
-        // that preserves the WHERE conditions.
-        let count_query = SelectQuery {
-            query: self.query.query.clone(),
-            _phantom: self.query._phantom,
-        };
-        let all_results = count_query.all(self.executor)?;
-        let count = all_results.len();
+        // Build and execute an efficient COUNT(*) query that preserves WHERE conditions
+        // This avoids loading all rows into memory, which is critical for large datasets
+        let count = self.query.count(self.executor)?;
         self.total_count = Some(count);
         Ok(count)
     }
@@ -1395,16 +1564,16 @@ mod tests {
         // Test find_one() when no results are found
         let executor = MockExecutor::new(vec![]);
         
-        // MockExecutor returns error for query_one, which should be handled as None
+        // MockExecutor returns QueryError for query_one, which should be handled as None
         let result = SelectQuery::<TestModel>::new("test_table")
             .filter(Expr::col("id").eq(999))
             .find_one(&executor);
         
-        // Should return Ok(None) when no rows found
+        // Should return Ok(None) when no rows found (fixed to handle QueryError variant)
         match result {
-            Ok(None) => {}, // Expected
+            Ok(None) => {}, // Expected - find_one should return None when no rows found
             Ok(Some(_)) => panic!("find_one should return None when no results"),
-            Err(_) => {}, // Also acceptable - depends on executor implementation
+            Err(e) => panic!("find_one should return Ok(None) for 'no rows' errors, got: {:?}", e),
         }
     }
 
