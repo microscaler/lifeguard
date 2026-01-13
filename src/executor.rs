@@ -349,6 +349,38 @@ mod tests {
         assert!(err.to_string().contains("Query error"));
     }
 
+    #[test]
+    fn test_empty_query_string() {
+        // Empty query should be handled by may_postgres
+        // We just verify error types work
+        let err = LifeError::QueryError("Empty query".to_string());
+        assert!(err.to_string().contains("Query error"));
+    }
+
+    #[test]
+    fn test_life_error_all_variants() {
+        // Test all error variants display correctly
+        // Note: We can't easily create PostgresError without a connection,
+        // but we can test the other variants
+        let err2 = LifeError::QueryError("test".to_string());
+        assert!(err2.to_string().contains("Query error"));
+
+        let err3 = LifeError::ParseError("test".to_string());
+        assert!(err3.to_string().contains("Parse error"));
+
+        let err4 = LifeError::Other("test".to_string());
+        assert!(err4.to_string().contains("Execution error"));
+    }
+
+    #[test]
+    fn test_life_error_display_format() {
+        // Test error display formatting
+        let err = LifeError::QueryError("test query error".to_string());
+        let display = err.to_string();
+        assert!(display.contains("Query error"));
+        assert!(display.contains("test query error"));
+    }
+
     // Note: Integration tests for actual database operations will be added
     // when we have a test database setup (Story 08)
 }

@@ -677,6 +677,7 @@ dependencies = [
  "crossbeam-channel",
  "csv",
  "fake",
+ "lifeguard-derive",
  "log",
  "may",
  "may_minihttp",
@@ -688,6 +689,15 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "tracing",
+]
+
+[[package]]
+name = "lifeguard-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -389,6 +389,38 @@ mod tests {
         assert!(life_err.to_string().contains("Transaction closed"));
     }
 
+    #[test]
+    fn test_transaction_error_all_variants() {
+        let err1 = TransactionError::TransactionClosed;
+        assert!(err1.to_string().contains("already been committed"));
+
+        let err2 = TransactionError::NestedTransactionError("test".to_string());
+        assert!(err2.to_string().contains("Nested transaction error"));
+
+        let err3 = TransactionError::Other("test".to_string());
+        assert!(err3.to_string().contains("Transaction error"));
+    }
+
+    #[test]
+    fn test_transaction_error_conversions() {
+        // Test conversion from TransactionError to LifeError
+        let tx_err = TransactionError::TransactionClosed;
+        let life_err: LifeError = tx_err.into();
+        assert!(life_err.to_string().contains("Transaction closed"));
+
+        // Test conversion from NestedTransactionError
+        let tx_err2 = TransactionError::NestedTransactionError("nested error".to_string());
+        let life_err2: LifeError = tx_err2.into();
+        assert!(life_err2.to_string().contains("nested error"));
+    }
+
+    #[test]
+    fn test_isolation_level_equality() {
+        // Test PartialEq implementation
+        assert_eq!(IsolationLevel::ReadCommitted, IsolationLevel::ReadCommitted);
+        assert_ne!(IsolationLevel::ReadCommitted, IsolationLevel::Serializable);
+    }
+
     // Note: Integration tests for actual transaction operations (begin, commit, rollback)
     // will be added in Story 08 when we have test infrastructure with testcontainers.
 }

@@ -17,6 +17,9 @@ readme = "README.md"
 may = "0.3"
 may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
 
+# Procedural macros for ORM
+lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }
+
 # Channel utilities (may be used for new pool design)
 crossbeam-channel = "0.5"
 

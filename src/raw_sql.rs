@@ -208,5 +208,6 @@ mod tests {
         assert!(err.to_string().contains("Parse error"));
     }
 
-    // Note: Integration tests with actual database will be added in Story 08
+    // Note: Actual SQL execution edge cases require database connection
+    // These will be tested in integration tests
 }
