@@ -12,6 +12,57 @@ use std::marker::PhantomData;
 pub mod column;
 pub use column::ColumnTrait;
 
+/// Check if an error represents a "no rows found" condition
+///
+/// This function uses specific patterns to detect "no rows found" errors while
+/// avoiding false positives from legitimate database errors like "table not found",
+/// "column not found", "function not found", or "constraint not found".
+///
+/// # Arguments
+///
+/// * `error` - The error to check
+///
+/// # Returns
+///
+/// Returns `true` if the error indicates no rows were found, `false` otherwise.
+fn is_no_rows_error(error: &LifeError) -> bool {
+    match error {
+        LifeError::PostgresError(pg_error) => {
+            // Check the underlying PostgreSQL error message
+            // may_postgres typically returns errors with specific messages for "no rows"
+            let error_msg = pg_error.to_string().to_lowercase();
+            // Only match specific "no rows" patterns, not the broad "not found"
+            error_msg.contains("no rows") 
+                || error_msg.contains("no row")
+                || error_msg.contains("row not found")
+                || error_msg.contains("no rows returned")
+                || error_msg.contains("expected one row")
+        }
+        LifeError::QueryError(msg) => {
+            // Check QueryError messages - be specific about "no rows" patterns
+            let error_msg = msg.to_lowercase();
+            error_msg.contains("no rows") 
+                || error_msg.contains("no row")
+                || error_msg.contains("row not found")
+                || error_msg.contains("no rows returned")
+                || error_msg.contains("expected one row")
+        }
+        LifeError::ParseError(_) => {
+            // Parse errors are never "no rows found" errors
+            false
+        }
+        LifeError::Other(msg) => {
+            // Check Other error messages - be specific about "no rows" patterns
+            let error_msg = msg.to_lowercase();
+            error_msg.contains("no rows") 
+                || error_msg.contains("no row")
+                || error_msg.contains("row not found")
+                || error_msg.contains("no rows returned")
+                || error_msg.contains("expected one row")
+        }
+    }
+}
+
 /// Query builder for selecting records
 ///
 /// This is returned by `LifeModel::find()` and can be chained with filters,
@@ -510,13 +561,10 @@ where
         match self.one(executor) {
             Ok(model) => Ok(Some(model)),
             Err(e) => {
-                // Check if the error indicates "no rows found" by examining the error message
-                // This handles PostgresError, QueryError, and Other variants
-                let error_msg = e.to_string().to_lowercase();
-                if error_msg.contains("no rows") 
-                    || error_msg.contains("not found")
-                    || error_msg.contains("no row")
-                    || error_msg.contains("row not found") {
+                // Check if the error indicates "no rows found" by examining the error type and message
+                // We use specific patterns to avoid matching legitimate database errors like
+                // "table not found", "column not found", etc.
+                if is_no_rows_error(&e) {
                     Ok(None)
                 } else {
                     Err(e)
@@ -556,7 +604,8 @@ where
     /// This method creates an efficient COUNT(*) query by:
     /// - Preserving all WHERE conditions
     /// - Preserving GROUP BY and HAVING clauses
-    /// - Removing ORDER BY, LIMIT, and OFFSET (which don't affect the count)
+    /// - Explicitly removing ORDER BY, LIMIT, and OFFSET before counting
+    ///   (databases DO apply LIMIT/OFFSET in subqueries, so they must be removed)
     /// - Selecting COUNT(*) instead of all columns
     ///
     /// # Arguments
@@ -587,13 +636,47 @@ where
         // This preserves all WHERE, GROUP BY, and HAVING conditions
         // while removing ORDER BY, LIMIT, and OFFSET (which don't affect count)
         
-        // Build the original query SQL (this includes all conditions)
-        let (original_sql, values) = self.query.build(PostgresQueryBuilder);
+        // CRITICAL: Databases DO apply LIMIT/OFFSET in subqueries, so we must remove them
+        // explicitly before wrapping in a subquery. Otherwise, a query with `.limit(10)`
+        // would incorrectly return a count of at most 10 instead of the total matching rows.
         
-        // Wrap the original query in SELECT COUNT(*) FROM (original_query) AS subquery
-        // This is the most reliable way to count rows while preserving all conditions
-        // The database will automatically ignore ORDER BY/LIMIT/OFFSET in the subquery
-        let count_sql = format!("SELECT COUNT(*) FROM ({}) AS count_subquery", original_sql);
+        // Clone the query and build SQL to work with it
+        let (original_sql, values) = self.query.clone().build(PostgresQueryBuilder);
+        
+        // Remove ORDER BY, LIMIT, and OFFSET clauses from the SQL
+        // These clauses appear at the end of the SELECT statement in this order:
+        // SELECT ... [ORDER BY ...] [LIMIT ...] [OFFSET ...]
+        // We need to remove them carefully to preserve the rest of the query
+        let cleaned_sql = {
+            let sql = original_sql.trim();
+            let sql_upper = sql.to_uppercase();
+            
+            // Find the positions of ORDER BY, LIMIT, and OFFSET (case-insensitive)
+            let order_by_pos = sql_upper.rfind(" ORDER BY ");
+            let limit_pos = sql_upper.rfind(" LIMIT ");
+            let offset_pos = sql_upper.rfind(" OFFSET ");
+            
+            // Determine which clause appears last (needs to be removed first)
+            // Find the maximum position among all three clauses
+            let last_clause_pos = offset_pos
+                .into_iter()
+                .chain(limit_pos)
+                .chain(order_by_pos)
+                .max();
+            
+            if let Some(pos) = last_clause_pos {
+                // Remove everything from the last clause to the end
+                // This handles ORDER BY, LIMIT, OFFSET in any combination
+                sql[..pos].trim().to_string()
+            } else {
+                // No ORDER BY, LIMIT, or OFFSET found - use original SQL
+                sql.to_string()
+            }
+        };
+        
+        // Wrap the cleaned query in SELECT COUNT(*) FROM (cleaned_query) AS subquery
+        // This ensures we count all matching rows, not just the limited subset
+        let count_sql = format!("SELECT COUNT(*) FROM ({}) AS count_subquery", cleaned_sql);
         
         // Convert SeaQuery values to may_postgres ToSql parameters
         let mut bools: Vec<bool> = Vec::new();
@@ -613,9 +696,6 @@ where
                 sea_query::Value::BigInt(Some(i)) => big_ints.push(*i),
                 sea_query::Value::String(Some(s)) => strings.push(s.clone()),
                 sea_query::Value::Bytes(Some(b)) => bytes.push(b.clone()),
-                sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
-                sea_query::Value::BigInt(None) | sea_query::Value::String(None) | 
-                sea_query::Value::Bytes(None) => nulls.push(None),
                 sea_query::Value::TinyInt(Some(i)) => ints.push(*i as i32),
                 sea_query::Value::SmallInt(Some(i)) => ints.push(*i as i32),
                 sea_query::Value::TinyUnsigned(Some(u)) => ints.push(*u as i32),
@@ -631,7 +711,13 @@ where
                 }
                 sea_query::Value::Float(Some(f)) => floats.push(*f),
                 sea_query::Value::Double(Some(d)) => doubles.push(*d),
-                sea_query::Value::Float(None) | sea_query::Value::Double(None) => nulls.push(None),
+                sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
+                sea_query::Value::BigInt(None) | sea_query::Value::String(None) | 
+                sea_query::Value::Bytes(None) | sea_query::Value::TinyInt(None) |
+                sea_query::Value::SmallInt(None) | sea_query::Value::TinyUnsigned(None) |
+                sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) |
+                sea_query::Value::BigUnsigned(None) | sea_query::Value::Float(None) | 
+                sea_query::Value::Double(None) => nulls.push(None),
                 _ => return Err(LifeError::Other(format!("Unsupported value type in COUNT query"))),
             }
         }
@@ -1579,6 +1665,47 @@ mod tests {
             Ok(Some(_)) => panic!("find_one should return None when no results"),
             Err(e) => panic!("find_one should return Ok(None) for 'no rows' errors, got: {:?}", e),
         }
+    }
+
+    #[test]
+    fn test_find_one_legitimate_errors_not_swallowed() {
+        // Test that legitimate database errors are NOT incorrectly swallowed
+        // This verifies the fix for the fragile string matching issue
+        
+        // Test 1: "table not found" should be an error, not Ok(None)
+        let table_not_found_error = LifeError::QueryError("relation \"users\" does not exist: table not found".to_string());
+        assert!(!is_no_rows_error(&table_not_found_error), 
+            "Table not found errors should NOT be treated as 'no rows found'");
+        
+        // Test 2: "column not found" should be an error, not Ok(None)
+        let column_not_found_error = LifeError::QueryError("column \"invalid_column\" does not exist: column not found".to_string());
+        assert!(!is_no_rows_error(&column_not_found_error),
+            "Column not found errors should NOT be treated as 'no rows found'");
+        
+        // Test 3: "function not found" should be an error, not Ok(None)
+        let function_not_found_error = LifeError::QueryError("function invalid_func() does not exist: function not found".to_string());
+        assert!(!is_no_rows_error(&function_not_found_error),
+            "Function not found errors should NOT be treated as 'no rows found'");
+        
+        // Test 4: "constraint not found" should be an error, not Ok(None)
+        let constraint_not_found_error = LifeError::QueryError("constraint \"invalid_constraint\" does not exist: constraint not found".to_string());
+        assert!(!is_no_rows_error(&constraint_not_found_error),
+            "Constraint not found errors should NOT be treated as 'no rows found'");
+        
+        // Test 5: Actual "no rows" errors should still be detected
+        let no_rows_error = LifeError::QueryError("no rows returned".to_string());
+        assert!(is_no_rows_error(&no_rows_error),
+            "Actual 'no rows' errors should be detected");
+        
+        let no_row_error = LifeError::QueryError("no row found".to_string());
+        assert!(is_no_rows_error(&no_row_error),
+            "Actual 'no row' errors should be detected");
+        
+        // Test 6: PostgresError with "no rows" should be detected
+        // Note: We can't easily create a PostgresError in tests, but the logic is the same
+        let postgres_no_rows = LifeError::QueryError("PostgreSQL error: no rows".to_string());
+        assert!(is_no_rows_error(&postgres_no_rows),
+            "PostgresError with 'no rows' should be detected");
     }
 
     #[test]
