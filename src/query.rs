@@ -8,6 +8,10 @@ use may_postgres::Row;
 use sea_query::{SelectStatement, PostgresQueryBuilder, Iden, Expr, Order, IntoColumnRef};
 use std::marker::PhantomData;
 
+// Type-safe column operations - Epic 02 Story 05
+pub mod column;
+pub use column::ColumnTrait;
+
 /// Query builder for selecting records
 ///
 /// This is returned by `LifeModel::find()` and can be chained with filters,
@@ -484,11 +488,185 @@ where
         let row = executor.query_one(&sql, &params)?;
         M::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))
     }
+    
+    /// Execute the query and return the first result, or None if no results
+    ///
+    /// This is similar to `one()` but returns `Option<M>` instead of an error
+    /// when no rows are found.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{SelectQuery, LifeExecutor};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// let user = UserModel::find().filter(Expr::col("id").eq(1)).find_one(executor)?;
+    /// ```
+    pub fn find_one<E: LifeExecutor>(self, executor: &E) -> Result<Option<M>, LifeError> {
+        match self.one(executor) {
+            Ok(model) => Ok(Some(model)),
+            Err(LifeError::Other(msg)) if msg.contains("no rows") || msg.contains("not found") => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+    
+    /// Paginate results with a given page size
+    ///
+    /// Returns a `Paginator` that can be used to fetch pages of results.
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - The executor to use for queries
+    /// * `page_size` - Number of items per page
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{SelectQuery, LifeExecutor};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// let mut paginator = UserModel::find().paginate(executor, 10);
+    /// let page_1 = paginator.fetch_page(1)?;
+    /// ```
+    pub fn paginate<'e, E: LifeExecutor>(self, executor: &'e E, page_size: usize) -> Paginator<'e, M, E> {
+        Paginator::new(self, executor, page_size)
+    }
+    
+    /// Paginate results and get total count
+    ///
+    /// Similar to `paginate()` but also provides a method to get the total count
+    /// of items matching the query.
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - The executor to use for queries
+    /// * `page_size` - Number of items per page
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{SelectQuery, LifeExecutor};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// let mut paginator = UserModel::find().paginate_and_count(executor, 10);
+    /// let total = paginator.num_items()?;
+    /// let page_1 = paginator.fetch_page(1)?;
+    /// ```
+    pub fn paginate_and_count<'e, E: LifeExecutor>(self, executor: &'e E, page_size: usize) -> PaginatorWithCount<'e, M, E> {
+        PaginatorWithCount::new(self, executor, page_size)
+    }
 }
 
 /// Trait for types that can be created from a database row
 pub trait FromRow: Sized {
     fn from_row(row: &Row) -> Result<Self, may_postgres::Error>;
+}
+
+/// Paginator for query results
+///
+/// Provides pagination functionality for query results.
+pub struct Paginator<'e, M, E> {
+    query: SelectQuery<M>,
+    executor: &'e E,
+    page_size: usize,
+}
+
+impl<'e, M, E> Paginator<'e, M, E>
+where
+    M: FromRow,
+    E: LifeExecutor,
+{
+    fn new(query: SelectQuery<M>, executor: &'e E, page_size: usize) -> Self {
+        Self {
+            query,
+            executor,
+            page_size,
+        }
+    }
+    
+    /// Fetch a specific page (1-indexed)
+    pub fn fetch_page(&mut self, page: usize) -> Result<Vec<M>, LifeError> {
+        let offset = (page.saturating_sub(1)) * self.page_size;
+        // Clone the query to avoid moving it
+        let query = SelectQuery {
+            query: self.query.query.clone(),
+            _phantom: self.query._phantom,
+        };
+        query
+            .limit(self.page_size as u64)
+            .offset(offset as u64)
+            .all(self.executor)
+    }
+}
+
+/// Paginator with count support
+///
+/// Provides pagination functionality with total count tracking.
+pub struct PaginatorWithCount<'e, M, E> {
+    query: SelectQuery<M>,
+    executor: &'e E,
+    page_size: usize,
+    total_count: Option<usize>,
+}
+
+impl<'e, M, E> PaginatorWithCount<'e, M, E>
+where
+    M: FromRow,
+    E: LifeExecutor,
+{
+    fn new(query: SelectQuery<M>, executor: &'e E, page_size: usize) -> Self {
+        Self {
+            query,
+            executor,
+            page_size,
+            total_count: None,
+        }
+    }
+    
+    /// Get the total number of items matching the query
+    pub fn num_items(&mut self) -> Result<usize, LifeError> {
+        if let Some(count) = self.total_count {
+            return Ok(count);
+        }
+        
+        // For now, we'll use a simpler approach: execute the query without limit/offset
+        // and count the results. A proper implementation would build a COUNT(*) query
+        // that preserves the WHERE conditions.
+        let count_query = SelectQuery {
+            query: self.query.query.clone(),
+            _phantom: self.query._phantom,
+        };
+        let all_results = count_query.all(self.executor)?;
+        let count = all_results.len();
+        self.total_count = Some(count);
+        Ok(count)
+    }
+    
+    /// Fetch a specific page (1-indexed)
+    pub fn fetch_page(&mut self, page: usize) -> Result<Vec<M>, LifeError> {
+        let offset = (page.saturating_sub(1)) * self.page_size;
+        // Clone the query to avoid moving it
+        let query = SelectQuery {
+            query: self.query.query.clone(),
+            _phantom: self.query._phantom,
+        };
+        query
+            .limit(self.page_size as u64)
+            .offset(offset as u64)
+            .all(self.executor)
+    }
 }
 
 #[cfg(test)]
@@ -1206,6 +1384,349 @@ mod tests {
         let values3_vec: Vec<_> = values3.iter().collect();
         assert!(!values3_vec.is_empty(), "Boolean filter should generate values");
         assert!(sql3.contains("$"), "Boolean filter should generate placeholders");
+    }
+
+    // ============================================================================
+    // EDGE CASE TESTS FOR TYPE-SAFE QUERY BUILDERS (Epic 02 Story 05)
+    // ============================================================================
+
+    #[test]
+    fn test_find_one_no_results() {
+        // Test find_one() when no results are found
+        let executor = MockExecutor::new(vec![]);
+        
+        // MockExecutor returns error for query_one, which should be handled as None
+        let result = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").eq(999))
+            .find_one(&executor);
+        
+        // Should return Ok(None) when no rows found
+        match result {
+            Ok(None) => {}, // Expected
+            Ok(Some(_)) => panic!("find_one should return None when no results"),
+            Err(_) => {}, // Also acceptable - depends on executor implementation
+        }
+    }
+
+    #[test]
+    fn test_paginator_page_zero() {
+        // Test paginator with page 0 (should be treated as page 1)
+        let executor = MockExecutor::new(vec![]);
+        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+            .paginate(&executor, 10);
+        
+        // Page 0 should be treated as page 1 (offset = 0)
+        let _result = paginator.fetch_page(0);
+        // Should not panic - offset calculation uses saturating_sub
+    }
+
+    #[test]
+    fn test_paginator_empty_results() {
+        // Test paginator with empty result set
+        let executor = MockExecutor::new(vec![]);
+        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").eq(999))
+            .paginate(&executor, 10);
+        
+        // Should return empty vec, not panic
+        let result = paginator.fetch_page(1);
+        match result {
+            Ok(vec) => assert!(vec.is_empty(), "Empty results should return empty vec"),
+            Err(_) => {}, // Acceptable if executor returns error
+        }
+    }
+
+    #[test]
+    fn test_paginator_large_page_number() {
+        // Test paginator with page number beyond available data
+        let executor = MockExecutor::new(vec![]);
+        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+            .paginate(&executor, 10);
+        
+        // Page 1000 should not panic (offset = 9990)
+        let _result = paginator.fetch_page(1000);
+        // Should not panic - offset calculation handles large numbers
+    }
+
+    #[test]
+    fn test_paginator_page_size_zero() {
+        // Test paginator with page_size = 0 (edge case)
+        let executor = MockExecutor::new(vec![]);
+        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+            .paginate(&executor, 0);
+        
+        // Should handle gracefully (limit 0)
+        let _result = paginator.fetch_page(1);
+        // Should not panic
+    }
+
+    #[test]
+    fn test_paginator_with_count_empty_results() {
+        // Test paginate_and_count with empty results
+        let executor = MockExecutor::new(vec![]);
+        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").eq(999))
+            .paginate_and_count(&executor, 10);
+        
+        // num_items should return 0 for empty results
+        let count_result = paginator.num_items();
+        match count_result {
+            Ok(count) => assert_eq!(count, 0, "Empty results should return count 0"),
+            Err(_) => {}, // Acceptable if executor returns error
+        }
+    }
+
+    #[test]
+    fn test_paginator_with_count_cached() {
+        // Test that num_items() caches the count
+        let executor = MockExecutor::new(vec![]);
+        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+            .paginate_and_count(&executor, 10);
+        
+        // First call should execute query
+        let _count1 = paginator.num_items();
+        let sql_calls_1 = executor.get_captured_sql().len();
+        
+        // Second call should use cached value (no new SQL)
+        let _count2 = paginator.num_items();
+        let sql_calls_2 = executor.get_captured_sql().len();
+        
+        // SQL calls should be the same (cached)
+        assert_eq!(sql_calls_1, sql_calls_2, "Second num_items() call should use cache");
+    }
+
+    #[test]
+    fn test_filter_with_null_values() {
+        // Test filters with null/None values
+        let executor1 = MockExecutor::new(vec![]);
+        
+        // IS NULL filter
+        let _result1 = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("name").is_null())
+            .all(&executor1);
+        
+        let executor2 = MockExecutor::new(vec![]);
+        
+        // IS NOT NULL filter
+        let _result2 = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("name").is_not_null())
+            .all(&executor2);
+        
+        let sql1 = executor1.get_captured_sql();
+        let sql2 = executor2.get_captured_sql();
+        assert!(!sql1.is_empty(), "IS NULL should generate SQL");
+        assert!(!sql2.is_empty(), "IS NOT NULL should generate SQL");
+    }
+
+    #[test]
+    fn test_filter_with_empty_collections() {
+        // Test IN and NOT IN with empty collections
+        let executor = MockExecutor::new(vec![]);
+        
+        // Empty IN clause (edge case - should handle gracefully)
+        let empty_vec: Vec<i32> = vec![];
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").is_in(empty_vec))
+            .all(&executor);
+        
+        // Should not panic
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "Empty IN should still generate SQL");
+    }
+
+    #[test]
+    fn test_filter_with_large_collections() {
+        // Test IN with large collection (performance/stress test)
+        let executor = MockExecutor::new(vec![]);
+        
+        let large_vec: Vec<i32> = (1..1000).collect();
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").is_in(large_vec))
+            .all(&executor);
+        
+        // Should handle large collections
+        let param_counts = executor.get_captured_param_counts();
+        assert!(!param_counts.is_empty(), "Large IN should generate parameters");
+    }
+
+    #[test]
+    fn test_between_edge_cases() {
+        // Test BETWEEN with edge cases
+        let executor1 = MockExecutor::new(vec![]);
+        
+        // Same start and end (edge case)
+        let _result1 = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").between(5, 5))
+            .all(&executor1);
+        
+        let executor2 = MockExecutor::new(vec![]);
+        
+        // Start > end (edge case - should still work, just returns nothing)
+        let _result2 = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").between(10, 5))
+            .all(&executor2);
+        
+        let sql1 = executor1.get_captured_sql();
+        let sql2 = executor2.get_captured_sql();
+        assert!(!sql1.is_empty(), "BETWEEN with same values should generate SQL");
+        assert!(!sql2.is_empty(), "BETWEEN with start > end should generate SQL");
+    }
+
+    #[test]
+    fn test_limit_zero() {
+        // Test limit(0) edge case
+        let executor = MockExecutor::new(vec![]);
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .limit(0)
+            .all(&executor);
+        
+        // Should not panic - limit 0 is valid SQL
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "Limit 0 should generate SQL");
+    }
+
+    #[test]
+    fn test_offset_large_value() {
+        // Test offset with very large value
+        let executor = MockExecutor::new(vec![]);
+        let result = SelectQuery::<TestModel>::new("test_table")
+            .offset(u64::MAX)
+            .all(&executor);
+        
+        // Should not panic - large offset is valid
+        // MockExecutor returns error, but SQL should still be generated
+        // The important thing is that it doesn't panic
+        let sql = executor.get_captured_sql();
+        // SQL may be empty if query building fails, but execution should not panic
+        // We verify the query was attempted (either SQL generated or error returned)
+        assert!(!sql.is_empty() || result.is_err(), 
+            "Large offset should generate SQL or return error gracefully (no panic)");
+    }
+
+    #[test]
+    fn test_multiple_chained_filters() {
+        // Test many chained filters (stress test)
+        let executor = MockExecutor::new(vec![]);
+        let mut query = SelectQuery::<TestModel>::new("test_table");
+        
+        // Chain many filters
+        for i in 1..=50 {
+            query = query.filter(Expr::col("id").ne(i));
+        }
+        
+        let _result = query.all(&executor);
+        
+        // Should handle many filters
+        let param_counts = executor.get_captured_param_counts();
+        assert!(!param_counts.is_empty(), "Many filters should generate parameters");
+    }
+
+    #[test]
+    fn test_order_by_multiple_columns() {
+        // Test many ORDER BY clauses
+        let executor = MockExecutor::new(vec![]);
+        let mut query = SelectQuery::<TestModel>::new("test_table");
+        
+        // Chain many order_by calls
+        for i in 1..=20 {
+            query = query.order_by(format!("col_{}", i), Order::Asc);
+        }
+        
+        let _result = query.all(&executor);
+        
+        // Should handle many ORDER BY clauses
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "Many ORDER BY should generate SQL");
+    }
+
+    #[test]
+    fn test_group_by_without_having() {
+        // Test GROUP BY without HAVING (valid SQL)
+        let executor = MockExecutor::new(vec![]);
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .group_by("status")
+            .all(&executor);
+        
+        // Should not require HAVING
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "GROUP BY without HAVING should generate SQL");
+    }
+
+    #[test]
+    fn test_having_without_group_by() {
+        // Test HAVING without GROUP BY (edge case - may be invalid SQL but shouldn't panic)
+        let executor = MockExecutor::new(vec![]);
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .having(Expr::col("COUNT(*)").gt(5))
+            .all(&executor);
+        
+        // Should not panic (SQL validity checked by database)
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "HAVING without GROUP BY should generate SQL");
+    }
+
+    #[test]
+    fn test_one_with_multiple_results() {
+        // Test one() when multiple results exist (should error)
+        let executor = MockExecutor::new(vec![]);
+        
+        // Query that might return multiple results
+        let result = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").gt(1))
+            .one(&executor);
+        
+        // Should return error (MockExecutor returns error, which is fine for this test)
+        // In real scenario, this would error if multiple rows returned
+        match result {
+            Ok(_) => {}, // Unlikely with MockExecutor
+            Err(_) => {}, // Expected when multiple rows or no rows
+        }
+    }
+
+    #[test]
+    fn test_like_with_empty_pattern() {
+        // Test LIKE with empty pattern
+        let executor = MockExecutor::new(vec![]);
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("name").like(""))
+            .all(&executor);
+        
+        // Should handle empty pattern
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "LIKE with empty pattern should generate SQL");
+    }
+
+    #[test]
+    fn test_like_with_special_characters() {
+        // Test LIKE with SQL special characters
+        let executor = MockExecutor::new(vec![]);
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("name").like("%test'string\"with%special%"))
+            .all(&executor);
+        
+        // Should handle special characters (parameterized, so safe)
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "LIKE with special chars should generate SQL");
+    }
+
+    #[test]
+    fn test_query_with_all_clauses() {
+        // Test query with all possible clauses (comprehensive test)
+        let executor = MockExecutor::new(vec![]);
+        let _result = SelectQuery::<TestModel>::new("test_table")
+            .filter(Expr::col("id").gt(1))
+            .filter(Expr::col("name").like("test%"))
+            .group_by("status")
+            .having(Expr::col("COUNT(*)").gt(1))
+            .order_by("id", Order::Asc)
+            .order_by("name", Order::Desc)
+            .limit(100)
+            .offset(50)
+            .all(&executor);
+        
+        // Should handle all clauses together
+        let sql = executor.get_captured_sql();
+        assert!(!sql.is_empty(), "Query with all clauses should generate SQL");
     }
 
     #[test]

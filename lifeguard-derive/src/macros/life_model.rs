@@ -63,6 +63,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut primary_key_variants = Vec::new();
     let mut model_fields = Vec::new();
     let mut from_row_fields = Vec::new();
+    let mut column_impls = Vec::new();
     
     // Track primary key field for CRUD operations
     let mut primary_key_field: Option<(Ident, syn::Type, String)> = None;
@@ -92,6 +93,21 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         );
         column_variants.push(quote! {
             #column_variant,
+        });
+        
+        // Generate IntoColumnRef implementation for this variant
+        let column_name_str = column_name.clone();
+        column_impls.push(quote! {
+            Column::#column_variant => {
+                use sea_query::Iden;
+                struct ColumnName;
+                impl Iden for ColumnName {
+                    fn unquoted(&self) -> &str {
+                        #column_name_str
+                    }
+                }
+                sea_query::ColumnRef::Column(ColumnName.into())
+            }
         });
         
         // Generate PrimaryKey enum variant if primary key
@@ -223,6 +239,15 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub enum Column {
             #(#column_variants)*
+        }
+        
+        // Implement IntoColumnRef for Column enum (enables type-safe query building)
+        impl sea_query::IntoColumnRef for Column {
+            fn into_column_ref(self) -> sea_query::ColumnRef {
+                match self {
+                    #(#column_impls)*
+                }
+            }
         }
         
         // PrimaryKey enum
