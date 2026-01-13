@@ -851,16 +851,16 @@ mod tests {
     // Test model for query builder tests
     #[derive(Debug, Clone)]
     struct TestModel {
-        id: i32,
-        name: String,
+        _id: i32,
+        _name: String,
     }
 
     impl FromRow for TestModel {
         fn from_row(_row: &Row) -> Result<Self, may_postgres::Error> {
             // Mock implementation - not used in query building tests
             Ok(TestModel {
-                id: 1,
-                name: "Test".to_string(),
+                _id: 1,
+                _name: "Test".to_string(),
             })
         }
     }
@@ -869,7 +869,7 @@ mod tests {
     struct MockExecutor {
         captured_sql: Arc<Mutex<Vec<String>>>,
         captured_param_counts: Arc<Mutex<Vec<usize>>>,
-        return_rows: Vec<Row>,
+        _return_rows: Vec<Row>,
     }
 
     impl MockExecutor {
@@ -877,7 +877,7 @@ mod tests {
             Self {
                 captured_sql: Arc::new(Mutex::new(Vec::new())),
                 captured_param_counts: Arc::new(Mutex::new(Vec::new())),
-                return_rows: vec![], // We can't easily create Row objects, so we use empty vec
+                _return_rows: vec![], // We can't easily create Row objects, so we use empty vec
             }
         }
 
@@ -895,6 +895,7 @@ mod tests {
         }
 
         // Helper to count placeholders in SQL
+        #[allow(dead_code)]
         fn count_placeholders(sql: &str) -> usize {
             sql.matches("$").count()
         }
