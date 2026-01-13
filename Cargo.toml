@@ -36,6 +36,9 @@ config = "0.14"
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4.41", features = ["serde"] }
 
+# SQL Builder (borrowed, runtime-agnostic)
+sea-query = "1.0.0-rc.29"
+
 # Development/testing utilities
 may_minihttp = "0.1.11"
 csv = "1"

@@ -58,6 +58,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
     };
     
+    // Extract table name from attributes
+    let table_name = attributes::extract_table_name(&input.attrs)
+        .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
+    
+    // Track primary key field for insert/update operations
+    let mut primary_key_field: Option<(Ident, syn::Type, String)> = None;
+    
     // Process fields
     let mut record_fields = Vec::new();
     let mut record_field_names = Vec::new();
@@ -65,10 +72,26 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut to_model_fields = Vec::new();
     let mut dirty_fields_check = Vec::new();
     let mut setter_methods = Vec::new();
+    let mut insert_field_checks = Vec::new();
+    let mut update_sets = Vec::new();
     
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
+        let column_name = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+        
+        // Check if this is a primary key
+        let is_primary_key = attributes::has_attribute(field, "primary_key");
+        
+        // Store primary key info for insert/update operations
+        if is_primary_key {
+            primary_key_field = Some((
+                field_name.clone(),
+                field_type.clone(),
+                column_name.clone(),
+            ));
+        }
         
         // Check if field is nullable (has #[nullable] attribute)
         let is_nullable = attributes::has_attribute(field, "nullable");
@@ -116,7 +139,137 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 self
             }
         });
+        
+        // Generate insert column and value (skip primary key)
+        if !is_primary_key {
+            let column_name_str = column_name.clone();
+            insert_field_checks.push(quote! {
+                if let Some(ref val) = self.#field_name {
+                    struct ColumnName;
+                    impl sea_query::Iden for ColumnName {
+                        fn unquoted(&self) -> &str {
+                            #column_name_str
+                        }
+                    }
+                    columns.push(ColumnName);
+                    values.push(sea_query::Expr::val(val.clone()));
+                }
+            });
+        }
+        
+        // Generate update set (skip primary key)
+        if !is_primary_key {
+            let column_name_str_update = column_name.clone();
+            update_sets.push(quote! {
+                if let Some(ref val) = self.#field_name {
+                    struct UpdateColumnName;
+                    impl sea_query::Iden for UpdateColumnName {
+                        fn unquoted(&self) -> &str {
+                            #column_name_str_update
+                        }
+                    }
+                    query.value(UpdateColumnName, sea_query::Expr::val(val.clone()));
+                }
+            });
+        }
     }
+    
+    // Generate insert/update methods if we have a primary key
+    let crud_methods = if let Some((_pk_field_name, pk_field_type, pk_column_name)) = primary_key_field {
+        let pk_column_name_str = pk_column_name.clone();
+        quote! {
+            /// Insert this record into the database
+            ///
+            /// # Arguments
+            ///
+            /// * `executor` - The executor to use for the query
+            ///
+            /// # Returns
+            ///
+            /// Returns the inserted Model with all fields populated (including generated primary key).
+            pub fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<#model_name, lifeguard::LifeError> {
+                use sea_query::{InsertStatement, PostgresQueryBuilder};
+                use sea_query::Iden;
+                
+                struct TableName;
+                impl Iden for TableName {
+                    fn unquoted(&self) -> &str {
+                        #struct_name::TABLE_NAME
+                    }
+                }
+                
+                let mut query = sea_query::InsertStatement::default();
+                query.into_table(TableName);
+                
+                // Build columns and values from dirty fields
+                let mut columns = Vec::new();
+                let mut values = Vec::new();
+                
+                #(#insert_field_checks)*
+                
+                if columns.is_empty() {
+                    return Err(lifeguard::LifeError::Other("No fields to insert".to_string()));
+                }
+                
+                query.columns(columns);
+                query.values_panic(values);
+                query.returning_col(sea_query::Asterisk);
+                
+                let (sql, _values) = query.build(PostgresQueryBuilder);
+                let row = executor.query_one(&sql, &[])?;
+                #model_name::from_row(&row).map_err(|e| lifeguard::LifeError::ParseError(format!("Failed to parse row: {}", e)))
+            }
+            
+            /// Update an existing record in the database
+            ///
+            /// # Arguments
+            ///
+            /// * `executor` - The executor to use for the query
+            /// * `id` - The primary key value of the record to update
+            ///
+            /// # Returns
+            ///
+            /// Returns the updated Model.
+            pub fn update<E: lifeguard::LifeExecutor>(&self, executor: &E, id: #pk_field_type) -> Result<#model_name, lifeguard::LifeError> {
+                use sea_query::{UpdateStatement, PostgresQueryBuilder, Expr, ExprTrait};
+                use sea_query::Iden;
+                
+                struct TableName;
+                impl Iden for TableName {
+                    fn unquoted(&self) -> &str {
+                        #struct_name::TABLE_NAME
+                    }
+                }
+                
+                struct ColumnName;
+                impl Iden for ColumnName {
+                    fn unquoted(&self) -> &str {
+                        #pk_column_name_str
+                    }
+                }
+                
+                let mut query = sea_query::UpdateStatement::default();
+                query.table(TableName);
+                
+                // Add SET clauses for dirty fields only (skip primary key)
+                #(#update_sets)*
+                
+                // Add WHERE clause
+                query.and_where(Expr::col(ColumnName).eq(id));
+                
+                // Add RETURNING clause
+                query.returning_col(sea_query::Asterisk);
+                
+                let (sql, _values) = query.build(PostgresQueryBuilder);
+                let params: Vec<&dyn may_postgres::types::ToSql> = vec![&id];
+                
+                let row = executor.query_one(&sql, &params)?;
+                #model_name::from_row(&row).map_err(|e| lifeguard::LifeError::ParseError(format!("Failed to parse row: {}", e)))
+            }
+        }
+    } else {
+        quote! {}
+    };
     
     // Generate the expanded code
     let expanded = quote! {
@@ -169,6 +322,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
             
             #(#setter_methods)*
+            
+            #crud_methods
         }
         
         impl Default for #record_name {
