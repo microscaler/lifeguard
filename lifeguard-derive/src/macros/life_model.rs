@@ -150,25 +150,37 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let column_name_str = column_name.clone();
         let field_name_ident = field_name.clone();
         
-        // For insert_many: build column reference (skip primary key if auto-increment)
+        // For insert_many: build column reference only if field is Some (skip primary key if auto-increment)
+        // This matches the behavior of single insert - only include columns that are set
         if !is_primary_key {
             let column_struct_name = Ident::new(&format!("ColumnName{}", column_variant), column_variant.span());
             insert_many_column_builders.push(quote! {
-                struct #column_struct_name;
-                impl sea_query::Iden for #column_struct_name {
-                    fn unquoted(&self) -> &str {
-                        #column_name_str
+                if let Some(_) = first_record.#field_name_ident {
+                    struct #column_struct_name;
+                    impl sea_query::Iden for #column_struct_name {
+                        fn unquoted(&self) -> &str {
+                            #column_name_str
+                        }
                     }
+                    columns.push(#column_struct_name);
                 }
-                columns.push(sea_query::ColumnRef::Column(#column_struct_name.into()));
             });
             
-            // For insert_many: extract value from record
+            // For insert_many: extract value from record only if field was included in column list
+            // This matches single insert behavior - skip None fields to let DB apply defaults
+            // Extract values in the same order as columns were built (only for fields that were Some in first record)
+            // Note: All records should have the same fields set, so if a field was included in columns,
+            // it should be Some in all records. The validation happens by checking value count matches column count.
             insert_many_value_extractors.push(quote! {
-                if let Some(ref val) = record.#field_name_ident {
-                    values.push(sea_query::Value::from(val.clone()));
-                } else {
-                    values.push(sea_query::Value::Null);
+                // Only extract if this field was included in the column list (was Some in first record)
+                // We check the first record to determine if this field should be extracted
+                if first_record.#field_name_ident.is_some() {
+                    if let Some(ref val) = record.#field_name_ident {
+                        values.push(sea_query::Expr::val(val.clone()));
+                    } else {
+                        // If field was in column list but is None in this record, push NULL
+                        values.push(sea_query::Expr::null());
+                    }
                 }
             });
         }
@@ -320,16 +332,28 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     return Err(lifeguard::LifeError::Other("No fields to insert".to_string()));
                 }
                 
-                // Build column list from dirty fields
+                // Build column list from dirty fields (only include columns that are Some)
+                // This matches single insert behavior - only include columns that are set
                 let mut columns = Vec::new();
                 #(#insert_many_column_builders)*
                 
+                if columns.is_empty() {
+                    return Err(lifeguard::LifeError::Other("No fields to insert".to_string()));
+                }
+                
                 query.columns(columns);
                 
-                // For each record, extract values and add to query
+                // For each record, extract values in the same order as columns
+                // Only extract values for fields that were included in the column list
                 for record in records {
                     let mut values = Vec::new();
                     #(#insert_many_value_extractors)*
+                    // Validate that we extracted the correct number of values
+                    if values.len() != columns.len() {
+                        return Err(lifeguard::LifeError::Other(
+                            format!("Record has inconsistent fields: expected {} values, got {}. All records must have the same fields set as the first record.", columns.len(), values.len())
+                        ));
+                    }
                     query.values_panic(values);
                 }
                 
@@ -376,6 +400,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::Double(None) => nulls.push(None),
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
                         sea_query::Value::Json(None) => nulls.push(None),
+                        sea_query::Value::Null => nulls.push(None),
                         _ => return Err(lifeguard::LifeError::Other(format!("Unsupported value type in insert_many"))),
                     }
                 }
@@ -441,6 +466,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                             string_idx += 1;
                         }
                         sea_query::Value::Json(None) => {
+                            params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
+                            null_idx += 1;
+                        }
+                        sea_query::Value::Null => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
@@ -533,6 +562,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::Double(None) => nulls.push(None),
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
                         sea_query::Value::Json(None) => nulls.push(None),
+                        sea_query::Value::Null => nulls.push(None),
                         _ => return Err(lifeguard::LifeError::Other(format!("Unsupported value type in update_many"))),
                     }
                 }
@@ -598,6 +628,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                             string_idx += 1;
                         }
                         sea_query::Value::Json(None) => {
+                            params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
+                            null_idx += 1;
+                        }
+                        sea_query::Value::Null => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
