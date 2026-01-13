@@ -528,3 +528,36 @@ fn test_batch_operations_all_data_types() {
         Ok(())
     }
 }
+
+#[test]
+fn test_batch_operations_with_json_fields() {
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_json_batch"]
+    struct TestJsonBatch {
+        #[primary_key]
+        id: i32,
+        name: String,
+        metadata: Option<String>, // JSON field stored as String
+    }
+    
+    // Verify that batch operations work with JSON fields
+    // This is a compile-time check - the methods should accept records with JSON fields
+    fn _check_json_batch<E: lifeguard::LifeExecutor>(
+        records: &[TestJsonBatchRecord],
+        update_values: &TestJsonBatchRecord,
+        executor: &E
+    ) -> Result<(), lifeguard::LifeError> {
+        // Test insert_many with JSON fields
+        let _inserted = TestJsonBatchModel::insert_many(records, executor)?;
+        
+        // Test update_many with JSON fields
+        let filter = Expr::col("id").gt(0);
+        let _updated_count = TestJsonBatchModel::update_many(filter, update_values, executor)?;
+        
+        // Test delete_many (doesn't need JSON, but verifies the method exists)
+        let delete_filter = Expr::col("id").lt(0);
+        let _deleted_count = TestJsonBatchModel::delete_many(delete_filter, executor)?;
+        
+        Ok(())
+    }
+}
