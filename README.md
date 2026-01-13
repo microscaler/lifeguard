@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="/docs/images/Lifeguard_cropped.png" alt="Lifeguard logo" />
+  <img src="/docs/images/Lifeguard2.png" alt="Lifeguard logo" />
 </p>
 
 # 🛟 Lifeguard: Coroutine-Driven Database Runtime for Rust
