@@ -269,4 +269,72 @@ mod tests {
         // We can't test the actual behavior without a database, but we can
         // verify the types are correct by checking compilation
     }
+
+    #[test]
+    fn test_empty_connection_string() {
+        let result = validate_connection_string("");
+        assert!(result.is_err());
+        if let Err(ConnectionError::InvalidConnectionString(msg)) = result {
+            assert!(msg.contains("empty"));
+        } else {
+            panic!("Expected InvalidConnectionString error");
+        }
+    }
+
+    #[test]
+    fn test_connection_string_with_whitespace() {
+        // Leading/trailing whitespace should be trimmed or handled
+        // Our validation is strict - whitespace in connection strings is invalid
+        // Users should trim their connection strings before passing them
+        let result = validate_connection_string("  postgresql://user:pass@host:5432/db  ");
+        // Validation should fail - connection strings with whitespace are invalid
+        assert!(result.is_err());
+        
+        // Trimmed version should work
+        let trimmed = "  postgresql://user:pass@host:5432/db  ".trim();
+        assert!(validate_connection_string(trimmed).is_ok());
+    }
+
+    #[test]
+    fn test_connection_string_special_characters_in_password() {
+        // Passwords with special characters should be URL-encoded
+        let valid = "postgresql://user:p%40ss%21word@host:5432/db";
+        assert!(validate_connection_string(valid).is_ok());
+    }
+
+    #[test]
+    fn test_connection_string_missing_parts() {
+        // Missing @ in URI format
+        let result = validate_connection_string("postgresql://user:pass@host:5432/db");
+        // Should pass validation (format is correct)
+        assert!(result.is_ok());
+        
+        // Missing @ entirely
+        let result2 = validate_connection_string("postgresql://localhost:5432/db");
+        assert!(result2.is_err());
+    }
+
+    #[test]
+    fn test_connection_string_key_value_missing_equals() {
+        // Key-value format without = should fail
+        let result = validate_connection_string("host localhost user postgres");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_connection_string_very_long() {
+        // Very long connection strings should still validate
+        let long_string = format!("postgresql://user:pass@host:5432/db?{}", "a".repeat(1000));
+        // Should pass format validation (actual connection may fail, but format is valid)
+        assert!(validate_connection_string(&long_string).is_ok());
+    }
+
+    #[test]
+    fn test_connection_error_display_all_variants() {
+        let err1 = ConnectionError::InvalidConnectionString("test".to_string());
+        assert!(err1.to_string().contains("Invalid connection string"));
+
+        let err2 = ConnectionError::Other("test".to_string());
+        assert!(err2.to_string().contains("Connection error"));
+    }
 }
