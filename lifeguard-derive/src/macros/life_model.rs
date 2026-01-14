@@ -298,12 +298,29 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             ///
             /// Returns a query builder that can be chained with filters.
             /// 
-            /// HYPOTHESIS 2 TEST: Match the exact pattern used in working tests
-            /// Tests use SelectQuery::<Type>::new() - try matching that exact syntax
+            /// HYPOTHESIS 3 TEST: Construct SelectQuery manually to bypass trait bound in ::new()
+            /// Even constructing manually still requires the return type, which may trigger the check
             pub fn find() -> lifeguard::SelectQuery<#model_name> {
-                // HYPOTHESIS 2: Match the exact working pattern from query.rs tests
-                // Tests successfully use: SelectQuery::<TestModel>::new("table")
-                lifeguard::SelectQuery::<#model_name>::new(#struct_name::TABLE_NAME)
+                // HYPOTHESIS 3: Manually construct SelectQuery to avoid calling ::new() method
+                // This bypasses the method that requires the trait bound
+                use sea_query::{SelectStatement, PostgresQueryBuilder};
+                use sea_query::Iden;
+                use std::marker::PhantomData;
+                
+                struct TableName(&'static str);
+                impl Iden for TableName {
+                    fn unquoted(&self) -> &str {
+                        self.0
+                    }
+                }
+                
+                let mut query = SelectStatement::default();
+                query.column(sea_query::Asterisk).from(TableName(#struct_name::TABLE_NAME));
+                
+                lifeguard::SelectQuery {
+                    query,
+                    _phantom: PhantomData,
+                }
             }
             
             /// Delete a record by primary key
