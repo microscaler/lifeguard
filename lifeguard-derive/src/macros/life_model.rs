@@ -839,9 +839,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // Users should apply #[derive(FromRow)] to the Model struct separately.
         
         // STEP 3: Generate LifeModelTrait implementation (after Model exists)
-        // Following SeaORM: EntityTrait is generated after Model and FromQueryResult
-        // But we can't generate it here because FromRow is separate.
-        // Users must apply DeriveLifeModelTrait separately.
+        // Following SeaORM: EntityTrait is generated in the same expansion as Entity and Model
+        // This allows the compiler to resolve the associated type Model during expansion
+        // Note: FromRow is still separate, but the trait bound is checked at usage sites
+        impl lifeguard::LifeModelTrait for Entity {
+            type Model = #model_name;
+        }
         
         // CRUD methods on Model (find_by_id, delete_by_id, etc.)
         // These remain as struct methods since they're not part of the trait
