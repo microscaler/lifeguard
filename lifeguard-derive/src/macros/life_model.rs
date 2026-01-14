@@ -154,21 +154,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut update_many_setters = Vec::new();
     
     for (field_name, column_name, column_variant, is_primary_key) in &all_fields_info {
-        let column_name_str = column_name.clone();
         let field_name_ident = field_name.clone();
+        let column_name_str = column_name.clone();
         
         // For insert_many: build column reference only if field is Some (skip primary key if auto-increment)
         // This matches the behavior of single insert - only include columns that are set
+        // Use &'static str directly since IntoIden is implemented for it, avoiding type conflicts
         if !is_primary_key {
             insert_many_column_builders.push(quote! {
                 if let Some(_) = first_record.#field_name_ident {
-                    struct ColumnName;
-                    impl sea_query::Iden for ColumnName {
-                        fn unquoted(&self) -> &str {
-                            #column_name_str
-                        }
-                    }
-                    columns.push(ColumnName);
+                    columns.push(#column_name_str);
                 }
             });
             
@@ -193,6 +188,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         
         // For update_many: build SET clause (skip primary key)
         if !is_primary_key {
+            let column_name_str = column_name.clone();
             let column_struct_name = Ident::new(&format!("ColumnName{}", column_variant), column_variant.span());
             update_many_setters.push(quote! {
                 if let Some(ref val) = values.#field_name_ident {
@@ -313,8 +309,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             ///
             /// Returns a vector of inserted Models with all fields populated (including generated primary keys).
             pub fn insert_many<E: lifeguard::LifeExecutor>(records: &[#struct_name::Record], executor: &E) -> Result<Vec<#model_name>, lifeguard::LifeError> {
-                use sea_query::{InsertStatement, PostgresQueryBuilder};
-                use sea_query::Iden;
+                use sea_query::{InsertStatement, PostgresQueryBuilder, Iden};
                 
                 if records.is_empty() {
                     return Ok(Vec::new());
@@ -340,7 +335,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 
                 // Build column list from dirty fields (only include columns that are Some)
                 // This matches single insert behavior - only include columns that are set
-                let mut columns = Vec::new();
+                // Use Vec<&'static str> since IntoIden is implemented for &'static str
+                let mut columns: Vec<&'static str> = Vec::new();
                 #(#insert_many_column_builders)*
                 
                 if columns.is_empty() {

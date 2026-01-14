@@ -145,13 +145,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             let column_name_str = column_name.clone();
             insert_field_checks.push(quote! {
                 if let Some(ref val) = self.#field_name {
-                    struct ColumnName;
-                    impl sea_query::Iden for ColumnName {
-                        fn unquoted(&self) -> &str {
-                            #column_name_str
-                        }
-                    }
-                    columns.push(ColumnName);
+                    columns.push(#column_name_str);
                     values.push(sea_query::Expr::val(val.clone()));
                 }
             });
@@ -189,8 +183,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             ///
             /// Returns the inserted Model with all fields populated (including generated primary key).
             pub fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<#model_name, lifeguard::LifeError> {
-                use sea_query::{InsertStatement, PostgresQueryBuilder};
-                use sea_query::Iden;
+                use sea_query::{InsertStatement, PostgresQueryBuilder, Iden};
                 
                 struct TableName;
                 impl Iden for TableName {
@@ -203,7 +196,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 query.into_table(TableName);
                 
                 // Build columns and values from dirty fields
-                let mut columns = Vec::new();
+                // Use Vec<&'static str> since IntoIden is implemented for &'static str
+                let mut columns: Vec<&'static str> = Vec::new();
                 let mut values = Vec::new();
                 
                 #(#insert_field_checks)*
