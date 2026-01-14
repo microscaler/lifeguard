@@ -138,8 +138,72 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         model_fields.push(quote! {
             pub #field_name: #field_type,
         });
+    }
+    
+    // Generate FromRow field extraction code
+    let mut from_row_fields = Vec::new();
+    for field in fields.iter() {
+        let field_name = field.ident.as_ref().unwrap();
+        let field_type = &field.ty;
+        let column_name = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+        let column_name_str = column_name.as_str();
         
-        // NOTE: FromRow field extraction is now handled by the separate FromRow derive macro
+        // Handle unsigned integer types by converting to signed first
+        let get_expr = {
+            // Check if this is an unsigned integer type
+            let is_unsigned = match field_type {
+                syn::Type::Path(syn::TypePath {
+                    path: syn::Path { segments, .. },
+                    ..
+                }) => {
+                    if let Some(segment) = segments.first() {
+                        let ident_str = segment.ident.to_string();
+                        matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            };
+            
+            if is_unsigned {
+                // For unsigned types, convert to signed equivalent first
+                let signed_type = match field_type {
+                    syn::Type::Path(syn::TypePath {
+                        path: syn::Path { segments, .. },
+                        ..
+                    }) => {
+                        if let Some(segment) = segments.first() {
+                            match segment.ident.to_string().as_str() {
+                                "u8" => quote! { i16 },
+                                "u16" => quote! { i32 },
+                                "u32" | "u64" => quote! { i64 },
+                                _ => quote! { i32 },
+                            }
+                        } else {
+                            quote! { i32 }
+                        }
+                    }
+                    _ => quote! { i32 },
+                };
+                
+                quote! {
+                    {
+                        let val: #signed_type = row.get::<&str, #signed_type>(#column_name_str)?;
+                        val as #field_type
+                    }
+                }
+            } else {
+                quote! {
+                    row.get::<&str, #field_type>(#column_name_str)?
+                }
+            }
+        };
+        
+        from_row_fields.push(quote! {
+            #field_name: #get_expr,
+        });
     }
     
     // Generate field extraction code for batch operations
@@ -774,32 +838,48 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     // In our case, we generate everything in one expansion, but we need to ensure
     // the order matches SeaORM: Entity/Column/PrimaryKey first, then Model, then EntityTrait
     
-    // Create LitStr for model name attribute (must be done before quote!)
-    let model_name_str = model_name.to_string();
-    let model_name_lit = syn::LitStr::new(&model_name_str, model_name.span());
-    
     let expanded = quote! {
         // STEP 1: Generate Entity, Column, PrimaryKey first (like SeaORM's expand_derive_entity_model)
-        // Following SeaORM's EXACT pattern: Generate Entity with #[derive(DeriveEntity)]
-        // This triggers a NESTED macro expansion where DeriveEntity generates EntityTrait
-        // This separation allows the compiler to resolve types in separate expansion phases
-        // 
-        // CRITICAL: Pass model name via attribute so DeriveEntity knows which Model to reference
-        // The model name is passed as a string literal in the attribute
+        // Entity unit struct (following SeaORM pattern)
         // Entity must implement Copy for IdenStatic (following SeaORM pattern)
-        // NOTE: Don't derive Default here - DeriveEntity implements it
-        #[derive(Copy, Clone, Debug, lifeguard_derive::DeriveEntity)]
-        #[table_name = #table_name]
-        #[model = #model_name_lit]
+        #[derive(Copy, Clone, Debug)]
         pub struct Entity;
         
-        // Table name constant (for backward compatibility)
+        // Table name constant
         mod entity_consts {
             pub const TABLE_NAME: &'static str = #table_name;
         }
         
         impl Entity {
             pub const TABLE_NAME: &'static str = entity_consts::TABLE_NAME;
+        }
+        
+        // Implement Default for Entity (required by LifeEntityName)
+        impl Default for Entity {
+            fn default() -> Self {
+                Entity
+            }
+        }
+        
+        // Implement LifeEntityName for Entity
+        impl lifeguard::LifeEntityName for Entity {
+            fn table_name(&self) -> &'static str {
+                #table_name
+            }
+        }
+        
+        // Implement Iden for Entity (for use in sea_query)
+        impl sea_query::Iden for Entity {
+            fn unquoted(&self) -> &str {
+                #table_name
+            }
+        }
+        
+        // Implement IdenStatic for Entity (for use in sea_query)
+        impl sea_query::IdenStatic for Entity {
+            fn as_str(&self) -> &'static str {
+                #table_name
+            }
         }
         
         // Column enum
@@ -830,9 +910,22 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             #(#model_fields)*
         }
         
-        // NOTE: FromRow implementation is generated by a separate derive macro
-        // This avoids trait bound resolution issues during macro expansion.
-        // Users should apply #[derive(FromRow)] to the Model struct separately.
+        // Generate FromRow implementation automatically
+        impl lifeguard::FromRow for #model_name {
+            fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                Ok(Self {
+                    #(#from_row_fields)*
+                })
+            }
+        }
+        
+        // STEP 3: Generate LifeModelTrait implementation (after Model exists)
+        // Following SeaORM: EntityTrait is generated in the same expansion as Entity and Model
+        // This allows the compiler to resolve the associated type Model during expansion
+        // Note: FromRow is still separate, but the trait bound is checked at usage sites
+        impl lifeguard::LifeModelTrait for Entity {
+            type Model = #model_name;
+        }
         
         // CRUD methods on Model (find_by_id, delete_by_id, etc.)
         // These remain as struct methods since they're not part of the trait
@@ -841,11 +934,6 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         impl #model_name {
             #crud_methods
         }
-        
-        // NOTE: LifeModelTrait implementation is generated by DeriveEntity (nested expansion)
-        // This is the KEY INSIGHT from SeaORM: EntityTrait is generated in a SEPARATE
-        // macro expansion phase via #[derive(DeriveEntity)] on Entity, not in the same
-        // expansion as Entity and Model. This allows the compiler to resolve types properly.
     };
     
     TokenStream::from(expanded)
