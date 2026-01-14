@@ -365,3 +365,21 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 - **Design Philosophy:** Simpler API than SeaORM, optimized for coroutines
 - **Compatibility:** Uses SeaQuery directly, ensuring SQL compatibility
 - **Future:** Incremental feature addition based on user needs
+
+## Test Coverage
+
+**Comprehensive test coverage has been implemented:**
+- ✅ LifeModel derive: 20 comprehensive + 11 edge case tests = 31 tests
+- ✅ LifeRecord derive: 23 comprehensive + 16 edge case tests = 39 tests
+- ✅ Query Builder: 100+ tests including edge cases in `src/query.rs`
+- ✅ Total: 178+ tests covering all implemented features
+
+**Test Files:**
+- `lifeguard-derive/tests/test_minimal.rs` - 8 basic tests
+- `lifeguard-derive/tests/test_life_model_comprehensive.rs` - 20 tests
+- `lifeguard-derive/tests/test_life_record_comprehensive.rs` - 23 tests
+- `lifeguard-derive/tests/test_life_model_edge_cases.rs` - 11 tests
+- `lifeguard-derive/tests/test_life_record_edge_cases.rs` - 16 tests
+- `src/query.rs` - 100+ query builder and paginator tests
+
+See `TEST_COVERAGE_SUMMARY.md` for detailed breakdown.
