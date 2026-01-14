@@ -113,7 +113,10 @@ pub trait LifeEntityName: Default {
 /// ```
 pub trait LifeModelTrait: LifeEntityName {
     /// The Model type that represents database rows
-    type Model: FromRow;
+    /// 
+    /// Note: The `FromRow` bound is not enforced here to avoid macro expansion issues.
+    /// The bound is checked at usage sites (in SelectQuery methods) where it can be verified.
+    type Model;
 
     /// Start a query builder for finding records
     ///
@@ -379,7 +382,10 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let users = User::find().all(executor)?;
     /// ```
-    pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<E::Model>, LifeError> {
+    pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<E::Model>, LifeError>
+    where
+        E::Model: FromRow,
+    {
         let (sql, values) = self.query.build(PostgresQueryBuilder);
         
         // Convert SeaQuery values to may_postgres ToSql parameters
@@ -541,7 +547,10 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let user = UserModel::find().one(executor)?;
     /// ```
-    pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<E::Model, LifeError> {
+    pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<E::Model, LifeError>
+    where
+        E::Model: FromRow,
+    {
         let (sql, values) = self.query.build(PostgresQueryBuilder);
         
         // Convert SeaQuery values to may_postgres ToSql parameters
@@ -697,7 +706,10 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let user = UserModel::find().filter(Expr::col("id").eq(1)).find_one(executor)?;
     /// ```
-    pub fn find_one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Option<E::Model>, LifeError> {
+    pub fn find_one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Option<E::Model>, LifeError>
+    where
+        E::Model: FromRow,
+    {
         match self.one(executor) {
             Ok(model) => Ok(Some(model)),
             Err(e) => {
@@ -735,7 +747,10 @@ where
     /// let mut paginator = UserModel::find().paginate(executor, 10);
     /// let page_1 = paginator.fetch_page(1)?;
     /// ```
-    pub fn paginate<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> Paginator<'e, E, Ex> {
+    pub fn paginate<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> Paginator<'e, E, Ex>
+    where
+        E::Model: FromRow,
+    {
         Paginator::new(self, executor, page_size)
     }
     
@@ -971,7 +986,10 @@ where
     /// let total = paginator.num_items()?;
     /// let page_1 = paginator.fetch_page(1)?;
     /// ```
-    pub fn paginate_and_count<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> PaginatorWithCount<'e, E, Ex> {
+    pub fn paginate_and_count<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> PaginatorWithCount<'e, E, Ex>
+    where
+        E::Model: FromRow,
+    {
         PaginatorWithCount::new(self, executor, page_size)
     }
 }
@@ -997,6 +1015,7 @@ where
 impl<'e, E, Ex> Paginator<'e, E, Ex>
 where
     E: LifeModelTrait,
+    E::Model: FromRow,
     Ex: LifeExecutor,
 {
     fn new(query: SelectQuery<E>, executor: &'e Ex, page_size: usize) -> Self {
@@ -1042,6 +1061,7 @@ where
 impl<'e, E, Ex> PaginatorWithCount<'e, E, Ex>
 where
     E: LifeModelTrait,
+    E::Model: FromRow,
     Ex: LifeExecutor,
 {
     fn new(query: SelectQuery<E>, executor: &'e Ex, page_size: usize) -> Self {
