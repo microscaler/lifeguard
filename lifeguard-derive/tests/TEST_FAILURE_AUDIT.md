@@ -436,18 +436,28 @@ SeaORM implements `EntityTrait` for `Entity` (the struct name), with `Model` as 
 **Current Status:**
 - ✅ Core `lifeguard` package compiles successfully
 - ✅ Entity pattern fully implemented matching SeaORM
-- ❌ E0223/E0282 errors persist in derive macro tests
-- The compiler still can't verify `Self: LifeModelTrait` during macro expansion when both the trait impl and `FromRow` impl are macro-generated
+- ✅ **E0223/E0282 errors ELIMINATED!** (0 errors, down from 136)
+- ✅ Solution: Removed trait bound from associated type, added to method signatures
 
 **Root Cause Analysis:**
-Even with the Entity pattern, the compiler can't resolve the associated type `E::Model` during macro expansion. When we generate:
+The compiler can't verify `type Model: FromRow` during macro expansion because both `impl FromRow for #model_name` and `impl LifeModelTrait for Entity { type Model = #model_name; }` are generated in the same expansion.
+
+**SOLUTION FOUND:**
+Removed the trait bound from the associated type definition:
 ```rust
-impl LifeModelTrait for #struct_name {
-    type Model = #model_name;
-    fn find() -> SelectQuery<Self> { ... }
+pub trait LifeModelTrait: LifeEntityName {
+    type Model;  // No trait bound here!
 }
 ```
-The compiler needs to verify `Self: LifeModelTrait` when checking `SelectQuery<Self>`, but `Self` is `#struct_name` which is being defined in the same macro expansion. This is a fundamental limitation of Rust's macro system - trait bounds can't be verified on types being defined in the same expansion.
+
+Instead, added `where E::Model: FromRow` to methods that actually use it:
+- `all()`, `one()`, `find_one()`
+- `paginate()`, `paginate_and_count()`
+- `Paginator` and `PaginatorWithCount` impl blocks
+
+This allows the macro to generate `impl LifeModelTrait` without needing to verify the trait bound during expansion. The bound is checked at usage sites (method calls) where it can be properly resolved by the compiler.
+
+**Result:** E0223/E0282 errors eliminated! ✅
 
 **Next Steps:**
 1. Investigate if SeaORM has additional workarounds or patterns
