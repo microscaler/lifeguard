@@ -64,6 +64,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut model_fields = Vec::new();
     let mut from_row_fields = Vec::new();
     let mut column_impls = Vec::new();
+    let mut iden_impls = Vec::new();
     
     // Track primary key field for CRUD operations
     let mut primary_key_field: Option<(Ident, syn::Type, String)> = None;
@@ -119,6 +120,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 }
                 sea_query::ColumnRef::Column(ColumnName.into())
             }
+        });
+        
+        // Generate Iden implementation for this variant
+        let column_name_str_iden = column_name.clone();
+        iden_impls.push(quote! {
+            Column::#column_variant => #column_name_str_iden,
         });
         
         // Generate PrimaryKey enum variant if primary key
@@ -709,6 +716,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::Double(None) => nulls.push(None),
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
                         sea_query::Value::Json(None) => nulls.push(None),
+                        sea_query::Value::Null => nulls.push(None),
                         _ => return Err(lifeguard::LifeError::Other(format!("Unsupported value type in delete_many"))),
                     }
                 }
@@ -777,6 +785,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
+                        sea_query::Value::Null => {
+                            params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
+                            null_idx += 1;
+                        }
                         _ => return Err(lifeguard::LifeError::Other(format!("Unsupported value type in delete_many"))),
                     }
                 }
@@ -802,11 +814,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             #(#column_variants)*
         }
         
-        // Implement IntoColumnRef for Column enum (enables type-safe query building)
-        impl sea_query::IntoColumnRef for Column {
-            fn into_column_ref(self) -> sea_query::ColumnRef {
+        // Implement Iden for Column enum (required for Expr::col())
+        // This allows Column to be used directly with sea_query expressions
+        // sea_query provides a blanket impl: impl<T> IntoColumnRef for T where T: Into<ColumnRef>
+        // Since Iden implements Into<ColumnRef>, implementing Iden is sufficient
+        impl sea_query::Iden for Column {
+            fn unquoted(&self) -> &str {
                 match self {
-                    #(#column_impls)*
+                    #(#iden_impls)*
                 }
             }
         }

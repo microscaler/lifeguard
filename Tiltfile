@@ -102,6 +102,38 @@ local_resource(
     allow_parallel=True,
 )
 
+# Run lifeguard-derive tests (compile-time macro verification tests)
+# These tests don't require a database - they verify macro code generation
+local_resource(
+    'test-derive',
+    cmd='cd lifeguard-derive && cargo test --no-fail-fast',
+    deps=[
+        'lifeguard-derive/src',
+        'lifeguard-derive/tests',
+        'lifeguard-derive/Cargo.toml',
+        'lifeguard-derive/Cargo.lock',
+    ],
+    resource_deps=[],  # No database needed - compile-time tests only
+    labels=['tests'],
+    allow_parallel=True,
+)
+
+# Run lifeguard-derive tests with nextest (faster execution)
+local_resource(
+    'test-derive-nextest',
+    cmd='cd lifeguard-derive && cargo nextest run --all-features',
+    deps=[
+        'lifeguard-derive/src',
+        'lifeguard-derive/tests',
+        'lifeguard-derive/Cargo.toml',
+        'lifeguard-derive/Cargo.lock',
+        '.config/nextest.toml',  # Use workspace nextest config
+    ],
+    resource_deps=[],  # No database needed - compile-time tests only
+    labels=['tests'],
+    allow_parallel=True,
+)
+
 # ====================
 # Examples
 # ====================
