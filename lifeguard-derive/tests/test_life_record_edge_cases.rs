@@ -43,13 +43,16 @@ mod tests {
         record.set_name("Test".to_string());
         record.set_email("test@example.com".to_string());
         record.set_active(true);
-        // age is optional, can be None
+        // age is Option<i32> but not marked #[nullable], so it's required
+        // We need to set it explicitly (even if to None)
+        record.set_age(None);
         
         let model = record.to_model();
         assert_eq!(model.id, 1);
         assert_eq!(model.name, "Test");
         assert_eq!(model.email, "test@example.com");
         assert_eq!(model.active, true);
+        assert_eq!(model.age, None);
     }
 
     // ============================================================================

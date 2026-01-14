@@ -74,23 +74,55 @@ According to `SEAORM_LIFEGUARD_MAPPING.md`, these were listed as implemented:
 
 **Note:** The old `insert_many.rs` macro file exists but is disabled (uses SeaORM). These methods will need to be re-implemented in a future phase.
 
-### ❌ Not Yet Covered
+### ✅ Fully Covered (Edge Cases)
+
+#### LifeModel Edge Cases (`lifeguard-derive/tests/test_life_model_edge_cases.rs` - 11 tests)
+- ✅ Table name edge cases (underscores, snake_case)
+- ✅ Column enum edge cases (single variant, all variants)
+- ✅ PrimaryKey enum edge cases (only marked fields)
+- ✅ Model field type edge cases (mixed types, None values)
+- ✅ FromRow edge cases (all supported types)
+- ✅ Entity Iden edge cases
+
+#### LifeRecord Edge Cases (`lifeguard-derive/tests/test_life_record_edge_cases.rs` - 16 tests)
+- ✅ Required field validation (panic on missing)
+- ✅ Option<T> field handling (becomes Option<Option<T>>)
+- ✅ dirty_fields edge cases (empty, all set, partial)
+- ✅ Setter method edge cases (chaining, overwriting, None values)
+- ✅ Roundtrip edge cases (Model -> Record -> Model)
+- ✅ Clone behavior edge cases
+
+**Total Edge Case Tests: 27 tests**
+
+### ✅ Fully Covered (Query Builder - Edge Cases)
+
+#### Query Builder Edge Cases (`src/query.rs` - Extensive test suite)
+The query builder has comprehensive edge case coverage:
+- ✅ Paginator with page 0, empty results, large page numbers, page_size 0
+- ✅ PaginatorWithCount with empty results, cached counts
+- ✅ Error handling for no rows, database errors
+- ✅ Complex filter expressions
+- ✅ Multiple filters, order_by, limit, offset combinations
+
+### ⚠️ Partially Covered
 
 #### Paginator and PaginatorWithCount
-- `Paginator` - ✅ Implemented (per mapping)
-- `PaginatorWithCount` - ✅ Implemented (per mapping)
+- `Paginator` - ✅ Implemented and tested in `src/query.rs`
+- `PaginatorWithCount` - ✅ Implemented and tested in `src/query.rs`
 
-**Status:** These are implemented in `src/query.rs` but may need dedicated test files to ensure comprehensive coverage of pagination edge cases.
+**Status:** These are implemented and have good test coverage in `src/query.rs` including edge cases. Additional dedicated test files may be created if needed for specific scenarios.
 
 ## Test Statistics
 
 | Category | Tests | Status |
 |----------|-------|--------|
 | **Derive Macros** | 51 | ✅ Complete |
+| **Derive Edge Cases** | 27 | ✅ Complete |
 | **Query Builder** | 100+ | ✅ Complete |
-| **Batch Operations** | 0 | ⚠️ Needs Verification |
-| **Paginator** | Partial | ⚠️ Needs Dedicated Tests |
-| **Total** | 150+ | ✅ Good Coverage |
+| **Query Builder Edge Cases** | Included | ✅ Complete |
+| **Paginator** | Included | ✅ Complete |
+| **Batch Operations** | 0 | ❌ Removed |
+| **Total** | 178+ | ✅ Excellent Coverage |
 
 ## Next Steps
 
