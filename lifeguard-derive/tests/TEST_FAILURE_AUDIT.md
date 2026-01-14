@@ -420,16 +420,40 @@ We need to either:
 - ✅ Identified the key difference: trait-based vs. struct method approach
 - ✅ Implemented `LifeModelTrait` similar to `EntityTrait`
 - ✅ Removed trait bounds from `SelectQuery<M>` struct (matching SeaORM's pattern)
-- ❌ **E0223/E0282 errors persist** - compiler still can't resolve types during macro expansion
+- ✅ **Implemented Entity Pattern:** Following SeaORM's architecture exactly
+  - `LifeModelTrait` has associated type `type Model: FromRow`
+  - `SelectQuery<E>` uses Entity (struct name) as type parameter
+  - Macro generates `impl LifeModelTrait for Entity` (struct name)
+  - All query methods return `E::Model` instead of `M`
+- ❌ **E0223/E0282 errors STILL persist** (136 errors) - compiler still can't resolve types during macro expansion
 
 **Key Discovery:**
-SeaORM implements `EntityTrait` for `Entity` (a unit struct), not for `Model`. The `Model` is an associated type. This might be the missing piece - we're implementing `LifeModelTrait` for `Model`, but maybe we should implement it for an `Entity` unit struct instead.
+SeaORM implements `EntityTrait` for `Entity` (the struct name), with `Model` as an associated type. We've now implemented the exact same pattern:
+- Entity (struct name) implements `LifeModelTrait`
+- `SelectQuery<Entity>` requires `Entity: LifeModelTrait` (satisfied by the impl)
+- Model is accessed via associated type `E::Model`
 
 **Current Status:**
-- Trait-based approach compiles
-- Struct-level trait bounds removed (matching SeaORM)
-- E0223/E0282 errors still occur in tests
-- Need to investigate Entity vs Model pattern
+- ✅ Core `lifeguard` package compiles successfully
+- ✅ Entity pattern fully implemented matching SeaORM
+- ❌ E0223/E0282 errors persist in derive macro tests
+- The compiler still can't verify `Self: LifeModelTrait` during macro expansion when both the trait impl and `FromRow` impl are macro-generated
+
+**Root Cause Analysis:**
+Even with the Entity pattern, the compiler can't resolve the associated type `E::Model` during macro expansion. When we generate:
+```rust
+impl LifeModelTrait for #struct_name {
+    type Model = #model_name;
+    fn find() -> SelectQuery<Self> { ... }
+}
+```
+The compiler needs to verify `Self: LifeModelTrait` when checking `SelectQuery<Self>`, but `Self` is `#struct_name` which is being defined in the same macro expansion. This is a fundamental limitation of Rust's macro system - trait bounds can't be verified on types being defined in the same expansion.
+
+**Next Steps:**
+1. Investigate if SeaORM has additional workarounds or patterns
+2. Consider if this is a known limitation that SeaORM also faces
+3. Check if there's a way to defer the trait bound check
+4. Update all test code to use `Entity::find()` instead of `Model::find()`
 
 ### Potential Solutions (To Investigate)
 
