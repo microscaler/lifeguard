@@ -53,6 +53,41 @@ k8s_resource(
 )
 
 # ====================
+# Build Resources
+# ====================
+# Compilation resources for catching build errors early
+
+# Build lifeguard-derive (procedural macros)
+local_resource(
+    'build-derive',
+    cmd='cargo build -p lifeguard-derive',
+    deps=[
+        'lifeguard-derive/src',
+        'lifeguard-derive/Cargo.toml',
+        'lifeguard-derive/Cargo.lock',
+    ],
+    resource_deps=[],  # No dependencies - standalone crate
+    labels=['build'],
+    allow_parallel=True,
+)
+
+# Build main lifeguard crate (depends on lifeguard-derive)
+local_resource(
+    'build-lifeguard',
+    cmd='cargo build',
+    deps=[
+        'src',
+        'lifeguard-derive/src',
+        'Cargo.toml',
+        'Cargo.lock',
+        'lifeguard-derive/Cargo.toml',
+    ],
+    resource_deps=['build-derive'],  # Wait for lifeguard-derive to compile first
+    labels=['build'],
+    allow_parallel=True,
+)
+
+# ====================
 # Test Helpers
 # ====================
 # Local resources for running tests and examples
@@ -66,7 +101,7 @@ local_resource(
         'Cargo.toml',
         'Cargo.lock',
     ],
-    resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
+    resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
     labels=['tests'],
     allow_parallel=True,
 )
@@ -113,7 +148,7 @@ local_resource(
         'lifeguard-derive/Cargo.toml',
         'lifeguard-derive/Cargo.lock',
     ],
-    resource_deps=[],  # No database needed - compile-time tests only
+    resource_deps=['build-derive'],  # Wait for build to complete first
     labels=['tests'],
     allow_parallel=True,
 )
@@ -129,7 +164,22 @@ local_resource(
         'lifeguard-derive/Cargo.lock',
         '.config/nextest.toml',  # Use workspace nextest config
     ],
-    resource_deps=[],  # No database needed - compile-time tests only
+    resource_deps=['build-derive'],  # Wait for build to complete first
+    labels=['tests'],
+    allow_parallel=True,
+)
+
+# Test the minimal working pattern (verifies basic LifeModel flow)
+local_resource(
+    'test-minimal-pattern',
+    cmd='cd lifeguard-derive && cargo test --test test_minimal',
+    deps=[
+        'lifeguard-derive/src',
+        'lifeguard-derive/tests/test_minimal.rs',
+        'lifeguard-derive/Cargo.toml',
+        'lifeguard-derive/Cargo.lock',
+    ],
+    resource_deps=['build-derive'],  # Wait for build to complete first
     labels=['tests'],
     allow_parallel=True,
 )
