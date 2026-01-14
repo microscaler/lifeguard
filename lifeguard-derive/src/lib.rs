@@ -21,7 +21,7 @@ use proc_macro::TokenStream;
 /// #[table_name = "users"]
 /// pub struct Entity;
 /// ```
-#[proc_macro_derive(DeriveEntity, attributes(table_name))]
+#[proc_macro_derive(DeriveEntity, attributes(table_name, model))]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     macros::derive_entity(input)
 }

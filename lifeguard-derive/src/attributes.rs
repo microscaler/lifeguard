@@ -36,6 +36,25 @@ pub fn extract_column_name(field: &Field) -> Option<String> {
     None
 }
 
+/// Extract model name from struct attributes
+/// Used by DeriveEntity to know which Model type to reference in EntityTrait
+pub fn extract_model_name(attrs: &[Attribute]) -> Option<syn::Ident> {
+    for attr in attrs {
+        if attr.path().is_ident("model") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    // Parse the string as an Ident
+                    return syn::parse_str::<syn::Ident>(&s.value()).ok();
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Check if field has a specific attribute
 pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
     field.attrs.iter().any(|attr| attr.path().is_ident(attr_name))
