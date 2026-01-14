@@ -838,18 +838,23 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // This avoids trait bound resolution issues during macro expansion.
         // Users should apply #[derive(FromRow)] to the Model struct separately.
         
-        // STEP 3: Generate LifeModelTrait implementation (after Model exists)
+        // CRUD methods on Model (find_by_id, delete_by_id, etc.)
+        // These remain as struct methods since they're not part of the trait
+        // NOTE: These methods use <Self as lifeguard::FromRow>::from_row which requires
+        // FromRow to be implemented separately. The trait bound is checked at usage time.
+        impl #model_name {
+            #crud_methods
+        }
+        
+        // STEP 3: Generate LifeModelTrait implementation (AFTER everything else)
         // Following SeaORM: EntityTrait is generated in the same expansion as Entity and Model
         // This allows the compiler to resolve the associated type Model during expansion
         // Note: FromRow is still separate, but the trait bound is checked at usage sites
+        // 
+        // CRITICAL: Generate this LAST to ensure Entity, Model, and all other types are
+        // fully defined before the compiler tries to resolve the associated type.
         impl lifeguard::LifeModelTrait for Entity {
             type Model = #model_name;
-        }
-        
-        // CRUD methods on Model (find_by_id, delete_by_id, etc.)
-        // These remain as struct methods since they're not part of the trait
-        impl #model_name {
-            #crud_methods
         }
     };
     
