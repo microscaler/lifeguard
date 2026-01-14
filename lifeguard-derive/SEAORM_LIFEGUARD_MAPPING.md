@@ -87,8 +87,8 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `Select<E>::order_by()` | `SelectQuery<E>::order_by()` | ✅ Implemented | ORDER BY clause |
 | `Select<E>::limit()` | `SelectQuery<E>::limit()` | ✅ Implemented | LIMIT clause |
 | `Select<E>::offset()` | `SelectQuery<E>::offset()` | ✅ Implemented | OFFSET clause |
-| `Select<E>::group_by()` | ❌ Missing | 🔴 **Future** | GROUP BY clause |
-| `Select<E>::having()` | ❌ Missing | 🔴 **Future** | HAVING clause |
+| `Select<E>::group_by()` | `SelectQuery<E>::group_by()` | ✅ Implemented | GROUP BY clause |
+| `Select<E>::having()` | `SelectQuery<E>::having()` | ✅ Implemented | HAVING clause |
 | `Select<E>::join()` | ❌ Missing | 🟡 **Future** | JOIN operations |
 | `Select<E>::left_join()` | ❌ Missing | 🟡 **Future** | LEFT JOIN |
 | `Select<E>::right_join()` | ❌ Missing | 🟡 **Future** | RIGHT JOIN |
@@ -103,9 +103,9 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `Entity::insert()` | ❌ Missing | 🔴 **Future** | Insert ActiveModel |
 | `Entity::update()` | ❌ Missing | 🔴 **Future** | Update ActiveModel |
 | `Entity::delete()` | ❌ Missing | 🔴 **Future** | Delete by primary key |
-| `Entity::delete_many()` | `Model::delete_many()` | ✅ Implemented | Batch delete (different API) |
-| `Entity::insert_many()` | `Model::insert_many()` | ✅ Implemented | Batch insert (different API) |
-| `Entity::update_many()` | `Model::update_many()` | ✅ Implemented | Batch update (different API) |
+| `Entity::delete_many()` | ❌ **Removed** | ⚠️ Was removed during simplification | Batch delete - needs re-implementation |
+| `Entity::insert_many()` | ❌ **Removed** | ⚠️ Was removed during simplification | Batch insert - needs re-implementation |
+| `Entity::update_many()` | ❌ **Removed** | ⚠️ Was removed during simplification | Batch update - needs re-implementation |
 
 ---
 
