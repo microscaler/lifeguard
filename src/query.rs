@@ -63,22 +63,75 @@ fn is_no_rows_error(error: &LifeError) -> bool {
     }
 }
 
+/// Trait for LifeModel entities that provides CRUD operations
+///
+/// This trait is similar to SeaORM's `EntityTrait` and provides methods for
+/// querying and manipulating database records. The trait is implemented by
+/// the `LifeModel` derive macro.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{LifeModelTrait, LifeExecutor};
+/// use sea_query::Expr;
+///
+/// # struct UserModel { id: i32, name: String };
+/// # impl lifeguard::FromRow for UserModel {
+/// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+/// # }
+/// # impl lifeguard::LifeModelTrait for UserModel {
+/// #     fn find() -> lifeguard::SelectQuery<Self> { todo!() }
+/// # }
+/// # let executor: &dyn LifeExecutor = todo!();
+///
+/// // Find users with name starting with "John"
+/// let users = UserModel::find()
+///     .filter(Expr::col("name").like("John%"))
+///     .all(executor)?;
+/// ```
+pub trait LifeModelTrait: FromRow {
+    /// Start a query builder for finding records
+    ///
+    /// # Returns
+    ///
+    /// Returns a query builder that can be chained with filters, ordering, pagination, etc.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{LifeModelTrait, LifeExecutor};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # impl lifeguard::LifeModelTrait for UserModel {
+    /// #     fn find() -> lifeguard::SelectQuery<Self> { todo!() }
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    ///
+    /// let users = UserModel::find().all(executor)?;
+    /// ```
+    fn find() -> SelectQuery<Self>;
+}
+
 /// Query builder for selecting records
 ///
-/// This is returned by `LifeModel::find()` and can be chained with filters,
+/// This is returned by `LifeModelTrait::find()` and can be chained with filters,
 /// ordering, pagination, and grouping.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use lifeguard::{SelectQuery, FromRow, LifeExecutor};
+/// use lifeguard::{SelectQuery, LifeModelTrait, LifeExecutor};
 /// use sea_query::{Expr, Order};
 ///
 /// # struct UserModel { id: i32, name: String };
-/// # impl FromRow for UserModel {
-/// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
-/// #         todo!()
-/// #     }
+/// # impl lifeguard::FromRow for UserModel {
+/// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+/// # }
+/// # impl lifeguard::LifeModelTrait for UserModel {
+/// #     fn find() -> lifeguard::SelectQuery<Self> { todo!() }
 /// # }
 /// # let executor: &dyn LifeExecutor = todo!();
 ///
@@ -89,7 +142,10 @@ fn is_no_rows_error(error: &LifeError) -> bool {
 ///     .limit(10)
 ///     .all(executor)?;
 /// ```
-pub struct SelectQuery<M> {
+pub struct SelectQuery<M>
+where
+    M: FromRow,
+{
     pub(crate) query: SelectStatement,  // Made pub(crate) for testing
     _phantom: PhantomData<M>,
 }
@@ -872,7 +928,10 @@ pub trait FromRow: Sized {
 /// Paginator for query results
 ///
 /// Provides pagination functionality for query results.
-pub struct Paginator<'e, M, E> {
+pub struct Paginator<'e, M, E>
+where
+    M: FromRow,
+{
     query: SelectQuery<M>,
     executor: &'e E,
     page_size: usize,
@@ -909,7 +968,10 @@ where
 /// Paginator with count support
 ///
 /// Provides pagination functionality with total count tracking.
-pub struct PaginatorWithCount<'e, M, E> {
+pub struct PaginatorWithCount<'e, M, E>
+where
+    M: FromRow,
+{
     query: SelectQuery<M>,
     executor: &'e E,
     page_size: usize,

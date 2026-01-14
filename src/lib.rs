@@ -60,7 +60,7 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 
 // Query builder - Epic 02 Story 03
 pub mod query;
-pub use query::{SelectQuery, FromRow};
+pub use query::{SelectQuery, FromRow, LifeModelTrait};
 
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{

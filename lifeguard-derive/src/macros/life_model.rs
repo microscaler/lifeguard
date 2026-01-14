@@ -1,7 +1,7 @@
 //! LifeModel derive macro implementation
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, Type, PathSegment};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, Type};
 use quote::quote;
 
 use crate::attributes;
@@ -292,36 +292,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 Self::from_row(&row).map_err(|e| lifeguard::LifeError::ParseError(format!("Failed to parse row: {}", e)))
             }
             
-            /// Start a query builder for finding records
-            ///
-            /// # Returns
-            ///
-            /// Returns a query builder that can be chained with filters.
-            /// 
-            /// HYPOTHESIS 3 TEST: Construct SelectQuery manually to bypass trait bound in ::new()
-            /// Even constructing manually still requires the return type, which may trigger the check
-            pub fn find() -> lifeguard::SelectQuery<#model_name> {
-                // HYPOTHESIS 3: Manually construct SelectQuery to avoid calling ::new() method
-                // This bypasses the method that requires the trait bound
-                use sea_query::{SelectStatement, PostgresQueryBuilder};
-                use sea_query::Iden;
-                use std::marker::PhantomData;
-                
-                struct TableName(&'static str);
-                impl Iden for TableName {
-                    fn unquoted(&self) -> &str {
-                        self.0
-                    }
-                }
-                
-                let mut query = SelectStatement::default();
-                query.column(sea_query::Asterisk).from(TableName(#struct_name::TABLE_NAME));
-                
-                lifeguard::SelectQuery {
-                    query,
-                    _phantom: PhantomData,
-                }
-            }
+            // Note: find() method is now part of LifeModelTrait, not generated here
             
             /// Delete a record by primary key
             ///
@@ -901,8 +872,17 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             pub const TABLE_NAME: &'static str = #table_name;
         }
         
-        // CRUD methods on Model
-        // HYPOTHESIS 1: FromRow trait is now defined much earlier, before this impl block
+        // Implement LifeModelTrait for Model
+        // This trait provides the find() method and avoids macro expansion trait bound issues
+        // The trait bound Self: FromRow is established by the trait itself
+        impl lifeguard::LifeModelTrait for #model_name {
+            fn find() -> lifeguard::SelectQuery<Self> {
+                lifeguard::SelectQuery::new(#struct_name::TABLE_NAME)
+            }
+        }
+        
+        // CRUD methods on Model (find_by_id, delete_by_id, etc.)
+        // These remain as struct methods since they're not part of the trait
         impl #model_name {
             #crud_methods
         }
