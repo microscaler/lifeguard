@@ -1,0 +1,64 @@
+//! Derive macro for Entity
+//!
+//! Generates Entity unit struct, EntityName, Iden, and IdenStatic implementations.
+//! This is separate from other derives to match SeaORM's architecture.
+
+use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
+use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
+
+use crate::attributes;
+use crate::utils;
+
+/// Generate Entity, EntityName, Iden, and IdenStatic implementations
+pub fn derive_entity(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    
+    // Extract struct name (Entity should be a unit struct)
+    let struct_name = &input.ident;
+    
+    // Extract table name from attributes
+    let table_name = attributes::extract_table_name(&input.attrs)
+        .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
+    
+    let expanded: TokenStream2 = quote! {
+        // Entity unit struct
+        pub struct Entity;
+        
+        // Table name constant
+        impl Entity {
+            pub const TABLE_NAME: &'static str = #table_name;
+        }
+        
+        // Implement Default for Entity (required by LifeEntityName)
+        impl Default for Entity {
+            fn default() -> Self {
+                Entity
+            }
+        }
+        
+        // Implement LifeEntityName for Entity (provides table_name method)
+        impl lifeguard::LifeEntityName for Entity {
+            fn table_name(&self) -> &'static str {
+                #table_name
+            }
+        }
+        
+        // Implement Iden for Entity (for use in sea_query)
+        impl sea_query::Iden for Entity {
+            fn unquoted(&self) -> &str {
+                #table_name
+            }
+        }
+        
+        // Implement IdenStatic for Entity (for use in sea_query)
+        impl sea_query::IdenStatic for Entity {
+            fn as_str(&self) -> &'static str {
+                #table_name
+            }
+        }
+    };
+    
+    TokenStream::from(expanded)
+}

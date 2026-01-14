@@ -8,10 +8,85 @@ mod utils;
 
 use proc_macro::TokenStream;
 
+/// Derive macro for `Entity` - generates Entity unit struct, EntityName, Iden, IdenStatic
+///
+/// This macro generates the Entity unit struct and implements LifeEntityName, Iden, and IdenStatic.
+/// Following SeaORM's architecture, this is a separate derive from Model.
+///
+/// # Example
+/// ```ignore
+/// use lifeguard_derive::DeriveEntity;
+///
+/// #[derive(DeriveEntity)]
+/// #[table_name = "users"]
+/// pub struct Entity;
+/// ```
+#[proc_macro_derive(DeriveEntity, attributes(table_name))]
+pub fn derive_entity(input: TokenStream) -> TokenStream {
+    macros::derive_entity(input)
+}
+
+/// Derive macro for `Model` - generates Model struct
+///
+/// This macro generates the Model struct (immutable row representation).
+/// Note: FromRow is a separate derive macro.
+///
+/// # Example
+/// ```ignore
+/// use lifeguard_derive::{DeriveModel, FromRow};
+///
+/// #[derive(DeriveModel, FromRow)]
+/// pub struct Model {
+///     pub id: i32,
+///     pub name: String,
+/// }
+/// ```
+#[proc_macro_derive(DeriveModel, attributes(column_name))]
+pub fn derive_model(input: TokenStream) -> TokenStream {
+    macros::derive_model(input)
+}
+
+/// Derive macro for `Column` - generates Column enum
+///
+/// This macro generates the Column enum with Iden implementation for use in sea_query.
+///
+/// # Example
+/// ```ignore
+/// use lifeguard_derive::DeriveColumn;
+///
+/// #[derive(DeriveColumn)]
+/// pub enum Column {
+///     Id,
+///     Name,
+/// }
+/// ```
+#[proc_macro_derive(DeriveColumn, attributes(column_name))]
+pub fn derive_column(input: TokenStream) -> TokenStream {
+    macros::derive_column(input)
+}
+
+/// Derive macro for `PrimaryKey` - generates PrimaryKey enum
+///
+/// This macro generates the PrimaryKey enum for primary key columns.
+///
+/// # Example
+/// ```ignore
+/// use lifeguard_derive::DerivePrimaryKey;
+///
+/// #[derive(DerivePrimaryKey)]
+/// pub enum PrimaryKey {
+///     Id,
+/// }
+/// ```
+#[proc_macro_derive(DerivePrimaryKey, attributes(primary_key))]
+pub fn derive_primary_key(input: TokenStream) -> TokenStream {
+    macros::derive_primary_key(input)
+}
+
 /// Derive macro for `FromRow` - generates FromRow trait implementation
 ///
 /// This macro generates the `FromRow` implementation for converting
-/// `may_postgres::Row` into a Model struct. It's separate from `LifeModel`
+/// `may_postgres::Row` into a Model struct. It's separate from `DeriveModel`
 /// to avoid trait bound resolution issues during macro expansion.
 ///
 /// # Example
