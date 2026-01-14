@@ -144,7 +144,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // Use column name if custom, otherwise use snake_case of field name
         let column_name_str = column_name.clone();
         from_row_fields.push(quote! {
-            #field_name: row.try_get::<&str, #field_type>(#column_name_str)?,
+            #field_name: row.get(#column_name_str),
         });
     }
     
@@ -160,16 +160,15 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // For insert_many: build column reference only if field is Some (skip primary key if auto-increment)
         // This matches the behavior of single insert - only include columns that are set
         if !is_primary_key {
-            let column_struct_name = Ident::new(&format!("ColumnName{}", column_variant), column_variant.span());
             insert_many_column_builders.push(quote! {
                 if let Some(_) = first_record.#field_name_ident {
-                    struct #column_struct_name;
-                    impl sea_query::Iden for #column_struct_name {
+                    struct ColumnName;
+                    impl sea_query::Iden for ColumnName {
                         fn unquoted(&self) -> &str {
                             #column_name_str
                         }
                     }
-                    columns.push(#column_struct_name);
+                    columns.push(ColumnName);
                 }
             });
             
@@ -261,7 +260,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             ///
             /// Returns a query builder that can be chained with filters.
             pub fn find() -> lifeguard::SelectQuery<#model_name> {
-                lifeguard::SelectQuery::new(#struct_name::TABLE_NAME)
+                lifeguard::SelectQuery::<#model_name>::new(#struct_name::TABLE_NAME)
             }
             
             /// Delete a record by primary key
@@ -405,9 +404,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) |
                         sea_query::Value::BigUnsigned(None) | sea_query::Value::Float(None) | 
                         sea_query::Value::Double(None) => nulls.push(None),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(None) => nulls.push(None),
-                        sea_query::Value::Null => nulls.push(None),
                         _ => return Err(lifeguard::LifeError::Other(format!("Unsupported value type in insert_many"))),
                     }
                 }
@@ -425,26 +425,26 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 for value in sea_values.iter() {
                     match value {
                         sea_query::Value::Bool(Some(_)) => {
-                            params.push(&bools[bool_idx]);
+                            params.push(&bools[bool_idx] as &dyn may_postgres::types::ToSql);
                             bool_idx += 1;
                         }
                         sea_query::Value::Int(Some(_)) | sea_query::Value::TinyInt(Some(_)) | 
                         sea_query::Value::SmallInt(Some(_)) | sea_query::Value::TinyUnsigned(Some(_)) | 
                         sea_query::Value::SmallUnsigned(Some(_)) => {
-                            params.push(&ints[int_idx]);
+                            params.push(&ints[int_idx] as &dyn may_postgres::types::ToSql);
                             int_idx += 1;
                         }
                         sea_query::Value::BigInt(Some(_)) | sea_query::Value::Unsigned(Some(_)) | 
                         sea_query::Value::BigUnsigned(Some(_)) => {
-                            params.push(&big_ints[big_int_idx]);
+                            params.push(&big_ints[big_int_idx] as &dyn may_postgres::types::ToSql);
                             big_int_idx += 1;
                         }
                         sea_query::Value::String(Some(_)) => {
-                            params.push(&strings[string_idx]);
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                             string_idx += 1;
                         }
                         sea_query::Value::Bytes(Some(_)) => {
-                            params.push(&bytes[bytes_idx]);
+                            params.push(&bytes[bytes_idx] as &dyn may_postgres::types::ToSql);
                             bytes_idx += 1;
                         }
                         sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
@@ -453,30 +453,28 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::SmallInt(None) | sea_query::Value::TinyUnsigned(None) |
                         sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) | 
                         sea_query::Value::BigUnsigned(None) => {
-                            params.push(&nulls[null_idx]);
-                            null_idx += 1;
-                        }
-                        sea_query::Value::Float(Some(_)) => {
-                            params.push(&floats[float_idx]);
-                            float_idx += 1;
-                        }
-                        sea_query::Value::Double(Some(_)) => {
-                            params.push(&doubles[double_idx]);
-                            double_idx += 1;
-                        }
-                        sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
-                            params.push(&nulls[null_idx]);
-                            null_idx += 1;
-                        }
-                        sea_query::Value::Json(Some(_)) => {
-                            params.push(strings[string_idx].as_str() as &dyn may_postgres::types::ToSql);
-                            string_idx += 1;
-                        }
-                        sea_query::Value::Json(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
-                        sea_query::Value::Null => {
+                        sea_query::Value::Float(Some(_)) => {
+                            params.push(&floats[float_idx] as &dyn may_postgres::types::ToSql);
+                            float_idx += 1;
+                        }
+                        sea_query::Value::Double(Some(_)) => {
+                            params.push(&doubles[double_idx] as &dyn may_postgres::types::ToSql);
+                            double_idx += 1;
+                        }
+                        sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
+                            params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
+                            null_idx += 1;
+                        }
+                        #[cfg(feature = "with-json")]
+                        sea_query::Value::Json(Some(_)) => {
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
+                            string_idx += 1;
+                        }
+                        #[cfg(feature = "with-json")]
+                        sea_query::Value::Json(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
@@ -567,9 +565,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) |
                         sea_query::Value::BigUnsigned(None) | sea_query::Value::Float(None) | 
                         sea_query::Value::Double(None) => nulls.push(None),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(None) => nulls.push(None),
-                        sea_query::Value::Null => nulls.push(None),
                         _ => return Err(lifeguard::LifeError::Other(format!("Unsupported value type in update_many"))),
                     }
                 }
@@ -587,26 +586,26 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 for value in sea_values.iter() {
                     match value {
                         sea_query::Value::Bool(Some(_)) => {
-                            params.push(&bools[bool_idx]);
+                            params.push(&bools[bool_idx] as &dyn may_postgres::types::ToSql);
                             bool_idx += 1;
                         }
                         sea_query::Value::Int(Some(_)) | sea_query::Value::TinyInt(Some(_)) | 
                         sea_query::Value::SmallInt(Some(_)) | sea_query::Value::TinyUnsigned(Some(_)) | 
                         sea_query::Value::SmallUnsigned(Some(_)) => {
-                            params.push(&ints[int_idx]);
+                            params.push(&ints[int_idx] as &dyn may_postgres::types::ToSql);
                             int_idx += 1;
                         }
                         sea_query::Value::BigInt(Some(_)) | sea_query::Value::Unsigned(Some(_)) | 
                         sea_query::Value::BigUnsigned(Some(_)) => {
-                            params.push(&big_ints[big_int_idx]);
+                            params.push(&big_ints[big_int_idx] as &dyn may_postgres::types::ToSql);
                             big_int_idx += 1;
                         }
                         sea_query::Value::String(Some(_)) => {
-                            params.push(&strings[string_idx]);
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                             string_idx += 1;
                         }
                         sea_query::Value::Bytes(Some(_)) => {
-                            params.push(&bytes[bytes_idx]);
+                            params.push(&bytes[bytes_idx] as &dyn may_postgres::types::ToSql);
                             bytes_idx += 1;
                         }
                         sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
@@ -615,30 +614,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::SmallInt(None) | sea_query::Value::TinyUnsigned(None) |
                         sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) | 
                         sea_query::Value::BigUnsigned(None) => {
-                            params.push(&nulls[null_idx]);
-                            null_idx += 1;
-                        }
-                        sea_query::Value::Float(Some(_)) => {
-                            params.push(&floats[float_idx]);
-                            float_idx += 1;
-                        }
-                        sea_query::Value::Double(Some(_)) => {
-                            params.push(&doubles[double_idx]);
-                            double_idx += 1;
-                        }
-                        sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
-                            params.push(&nulls[null_idx]);
-                            null_idx += 1;
-                        }
-                        sea_query::Value::Json(Some(_)) => {
-                            params.push(strings[string_idx].as_str() as &dyn may_postgres::types::ToSql);
-                            string_idx += 1;
-                        }
-                        sea_query::Value::Json(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
-                        sea_query::Value::Null => {
+                        sea_query::Value::Float(Some(_)) => {
+                            params.push(&floats[float_idx] as &dyn may_postgres::types::ToSql);
+                            float_idx += 1;
+                        }
+                        sea_query::Value::Double(Some(_)) => {
+                            params.push(&doubles[double_idx] as &dyn may_postgres::types::ToSql);
+                            double_idx += 1;
+                        }
+                        sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
@@ -714,9 +701,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) |
                         sea_query::Value::BigUnsigned(None) | sea_query::Value::Float(None) | 
                         sea_query::Value::Double(None) => nulls.push(None),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(None) => nulls.push(None),
-                        sea_query::Value::Null => nulls.push(None),
                         _ => return Err(lifeguard::LifeError::Other(format!("Unsupported value type in delete_many"))),
                     }
                 }
@@ -734,26 +722,26 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 for value in sea_values.iter() {
                     match value {
                         sea_query::Value::Bool(Some(_)) => {
-                            params.push(&bools[bool_idx]);
+                            params.push(&bools[bool_idx] as &dyn may_postgres::types::ToSql);
                             bool_idx += 1;
                         }
                         sea_query::Value::Int(Some(_)) | sea_query::Value::TinyInt(Some(_)) | 
                         sea_query::Value::SmallInt(Some(_)) | sea_query::Value::TinyUnsigned(Some(_)) | 
                         sea_query::Value::SmallUnsigned(Some(_)) => {
-                            params.push(&ints[int_idx]);
+                            params.push(&ints[int_idx] as &dyn may_postgres::types::ToSql);
                             int_idx += 1;
                         }
                         sea_query::Value::BigInt(Some(_)) | sea_query::Value::Unsigned(Some(_)) | 
                         sea_query::Value::BigUnsigned(Some(_)) => {
-                            params.push(&big_ints[big_int_idx]);
+                            params.push(&big_ints[big_int_idx] as &dyn may_postgres::types::ToSql);
                             big_int_idx += 1;
                         }
                         sea_query::Value::String(Some(_)) => {
-                            params.push(&strings[string_idx]);
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                             string_idx += 1;
                         }
                         sea_query::Value::Bytes(Some(_)) => {
-                            params.push(&bytes[bytes_idx]);
+                            params.push(&bytes[bytes_idx] as &dyn may_postgres::types::ToSql);
                             bytes_idx += 1;
                         }
                         sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
@@ -762,30 +750,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         sea_query::Value::SmallInt(None) | sea_query::Value::TinyUnsigned(None) |
                         sea_query::Value::SmallUnsigned(None) | sea_query::Value::Unsigned(None) | 
                         sea_query::Value::BigUnsigned(None) => {
-                            params.push(&nulls[null_idx]);
-                            null_idx += 1;
-                        }
-                        sea_query::Value::Float(Some(_)) => {
-                            params.push(&floats[float_idx]);
-                            float_idx += 1;
-                        }
-                        sea_query::Value::Double(Some(_)) => {
-                            params.push(&doubles[double_idx]);
-                            double_idx += 1;
-                        }
-                        sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
-                            params.push(&nulls[null_idx]);
-                            null_idx += 1;
-                        }
-                        sea_query::Value::Json(Some(_)) => {
-                            params.push(strings[string_idx].as_str() as &dyn may_postgres::types::ToSql);
-                            string_idx += 1;
-                        }
-                        sea_query::Value::Json(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
-                        sea_query::Value::Null => {
+                        sea_query::Value::Float(Some(_)) => {
+                            params.push(&floats[float_idx] as &dyn may_postgres::types::ToSql);
+                            float_idx += 1;
+                        }
+                        sea_query::Value::Double(Some(_)) => {
+                            params.push(&doubles[double_idx] as &dyn may_postgres::types::ToSql);
+                            double_idx += 1;
+                        }
+                        sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }

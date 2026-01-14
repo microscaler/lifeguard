@@ -4,9 +4,9 @@
 
 **Total Tests:** 40  
 **Tests Failing:** 40 (100%)  
-**Status:** Primary issue (E0119) **FIXED** ✅  
-**Remaining Issues:** Multiple secondary errors (E0599, E0277, E0223, E0282, E0308)  
-**Error Count:** ~568 errors (down from 40 E0119 errors)
+**Status:** Major issues **FIXED** ✅  
+**Remaining Issues:** Type inference and ambiguity errors (E0223, E0282, E0308, E0277)  
+**Error Count:** 248 errors (down from 568, 56% reduction)
 
 ## Root Cause Analysis
 
@@ -118,25 +118,35 @@ This allows `Column` to be used with `Expr::col()` and other sea_query methods.
 
 **Result:** All `E0119` errors resolved (0 remaining)
 
+## Fixes Applied ✅
+
+### Enabled `with-json` Feature Flag
+- **Status:** FIXED
+- **Change:** Added `features = ["with-json"]` to `sea-query` dependency in both `Cargo.toml` files
+- **Result:** `Value::Json` variant now available in sea-query v1.0.0-rc.29
+
+### Restored JSON Support
+- **Status:** FIXED
+- **Change:** Added `Value::Json(Some/None)` handling to all batch operations with `#[cfg(feature = "with-json")]` guards
+- **Files Updated:** `query.rs`, `life_model.rs`, `life_record.rs`
+- **Result:** All E0599 Json errors resolved (0 remaining)
+
+### Fixed String/Bytes Parameter Handling
+- **Status:** FIXED
+- **Change:** Changed from `strings[idx].as_str()` to `&strings[idx]` and `bytes[idx].as_slice()` to `&bytes[idx]` to match `query.rs` pattern
+- **Result:** All E0277 str/[u8] ToSql errors resolved (0 remaining)
+
 ## Remaining Issues
 
-### Error E0599: `Value::Json` and `Value::Null` Not Found
-- **Frequency:** Multiple occurrences
-- **Cause:** `sea-query v1.0.0-rc.29` may not have `Value::Null` variant
-- **Location:** `life_model.rs` lines 408-410, 570-572, 717-719, 780-788
-- **Fix:** Verify if `Value::Null` exists in this version, or use `Value::Json(None)` pattern instead
-- **Reference:** `life_record.rs` uses `Value::Json(Some/None)` but not `Value::Null`
-
-### Error E0277: Trait Bound Issues
-- **Frequency:** Multiple occurrences
+### Error E0277: FromSql Trait Bound Issues
+- **Frequency:** 3 errors
 - **Types:**
-  - `str: ToSql` not satisfied
-  - `[u8]: ToSql` not satisfied
-  - `u8/u16/u64: FromSql` not satisfied
-  - `str` and `[u8]` not `Sized`
-- **Cause:** Type mismatches in batch operation parameter handling
-- **Location:** Batch operation value conversion code
-- **Fix:** Ensure proper type conversions and use `&str` instead of `str`, `&[u8]` instead of `[u8]`
+  - `u8: FromSql<'_>` not satisfied
+  - `u16: FromSql<'_>` not satisfied
+  - `u64: FromSql<'_>` not satisfied
+- **Cause:** These unsigned types may not be directly supported by may_postgres
+- **Location:** Generated code using these types
+- **Fix:** May need to use i32/i64 equivalents or handle conversion
 
 ### Error E0223: Ambiguous Associated Type
 - **Frequency:** Multiple tests
@@ -166,18 +176,22 @@ This allows `Column` to be used with `Expr::col()` and other sea_query methods.
 
 ### Progress
 1. ✅ **E0119 (Conflicting Trait Implementation):** FIXED - Removed explicit `IntoColumnRef` impl
-2. ⚠️ **E0599 (Value::Null/Json not found):** Needs investigation - verify sea-query version compatibility
-3. ⚠️ **E0277 (Trait bounds):** Needs fixing - type conversion issues in batch operations
-4. ⚠️ **E0223 (Ambiguous types):** Needs fixing - add explicit type annotations
-5. ⚠️ **E0282/E0308 (Type inference/mismatch):** Needs fixing - review type conversions
+2. ✅ **E0599 (Value::Json not found):** FIXED - Enabled `with-json` feature flag
+3. ✅ **E0277 (str/[u8] ToSql):** FIXED - Changed to use `&strings[idx]` and `&bytes[idx]`
+4. ⚠️ **E0223 (Ambiguous types):** 40 errors - Needs fixing - add explicit type annotations
+5. ⚠️ **E0282 (Type annotations needed):** 40 errors - Needs fixing - add explicit type annotations
+6. ⚠️ **E0308 (Mismatched types):** 85 errors - Needs fixing - review type conversions
+7. ⚠️ **E0277 (u8/u16/u64 FromSql):** 3 errors - Needs investigation
 
 ### Root Cause Chain
-1. **Primary:** Conflicting `IntoColumnRef` impl → **FIXED**
-2. **Secondary:** Type mismatches in batch operation code (likely from recent additions)
-3. **Tertiary:** Possible sea-query version incompatibility with `Value::Null`
+1. **Primary:** Conflicting `IntoColumnRef` impl → **FIXED** ✅
+2. **Secondary:** Missing `with-json` feature → **FIXED** ✅
+3. **Tertiary:** Incorrect string/bytes parameter handling → **FIXED** ✅
+4. **Quaternary:** Type inference and ambiguity issues → **IN PROGRESS**
 
 ### Recommended Next Steps
-1. Verify `Value::Null` exists in `sea-query v1.0.0-rc.29` or remove it
-2. Fix type conversion issues in batch operations (use `&str` instead of `str`, etc.)
-3. Add explicit type annotations where compiler cannot infer
-4. Review `life_record.rs` for reference implementation patterns
+1. ✅ Enable `with-json` feature flag → **DONE**
+2. ✅ Fix string/bytes parameter handling → **DONE**
+3. Fix E0223 ambiguous associated types (likely SelectQuery-related)
+4. Fix E0282/E0308 type inference and mismatch errors
+5. Investigate u8/u16/u64 FromSql support in may_postgres

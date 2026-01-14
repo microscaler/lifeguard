@@ -312,6 +312,10 @@ where
                 sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
                 sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
                 sea_query::Value::Float(None) | sea_query::Value::Double(None) => nulls.push(None),
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(None) => nulls.push(None),
                 _ => {
                     return Err(LifeError::Other(format!("Unsupported value type in query: {:?}", value)));
                 }
@@ -379,6 +383,16 @@ where
                 sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
                 sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
                 sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
+                    params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
+                    null_idx += 1;
+                }
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(Some(_)) => {
+                    params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
+                    string_idx += 1;
+                }
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(None) => {
                     params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                     null_idx += 1;
                 }
@@ -460,6 +474,10 @@ where
                 sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
                 sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
                 sea_query::Value::Float(None) | sea_query::Value::Double(None) => nulls.push(None),
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(None) => nulls.push(None),
                 _ => {
                     return Err(LifeError::Other(format!("Unsupported value type in query: {:?}", value)));
                 }
@@ -527,6 +545,16 @@ where
                 sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
                 sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
                 sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
+                    params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
+                    null_idx += 1;
+                }
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(Some(_)) => {
+                    params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
+                    string_idx += 1;
+                }
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(None) => {
                     params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                     null_idx += 1;
                 }
@@ -776,6 +804,16 @@ where
                     double_idx += 1;
                 }
                 sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
+                    params.push(&nulls[null_idx]);
+                    null_idx += 1;
+                }
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(Some(_)) => {
+                    params.push(&strings[string_idx]);
+                    string_idx += 1;
+                }
+                #[cfg(feature = "with-json")]
+                sea_query::Value::Json(None) => {
                     params.push(&nulls[null_idx]);
                     null_idx += 1;
                 }
