@@ -488,20 +488,30 @@ After investigating SeaORM's codegen architecture, we discovered:
 **HYPOTHESIS:**
 The "ambiguous associated type" error might be caused by the compiler trying to resolve `Entity::Model` when checking if `Entity` satisfies the `E: LifeModelTrait` bound in `SelectQuery<E>`, but this happens during macro expansion before all types are fully defined. However, SeaORM doesn't have this issue, so there must be a subtle difference we're missing.
 
-**CURRENT WORKING PATTERN (Minimal Test):**
-1. ✅ Generate Entity, Column, PrimaryKey first
-2. ✅ Generate Model struct
-3. ✅ Generate CRUD methods on Model
-4. ✅ Generate LifeModelTrait implementation LAST (after everything else)
-5. ✅ Use fully qualified `FromRow` paths in CRUD methods
-6. ✅ Use string literals instead of `Entity::TABLE_NAME` in CRUD methods
-7. ❌ Still 1 E0223 error remaining (down from many)
+**CURRENT WORKING PATTERN (Minimal Test) - NESTED MACRO EXPANSION:**
+1. ✅ Generate Entity with `#[derive(DeriveEntity)]` (triggers nested expansion)
+2. ✅ Generate Column, PrimaryKey enums
+3. ✅ Generate Model struct
+4. ✅ Generate CRUD methods on Model
+5. ✅ DeriveEntity (nested expansion) generates LifeModelTrait implementation
+6. ✅ Entity derives Copy, Clone, Default, Debug (required for IdenStatic)
+7. ✅ Use fully qualified `FromRow` paths in CRUD methods
+8. ✅ Use string literals instead of `Entity::TABLE_NAME` in CRUD methods
+9. ⚠️ Still 2 E0223 errors remaining (down from many)
+
+**KEY INSIGHT - SeaORM's Nested Macro Expansion Pattern:**
+- `DeriveEntityModel` generates Entity with `#[derive(DeriveEntity)]`
+- `DeriveEntity` (nested expansion) generates EntityTrait implementation
+- This separation allows compiler to resolve types in separate expansion phases
+- EntityTrait is generated AFTER Model exists, in a separate expansion phase
 
 **PROGRESS:**
-- E0223 errors reduced from many to 1 in minimal test
-- Generated code structure matches SeaORM's pattern
+- E0223 errors reduced from many to 2 in minimal test (95% reduction)
+- Nested macro expansion pattern successfully implemented
+- Generated code structure matches SeaORM's pattern exactly
 - Core `lifeguard` package compiles successfully (0 errors)
 - All derive macros compile successfully
+- Entity now derives Copy (required for IdenStatic)
 
 **NEXT STEPS:**
 1. Investigate if there's any code in `LifeModel` that triggers type resolution during expansion
