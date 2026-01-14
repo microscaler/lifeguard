@@ -436,28 +436,41 @@ SeaORM implements `EntityTrait` for `Entity` (the struct name), with `Model` as 
 **Current Status:**
 - ✅ Core `lifeguard` package compiles successfully
 - ✅ Entity pattern fully implemented matching SeaORM
-- ✅ **E0223/E0282 errors ELIMINATED!** (0 errors, down from 136)
-- ✅ Solution: Removed trait bound from associated type, added to method signatures
+- ✅ All separate derives created (DeriveEntity, DeriveModel, DeriveColumn, DerivePrimaryKey, FromRow, DeriveLifeModelTrait)
+- ✅ LifeModelTrait implementation removed from LifeModel macro
+- ✅ CRUD methods use fully qualified FromRow paths
+- ❌ **E0223/E0282 errors STILL PERSIST** (138 errors)
+- The errors occur during macro expansion itself, not in generated code
 
 **Root Cause Analysis:**
 The compiler can't verify `type Model: FromRow` during macro expansion because both `impl FromRow for #model_name` and `impl LifeModelTrait for Entity { type Model = #model_name; }` are generated in the same expansion.
 
-**SOLUTION FOUND:**
-Removed the trait bound from the associated type definition:
-```rust
-pub trait LifeModelTrait: LifeEntityName {
-    type Model;  // No trait bound here!
-}
-```
+**ATTEMPTED SOLUTIONS:**
 
-Instead, added `where E::Model: FromRow` to methods that actually use it:
-- `all()`, `one()`, `find_one()`
-- `paginate()`, `paginate_and_count()`
-- `Paginator` and `PaginatorWithCount` impl blocks
+1. **Removed trait bound from associated type** - Added `where E::Model: FromRow` to method signatures
+   - Result: Core package compiles, but E0223 errors persist in derive tests
 
-This allows the macro to generate `impl LifeModelTrait` without needing to verify the trait bound during expansion. The bound is checked at usage sites (method calls) where it can be properly resolved by the compiler.
+2. **Split derives matching SeaORM** - Created separate derives:
+   - `DeriveEntity`, `DeriveModel`, `DeriveColumn`, `DerivePrimaryKey`, `FromRow`, `DeriveLifeModelTrait`
+   - Result: All macros compile, but E0223 errors persist
 
-**Result:** E0223/E0282 errors eliminated! ✅
+3. **Removed LifeModelTrait impl from LifeModel** - Made it a separate derive
+   - Result: E0223 errors still occur during `#[derive(LifeModel)]` expansion
+
+4. **Used fully qualified FromRow paths** - Changed `Self::from_row` to `<Self as lifeguard::FromRow>::from_row`
+   - Result: Reduced some errors, but E0223 persists
+
+**CURRENT ISSUE:**
+E0223 "ambiguous associated type" errors occur **during macro expansion** at the `#[derive(LifeModel)]` level. This suggests the compiler is trying to resolve an associated type while the macro is still expanding, before all types are fully defined.
+
+**HYPOTHESIS:**
+The issue may be that Rust's type checker is attempting to verify trait bounds or resolve associated types during the macro expansion phase, before the expansion is complete. This could be a fundamental limitation of how Rust processes procedural macros.
+
+**NEXT STEPS:**
+1. Investigate if there's any code in `LifeModel` that triggers type resolution during expansion
+2. Check if `LifeRecord` (applied alongside `LifeModel`) is causing conflicts
+3. Consider if the issue is with how `Entity` is generated and referenced
+4. Look into SeaORM's actual test code to see if they have similar issues or workarounds
 
 **Next Steps:**
 1. Investigate if SeaORM has additional workarounds or patterns
