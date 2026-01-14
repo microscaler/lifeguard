@@ -488,6 +488,21 @@ After investigating SeaORM's codegen architecture, we discovered:
 **HYPOTHESIS:**
 The "ambiguous associated type" error might be caused by the compiler trying to resolve `Entity::Model` when checking if `Entity` satisfies the `E: LifeModelTrait` bound in `SelectQuery<E>`, but this happens during macro expansion before all types are fully defined. However, SeaORM doesn't have this issue, so there must be a subtle difference we're missing.
 
+**CURRENT WORKING PATTERN (Minimal Test):**
+1. ✅ Generate Entity, Column, PrimaryKey first
+2. ✅ Generate Model struct
+3. ✅ Generate CRUD methods on Model
+4. ✅ Generate LifeModelTrait implementation LAST (after everything else)
+5. ✅ Use fully qualified `FromRow` paths in CRUD methods
+6. ✅ Use string literals instead of `Entity::TABLE_NAME` in CRUD methods
+7. ❌ Still 1 E0223 error remaining (down from many)
+
+**PROGRESS:**
+- E0223 errors reduced from many to 1 in minimal test
+- Generated code structure matches SeaORM's pattern
+- Core `lifeguard` package compiles successfully (0 errors)
+- All derive macros compile successfully
+
 **NEXT STEPS:**
 1. Investigate if there's any code in `LifeModel` that triggers type resolution during expansion
 2. Check if `LifeRecord` (applied alongside `LifeModel`) is causing conflicts
