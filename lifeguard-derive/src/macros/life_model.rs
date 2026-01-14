@@ -804,8 +804,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         pub struct Entity;
         
         // Table name constant (kept for backward compatibility with LifeRecord)
-        impl Entity {
+        // Use a module to avoid name conflicts
+        mod entity_consts {
             pub const TABLE_NAME: &'static str = #table_name;
+        }
+        
+        impl Entity {
+            pub const TABLE_NAME: &'static str = entity_consts::TABLE_NAME;
         }
         
         // Implement Default for Entity (required by LifeEntityName)
