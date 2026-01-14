@@ -297,8 +297,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             /// # Returns
             ///
             /// Returns a query builder that can be chained with filters.
+            /// 
+            /// HYPOTHESIS 2 TEST: Match the exact pattern used in working tests
+            /// Tests use SelectQuery::<Type>::new() - try matching that exact syntax
             pub fn find() -> lifeguard::SelectQuery<#model_name> {
-                <lifeguard::SelectQuery<#model_name>>::new(#struct_name::TABLE_NAME)
+                // HYPOTHESIS 2: Match the exact working pattern from query.rs tests
+                // Tests successfully use: SelectQuery::<TestModel>::new("table")
+                lifeguard::SelectQuery::<#model_name>::new(#struct_name::TABLE_NAME)
             }
             
             /// Delete a record by primary key
