@@ -477,8 +477,16 @@ The issue may be that Rust's type checker is attempting to verify trait bounds o
 - All derive macros compile successfully
 - E0223 errors only occur in derive macro tests
 - Errors happen at the `#[derive(LifeModel)]` level, not in generated code usage
+- We now generate `LifeModelTrait` in the same expansion as `Entity` and `Model` (matching SeaORM)
 
-This suggests the issue is specific to how the compiler processes the macro expansion itself, not the generated code.
+**LATEST INSIGHT:**
+After investigating SeaORM's codegen architecture, we discovered:
+- SeaORM uses a two-layer approach: `sea-orm-codegen` (CLI tool) generates `.rs` files with `#[derive(DeriveEntityModel)]`
+- `DeriveEntityModel` generates `EntityTrait` in the same expansion as `Entity` and `Model`
+- We've now implemented the same pattern, but E0223 errors persist
+
+**HYPOTHESIS:**
+The "ambiguous associated type" error might be caused by the compiler trying to resolve `Entity::Model` when checking if `Entity` satisfies the `E: LifeModelTrait` bound in `SelectQuery<E>`, but this happens during macro expansion before all types are fully defined. However, SeaORM doesn't have this issue, so there must be a subtle difference we're missing.
 
 **NEXT STEPS:**
 1. Investigate if there's any code in `LifeModel` that triggers type resolution during expansion
