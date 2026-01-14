@@ -220,7 +220,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 struct TableName;
                 impl Iden for TableName {
                     fn unquoted(&self) -> &str {
-                        Entity::TABLE_NAME
+                        #table_name
                     }
                 }
                 
@@ -265,7 +265,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 struct TableName;
                 impl Iden for TableName {
                     fn unquoted(&self) -> &str {
-                        Entity::TABLE_NAME
+                        #table_name
                     }
                 }
                 
@@ -307,7 +307,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 struct TableName;
                 impl Iden for TableName {
                     fn unquoted(&self) -> &str {
-                        Entity::TABLE_NAME
+                        #table_name
                     }
                 }
                 
@@ -495,7 +495,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 struct TableName;
                 impl Iden for TableName {
                     fn unquoted(&self) -> &str {
-                        Entity::TABLE_NAME
+                        #table_name
                     }
                 }
                 
@@ -640,7 +640,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 struct TableName;
                 impl Iden for TableName {
                     fn unquoted(&self) -> &str {
-                        Entity::TABLE_NAME
+                        #table_name
                     }
                 }
                 
