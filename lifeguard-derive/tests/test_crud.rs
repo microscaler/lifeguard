@@ -22,6 +22,13 @@ fn test_model_implements_from_row() {
         name: String,
     }
     
+    // Apply FromRow to the generated Model
+    #[derive(lifeguard_derive::FromRow)]
+    struct TestFromRowModel {
+        id: i32,
+        name: String,
+    }
+    
     // Verify that Model implements FromRow trait
     // This is a compile-time check - if it compiles, the trait is implemented
     let _model = TestFromRowModel { id: 1, name: "Test".to_string() };
