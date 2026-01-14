@@ -137,6 +137,61 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 ///     pub name: String,
 /// }
 /// ```
+/// Derive macro for `LifeModelTrait` - generates LifeModelTrait implementation
+///
+/// This macro generates the `LifeModelTrait` implementation for Entity.
+/// It's separate from `LifeModel` to avoid trait bound resolution issues during macro expansion.
+///
+/// # Example
+/// ```ignore
+/// use lifeguard_derive::DeriveLifeModelTrait;
+///
+/// #[derive(DeriveLifeModelTrait)]
+/// pub struct Entity;
+/// ```
+#[proc_macro_derive(DeriveLifeModelTrait, attributes(model))]
+pub fn derive_life_model_trait(input: TokenStream) -> TokenStream {
+    macros::derive_life_model_trait(input)
+}
+
+/// Derive macro for `LifeModel` - generates immutable database row representation
+///
+/// This macro generates:
+/// - `Model` struct (immutable row representation)
+/// - `Column` enum (all columns)
+/// - `PrimaryKey` enum (primary key columns)
+/// - `Entity` type (entity itself)
+/// - Field getters (immutable access)
+/// - Table name and column metadata
+/// - Primary key identification
+///
+/// **Note:** This does NOT generate:
+/// - `FromRow` implementation (use separate `FromRow` derive)
+/// - `LifeModelTrait` implementation (use separate `DeriveLifeModelTrait` derive)
+///
+/// # Example
+/// ```ignore
+/// use lifeguard_derive::{LifeModel, FromRow, DeriveLifeModelTrait};
+///
+/// #[derive(LifeModel)]
+/// #[table_name = "users"]
+/// pub struct User {
+///     #[primary_key]
+///     pub id: i32,
+///     pub name: String,
+/// }
+///
+/// // Apply FromRow to the generated Model
+/// #[derive(FromRow)]
+/// pub struct UserModel {
+///     pub id: i32,
+///     pub name: String,
+/// }
+///
+/// // Apply LifeModelTrait to Entity
+/// #[derive(DeriveLifeModelTrait)]
+/// pub struct Entity;
+/// ```
 #[proc_macro_derive(LifeModel, attributes(table_name, primary_key, column_name, column_type, default_value, unique, indexed, nullable, auto_increment, enum_name))]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     macros::derive_life_model(input)

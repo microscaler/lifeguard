@@ -824,17 +824,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
         }
         
-        // Implement LifeModelTrait for Entity (unit struct), not Model
-        // Following SeaORM's pattern: Entity implements EntityTrait, Model is an associated type
-        // KEY: The find() method is NOT generated here - it's defined in the trait itself
-        // This avoids macro expansion trait bound issues because:
-        // - Entity (unit struct) implements LifeModelTrait
-        // - SelectQuery<Entity> requires Entity: LifeModelTrait (satisfied by the impl)
-        // - Model is accessed via associated type E::Model, not as a type parameter
-        // - find() is already in the trait definition, so no trait bound check during expansion
-        impl lifeguard::LifeModelTrait for Entity {
-            type Model = #model_name;
-        }
+        // NOTE: LifeModelTrait implementation is NOT generated here to avoid trait bound resolution issues.
+        // Users must apply a separate derive or manually implement LifeModelTrait for Entity.
+        // This matches SeaORM's pattern where EntityTrait is separate from Model generation.
+        // 
+        // The trait bound `type Model: FromRow` cannot be verified during macro expansion
+        // because both the Model struct and the trait impl are generated in the same expansion.
+        // By separating them, the compiler can verify the trait bound after expansion.
         
         // CRUD methods on Model (find_by_id, delete_by_id, etc.)
         // These remain as struct methods since they're not part of the trait
