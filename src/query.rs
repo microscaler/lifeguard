@@ -114,7 +114,7 @@ pub trait LifeModelTrait {
     /// ```
     fn find() -> SelectQuery<Self>
     where
-        Self: FromRow;
+        Self: Sized;
 }
 
 /// Query builder for selecting records
@@ -144,10 +144,10 @@ pub trait LifeModelTrait {
 ///     .limit(10)
 ///     .all(executor)?;
 /// ```
-pub struct SelectQuery<M>
-where
-    M: FromRow,
-{
+/// 
+/// Note: The trait bound `M: FromRow` is not on the struct definition to avoid
+/// macro expansion issues. It's only required in methods that actually execute queries.
+pub struct SelectQuery<M> {
     pub(crate) query: SelectStatement,  // Made pub(crate) for testing
     _phantom: PhantomData<M>,
 }
@@ -930,10 +930,7 @@ pub trait FromRow: Sized {
 /// Paginator for query results
 ///
 /// Provides pagination functionality for query results.
-pub struct Paginator<'e, M, E>
-where
-    M: FromRow,
-{
+pub struct Paginator<'e, M, E> {
     query: SelectQuery<M>,
     executor: &'e E,
     page_size: usize,
@@ -970,10 +967,7 @@ where
 /// Paginator with count support
 ///
 /// Provides pagination functionality with total count tracking.
-pub struct PaginatorWithCount<'e, M, E>
-where
-    M: FromRow,
-{
+pub struct PaginatorWithCount<'e, M, E> {
     query: SelectQuery<M>,
     executor: &'e E,
     page_size: usize,
