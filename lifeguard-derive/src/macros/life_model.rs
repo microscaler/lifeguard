@@ -241,7 +241,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 let params: Vec<&dyn may_postgres::types::ToSql> = vec![&id];
                 
                 let row = executor.query_one(&sql, &params)?;
-                Self::from_row(&row).map_err(|e| lifeguard::LifeError::ParseError(format!("Failed to parse row: {}", e)))
+                // Use fully qualified path to avoid trait resolution during macro expansion
+                // FromRow must be implemented separately via #[derive(FromRow)]
+                <Self as lifeguard::FromRow>::from_row(&row).map_err(|e| lifeguard::LifeError::ParseError(format!("Failed to parse row: {}", e)))
             }
             
             // Note: find() method is now part of LifeModelTrait, not generated here
@@ -468,7 +470,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 let rows = executor.query_all(&sql, &params)?;
                 let mut models = Vec::new();
                 for row in rows {
-                    models.push(#model_name::from_row(&row).map_err(|e| lifeguard::LifeError::ParseError(format!("Failed to parse row: {}", e)))?);
+                    // Use fully qualified path to avoid trait resolution during macro expansion
+                    // FromRow must be implemented separately via #[derive(FromRow)]
+                    models.push(<#model_name as lifeguard::FromRow>::from_row(&row).map_err(|e| lifeguard::LifeError::ParseError(format!("Failed to parse row: {}", e)))?);
                 }
                 Ok(models)
             }
