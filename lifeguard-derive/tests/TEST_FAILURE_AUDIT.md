@@ -328,6 +328,32 @@ where
 - Macro-expanded code may be processed in a way that prevents trait implementations from being registered before trait bounds are checked
 - This appears to be a fundamental limitation of how Rust processes procedural macro output
 
+#### Hypothesis 3: Associated Type Resolution ❌ **REJECTED**
+
+**Test:** Attempted to bypass the trait bound check by constructing `SelectQuery` manually instead of calling `::new()`
+
+**Changes Made:**
+- Manually constructed `SelectQuery` struct using the same code as `SelectQuery::new()` but without calling the method
+- This bypasses the method that requires the `M: FromRow` trait bound
+- Used direct struct construction: `SelectQuery { query, _phantom: PhantomData }`
+
+**Result:** ❌ **No Change**
+- Error count: Still 40 E0223, 40 E0282
+- Error pattern: Identical to before
+- Conclusion: The issue is NOT about calling the method - it's about using the type `SelectQuery<#model_name>` at all
+
+**Key Discovery:**
+- Even when we completely bypass `SelectQuery::new()` and construct the struct manually, the errors persist
+- The return type annotation `-> SelectQuery<#model_name>` itself triggers the trait bound check
+- The compiler checks trait bounds when the type is used, not just when methods are called
+- This confirms the issue is fundamental to how macro-generated types interact with trait bounds
+
+**Analysis:**
+- The problem occurs at the type level, not the method call level
+- Any use of `SelectQuery<#model_name>` where `#model_name` is macro-generated triggers the trait bound check
+- The compiler cannot verify `#model_name: FromRow` during macro expansion, even though the impl is generated in the same expansion
+- This is a fundamental limitation: macro-generated trait implementations are not "visible" to the type checker during macro expansion
+
 ### Potential Solutions (To Investigate)
 
 **Solution 1: Explicit Trait Bound in Generated Code** ⏭️ **NEXT TO TEST**
