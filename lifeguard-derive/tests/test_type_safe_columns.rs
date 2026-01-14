@@ -94,7 +94,8 @@ fn test_type_safe_query_building() {
     // Test that type-safe columns work with query builder
     // This demonstrates the API - actual execution requires an executor
     
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Id.eq(1))
         .filter(Column::Name.like("John%"))
         .filter(Column::Email.eq("test@example.com".to_string()));
@@ -115,7 +116,8 @@ fn test_column_with_order_by() {
     use sea_query::Order;
     
     // Test that Column enum works with order_by
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Id.gt(0))
         .order_by(Column::Id, Order::Asc)
         .order_by(Column::Name, Order::Desc);
@@ -137,7 +139,8 @@ fn test_multiple_column_filters() {
     }
     
     // Test chaining multiple type-safe column filters
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Id.gte(1))
         .filter(Column::Age.between(18, 65))
         .filter(Column::Name.like("J%"))
@@ -158,7 +161,8 @@ fn test_column_in_clause() {
     }
     
     // Test IN clause with type-safe columns
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Id.is_in(vec![1, 2, 3, 4, 5]))
         .filter(Column::Status.is_in(vec!["active".to_string(), "pending".to_string()]));
     
@@ -175,7 +179,8 @@ fn test_column_not_in_clause() {
     }
     
     // Test NOT IN clause with type-safe columns
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Id.is_not_in(vec![999, 1000]));
     
     // Should compile - verifies NOT IN clause works
@@ -193,7 +198,8 @@ fn test_column_between_clause() {
     }
     
     // Test BETWEEN clause with different types
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Age.between(18, 65))
         .filter(Column::Score.between(0.0, 100.0));
     
@@ -213,7 +219,8 @@ fn test_column_null_checks() {
     }
     
     // Test null checks with type-safe columns
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::DeletedAt.is_null())
         .filter(Column::Email.is_not_null());
     
@@ -233,7 +240,8 @@ fn test_column_with_custom_names() {
     }
     
     // Test that Column enum works even with custom column names
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Id.eq(1))
         .filter(Column::Name.like("John%"));
     
@@ -252,8 +260,9 @@ fn test_column_comparison_operators() {
     }
     
     // Test all comparison operators with type-safe columns
-    let _query1 = UserModel::find().filter(Column::Age.eq(25));
-    let _query2 = UserModel::find().filter(Column::Age.ne(25));
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query1 = User::find().filter(Column::Age.eq(25));
+    let _query2 = User::find().filter(Column::Age.ne(25));
     let _query3 = UserModel::find().filter(Column::Age.gt(18));
     let _query4 = UserModel::find().filter(Column::Age.gte(18));
     let _query5 = UserModel::find().filter(Column::Age.lt(65));
@@ -274,7 +283,8 @@ fn test_column_pattern_matching() {
     }
     
     // Test pattern matching with type-safe columns
-    let _query = UserModel::find()
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = User::find()
         .filter(Column::Name.like("John%"))
         .filter(Column::Email.like("%@example.com"));
     

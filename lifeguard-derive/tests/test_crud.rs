@@ -56,7 +56,8 @@ fn test_find_method_exists() {
     }
     
     // Verify that find method exists and returns SelectQuery
-    let _query = TestFindModel::find();
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = TestFind::find();
 }
 
 #[test]
@@ -122,7 +123,8 @@ fn test_select_query_methods() {
     
     // Verify that SelectQuery has all() and one() methods
     // This is a compile-time check - methods exist on the instance
-    let _query = TestSelectQueryModel::find();
+    // With Entity pattern, find() is on Entity (struct name), not Model
+    let _query = TestSelectQuery::find();
     // These are instance methods, so we just verify the query compiles
     // The methods will be available when we have an executor
 }
