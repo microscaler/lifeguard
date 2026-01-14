@@ -87,8 +87,8 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `Select<E>::order_by()` | `SelectQuery<E>::order_by()` | ✅ Implemented | ORDER BY clause |
 | `Select<E>::limit()` | `SelectQuery<E>::limit()` | ✅ Implemented | LIMIT clause |
 | `Select<E>::offset()` | `SelectQuery<E>::offset()` | ✅ Implemented | OFFSET clause |
-| `Select<E>::group_by()` | ❌ Missing | 🔴 **Future** | GROUP BY clause |
-| `Select<E>::having()` | ❌ Missing | 🔴 **Future** | HAVING clause |
+| `Select<E>::group_by()` | `SelectQuery<E>::group_by()` | ✅ Implemented | GROUP BY clause |
+| `Select<E>::having()` | `SelectQuery<E>::having()` | ✅ Implemented | HAVING clause |
 | `Select<E>::join()` | ❌ Missing | 🟡 **Future** | JOIN operations |
 | `Select<E>::left_join()` | ❌ Missing | 🟡 **Future** | LEFT JOIN |
 | `Select<E>::right_join()` | ❌ Missing | 🟡 **Future** | RIGHT JOIN |
@@ -103,9 +103,9 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `Entity::insert()` | ❌ Missing | 🔴 **Future** | Insert ActiveModel |
 | `Entity::update()` | ❌ Missing | 🔴 **Future** | Update ActiveModel |
 | `Entity::delete()` | ❌ Missing | 🔴 **Future** | Delete by primary key |
-| `Entity::delete_many()` | `Model::delete_many()` | ✅ Implemented | Batch delete (different API) |
-| `Entity::insert_many()` | `Model::insert_many()` | ✅ Implemented | Batch insert (different API) |
-| `Entity::update_many()` | `Model::update_many()` | ✅ Implemented | Batch update (different API) |
+| `Entity::delete_many()` | ❌ **Removed** | ⚠️ Was removed during simplification | Batch delete - needs re-implementation |
+| `Entity::insert_many()` | ❌ **Removed** | ⚠️ Was removed during simplification | Batch insert - needs re-implementation |
+| `Entity::update_many()` | ❌ **Removed** | ⚠️ Was removed during simplification | Batch update - needs re-implementation |
 
 ---
 
@@ -298,12 +298,12 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | **Core Traits** | 15 | 3 | 20% |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
-| **Query Builder Methods** | 20 | 10 | 50% |
+| **Query Builder Methods** | 20 | 12 | 60% |
 | **Column Operations** | 15 | 0 | 0% |
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
 | **Value Types** | 6 | 1 | 17% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 38 | **32%** |
+| **Overall** | 117 | 40 | **34%** |
 
 ---
 
@@ -365,3 +365,21 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 - **Design Philosophy:** Simpler API than SeaORM, optimized for coroutines
 - **Compatibility:** Uses SeaQuery directly, ensuring SQL compatibility
 - **Future:** Incremental feature addition based on user needs
+
+## Test Coverage
+
+**Comprehensive test coverage has been implemented:**
+- ✅ LifeModel derive: 20 comprehensive + 11 edge case tests = 31 tests
+- ✅ LifeRecord derive: 23 comprehensive + 16 edge case tests = 39 tests
+- ✅ Query Builder: 100+ tests including edge cases in `src/query.rs`
+- ✅ Total: 178+ tests covering all implemented features
+
+**Test Files:**
+- `lifeguard-derive/tests/test_minimal.rs` - 8 basic tests
+- `lifeguard-derive/tests/test_life_model_comprehensive.rs` - 20 tests
+- `lifeguard-derive/tests/test_life_record_comprehensive.rs` - 23 tests
+- `lifeguard-derive/tests/test_life_model_edge_cases.rs` - 11 tests
+- `lifeguard-derive/tests/test_life_record_edge_cases.rs` - 16 tests
+- `src/query.rs` - 100+ query builder and paginator tests
+
+See `TEST_COVERAGE_SUMMARY.md` for detailed breakdown.
