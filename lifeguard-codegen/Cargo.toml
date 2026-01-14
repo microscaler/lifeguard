@@ -6,6 +6,10 @@ description = "Code generation tool for Lifeguard ORM entities"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/microscaler/lifeguard"
 
+[lib]
+name = "lifeguard_codegen"
+path = "src/lib.rs"
+
 [[bin]]
 name = "lifeguard-codegen"
 path = "src/main.rs"

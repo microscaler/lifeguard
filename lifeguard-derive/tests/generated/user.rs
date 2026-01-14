@@ -51,7 +51,11 @@ impl ModelTrait for UserModel {
         match column {
             Column::Id => sea_query::Value::Int(Some(self.id)),
             Column::Email => sea_query::Value::String(Some(self.email.clone())),
-            Column::Name => sea_query::Value::String(None),
+            Column::Name => self
+                .name
+                .as_ref()
+                .map(|v| sea_query::Value::String(Some(v.clone())))
+                .unwrap_or(sea_query::Value::String(None)),
         }
     }
     fn get_primary_key_value(&self) -> sea_query::Value {

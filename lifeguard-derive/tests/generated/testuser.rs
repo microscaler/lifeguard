@@ -60,7 +60,10 @@ impl ModelTrait for TestUserModel {
             Column::Id => sea_query::Value::Int(Some(self.id)),
             Column::Name => sea_query::Value::String(Some(self.name.clone())),
             Column::Email => sea_query::Value::String(Some(self.email.clone())),
-            Column::Age => sea_query::Value::String(None),
+            Column::Age => self
+                .age
+                .map(|v| sea_query::Value::Int(Some(v)))
+                .unwrap_or(sea_query::Value::Int(None)),
             Column::Active => sea_query::Value::Bool(Some(self.active)),
         }
     }

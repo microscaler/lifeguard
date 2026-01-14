@@ -7,14 +7,9 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-mod entity;
-mod error;
-mod parser;
-mod writer;
-
-use entity::EntityDefinition;
-use parser::{parse_entities_from_dir, parse_entity_from_file};
-use writer::EntityWriter;
+// Re-export from library for binary
+use lifeguard_codegen::{EntityDefinition, EntityWriter};
+use lifeguard_codegen::parser::{parse_entities_from_dir, parse_entity_from_file};
 
 #[derive(Parser)]
 #[command(name = "lifeguard-codegen")]

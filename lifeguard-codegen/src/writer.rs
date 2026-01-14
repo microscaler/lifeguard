@@ -3,8 +3,27 @@
 use crate::entity::EntityDefinition;
 use proc_macro2::TokenStream;
 use quote::quote;
+use syn::{GenericArgument, PathArguments, Type};
 
 pub struct EntityWriter;
+
+/// Extract the inner type from Option<T>
+/// Returns None if the type is not Option<T> or if extraction fails
+fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
+    if let Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Option" {
+                // Extract inner type from generic arguments
+                if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(GenericArgument::Type(inner_type)) = args.args.first() {
+                        return Some(inner_type);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 
 impl EntityWriter {
     pub fn new() -> Self {
@@ -64,6 +83,8 @@ impl EntityWriter {
             .collect();
 
         // Generate from_row fields
+        // IMPORTANT: Use row.try_get()? for ALL fields (not row.get()) to match proc-macro behavior
+        // This ensures graceful error handling instead of panics on NULL values, missing columns, or type mismatches
         let from_row_fields = entity.fields.iter().map(|f| {
             let field_name = &f.name;
             let field_type = &f.ty;
@@ -74,27 +95,61 @@ impl EntityWriter {
                 .unwrap_or_else(|| f.name.to_string());
             let column_name_lit = column_name_str.as_str();
 
-            // Handle Option<T> types - use try_get for Option (returns Result<Option<T>>), get for required
-            if let syn::Type::Path(type_path) = field_type {
-                if let Some(segment) = type_path.path.segments.last() {
-                    if segment.ident == "Option" {
-                        quote! {
-                            #field_name: row.try_get::<&str, #field_type>(#column_name_lit)?,
+            // Generate get expression - use try_get()? for all fields to match proc-macro behavior
+            let get_expr = {
+                // Handle unsigned integer types (need to convert to signed first, then cast back)
+                let is_unsigned = match field_type {
+                    syn::Type::Path(syn::TypePath {
+                        path: syn::Path { segments, .. },
+                        ..
+                    }) => {
+                        if let Some(segment) = segments.first() {
+                            let ident_str = segment.ident.to_string();
+                            matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
+                        } else {
+                            false
                         }
-                    } else {
-                        quote! {
-                            #field_name: row.get::<&str, #field_type>(#column_name_lit),
+                    }
+                    _ => false,
+                };
+
+                if is_unsigned {
+                    // For unsigned types, convert to signed equivalent first
+                    let signed_type = match field_type {
+                        syn::Type::Path(syn::TypePath {
+                            path: syn::Path { segments, .. },
+                            ..
+                        }) => {
+                            if let Some(segment) = segments.first() {
+                                match segment.ident.to_string().as_str() {
+                                    "u8" => quote! { i16 },
+                                    "u16" => quote! { i32 },
+                                    "u32" | "u64" => quote! { i64 },
+                                    _ => quote! { i32 },
+                                }
+                            } else {
+                                quote! { i32 }
+                            }
+                        }
+                        _ => quote! { i32 },
+                    };
+
+                    quote! {
+                        {
+                            let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_lit)?;
+                            val as #field_type
                         }
                     }
                 } else {
+                    // For all other types (including Option<T>), use try_get()?
                     quote! {
-                        #field_name: row.get::<&str, #field_type>(#column_name_lit),
+                        row.try_get::<&str, #field_type>(#column_name_lit)?
                     }
                 }
-            } else {
-                quote! {
-                    #field_name: row.get::<&str, #field_type>(#column_name_lit),
-                }
+            };
+
+            quote! {
+                #field_name: #get_expr,
             }
         });
 
@@ -120,14 +175,24 @@ impl EntityWriter {
                                 "u64" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
                                 "String" => quote! { sea_query::Value::String(Some(self.#field_name.clone())) },
                                 "Option" => {
-                                    // Handle Option<T> for primary key
-                                    if let Some(inner_segment) = type_path.path.segments.get(1) {
-                                        let inner_ident = inner_segment.ident.to_string();
-                                        match inner_ident.as_str() {
-                                            "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
-                                            "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                            "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
-                                            _ => quote! { sea_query::Value::String(None) },
+                                    // Handle Option<T> for primary key - extract inner type from generic arguments
+                                    if let Some(inner_type) = extract_option_inner_type(field_type) {
+                                        // Match on the inner type
+                                        if let Type::Path(inner_path) = inner_type {
+                                            if let Some(inner_segment) = inner_path.path.segments.last() {
+                                                let inner_ident = inner_segment.ident.to_string();
+                                                match inner_ident.as_str() {
+                                                    "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
+                                                    "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
+                                                    "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                                    "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
+                                                    _ => quote! { sea_query::Value::String(None) },
+                                                }
+                                            } else {
+                                                quote! { sea_query::Value::String(None) }
+                                            }
+                                        } else {
+                                            quote! { sea_query::Value::String(None) }
                                         }
                                     } else {
                                         quote! { sea_query::Value::String(None) }
@@ -167,18 +232,27 @@ impl EntityWriter {
                             "bool" => quote! { sea_query::Value::Bool(Some(self.#field_name)) },
                             "String" => quote! { sea_query::Value::String(Some(self.#field_name.clone())) },
                             "Option" => {
-                                // Handle Option<T> - need to check inner type
-                                if let Some(inner_segment) = type_path.path.segments.get(1) {
-                                    let inner_ident = inner_segment.ident.to_string();
-                                    match inner_ident.as_str() {
-                                        "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
-                                        "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                        "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
-                                        "f32" => quote! { self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None)) },
-                                        "f64" => quote! { self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None)) },
-                                        "bool" => quote! { self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None)) },
-                                        "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
-                                        _ => quote! { sea_query::Value::String(None) },
+                                // Handle Option<T> - extract inner type from generic arguments
+                                if let Some(inner_type) = extract_option_inner_type(field_type) {
+                                    // Match on the inner type
+                                    if let Type::Path(inner_path) = inner_type {
+                                        if let Some(inner_segment) = inner_path.path.segments.last() {
+                                            let inner_ident = inner_segment.ident.to_string();
+                                            match inner_ident.as_str() {
+                                                "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
+                                                "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
+                                                "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                                "f32" => quote! { self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None)) },
+                                                "f64" => quote! { self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None)) },
+                                                "bool" => quote! { self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None)) },
+                                                "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
+                                                _ => quote! { sea_query::Value::String(None) },
+                                            }
+                                        } else {
+                                            quote! { sea_query::Value::String(None) }
+                                        }
+                                    } else {
+                                        quote! { sea_query::Value::String(None) }
                                     }
                                 } else {
                                     quote! { sea_query::Value::String(None) }
@@ -332,8 +406,7 @@ fn format_code(code: &str) -> anyhow::Result<String> {
 /// Format code using cargo fmt (fallback)
 fn format_with_cargo_fmt(code: &str) -> anyhow::Result<String> {
     use std::fs;
-    use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
 
     // Create a temporary file
     let temp_dir = std::env::temp_dir();
