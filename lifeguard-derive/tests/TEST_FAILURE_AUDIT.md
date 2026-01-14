@@ -418,6 +418,18 @@ We need to either:
 - ✅ Examined `src/query/select.rs` - `Select<E>` struct and `new()` method
 - ✅ Examined `sea-orm-macros/src/derives/entity.rs` - `DeriveEntity` macro
 - ✅ Identified the key difference: trait-based vs. struct method approach
+- ✅ Implemented `LifeModelTrait` similar to `EntityTrait`
+- ✅ Removed trait bounds from `SelectQuery<M>` struct (matching SeaORM's pattern)
+- ❌ **E0223/E0282 errors persist** - compiler still can't resolve types during macro expansion
+
+**Key Discovery:**
+SeaORM implements `EntityTrait` for `Entity` (a unit struct), not for `Model`. The `Model` is an associated type. This might be the missing piece - we're implementing `LifeModelTrait` for `Model`, but maybe we should implement it for an `Entity` unit struct instead.
+
+**Current Status:**
+- Trait-based approach compiles
+- Struct-level trait bounds removed (matching SeaORM)
+- E0223/E0282 errors still occur in tests
+- Need to investigate Entity vs Model pattern
 
 ### Potential Solutions (To Investigate)
 
