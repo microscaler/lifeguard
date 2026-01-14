@@ -1291,6 +1291,7 @@ dependencies = [
  "inherent",
  "itoa",
  "sea-query-derive",
+ "serde_json",
 ]
 
 [[package]]

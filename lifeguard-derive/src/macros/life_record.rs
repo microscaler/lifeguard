@@ -131,6 +131,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
         
         // Generate setter method
+        // The record field is Option<T>, and the setter accepts T and wraps it in Some()
+        // This allows convenient usage: record.set_name("value") instead of record.set_name(Some("value"))
         let setter_name = Ident::new(&format!("set_{}", field_name), field_name.span());
         setter_methods.push(quote! {
             /// Set the #field_name field
@@ -145,13 +147,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             let column_name_str = column_name.clone();
             insert_field_checks.push(quote! {
                 if let Some(ref val) = self.#field_name {
-                    struct ColumnName;
-                    impl sea_query::Iden for ColumnName {
-                        fn unquoted(&self) -> &str {
-                            #column_name_str
-                        }
-                    }
-                    columns.push(ColumnName);
+                    columns.push(#column_name_str);
                     values.push(sea_query::Expr::val(val.clone()));
                 }
             });
@@ -189,8 +185,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             ///
             /// Returns the inserted Model with all fields populated (including generated primary key).
             pub fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<#model_name, lifeguard::LifeError> {
-                use sea_query::{InsertStatement, PostgresQueryBuilder};
-                use sea_query::Iden;
+                use sea_query::{InsertStatement, PostgresQueryBuilder, Iden};
                 
                 struct TableName;
                 impl Iden for TableName {
@@ -203,7 +198,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 query.into_table(TableName);
                 
                 // Build columns and values from dirty fields
-                let mut columns = Vec::new();
+                // Use Vec<&'static str> since IntoIden is implemented for &'static str
+                let mut columns: Vec<&'static str> = Vec::new();
                 let mut values = Vec::new();
                 
                 #(#insert_field_checks)*
@@ -259,7 +255,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                         sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
                         sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
                         sea_query::Value::Float(None) | sea_query::Value::Double(None) => nulls.push(None),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(None) => nulls.push(None),
                         _ => {
                             return Err(lifeguard::LifeError::Other(format!("Unsupported value type in insert: {:?}", value)));
@@ -294,11 +292,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                             big_int_idx += 1;
                         }
                         sea_query::Value::String(Some(_)) => {
-                            params.push(strings[string_idx].as_str() as &dyn may_postgres::types::ToSql);
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                             string_idx += 1;
                         }
                         sea_query::Value::Bytes(Some(_)) => {
-                            params.push(bytes[byte_idx].as_slice() as &dyn may_postgres::types::ToSql);
+                            params.push(&bytes[byte_idx] as &dyn may_postgres::types::ToSql);
                             byte_idx += 1;
                         }
                         sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
@@ -331,10 +329,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(Some(_)) => {
-                            params.push(strings[string_idx].as_str() as &dyn may_postgres::types::ToSql);
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                             string_idx += 1;
                         }
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
@@ -440,7 +440,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                         sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
                         sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
                         sea_query::Value::Float(None) | sea_query::Value::Double(None) => nulls.push(None),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(Some(j)) => strings.push(j.clone()),
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(None) => nulls.push(None),
                         _ => {
                             return Err(lifeguard::LifeError::Other(format!("Unsupported value type in update: {:?}", value)));
@@ -475,11 +477,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                             big_int_idx += 1;
                         }
                         sea_query::Value::String(Some(_)) => {
-                            params.push(strings[string_idx].as_str() as &dyn may_postgres::types::ToSql);
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                             string_idx += 1;
                         }
                         sea_query::Value::Bytes(Some(_)) => {
-                            params.push(bytes[byte_idx].as_slice() as &dyn may_postgres::types::ToSql);
+                            params.push(&bytes[byte_idx] as &dyn may_postgres::types::ToSql);
                             byte_idx += 1;
                         }
                         sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
@@ -512,10 +514,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
                         }
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(Some(_)) => {
-                            params.push(strings[string_idx].as_str() as &dyn may_postgres::types::ToSql);
+                            params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                             string_idx += 1;
                         }
+                        #[cfg(feature = "with-json")]
                         sea_query::Value::Json(None) => {
                             params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                             null_idx += 1;
