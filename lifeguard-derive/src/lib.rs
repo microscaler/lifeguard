@@ -8,31 +8,41 @@ mod utils;
 
 use proc_macro::TokenStream;
 
+/// Derive macro for `Entity` - generates Entity unit struct, EntityName, Iden, IdenStatic
+///
+/// This macro generates the Entity unit struct and implements LifeEntityName, Iden, and IdenStatic.
+/// Following SeaORM's architecture, this is a separate derive from Model.
+///
+/// Note: This macro is typically used internally by `LifeModel`. See `LifeModel` for usage examples.
+#[proc_macro_derive(DeriveEntity, attributes(table_name, model))]
+pub fn derive_entity(input: TokenStream) -> TokenStream {
+    macros::derive_entity(input)
+}
+
+/// Derive macro for `FromRow` - generates FromRow trait implementation
+///
+/// This macro generates the `FromRow` implementation for converting
+/// `may_postgres::Row` into a Model struct. It's separate from `LifeModel`
+/// to avoid trait bound resolution issues during macro expansion.
+///
+/// Note: `LifeModel` automatically generates `FromRow` for the Model struct,
+/// so this derive is typically not needed unless you're using a custom Model.
+#[proc_macro_derive(FromRow, attributes(column_name))]
+pub fn derive_from_row(input: TokenStream) -> TokenStream {
+    macros::derive_from_row(input).into()
+}
+
 /// Derive macro for `LifeModel` - generates immutable database row representation
 ///
 /// This macro generates:
+/// - `Entity` unit struct (with nested `DeriveEntity` for LifeModelTrait)
 /// - `Model` struct (immutable row representation)
 /// - `Column` enum (all columns)
 /// - `PrimaryKey` enum (primary key columns)
-/// - `Entity` type (entity itself)
-/// - `FromRow` implementation for deserializing database rows
-/// - Field getters (immutable access)
-/// - Table name and column metadata
-/// - Primary key identification
+/// - `FromRow` implementation (automatic)
+/// - `LifeModelTrait` implementation (via nested DeriveEntity)
 ///
-/// # Example
-/// ```ignore
-/// use lifeguard_derive::LifeModel;
-///
-/// #[derive(LifeModel)]
-/// #[table_name = "users"]
-/// pub struct User {
-///     #[primary_key]
-///     pub id: i32,
-///     pub name: String,
-///     pub email: String,
-/// }
-/// ```
+/// See `lifeguard-derive/tests/test_minimal.rs` for usage examples.
 #[proc_macro_derive(LifeModel, attributes(table_name, primary_key, column_name, column_type, default_value, unique, indexed, nullable, auto_increment, enum_name))]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     macros::derive_life_model(input)
@@ -47,25 +57,6 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
-///
-/// # Example
-/// ```ignore
-/// use lifeguard_derive::{LifeModel, LifeRecord};
-///
-/// #[derive(LifeModel, LifeRecord)]
-/// #[table_name = "users"]
-/// pub struct User {
-///     #[primary_key]
-///     pub id: i32,
-///     pub name: String,
-///     pub email: String,
-/// }
-///
-/// // Create a record for update
-/// let mut record = UserRecord::from_model(&user_model);
-/// record.set_name("New Name".to_string());
-/// // Only changed fields will be updated
-/// ```
 #[proc_macro_derive(LifeRecord, attributes(table_name, primary_key, column_name, column_type, default_value, unique, indexed, nullable, auto_increment, enum_name))]
 pub fn derive_life_record(input: TokenStream) -> TokenStream {
     macros::derive_life_record(input)
