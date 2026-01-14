@@ -1,6 +1,11 @@
 //! Minimal test to isolate E0223 error
+//!
+//! This test verifies the nested macro expansion pattern:
+//! - LifeModel generates Entity with #[derive(DeriveEntity)]
+//! - DeriveEntity (nested expansion) generates LifeModelTrait
+//! - FromRow must be applied separately to the Model
 
-use lifeguard_derive::LifeModel;
+use lifeguard_derive::{LifeModel, FromRow};
 
 #[test]
 fn test_minimal() {
@@ -8,6 +13,14 @@ fn test_minimal() {
     #[table_name = "test_minimal"]
     struct TestMinimal {
         #[primary_key]
+        id: i32,
+        name: String,
+    }
+    
+    // Apply FromRow to the generated Model (required for query execution)
+    // This is separate from LifeModel to avoid trait bound resolution issues
+    #[derive(FromRow)]
+    struct TestMinimalModel {
         id: i32,
         name: String,
     }
