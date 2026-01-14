@@ -89,7 +89,7 @@ fn is_no_rows_error(error: &LifeError) -> bool {
 ///     .filter(Expr::col("name").like("John%"))
 ///     .all(executor)?;
 /// ```
-pub trait LifeModelTrait: FromRow {
+pub trait LifeModelTrait {
     /// Start a query builder for finding records
     ///
     /// # Returns
@@ -112,7 +112,9 @@ pub trait LifeModelTrait: FromRow {
     ///
     /// let users = UserModel::find().all(executor)?;
     /// ```
-    fn find() -> SelectQuery<Self>;
+    fn find() -> SelectQuery<Self>
+    where
+        Self: FromRow;
 }
 
 /// Query builder for selecting records
