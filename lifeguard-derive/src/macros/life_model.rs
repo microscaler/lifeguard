@@ -815,11 +815,36 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     };
     
     // Generate the expanded code
+    // HYPOTHESIS 1 TEST: Move FromRow trait implementation immediately after struct definition
+    // to ensure compiler can "see" it during macro expansion before SelectQuery is used
     let expanded = quote! {
         // Model struct (immutable row representation)
         #[derive(Debug, Clone)]
         pub struct #model_name {
             #(#model_fields)*
+        }
+        
+        // HYPOTHESIS 1: FromRow trait implementation moved here (immediately after struct)
+        // This ensures the trait is "registered" before any other code that might need it
+        // FromRow method implementation for converting may_postgres::Row to Model
+        impl #model_name {
+            /// Convert a `may_postgres::Row` into a `#model_name`
+            ///
+            /// This extracts values from the row using column names (snake_case by default,
+            /// or custom column names if specified via `#[column_name]` attribute).
+            pub fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                Ok(Self {
+                    #(#from_row_fields)*
+                })
+            }
+        }
+        
+        // Implement FromRow trait for Model
+        // HYPOTHESIS 1: Placed immediately after struct and method to maximize visibility
+        impl lifeguard::FromRow for #model_name {
+            fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                #model_name::from_row(row)
+            }
         }
         
         // Column enum
@@ -849,33 +874,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // Entity type alias
         pub type Entity = #struct_name;
         
-        // FromRow implementation for converting may_postgres::Row to Model
-        impl #model_name {
-            /// Convert a `may_postgres::Row` into a `#model_name`
-            ///
-            /// This extracts values from the row using column names (snake_case by default,
-            /// or custom column names if specified via `#[column_name]` attribute).
-            pub fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
-                Ok(Self {
-                    #(#from_row_fields)*
-                })
-            }
-        }
-        
-        // Implement FromRow trait for Model
-        // This must come before CRUD methods that use SelectQuery<#model_name>
-        impl lifeguard::FromRow for #model_name {
-            fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
-                #model_name::from_row(row)
-            }
-        }
-        
         // Table name constant
         impl #struct_name {
             pub const TABLE_NAME: &'static str = #table_name;
         }
         
         // CRUD methods on Model
+        // HYPOTHESIS 1: FromRow trait is now defined much earlier, before this impl block
         impl #model_name {
             #crud_methods
         }

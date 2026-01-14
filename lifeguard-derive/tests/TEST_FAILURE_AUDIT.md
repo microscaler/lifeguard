@@ -280,9 +280,29 @@ where
 4. ❌ Added where clause to the impl block containing CRUD methods - No change
 5. ❌ Reordered code generation (FromRow before CRUD) - Already correct
 
+### Hypothesis Testing Results
+
+#### Hypothesis 1: Macro Expansion Ordering Issue ❌ **REJECTED**
+
+**Test:** Moved `FromRow` trait implementation to immediately after struct definition (before Column enum, PrimaryKey enum, etc.)
+
+**Changes Made:**
+- Reordered code generation so `FromRow` method and trait implementation come right after `#model_name` struct definition
+- Placed before all other generated code (Column enum, Iden impl, PrimaryKey enum, etc.)
+
+**Result:** ❌ **No Change**
+- Error count: Still 40 E0223, 40 E0282
+- Error pattern: Identical to before
+- Conclusion: Ordering within macro expansion is NOT the issue
+
+**Analysis:**
+- The compiler cannot resolve trait bounds during macro expansion regardless of ordering
+- This suggests the problem is deeper than simple code ordering
+- The issue likely relates to how Rust's type checker processes macro-expanded code vs. regular code
+
 ### Potential Solutions (To Investigate)
 
-**Solution 1: Explicit Trait Bound in Generated Code**
+**Solution 1: Explicit Trait Bound in Generated Code** ⏭️ **NEXT TO TEST**
 - Add explicit type annotation or trait bound hint in the generated `find()` method
 - May require restructuring how the method is generated
 
