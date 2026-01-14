@@ -463,8 +463,22 @@ The compiler can't verify `type Model: FromRow` during macro expansion because b
 **CURRENT ISSUE:**
 E0223 "ambiguous associated type" errors occur **during macro expansion** at the `#[derive(LifeModel)]` level. This suggests the compiler is trying to resolve an associated type while the macro is still expanding, before all types are fully defined.
 
+**LATEST ATTEMPTS:**
+1. ✅ Replaced `Entity::TABLE_NAME` with string literals in CRUD methods - reduced some errors
+2. ✅ Split all derives to match SeaORM architecture
+3. ✅ Removed `LifeModelTrait` from `LifeModel` macro
+4. ✅ Used fully qualified `FromRow` paths
+
 **HYPOTHESIS:**
 The issue may be that Rust's type checker is attempting to verify trait bounds or resolve associated types during the macro expansion phase, before the expansion is complete. This could be a fundamental limitation of how Rust processes procedural macros.
+
+**OBSERVATION:**
+- Core `lifeguard` package compiles successfully (0 E0223 errors)
+- All derive macros compile successfully
+- E0223 errors only occur in derive macro tests
+- Errors happen at the `#[derive(LifeModel)]` level, not in generated code usage
+
+This suggests the issue is specific to how the compiler processes the macro expansion itself, not the generated code.
 
 **NEXT STEPS:**
 1. Investigate if there's any code in `LifeModel` that triggers type resolution during expansion
