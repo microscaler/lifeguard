@@ -5,8 +5,8 @@
 **Total Tests:** 40  
 **Tests Failing:** 40 (100%)  
 **Status:** Major issues **FIXED** ✅  
-**Remaining Issues:** Type inference and ambiguity errors (E0223, E0282)  
-**Error Count:** 160 errors (down from 568, 72% reduction)
+**Remaining Issues:** Type inference and ambiguity errors (E0223, E0282, E0277, E0599, E0308, E0428, E0284, E0432)  
+**Error Count:** 440 errors (up from 160, new errors identified)
 
 ## Root Cause Analysis
 
@@ -136,10 +136,81 @@ This allows `Column` to be used with `Expr::col()` and other sea_query methods.
 - **Change:** Changed from `strings[idx].as_str()` to `&strings[idx]` and `bytes[idx].as_slice()` to `&bytes[idx]` to match `query.rs` pattern
 - **Result:** All E0277 str/[u8] ToSql errors resolved (0 remaining)
 
+### Error E0599: Value::Json Not Found
+- **Status:** ✅ **FIXED**
+- **Previous Frequency:** Multiple errors
+- **Fix Applied:** Enabled `with-json` feature flag and added `Value::Json` handling
+- **Result:** All E0599 Json errors resolved (0 remaining)
+
+### Error E0599: Iterator Issues and Missing Items
+- **Status:** ⚠️ **NEW ISSUE**
+- **Frequency:** 149 errors
+- **Pattern:** Multiple types fail with "is not an iterator" and "no function or associated item named `X` found"
+- **Location:** Test code trying to use types as iterators or access missing methods/items
+- **Root Cause:** 
+  - Types like `TestFind`, `TestSelectQuery`, `User`, `Column`, `UserModel` are being used as iterators but don't implement `Iterator` trait
+  - Missing methods like `from_row` on Model types
+  - Missing associated items like `TABLE_NAME` on struct types
+- **Specific Issues:**
+  - `TestFind` is not an iterator
+  - `TestSelectQuery` is not an iterator
+  - `User` is not an iterator (multiple test contexts)
+  - `Column` is not an iterator (multiple test contexts)
+  - `UserModel` is not an iterator
+  - `no function or associated item named `from_row` found for struct `XModel``
+  - `no associated item named `TABLE_NAME` found for struct `X``
+- **Error Messages:** 
+  - "`X` is not an iterator"
+  - "no function or associated item named `Y` found for struct `X` in the current scope"
+  - "no associated item named `Z` found for struct `X` in the current scope"
+- **Impact:** Prevents tests from compiling when trying to iterate over query results or access missing methods
+- **Solution:** 
+  - Query results need to be collected or iterated properly
+  - Model types need `FromRow` implementation
+  - Struct types need `TABLE_NAME` constant or method
+
+### Error E0428: Name Defined Multiple Times
+- **Status:** ⚠️ **NEW ISSUE**
+- **Frequency:** 2 errors
+- **Pattern:** Model struct names are defined multiple times
+- **Location:** Test code where `LifeModel` generates a Model and test also defines it manually
+- **Root Cause:** 
+  - `LifeModel` macro generates `TestMinimalModel` and `TestFromRowModel`
+  - Test code also manually defines these same structs
+  - This creates duplicate definitions
+- **Specific Issues:**
+  - `TestMinimalModel` is defined multiple times
+  - `TestFromRowModel` is defined multiple times
+- **Error Message:** "the name `X` is defined multiple times"
+- **Impact:** Prevents tests from compiling due to duplicate definitions
+- **Solution:** Remove manual Model struct definitions from tests, or rename them to avoid conflicts
+
+### Error E0284: Type Annotations Needed
+- **Status:** ⚠️ **NEW ISSUE**
+- **Frequency:** 2 errors
+- **Pattern:** Compiler cannot infer types in specific contexts
+- **Location:** Test code where type inference fails
+- **Root Cause:** Compiler needs explicit type annotations to resolve types
+- **Error Message:** "type annotations needed"
+- **Impact:** Prevents tests from compiling when types cannot be inferred
+- **Solution:** Add explicit type annotations where compiler cannot infer
+
+### Error E0432: Unresolved Import
+- **Status:** ⚠️ **NEW ISSUE**
+- **Frequency:** 1 error
+- **Pattern:** Import cannot be resolved
+- **Location:** Test code trying to import `lifeguard::ColumnTrait`
+- **Root Cause:** `ColumnTrait` doesn't exist in `lifeguard` crate
+- **Specific Issue:**
+  - `unresolved import `lifeguard::ColumnTrait``
+- **Error Message:** "unresolved import `X`"
+- **Impact:** Prevents test from compiling due to missing import
+- **Solution:** Remove the import or implement `ColumnTrait` if needed
+
 ## Remaining Issues
 
 ### Error E0223: Ambiguous Associated Type
-- **Frequency:** 40 errors (100% of tests)
+- **Frequency:** 71 errors (up from 40)
 - **Pattern:** All tests fail with this error at the `#[derive(LifeModel, LifeRecord)]` level
 - **Location:** Originates in `derive_life_model` macro expansion (line 37 in `lib.rs`)
 - **Root Cause:** The compiler cannot resolve trait bounds during macro expansion
@@ -152,7 +223,7 @@ This allows `Column` to be used with `Expr::col()` and other sea_query methods.
 - **Impact:** Prevents all tests from compiling
 
 ### Error E0282: Type Annotations Needed
-- **Frequency:** 40 errors (100% of tests, same as E0223)
+- **Frequency:** 67 errors (up from 40)
 - **Pattern:** Cascades from E0223 - occurs at the same `#[derive(LifeModel, LifeRecord)]` level
 - **Location:** Same as E0223 - originates in macro expansion
 - **Root Cause:** Cannot infer types because E0223 prevents trait resolution
@@ -165,13 +236,31 @@ This allows `Column` to be used with `Expr::col()` and other sea_query methods.
 - **Fix Applied:** Convert unsigned types (u8, u16, u32, u64) to signed equivalents (i16, i32, i64) in `from_row` implementation
 - **Result:** All E0277 FromSql errors resolved (0 remaining)
 
+### Error E0277: FromRow Trait Bound Not Satisfied
+- **Status:** ⚠️ **NEW ISSUE**
+- **Frequency:** 138 errors
+- **Pattern:** Multiple Model types fail with "the trait bound `XModel: FromRow` is not satisfied"
+- **Location:** Occurs in test code where Model types are used but `FromRow` is not implemented
+- **Root Cause:** Tests are using Model types that don't have `#[derive(FromRow)]` applied
+- **Specific Issue:**
+  - Models like `TestBasicModel`, `TestFindByIdModel`, `TestInsertManyModel`, etc. are generated by `LifeModel` macro
+  - But `FromRow` implementation is not automatically applied - it requires a separate `#[derive(FromRow)]`
+  - Test code tries to use these models with methods that require `FromRow` trait bound
+- **Error Message:** "the trait bound `XModel: FromRow` is not satisfied"
+- **Impact:** Prevents tests from compiling when they try to use Model types with `FromRow`-requiring methods
+- **Solution:** Tests need to apply `#[derive(FromRow)]` to generated Model types, or `LifeModel` macro should automatically generate `FromRow` implementation
+
 ### Error E0308: Mismatched Types
-- **Status:** ✅ **FIXED**
-- **Previous Frequency:** 6 errors (test code issues)
-- **Fix Applied:** 
+- **Status:** ⚠️ **PERSISTING**
+- **Frequency:** 10 errors (up from 6)
+- **Pattern:** Type mismatches in test code
+- **Location:** Test code assertions and assignments
+- **Root Cause:** Type mismatches between expected and actual values
+- **Previous Fix Applied:** 
   - Fixed setter calls for `Option<String>` fields (need `Some(...)`)
   - Fixed assertion for `Option<Option<String>>` fields
-- **Result:** All E0308 test code errors resolved (0 remaining)
+- **Result:** Some E0308 errors resolved, but 10 new ones remain
+- **Impact:** Prevents tests from compiling due to type mismatches
 
 ## Additional Notes
 
@@ -188,9 +277,14 @@ This allows `Column` to be used with `Expr::col()` and other sea_query methods.
 2. ✅ **E0599 (Value::Json not found):** FIXED - Enabled `with-json` feature flag
 3. ✅ **E0277 (str/[u8] ToSql):** FIXED - Changed to use `&strings[idx]` and `&bytes[idx]`
 4. ✅ **E0277 (u8/u16/u64 FromSql):** FIXED - Convert unsigned to signed types in from_row
-5. ✅ **E0308 (Test code mismatches):** FIXED - Fixed setter calls and assertions
-6. ⚠️ **E0223 (Ambiguous associated type):** 40 errors - **INVESTIGATED** - Root cause identified
-7. ⚠️ **E0282 (Type annotations needed):** 40 errors - **CASCADING** - Will resolve when E0223 is fixed
+5. ⚠️ **E0308 (Test code mismatches):** PARTIALLY FIXED - 10 errors remain (up from 6)
+6. ⚠️ **E0223 (Ambiguous associated type):** 71 errors (up from 40) - **INVESTIGATED** - Root cause identified
+7. ⚠️ **E0282 (Type annotations needed):** 67 errors (up from 40) - **CASCADING** - Will resolve when E0223 is fixed
+8. ⚠️ **E0277 (FromRow trait bound):** 138 errors - **NEW** - Models missing `FromRow` implementation
+9. ⚠️ **E0599 (Iterator/Missing items):** 149 errors - **NEW** - Types used as iterators or missing methods
+10. ⚠️ **E0428 (Duplicate definitions):** 2 errors - **NEW** - Model structs defined multiple times
+11. ⚠️ **E0284 (Type annotations needed):** 2 errors - **NEW** - Compiler cannot infer types
+12. ⚠️ **E0432 (Unresolved import):** 1 error - **NEW** - `lifeguard::ColumnTrait` doesn't exist
 
 ### Root Cause Chain
 1. **Primary:** Conflicting `IntoColumnRef` impl → **FIXED** ✅

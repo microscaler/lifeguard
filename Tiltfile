@@ -138,7 +138,7 @@ local_resource(
 # This verifies that E0223 errors are resolved using SeaORM's nested expansion approach
 local_resource(
     'test-minimal-pattern',
-    cmd='cd lifeguard-derive && cargo test --test test_minimal 2>&1 | tail -30',
+    cmd='cd lifeguard-derive && cargo test --test test_minimal',
     deps=[
         'lifeguard-derive/src',
         'lifeguard-derive/tests/test_minimal.rs',
@@ -146,7 +146,7 @@ local_resource(
         'lifeguard-derive/Cargo.lock',
     ],
     resource_deps=[],  # No database needed - compile-time test only
-    labels=['tests', 'derive', 'pattern', 'minimal'],
+    labels=['tests',],
     allow_parallel=True,
 )
 
