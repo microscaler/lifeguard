@@ -8,6 +8,27 @@ mod utils;
 
 use proc_macro::TokenStream;
 
+/// Derive macro for `FromRow` - generates FromRow trait implementation
+///
+/// This macro generates the `FromRow` implementation for converting
+/// `may_postgres::Row` into a Model struct. It's separate from `LifeModel`
+/// to avoid trait bound resolution issues during macro expansion.
+///
+/// # Example
+/// ```ignore
+/// use lifeguard_derive::FromRow;
+///
+/// #[derive(FromRow)]
+/// pub struct UserModel {
+///     pub id: i32,
+///     pub name: String,
+/// }
+/// ```
+#[proc_macro_derive(FromRow, attributes(column_name))]
+pub fn derive_from_row(input: TokenStream) -> TokenStream {
+    macros::derive_from_row(input).into()
+}
+
 /// Derive macro for `LifeModel` - generates immutable database row representation
 ///
 /// This macro generates:
@@ -15,14 +36,16 @@ use proc_macro::TokenStream;
 /// - `Column` enum (all columns)
 /// - `PrimaryKey` enum (primary key columns)
 /// - `Entity` type (entity itself)
-/// - `FromRow` implementation for deserializing database rows
+/// - `LifeModelTrait` implementation
 /// - Field getters (immutable access)
 /// - Table name and column metadata
 /// - Primary key identification
 ///
+/// **Note:** You must also derive `FromRow` on the Model struct separately.
+///
 /// # Example
 /// ```ignore
-/// use lifeguard_derive::LifeModel;
+/// use lifeguard_derive::{LifeModel, FromRow};
 ///
 /// #[derive(LifeModel)]
 /// #[table_name = "users"]
@@ -30,7 +53,13 @@ use proc_macro::TokenStream;
 ///     #[primary_key]
 ///     pub id: i32,
 ///     pub name: String,
-///     pub email: String,
+/// }
+///
+/// // Apply FromRow to the generated Model
+/// #[derive(FromRow)]
+/// pub struct UserModel {
+///     pub id: i32,
+///     pub name: String,
 /// }
 /// ```
 #[proc_macro_derive(LifeModel, attributes(table_name, primary_key, column_name, column_type, default_value, unique, indexed, nullable, auto_increment, enum_name))]
