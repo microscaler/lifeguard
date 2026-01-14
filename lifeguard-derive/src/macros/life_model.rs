@@ -298,7 +298,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             ///
             /// Returns a query builder that can be chained with filters.
             pub fn find() -> lifeguard::SelectQuery<#model_name> {
-                lifeguard::SelectQuery::<#model_name>::new(#struct_name::TABLE_NAME)
+                <lifeguard::SelectQuery<#model_name>>::new(#struct_name::TABLE_NAME)
             }
             
             /// Delete a record by primary key
@@ -863,6 +863,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         }
         
         // Implement FromRow trait for Model
+        // This must come before CRUD methods that use SelectQuery<#model_name>
         impl lifeguard::FromRow for #model_name {
             fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 #model_name::from_row(row)
