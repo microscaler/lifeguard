@@ -298,12 +298,12 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | **Core Traits** | 15 | 3 | 20% |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
-| **Query Builder Methods** | 20 | 10 | 50% |
+| **Query Builder Methods** | 20 | 12 | 60% |
 | **Column Operations** | 15 | 0 | 0% |
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
 | **Value Types** | 6 | 1 | 17% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 38 | **32%** |
+| **Overall** | 117 | 40 | **34%** |
 
 ---
 
