@@ -376,10 +376,28 @@ where
    - Do they defer trait bound checking until runtime/execution?
 
 **Next Steps:**
-1. Examine SeaORM's actual source code for `EntityTrait::find()`
-2. Look at how `DeriveEntityModel` generates code
-3. Compare their approach to ours
-4. Adapt their solution if applicable
+1. **Examine SeaORM's actual source code:**
+   - Repository: `https://github.com/SeaQL/sea-orm`
+   - Key files to investigate:
+     - `src/entity/traits.rs` or similar - `EntityTrait` definition
+     - `sea-orm-derive/src/entity/` - `DeriveEntityModel` macro implementation
+     - Look for how `find()` method is generated/implemented
+   
+2. **Key Questions to Answer:**
+   - Does `EntityTrait::find()` return `Select<Entity>` with a trait bound?
+   - How does `DeriveEntityModel` generate the `find()` method?
+   - Do they avoid using trait-bounded return types in generated code?
+   - Do they use a different pattern (e.g., associated types, helper traits)?
+   
+3. **Compare and Adapt:**
+   - Compare SeaORM's pattern to our `SelectQuery<M>` pattern
+   - Identify what they do differently
+   - Adapt their solution to our architecture if applicable
+
+**Investigation Resources:**
+- SeaORM GitHub: `https://github.com/SeaQL/sea-orm`
+- SeaORM Derive Crate: `https://github.com/SeaQL/sea-orm/tree/master/sea-orm-derive`
+- Look for `EntityTrait` trait definition and `DeriveEntityModel` macro
 
 ### Potential Solutions (To Investigate)
 
