@@ -1,7 +1,7 @@
 //! LifeModel derive macro implementation
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, Type, PathSegment};
 use quote::quote;
 
 use crate::attributes;
@@ -142,10 +142,52 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         
         // Generate FromRow field extraction
         // Use column name if custom, otherwise use snake_case of field name
+        // Handle unsigned integer types that don't implement FromSql directly
         let column_name_str = column_name.clone();
-        from_row_fields.push(quote! {
-            #field_name: row.get(#column_name_str),
-        });
+        
+        // Check if this is an unsigned integer type that needs conversion
+        let is_unsigned = match field_type {
+            Type::Path(type_path) => {
+                if let Some(segment) = type_path.path.segments.last() {
+                    let ident_str = segment.ident.to_string();
+                    ident_str == "u8" || ident_str == "u16" || ident_str == "u32" || ident_str == "u64"
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        };
+        
+        if is_unsigned {
+            // For unsigned types, convert from signed equivalents
+            let conversion_type = match field_type {
+                Type::Path(type_path) => {
+                    if let Some(segment) = type_path.path.segments.last() {
+                        match segment.ident.to_string().as_str() {
+                            "u8" => quote! { i16 },
+                            "u16" => quote! { i32 },
+                            "u32" | "u64" => quote! { i64 },
+                            _ => quote! { i32 },
+                        }
+                    } else {
+                        quote! { i32 }
+                    }
+                }
+                _ => quote! { i32 },
+            };
+            
+            from_row_fields.push(quote! {
+                #field_name: {
+                    let val: #conversion_type = row.get::<&str, #conversion_type>(#column_name_str);
+                    val as #field_type
+                },
+            });
+        } else {
+            // For all other types, use explicit type parameters for row.get()
+            from_row_fields.push(quote! {
+                #field_name: row.get::<&str, #field_type>(#column_name_str),
+            });
+        }
     }
     
     // Generate field extraction code for batch operations

@@ -131,6 +131,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
         
         // Generate setter method
+        // The record field is Option<T>, and the setter accepts T and wraps it in Some()
+        // This allows convenient usage: record.set_name("value") instead of record.set_name(Some("value"))
         let setter_name = Ident::new(&format!("set_{}", field_name), field_name.span());
         setter_methods.push(quote! {
             /// Set the #field_name field

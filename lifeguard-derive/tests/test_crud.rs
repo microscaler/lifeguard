@@ -578,7 +578,7 @@ fn test_insert_many_handles_mixed_null_and_non_null() {
     // Verify that insert_many handles records with mixed None and Some fields
     // This ensures Value::Null appears in the sea_values and is properly handled
     let mut record1 = TestInsertMixedNullRecord::new();
-    record1.set_name("User1".to_string()).set_email("user1@example.com".to_string());
+    record1.set_name("User1".to_string()).set_email(Some("user1@example.com".to_string()));
     // phone is None
     
     let mut record2 = TestInsertMixedNullRecord::new();
@@ -597,7 +597,7 @@ fn test_insert_many_handles_mixed_null_and_non_null() {
     
     // Verify records have mixed None/Some fields
     assert!(record1.phone.is_none());
-    assert_eq!(record1.email, Some("user1@example.com".to_string()));
+    assert_eq!(record1.email, Some(Some("user1@example.com".to_string())));
     assert!(record2.email.is_none());
     assert!(record2.phone.is_none());
 }
@@ -775,11 +775,11 @@ fn test_insert_many_respects_dirty_fields_like_single_insert() {
     // The first record determines which columns are included
     // All records must have the same fields set (consistent dirty fields)
     let mut record1 = TestInsertDirtyFieldsRecord::new();
-    record1.set_name("Alice".to_string()).set_email("alice@example.com".to_string());
+    record1.set_name("Alice".to_string()).set_email(Some("alice@example.com".to_string()));
     // age is None - should be excluded from columns
     
     let mut record2 = TestInsertDirtyFieldsRecord::new();
-    record2.set_name("Bob".to_string()).set_email("bob@example.com".to_string());
+    record2.set_name("Bob".to_string()).set_email(Some("bob@example.com".to_string()));
     // age is None - should be excluded from columns
     
     // Verify the method exists and accepts records with consistent dirty fields
@@ -816,12 +816,12 @@ fn test_insert_many_skips_none_fields_consistently() {
     // Only fields that are Some in the first record should be included
     // First record: only name and email set
     let mut record1 = TestInsertSkipNoneRecord::new();
-    record1.set_name("User1".to_string()).set_email("user1@example.com".to_string());
+    record1.set_name("User1".to_string()).set_email(Some("user1@example.com".to_string()));
     // phone and address are None - should be excluded
     
     // Second record: same fields set (name and email), phone and address still None
     let mut record2 = TestInsertSkipNoneRecord::new();
-    record2.set_name("User2".to_string()).set_email("user2@example.com".to_string());
+    record2.set_name("User2".to_string()).set_email(Some("user2@example.com".to_string()));
     // phone and address are None - should be excluded
     
     // Verify the method exists and accepts records with skipped None fields
