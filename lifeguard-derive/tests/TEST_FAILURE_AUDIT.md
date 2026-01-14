@@ -354,27 +354,60 @@ where
 - The compiler cannot verify `#model_name: FromRow` during macro expansion, even though the impl is generated in the same expansion
 - This is a fundamental limitation: macro-generated trait implementations are not "visible" to the type checker during macro expansion
 
+### Prior Art Investigation: How Does SeaORM Handle This?
+
+**Key Insight:** SeaORM uses SeaQuery and has the same pattern - they must have solved this problem!
+
+**Investigation Needed:**
+1. **SeaORM's EntityTrait Implementation:**
+   - How does SeaORM implement `EntityTrait::find()`?
+   - Do they use a similar pattern with trait bounds?
+   - How do they handle macro-generated entities?
+
+2. **SeaORM's Derive Macros:**
+   - How does `DeriveEntityModel` generate the `find()` method?
+   - Do they avoid trait bounds in the return type?
+   - Do they use a different pattern entirely?
+
+3. **Potential Patterns to Investigate:**
+   - Does SeaORM use a helper trait or type that doesn't require bounds?
+   - Do they generate the trait implementation in a separate macro?
+   - Do they use a different query builder pattern?
+   - Do they defer trait bound checking until runtime/execution?
+
+**Next Steps:**
+1. Examine SeaORM's actual source code for `EntityTrait::find()`
+2. Look at how `DeriveEntityModel` generates code
+3. Compare their approach to ours
+4. Adapt their solution if applicable
+
 ### Potential Solutions (To Investigate)
 
-**Solution 1: Explicit Trait Bound in Generated Code** ⏭️ **NEXT TO TEST**
+**Solution 1: Learn from SeaORM** ⏭️ **PRIORITY - INVESTIGATE FIRST**
+- Examine SeaORM's `EntityTrait::find()` implementation
+- Study how `DeriveEntityModel` generates code
+- Adapt their pattern if they've solved this problem
+- **Why this is priority:** They have the same constraints and likely solved it
+
+**Solution 2: Explicit Trait Bound in Generated Code**
 - Add explicit type annotation or trait bound hint in the generated `find()` method
 - May require restructuring how the method is generated
 
-**Solution 2: Separate Macro Phases**
+**Solution 3: Separate Macro Phases**
 - Generate the `FromRow` implementation in a separate expansion phase
 - Use a helper macro or attribute to ensure proper ordering
 
-**Solution 3: Type Alias Approach**
+**Solution 4: Type Alias Approach**
 - Create a type alias that includes the trait bound:
   ```rust
   type ModelQuery = SelectQuery<#model_name> where #model_name: FromRow;
   ```
 
-**Solution 4: Restructure SelectQuery Usage**
+**Solution 5: Restructure SelectQuery Usage**
 - Instead of calling `SelectQuery::new()` directly, use a helper function that doesn't require trait bounds during expansion
 - Or generate a wrapper method that handles the type resolution
 
-**Solution 5: Investigate Rust Compiler Behavior**
+**Solution 6: Investigate Rust Compiler Behavior**
 - This may be a limitation of how Rust handles trait bounds during macro expansion
 - May need to file an issue or use a workaround specific to procedural macros
 
