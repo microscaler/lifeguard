@@ -1112,6 +1112,16 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use may_postgres::types::ToSql;
 
+    // Test Entity for query builder tests
+    #[derive(Copy, Clone, Default, Debug)]
+    struct TestEntity;
+
+    impl LifeEntityName for TestEntity {
+        fn table_name(&self) -> &'static str {
+            "test_table"
+        }
+    }
+
     // Test model for query builder tests
     #[derive(Debug, Clone)]
     struct TestModel {
@@ -1127,6 +1137,10 @@ mod tests {
                 _name: "Test".to_string(),
             })
         }
+    }
+
+    impl LifeModelTrait for TestEntity {
+        type Model = TestModel;
     }
 
     // Mock executor that captures SQL and parameter counts for verification
@@ -1191,48 +1205,48 @@ mod tests {
 
     #[test]
     fn test_query_builder_creation() {
-        let _query = SelectQuery::<TestModel>::new("test_table");
+        let _query = SelectQuery::<TestEntity>::new();
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_filter() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1));
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_order_by() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .order_by("id", Order::Asc);
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_limit() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .limit(10);
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_offset() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .offset(20);
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_group_by() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .group_by("status");
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_having() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .group_by("status")
             .having(Expr::col("COUNT(*)").gt(5));
         // Test passes if it compiles
@@ -1240,7 +1254,7 @@ mod tests {
 
     #[test]
     fn test_query_builder_chaining() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(10))
             .order_by("name", Order::Asc)
             .limit(5)
@@ -1250,7 +1264,7 @@ mod tests {
 
     #[test]
     fn test_query_builder_complex() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("status").eq("active"))
             .filter(Expr::col("created_at").gte(Expr::cust("NOW() - INTERVAL '30 days'")))
             .group_by("category")
@@ -1264,7 +1278,7 @@ mod tests {
 
     #[test]
     fn test_query_builder_multiple_filters() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(1))
             .filter(Expr::col("id").lt(100))
             .filter(Expr::col("name").like("John%"));
@@ -1273,7 +1287,7 @@ mod tests {
 
     #[test]
     fn test_query_builder_multiple_order_by() {
-        let _query = SelectQuery::<TestModel>::new("test_table")
+        let _query = SelectQuery::<TestEntity>::new()
             .order_by("status", Order::Asc)
             .order_by("created_at", Order::Desc)
             .order_by("id", Order::Asc);
@@ -1294,7 +1308,7 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         // This will fail at execution (no rows), but that's OK - we test the fix
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(42))
             .all(&executor);
         
@@ -1316,7 +1330,7 @@ mod tests {
         // Test that string parameters are extracted and passed
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq("test"))
             .all(&executor);
         
@@ -1334,7 +1348,7 @@ mod tests {
         // Test that multiple parameters are extracted correctly
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("id").gt(0))
             .filter(Expr::col("name").like("John%"))
@@ -1355,42 +1369,42 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         // Test .eq()
-        let _result1 = SelectQuery::<TestModel>::new("test_table")
+        let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(10))
             .all(&executor);
         
         executor.clear();
         
         // Test .ne()
-        let _result2 = SelectQuery::<TestModel>::new("test_table")
+        let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").ne(10))
             .all(&executor);
         
         executor.clear();
         
         // Test .gt()
-        let _result3 = SelectQuery::<TestModel>::new("test_table")
+        let _result3 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(10))
             .all(&executor);
         
         executor.clear();
         
         // Test .gte()
-        let _result4 = SelectQuery::<TestModel>::new("test_table")
+        let _result4 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gte(10))
             .all(&executor);
         
         executor.clear();
         
         // Test .lt()
-        let _result5 = SelectQuery::<TestModel>::new("test_table")
+        let _result5 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").lt(10))
             .all(&executor);
         
         executor.clear();
         
         // Test .lte()
-        let _result6 = SelectQuery::<TestModel>::new("test_table")
+        let _result6 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").lte(10))
             .all(&executor);
         
@@ -1407,7 +1421,7 @@ mod tests {
         // Test LIKE operator with string pattern
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").like("John%"))
             .all(&executor);
         
@@ -1424,7 +1438,7 @@ mod tests {
         // Test IN operator with multiple values
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").is_in(vec![1, 2, 3]))
             .all(&executor);
         
@@ -1441,7 +1455,7 @@ mod tests {
         // Test BETWEEN operator
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").between(1, 100))
             .all(&executor);
         
@@ -1458,7 +1472,7 @@ mod tests {
         // Test that one() method also extracts parameters
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .one(&executor);
         
@@ -1475,7 +1489,7 @@ mod tests {
         // Test query with no filters (should have 0 parameters)
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .all(&executor);
         
         let sql = executor.get_captured_sql();
@@ -1492,7 +1506,7 @@ mod tests {
         // Test that limit/offset don't interfere with parameter extraction
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .limit(10)
             .offset(20)
@@ -1512,7 +1526,7 @@ mod tests {
         // Test complex query with multiple filters, ordering, and pagination
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(10))
             .filter(Expr::col("id").lt(100))
             .filter(Expr::col("name").like("John%"))
@@ -1536,21 +1550,21 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         // Test with i32
-        let _result1 = SelectQuery::<TestModel>::new("test_table")
+        let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(42i32))
             .all(&executor);
         
         executor.clear();
         
         // Test with i64
-        let _result2 = SelectQuery::<TestModel>::new("test_table")
+        let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(42i64))
             .all(&executor);
         
         executor.clear();
         
         // Test with negative numbers
-        let _result3 = SelectQuery::<TestModel>::new("test_table")
+        let _result3 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(-10))
             .all(&executor);
         
@@ -1568,14 +1582,14 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         // Empty string
-        let _result1 = SelectQuery::<TestModel>::new("test_table")
+        let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq(""))
             .all(&executor);
         
         executor.clear();
         
         // String with special characters
-        let _result2 = SelectQuery::<TestModel>::new("test_table")
+        let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq("test'string\"with%special"))
             .all(&executor);
         
@@ -1583,7 +1597,7 @@ mod tests {
         
         // Long string
         let long_string = "a".repeat(1000);
-        let _result3 = SelectQuery::<TestModel>::new("test_table")
+        let _result3 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq(long_string))
             .all(&executor);
         
@@ -1600,7 +1614,7 @@ mod tests {
         // Test boolean parameters
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("active").eq(true))
             .all(&executor);
         
@@ -1614,7 +1628,7 @@ mod tests {
         // Test expressions with arithmetic
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").add(Expr::val(1)).gt(10))
             .all(&executor);
         
@@ -1630,7 +1644,7 @@ mod tests {
         // Test nested expressions
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(
                 Expr::col("id")
                     .add(Expr::val(1))
@@ -1649,7 +1663,7 @@ mod tests {
         // Test OR conditions
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(
                 Expr::col("id").eq(1)
                     .or(Expr::col("id").eq(2))
@@ -1666,7 +1680,7 @@ mod tests {
         // Test AND conditions (multiple filters)
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"))
             .all(&executor);
@@ -1681,7 +1695,7 @@ mod tests {
         // Test GROUP BY with HAVING clause
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("status").eq("active"))
             .group_by("category")
             .having(Expr::col("COUNT(*)").gt(5))
@@ -1703,7 +1717,7 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         // Query with known number of parameters
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"))
             .all(&executor);
@@ -1733,7 +1747,7 @@ mod tests {
         // Test that queries without filters have 0 parameters
         let executor = MockExecutor::new(vec![]);
         
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .order_by("id", Order::Asc)
             .all(&executor);
         
@@ -1752,7 +1766,7 @@ mod tests {
     #[test]
     fn test_sql_generation_with_parameters() {
         // Verify that SQL is generated with placeholders when filters are used
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"));
         
@@ -1782,7 +1796,7 @@ mod tests {
     #[test]
     fn test_sql_generation_no_parameters() {
         // Verify that queries without filters have no placeholders
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .order_by("id", Order::Asc);
         
         let (_sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
@@ -1799,7 +1813,7 @@ mod tests {
         // Test that all value types generate SQL with placeholders
         
         // Integer
-        let query1 = SelectQuery::<TestModel>::new("test_table")
+        let query1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(42));
         let (sql1, values1) = query1.query.build(sea_query::PostgresQueryBuilder);
         let values1_vec: Vec<_> = values1.iter().collect();
@@ -1807,7 +1821,7 @@ mod tests {
         assert!(sql1.contains("$"), "Integer filter should generate placeholders");
         
         // String
-        let query2 = SelectQuery::<TestModel>::new("test_table")
+        let query2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq("test"));
         let (sql2, values2) = query2.query.build(sea_query::PostgresQueryBuilder);
         let values2_vec: Vec<_> = values2.iter().collect();
@@ -1815,7 +1829,7 @@ mod tests {
         assert!(sql2.contains("$"), "String filter should generate placeholders");
         
         // Boolean
-        let query3 = SelectQuery::<TestModel>::new("test_table")
+        let query3 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("active").eq(true));
         let (sql3, values3) = query3.query.build(sea_query::PostgresQueryBuilder);
         let values3_vec: Vec<_> = values3.iter().collect();
@@ -1833,7 +1847,7 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         // MockExecutor returns QueryError for query_one, which should be handled as None
-        let result = SelectQuery::<TestModel>::new("test_table")
+        let result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(999))
             .find_one(&executor);
         
@@ -1890,7 +1904,7 @@ mod tests {
     fn test_paginator_page_zero() {
         // Test paginator with page 0 (should be treated as page 1)
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+        let mut paginator = SelectQuery::<TestEntity>::new()
             .paginate(&executor, 10);
         
         // Page 0 should be treated as page 1 (offset = 0)
@@ -1902,7 +1916,7 @@ mod tests {
     fn test_paginator_empty_results() {
         // Test paginator with empty result set
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+        let mut paginator = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(999))
             .paginate(&executor, 10);
         
@@ -1918,7 +1932,7 @@ mod tests {
     fn test_paginator_large_page_number() {
         // Test paginator with page number beyond available data
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+        let mut paginator = SelectQuery::<TestEntity>::new()
             .paginate(&executor, 10);
         
         // Page 1000 should not panic (offset = 9990)
@@ -1930,7 +1944,7 @@ mod tests {
     fn test_paginator_page_size_zero() {
         // Test paginator with page_size = 0 (edge case)
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+        let mut paginator = SelectQuery::<TestEntity>::new()
             .paginate(&executor, 0);
         
         // Should handle gracefully (limit 0)
@@ -1942,7 +1956,7 @@ mod tests {
     fn test_paginator_with_count_empty_results() {
         // Test paginate_and_count with empty results
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+        let mut paginator = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(999))
             .paginate_and_count(&executor, 10);
         
@@ -1960,7 +1974,7 @@ mod tests {
         // Note: MockExecutor returns errors, so we test caching by manually setting
         // total_count and verifying that subsequent calls don't execute queries
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestModel>::new("test_table")
+        let mut paginator = SelectQuery::<TestEntity>::new()
             .paginate_and_count(&executor, 10);
         
         // Manually set total_count to simulate a successful first call
@@ -1985,14 +1999,14 @@ mod tests {
         let executor1 = MockExecutor::new(vec![]);
         
         // IS NULL filter
-        let _result1 = SelectQuery::<TestModel>::new("test_table")
+        let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").is_null())
             .all(&executor1);
         
         let executor2 = MockExecutor::new(vec![]);
         
         // IS NOT NULL filter
-        let _result2 = SelectQuery::<TestModel>::new("test_table")
+        let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").is_not_null())
             .all(&executor2);
         
@@ -2009,7 +2023,7 @@ mod tests {
         
         // Empty IN clause (edge case - should handle gracefully)
         let empty_vec: Vec<i32> = vec![];
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").is_in(empty_vec))
             .all(&executor);
         
@@ -2024,7 +2038,7 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         let large_vec: Vec<i32> = (1..1000).collect();
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").is_in(large_vec))
             .all(&executor);
         
@@ -2039,14 +2053,14 @@ mod tests {
         let executor1 = MockExecutor::new(vec![]);
         
         // Same start and end (edge case)
-        let _result1 = SelectQuery::<TestModel>::new("test_table")
+        let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").between(5, 5))
             .all(&executor1);
         
         let executor2 = MockExecutor::new(vec![]);
         
         // Start > end (edge case - should still work, just returns nothing)
-        let _result2 = SelectQuery::<TestModel>::new("test_table")
+        let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").between(10, 5))
             .all(&executor2);
         
@@ -2060,7 +2074,7 @@ mod tests {
     fn test_limit_zero() {
         // Test limit(0) edge case
         let executor = MockExecutor::new(vec![]);
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .limit(0)
             .all(&executor);
         
@@ -2073,7 +2087,7 @@ mod tests {
     fn test_offset_large_value() {
         // Test offset with very large value
         let executor = MockExecutor::new(vec![]);
-        let result = SelectQuery::<TestModel>::new("test_table")
+        let result = SelectQuery::<TestEntity>::new()
             .offset(u64::MAX)
             .all(&executor);
         
@@ -2091,7 +2105,7 @@ mod tests {
     fn test_multiple_chained_filters() {
         // Test many chained filters (stress test)
         let executor = MockExecutor::new(vec![]);
-        let mut query = SelectQuery::<TestModel>::new("test_table");
+        let mut query = SelectQuery::<TestEntity>::new();
         
         // Chain many filters
         for i in 1..=50 {
@@ -2109,7 +2123,7 @@ mod tests {
     fn test_order_by_multiple_columns() {
         // Test many ORDER BY clauses
         let executor = MockExecutor::new(vec![]);
-        let mut query = SelectQuery::<TestModel>::new("test_table");
+        let mut query = SelectQuery::<TestEntity>::new();
         
         // Chain many order_by calls
         for i in 1..=20 {
@@ -2127,7 +2141,7 @@ mod tests {
     fn test_group_by_without_having() {
         // Test GROUP BY without HAVING (valid SQL)
         let executor = MockExecutor::new(vec![]);
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .group_by("status")
             .all(&executor);
         
@@ -2140,7 +2154,7 @@ mod tests {
     fn test_having_without_group_by() {
         // Test HAVING without GROUP BY (edge case - may be invalid SQL but shouldn't panic)
         let executor = MockExecutor::new(vec![]);
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .having(Expr::col("COUNT(*)").gt(5))
             .all(&executor);
         
@@ -2155,7 +2169,7 @@ mod tests {
         let executor = MockExecutor::new(vec![]);
         
         // Query that might return multiple results
-        let result = SelectQuery::<TestModel>::new("test_table")
+        let result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(1))
             .one(&executor);
         
@@ -2171,7 +2185,7 @@ mod tests {
     fn test_like_with_empty_pattern() {
         // Test LIKE with empty pattern
         let executor = MockExecutor::new(vec![]);
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").like(""))
             .all(&executor);
         
@@ -2184,7 +2198,7 @@ mod tests {
     fn test_like_with_special_characters() {
         // Test LIKE with SQL special characters
         let executor = MockExecutor::new(vec![]);
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").like("%test'string\"with%special%"))
             .all(&executor);
         
@@ -2197,7 +2211,7 @@ mod tests {
     fn test_query_with_all_clauses() {
         // Test query with all possible clauses (comprehensive test)
         let executor = MockExecutor::new(vec![]);
-        let _result = SelectQuery::<TestModel>::new("test_table")
+        let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(1))
             .filter(Expr::col("name").like("test%"))
             .group_by("status")
@@ -2216,7 +2230,7 @@ mod tests {
     #[test]
     fn test_sql_generation_complex_expressions() {
         // Test complex expressions generate correct number of parameters
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").add(Expr::val(1)).gt(10))
             .filter(Expr::col("name").like("John%"));
         
@@ -2234,7 +2248,7 @@ mod tests {
     #[test]
     fn test_sql_generation_multiple_filters() {
         // Test that multiple filters generate multiple parameters
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("id").gt(0))
             .filter(Expr::col("name").eq("test"));
@@ -2253,7 +2267,7 @@ mod tests {
     #[test]
     fn test_sql_generation_in_operator() {
         // Test IN operator generates correct number of parameters
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").is_in(vec![1, 2, 3, 4, 5]));
         
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
@@ -2269,7 +2283,7 @@ mod tests {
     #[test]
     fn test_sql_generation_between_operator() {
         // Test BETWEEN operator generates 2 parameters
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").between(1, 100));
         
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
@@ -2285,7 +2299,7 @@ mod tests {
     #[test]
     fn test_sql_generation_or_conditions() {
         // Test OR conditions generate parameters for both sides
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1).or(Expr::col("id").eq(2)));
         
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
@@ -2301,7 +2315,7 @@ mod tests {
     #[test]
     fn test_sql_generation_parameter_ordering() {
         // Test that parameters are in the correct order
-        let query = SelectQuery::<TestModel>::new("test_table")
+        let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"))
             .filter(Expr::col("id").gt(0));
