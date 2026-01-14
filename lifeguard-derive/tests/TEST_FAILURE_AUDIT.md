@@ -354,50 +354,70 @@ where
 - The compiler cannot verify `#model_name: FromRow` during macro expansion, even though the impl is generated in the same expansion
 - This is a fundamental limitation: macro-generated trait implementations are not "visible" to the type checker during macro expansion
 
-### Prior Art Investigation: How Does SeaORM Handle This?
+### Prior Art Investigation: How Does SeaORM Handle This? ✅ **SOLUTION FOUND!**
 
-**Key Insight:** SeaORM uses SeaQuery and has the same pattern - they must have solved this problem!
+**Key Discovery:** SeaORM uses a **trait-based approach** that avoids the macro expansion issue!
 
-**Investigation Needed:**
-1. **SeaORM's EntityTrait Implementation:**
-   - How does SeaORM implement `EntityTrait::find()`?
-   - Do they use a similar pattern with trait bounds?
-   - How do they handle macro-generated entities?
+**SeaORM's Pattern:**
+1. **`EntityTrait` is a trait** (not a struct method):
+   ```rust
+   pub trait EntityTrait: EntityName {
+       fn find() -> Select<Self> {
+           Select::new()
+       }
+   }
+   ```
 
-2. **SeaORM's Derive Macros:**
-   - How does `DeriveEntityModel` generate the `find()` method?
-   - Do they avoid trait bounds in the return type?
-   - Do they use a different pattern entirely?
+2. **`Select<E>` has trait bound on struct definition**:
+   ```rust
+   pub struct Select<E>
+   where
+       E: EntityTrait,  // <-- Trait bound on struct, not just impl
+   {
+       query: SelectStatement,
+       entity: PhantomData<E>,
+   }
+   ```
 
-3. **Potential Patterns to Investigate:**
-   - Does SeaORM use a helper trait or type that doesn't require bounds?
-   - Do they generate the trait implementation in a separate macro?
-   - Do they use a different query builder pattern?
-   - Do they defer trait bound checking until runtime/execution?
+3. **`Select::new()` is on impl block with same bound**:
+   ```rust
+   impl<E> Select<E>
+   where
+       E: EntityTrait,  // <-- Same bound as struct
+   {
+       pub(crate) fn new() -> Self {
+           // ... construction code
+       }
+   }
+   ```
 
-**Next Steps:**
-1. **Examine SeaORM's actual source code:**
-   - Repository: `https://github.com/SeaQL/sea-orm`
-   - Key files to investigate:
-     - `src/entity/traits.rs` or similar - `EntityTrait` definition
-     - `sea-orm-derive/src/entity/` - `DeriveEntityModel` macro implementation
-     - Look for how `find()` method is generated/implemented
-   
-2. **Key Questions to Answer:**
-   - Does `EntityTrait::find()` return `Select<Entity>` with a trait bound?
-   - How does `DeriveEntityModel` generate the `find()` method?
-   - Do they avoid using trait-bounded return types in generated code?
-   - Do they use a different pattern (e.g., associated types, helper traits)?
-   
-3. **Compare and Adapt:**
-   - Compare SeaORM's pattern to our `SelectQuery<M>` pattern
-   - Identify what they do differently
-   - Adapt their solution to our architecture if applicable
+4. **Macro generates `impl EntityTrait for Entity`**:
+   - The `find()` method is part of the trait, not generated on the struct
+   - When macro generates `impl EntityTrait for #ident`, the compiler can see that `Self: EntityTrait`
+   - Therefore, `Select<Self>` is valid because `Self` already implements `EntityTrait`
 
-**Investigation Resources:**
-- SeaORM GitHub: `https://github.com/SeaQL/sea-orm`
-- SeaORM Derive Crate: `https://github.com/SeaQL/sea-orm/tree/master/sea-orm-derive`
-- Look for `EntityTrait` trait definition and `DeriveEntityModel` macro
+**Why This Works:**
+- The trait bound `Self: EntityTrait` is established by the trait itself
+- When the macro generates `impl EntityTrait for Entity`, the compiler knows `Self: EntityTrait`
+- `Select<Self>` is valid because the struct definition requires `E: EntityTrait`
+- The trait bound check happens at trait implementation time, not during macro expansion
+
+**Our Problem:**
+- We're generating `find()` as a method directly on the struct, not through a trait
+- The compiler can't verify `#model_name: FromRow` during macro expansion
+- Even though we generate `impl FromRow for #model_name`, it's not "visible" during expansion
+
+**Solution:**
+We need to either:
+1. **Option A (Recommended):** Create a `LifeModelTrait` similar to `EntityTrait` and generate `impl LifeModelTrait for Model`
+2. **Option B:** Move the trait bound to the struct definition: `pub struct SelectQuery<M> where M: FromRow`
+3. **Option C:** Use a different pattern that doesn't require trait bounds in the return type
+
+**Investigation Complete:**
+- ✅ Examined `src/entity/base_entity.rs` - `EntityTrait::find()` implementation
+- ✅ Examined `src/query/select.rs` - `Select<E>` struct and `new()` method
+- ✅ Examined `sea-orm-macros/src/derives/entity.rs` - `DeriveEntity` macro
+- ✅ Identified the key difference: trait-based vs. struct method approach
 
 ### Potential Solutions (To Investigate)
 
