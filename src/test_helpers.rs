@@ -99,7 +99,10 @@ impl TestDatabase {
             // Use service DNS name instead
             Ok("postgresql://postgres:postgres@postgres.lifeguard-test.svc.cluster.local:5432/postgres".to_string())
         } else {
-            Ok(format!("postgresql://postgres:postgres@{}:5432/postgres", cluster_ip))
+            Ok(format!(
+                "postgresql://postgres:postgres@{}:5432/postgres",
+                cluster_ip
+            ))
         }
     }
 
@@ -125,7 +128,11 @@ impl TestDatabase {
     ///
     /// This function attempts to connect to the database, retrying up to `max_attempts` times
     /// with a delay of `delay_seconds` between attempts.
-    pub fn wait_for_ready(&mut self, max_attempts: u32, delay_seconds: u64) -> Result<(), TestError> {
+    pub fn wait_for_ready(
+        &mut self,
+        max_attempts: u32,
+        delay_seconds: u64,
+    ) -> Result<(), TestError> {
         for attempt in 1..=max_attempts {
             match self.connect() {
                 Ok(_) => return Ok(()),
@@ -175,7 +182,10 @@ mod tests {
     #[test]
     fn test_get_connection_string_env_var() {
         // Test that environment variable is respected
-        env::set_var("TEST_DATABASE_URL", "postgresql://test:test@localhost:5432/test");
+        env::set_var(
+            "TEST_DATABASE_URL",
+            "postgresql://test:test@localhost:5432/test",
+        );
         let url = TestDatabase::get_connection_string().unwrap();
         assert!(url.contains("test"));
         env::remove_var("TEST_DATABASE_URL");
@@ -199,6 +209,9 @@ mod tests {
             url
         );
         // Should contain postgres user and database
-        assert!(url.contains("postgres"), "Should contain postgres user/database");
+        assert!(
+            url.contains("postgres"),
+            "Should contain postgres user/database"
+        );
     }
 }

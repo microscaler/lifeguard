@@ -1,0 +1,77 @@
+use lifeguard::{FromRow, LifeEntityName, LifeModelTrait, ModelTrait};
+#[derive(Copy, Clone, Default, Debug)]
+pub struct EdgeCaseUser;
+impl LifeEntityName for EdgeCaseUser {
+    fn table_name(&self) -> &'static str {
+        "edge_case_users"
+    }
+}
+impl sea_query::Iden for EdgeCaseUser {
+    fn unquoted(&self) -> &str {
+        "edge_case_users"
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Column {
+    Id,
+    Name,
+    Email,
+    Age,
+    Active,
+}
+impl sea_query::Iden for Column {
+    fn unquoted(&self) -> &str {
+        match self {
+            Column::Id => "id",
+            Column::Name => "name",
+            Column::Email => "email",
+            Column::Age => "age",
+            Column::Active => "active",
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PrimaryKey {
+    Id,
+}
+#[derive(Debug, Clone)]
+pub struct EdgeCaseUserModel {
+    pub id: i32,
+    pub name: String,
+    pub email: String,
+    pub age: Option<i32>,
+    pub active: bool,
+}
+impl FromRow for EdgeCaseUserModel {
+    fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+        Ok(Self {
+            id: row.get::<&str, i32>("id"),
+            name: row.get::<&str, String>("name"),
+            email: row.get::<&str, String>("email"),
+            age: row.try_get::<&str, Option<i32>>("age")?,
+            active: row.get::<&str, bool>("active"),
+        })
+    }
+}
+impl ModelTrait for EdgeCaseUserModel {
+    type Entity = EdgeCaseUser;
+    fn get(&self, column: <Self::Entity as LifeModelTrait>::Column) -> sea_query::Value {
+        match column {
+            Column::Id => sea_query::Value::Int(Some(self.id)),
+            Column::Name => sea_query::Value::String(Some(self.name.clone())),
+            Column::Email => sea_query::Value::String(Some(self.email.clone())),
+            Column::Age => sea_query::Value::String(None),
+            Column::Active => sea_query::Value::Bool(Some(self.active)),
+        }
+    }
+    fn get_primary_key_value(&self) -> sea_query::Value {
+        sea_query::Value::Int(Some(self.id))
+    }
+}
+impl LifeModelTrait for EdgeCaseUser {
+    type Model = EdgeCaseUserModel;
+    type Column = Column;
+}
+impl EdgeCaseUser {
+    pub const TABLE_NAME: &'static str = "edge_case_users";
+}

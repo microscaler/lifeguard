@@ -112,7 +112,8 @@ impl LifeguardMetrics {
 
     /// Record connection wait time
     pub fn record_connection_wait(&self, duration: std::time::Duration) {
-        self.connection_wait_time.record(duration.as_secs_f64(), &[]);
+        self.connection_wait_time
+            .record(duration.as_secs_f64(), &[]);
     }
 
     /// Update pool size

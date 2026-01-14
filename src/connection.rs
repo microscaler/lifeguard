@@ -90,17 +90,17 @@ impl From<PostgresError> for ConnectionError {
 pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
     #[cfg(feature = "tracing")]
     let _span = tracing_helpers::acquire_connection_span().entered();
-    
+
     let start = Instant::now();
-    
+
     // Validate connection string format
     validate_connection_string(connection_string)?;
 
     // Connect using may_postgres
     // Note: may_postgres::connect is a blocking call that works within coroutines
     // It returns a Client directly (no separate connection handle to manage)
-    let client = may_postgres::connect(connection_string)
-        .map_err(|e| ConnectionError::PostgresError(e))?;
+    let client =
+        may_postgres::connect(connection_string).map_err(|e| ConnectionError::PostgresError(e))?;
 
     let duration = start.elapsed();
     #[cfg(feature = "metrics")]
@@ -131,9 +131,9 @@ pub fn validate_connection_string(connection_string: &str) -> Result<(), Connect
     }
 
     // Check for URI format
-    let is_uri_format = connection_string.starts_with("postgresql://") 
+    let is_uri_format = connection_string.starts_with("postgresql://")
         || connection_string.starts_with("postgres://");
-    
+
     // Check for key-value format (contains =)
     let is_key_value_format = connection_string.contains('=');
 
@@ -146,7 +146,8 @@ pub fn validate_connection_string(connection_string: &str) -> Result<(), Connect
     // For URI format, basic check - should have @ to separate credentials from host
     if is_uri_format && !connection_string.contains('@') {
         return Err(ConnectionError::InvalidConnectionString(
-            "URI format connection string must contain '@' to separate credentials from host".to_string(),
+            "URI format connection string must contain '@' to separate credentials from host"
+                .to_string(),
         ));
     }
 
@@ -233,7 +234,11 @@ mod tests {
         ];
 
         for s in valid_strings {
-            assert!(validate_connection_string(s).is_ok(), "Should validate: {}", s);
+            assert!(
+                validate_connection_string(s).is_ok(),
+                "Should validate: {}",
+                s
+            );
         }
     }
 
@@ -246,7 +251,11 @@ mod tests {
         ];
 
         for s in invalid_strings {
-            assert!(validate_connection_string(s).is_err(), "Should reject: {}", s);
+            assert!(
+                validate_connection_string(s).is_err(),
+                "Should reject: {}",
+                s
+            );
         }
     }
 
@@ -264,7 +273,7 @@ mod tests {
         // Verify that the functions compile and have the correct signatures
         // Actual health checks require a real database connection
         // This will be tested in Story 08 with testcontainers
-        
+
         // The functions should return Result<bool, ConnectionError>
         // We can't test the actual behavior without a database, but we can
         // verify the types are correct by checking compilation
@@ -289,7 +298,7 @@ mod tests {
         let result = validate_connection_string("  postgresql://user:pass@host:5432/db  ");
         // Validation should fail - connection strings with whitespace are invalid
         assert!(result.is_err());
-        
+
         // Trimmed version should work
         let trimmed = "  postgresql://user:pass@host:5432/db  ".trim();
         assert!(validate_connection_string(trimmed).is_ok());
@@ -308,7 +317,7 @@ mod tests {
         let result = validate_connection_string("postgresql://user:pass@host:5432/db");
         // Should pass validation (format is correct)
         assert!(result.is_ok());
-        
+
         // Missing @ entirely
         let result2 = validate_connection_string("postgresql://localhost:5432/db");
         assert!(result2.is_err());

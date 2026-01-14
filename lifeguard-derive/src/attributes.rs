@@ -1,6 +1,6 @@
 //! Attribute parsing utilities
 
-use syn::{Attribute, Field, ExprLit, Lit};
+use syn::{Attribute, ExprLit, Field, Lit};
 
 /// Extract table name from struct attributes
 pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
@@ -8,9 +8,9 @@ pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
         if attr.path().is_ident("table_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     return Some(s.value());
                 }
             }
@@ -25,9 +25,9 @@ pub fn extract_column_name(field: &Field) -> Option<String> {
         if attr.path().is_ident("column_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     return Some(s.value());
                 }
             }
@@ -43,9 +43,28 @@ pub fn extract_model_name(attrs: &[Attribute]) -> Option<syn::Ident> {
         if attr.path().is_ident("model") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
+                    // Parse the string as an Ident
+                    return syn::parse_str::<syn::Ident>(&s.value()).ok();
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Extract column enum name from struct attributes
+/// Used by DeriveEntity to know which Column enum type to reference in EntityTrait
+pub fn extract_column_name_ident(attrs: &[Attribute]) -> Option<syn::Ident> {
+    for attr in attrs {
+        if attr.path().is_ident("column") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     // Parse the string as an Ident
                     return syn::parse_str::<syn::Ident>(&s.value()).ok();
                 }
@@ -57,11 +76,14 @@ pub fn extract_model_name(attrs: &[Attribute]) -> Option<syn::Ident> {
 
 /// Check if field has a specific attribute
 pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
-    field.attrs.iter().any(|attr| attr.path().is_ident(attr_name))
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.path().is_ident(attr_name))
 }
 
 /// Extract all column attributes from a field
-/// 
+///
 /// This struct is a placeholder for future functionality that will support
 /// additional column attributes like unique, indexed, nullable, etc.
 #[allow(dead_code)]
@@ -94,41 +116,41 @@ impl Default for ColumnAttributes {
 }
 
 /// Parse all column attributes from a field
-/// 
+///
 /// This function is a placeholder for future functionality that will parse
 /// all column attributes at once. Currently, attributes are parsed individually
 /// as needed.
 #[allow(dead_code)]
 pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
     let mut attrs = ColumnAttributes::default();
-    
+
     for attr in &field.attrs {
         if attr.path().is_ident("primary_key") {
             attrs.is_primary_key = true;
         } else if attr.path().is_ident("column_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.column_name = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("column_type") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.column_type = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("default_value") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.default_value = Some(s.value());
                 }
             }
@@ -143,14 +165,14 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
         } else if attr.path().is_ident("enum_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.enum_name = Some(s.value());
                 }
             }
         }
     }
-    
+
     attrs
 }

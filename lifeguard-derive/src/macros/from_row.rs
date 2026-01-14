@@ -14,9 +14,9 @@ use crate::utils;
 /// Generate FromRow implementation for a Model struct
 pub fn derive_from_row(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    
+
     let struct_name = &input.ident;
-    
+
     // Extract struct fields
     let fields = match &input.data {
         Data::Struct(syn::DataStruct {
@@ -32,30 +32,28 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
             .into();
         }
     };
-    
+
     // Generate field extraction code
     let from_row_fields: Vec<TokenStream2> = fields
         .iter()
         .map(|field| {
             let field_name = field.ident.as_ref().unwrap();
             let field_type = &field.ty;
-            
+
             // Get column name from attribute or use snake_case of field name
             let column_name = field
                 .attrs
                 .iter()
                 .find(|attr| attr.path().is_ident("column_name"))
-                .and_then(|attr| {
-                    attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value())
-                })
+                .and_then(|attr| attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value()))
                 .unwrap_or_else(|| {
                     // Convert field name to snake_case
                     let name = field_name.to_string();
                     utils::snake_case(&name)
                 });
-            
+
             let column_name_str = column_name.as_str();
-            
+
             // Handle unsigned integer types by converting to signed first
             let get_expr = {
                 // Check if this is an unsigned integer type
@@ -73,7 +71,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
                     }
                     _ => false,
                 };
-                
+
                 if is_unsigned {
                     // For unsigned types, convert to signed equivalent first
                     let signed_type = match field_type {
@@ -94,7 +92,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
                         }
                         _ => quote! { i32 },
                     };
-                    
+
                     quote! {
                         {
                             let val: #signed_type = row.get(#column_name_str)?;
@@ -107,13 +105,13 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
                     }
                 }
             };
-            
+
             quote! {
                 #field_name: #get_expr,
             }
         })
         .collect();
-    
+
     let expanded: TokenStream2 = quote! {
         // Implement FromRow trait for Model
         impl lifeguard::FromRow for #struct_name {
@@ -124,6 +122,6 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
             }
         }
     };
-    
+
     TokenStream::from(expanded)
 }

@@ -12,11 +12,11 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 |----------------|-----------|--------|-------|
 | `EntityTrait` | `LifeModelTrait` | ✅ Implemented | Similar API, provides `find()` method |
 | `EntityName` | `LifeEntityName` | ✅ Implemented | Provides `table_name()` method |
-| `ModelTrait` | ❌ Missing | 🔴 **Future** | Model-level operations (get/set columns, find_related, etc.) |
+| `ModelTrait` | `ModelTrait` | ✅ Implemented | Model-level operations (get columns, get_primary_key_value) |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Converts database rows to Model structs |
 | `ActiveModelTrait` | ❌ Missing | 🔴 **Future** | Mutable model for inserts/updates (our `LifeRecord` is similar but different) |
 | `ActiveModelBehavior` | ❌ Missing | 🟡 **Future** | Custom behavior hooks for ActiveModel |
-| `ColumnTrait` | ❌ Missing | 🔴 **Future** | Column-level operations (def, enum_type_name, select_as, save_as) |
+| `ColumnTrait` | `ColumnTrait` | ✅ Implemented | Column-level query builder methods (eq, ne, gt, etc.) |
 | `PrimaryKeyTrait` | ❌ Missing | 🔴 **Future** | Primary key operations (auto_increment, ValueType) |
 | `PrimaryKeyToColumn` | ❌ Missing | 🔴 **Future** | Mapping between PrimaryKey and Column |
 | `PrimaryKeyArity` | ❌ Missing | 🔴 **Future** | Support for composite primary keys |

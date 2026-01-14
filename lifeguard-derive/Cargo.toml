@@ -9,6 +9,9 @@ repository = "https://github.com/microscaler/lifeguard"
 [lib]
 proc-macro = true
 
+[build-dependencies]
+# Build script dependencies (if needed)
+
 [dependencies]
 syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
 quote = "1.0"

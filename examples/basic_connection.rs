@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key_value_format = "host=localhost user=postgres dbname=postgres";
 
     println!("Validating connection strings...");
-    
+
     // Validate URI format
     match validate_connection_string(uri_format) {
         Ok(_) => println!("✅ URI format connection string is valid"),

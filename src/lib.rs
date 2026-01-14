@@ -1,4 +1,3 @@
-
 //! # Lifeguard
 //!
 //! Coroutine-native PostgreSQL ORM and data access platform for Rust's `may` runtime.
@@ -51,21 +50,25 @@ pub mod test_helpers;
 
 // Re-export connection types for convenience
 pub use connection::{
-    connect, validate_connection_string, check_connection_health,
-    check_connection_health_with_timeout, ConnectionError, ConnectionString,
+    check_connection_health, check_connection_health_with_timeout, connect,
+    validate_connection_string, ConnectionError, ConnectionString,
 };
 
 // Re-export executor types for convenience
-pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
+pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor};
 
 // Query builder - Epic 02 Story 03
 pub mod query;
-pub use query::{SelectQuery, FromRow, LifeEntityName, LifeModelTrait};
+pub use query::{ColumnTrait, FromRow, LifeEntityName, LifeModelTrait, SelectQuery};
+
+// Model trait - Core Traits & Types
+pub mod model;
+pub use model::ModelTrait;
 
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{
-    execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
+    execute_statement, execute_unprepared, find_all_by_statement, find_by_statement, query_value,
 };
 
 // Re-export transaction types for convenience
-pub use transaction::{Transaction, TransactionError, IsolationLevel};
+pub use transaction::{IsolationLevel, Transaction, TransactionError};

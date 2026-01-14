@@ -5,14 +5,14 @@
 //! - Using health checks with executors
 //! - Handling unhealthy connections
 
-use lifeguard::{connect, MayPostgresExecutor, LifeExecutor, LifeError};
 use lifeguard::connection::check_connection_health;
+use lifeguard::{connect, LifeError, LifeExecutor, MayPostgresExecutor};
 
 fn main() -> Result<(), LifeError> {
     // Connect to database
     let connection_string = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
-    
+
     let client = connect(&connection_string)
         .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), LifeError> {
     // Example 2: Check health via executor
     println!("Example 2: Health check via executor");
     let executor = MayPostgresExecutor::new(client);
-    
+
     match executor.check_health() {
         Ok(true) => println!("✓ Executor connection is healthy"),
         Ok(false) => println!("✗ Executor connection is unhealthy - may need reconnection"),
@@ -40,20 +40,22 @@ fn main() -> Result<(), LifeError> {
     println!("Example 3: Health check before query execution");
     let executor = MayPostgresExecutor::new(
         connect(&connection_string)
-            .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?
+            .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?,
     );
-    
+
     // Check health before executing a query
     if executor.check_health()? {
         println!("✓ Connection is healthy, proceeding with query");
-        
+
         // Execute a simple query
         let row = executor.query_one("SELECT 1 as health_check", &[])?;
         let result: i32 = row.get(0);
         println!("✓ Query executed successfully: {}", result);
     } else {
         println!("✗ Connection is unhealthy, cannot execute query");
-        return Err(LifeError::Other("Connection health check failed".to_string()));
+        return Err(LifeError::Other(
+            "Connection health check failed".to_string(),
+        ));
     }
     println!();
 
@@ -61,9 +63,9 @@ fn main() -> Result<(), LifeError> {
     println!("Example 4: Periodic health monitoring pattern");
     let executor = MayPostgresExecutor::new(
         connect(&connection_string)
-            .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?
+            .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?,
     );
-    
+
     // Simulate periodic health checks (in a real application, this would be in a loop)
     for i in 1..=3 {
         println!("Health check #{}:", i);

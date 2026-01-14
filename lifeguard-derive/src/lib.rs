@@ -14,7 +14,7 @@ use proc_macro::TokenStream;
 /// Following SeaORM's architecture, this is a separate derive from Model.
 ///
 /// Note: This macro is typically used internally by `LifeModel`. See `LifeModel` for usage examples.
-#[proc_macro_derive(DeriveEntity, attributes(table_name, model))]
+#[proc_macro_derive(DeriveEntity, attributes(table_name, model, column))]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     macros::derive_entity(input)
 }
@@ -43,7 +43,21 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 /// - `LifeModelTrait` implementation (via nested DeriveEntity)
 ///
 /// See `lifeguard-derive/tests/test_minimal.rs` for usage examples.
-#[proc_macro_derive(LifeModel, attributes(table_name, primary_key, column_name, column_type, default_value, unique, indexed, nullable, auto_increment, enum_name))]
+#[proc_macro_derive(
+    LifeModel,
+    attributes(
+        table_name,
+        primary_key,
+        column_name,
+        column_type,
+        default_value,
+        unique,
+        indexed,
+        nullable,
+        auto_increment,
+        enum_name
+    )
+)]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     macros::derive_life_model(input)
 }
@@ -57,7 +71,21 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
-#[proc_macro_derive(LifeRecord, attributes(table_name, primary_key, column_name, column_type, default_value, unique, indexed, nullable, auto_increment, enum_name))]
+#[proc_macro_derive(
+    LifeRecord,
+    attributes(
+        table_name,
+        primary_key,
+        column_name,
+        column_type,
+        default_value,
+        unique,
+        indexed,
+        nullable,
+        auto_increment,
+        enum_name
+    )
+)]
 pub fn derive_life_record(input: TokenStream) -> TokenStream {
     macros::derive_life_record(input)
 }

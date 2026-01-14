@@ -3,9 +3,9 @@
 //! Provides convenience functions for executing raw SQL queries.
 //! These helpers replicate SeaORM's `find_by_statement()` and `execute_unprepared()` functionality.
 
-use crate::executor::{LifeExecutor, LifeError};
-use may_postgres::Row;
+use crate::executor::{LifeError, LifeExecutor};
 use may_postgres::types::ToSql;
+use may_postgres::Row;
 
 /// Execute an unprepared SQL statement
 ///
