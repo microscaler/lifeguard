@@ -67,7 +67,12 @@ fn is_no_rows_error(error: &LifeError) -> bool {
 ///
 /// This trait is similar to SeaORM's `EntityTrait` and provides methods for
 /// querying and manipulating database records. The trait is implemented by
-/// the `LifeModel` derive macro.
+/// the `LifeModel` derive macro for the Entity (struct name), not the Model.
+///
+/// Following SeaORM's pattern:
+/// - Entity (struct name) implements `LifeModelTrait`
+/// - Model is an associated type: `type Model: FromRow`
+/// - `SelectQuery<Entity>` requires `Entity: LifeModelTrait` (satisfied by the impl)
 ///
 /// # Example
 ///
@@ -75,21 +80,26 @@ fn is_no_rows_error(error: &LifeError) -> bool {
 /// use lifeguard::{LifeModelTrait, LifeExecutor};
 /// use sea_query::Expr;
 ///
-/// # struct UserModel { id: i32, name: String };
+/// # struct User; // Entity
+/// # struct UserModel { id: i32, name: String }; // Model
 /// # impl lifeguard::FromRow for UserModel {
 /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
 /// # }
-/// # impl lifeguard::LifeModelTrait for UserModel {
+/// # impl lifeguard::LifeModelTrait for User {
+/// #     type Model = UserModel;
 /// #     fn find() -> lifeguard::SelectQuery<Self> { todo!() }
 /// # }
 /// # let executor: &dyn LifeExecutor = todo!();
 ///
 /// // Find users with name starting with "John"
-/// let users = UserModel::find()
+/// let users = User::find()
 ///     .filter(Expr::col("name").like("John%"))
 ///     .all(executor)?;
 /// ```
 pub trait LifeModelTrait {
+    /// The Model type that represents database rows
+    type Model: FromRow;
+
     /// Start a query builder for finding records
     ///
     /// # Returns
@@ -101,16 +111,18 @@ pub trait LifeModelTrait {
     /// ```no_run
     /// use lifeguard::{LifeModelTrait, LifeExecutor};
     ///
-    /// # struct UserModel { id: i32 };
+    /// # struct User; // Entity
+    /// # struct UserModel { id: i32 }; // Model
     /// # impl lifeguard::FromRow for UserModel {
     /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
     /// # }
-    /// # impl lifeguard::LifeModelTrait for UserModel {
+    /// # impl lifeguard::LifeModelTrait for User {
+    /// #     type Model = UserModel;
     /// #     fn find() -> lifeguard::SelectQuery<Self> { todo!() }
     /// # }
     /// # let executor: &dyn LifeExecutor = todo!();
     ///
-    /// let users = UserModel::find().all(executor)?;
+    /// let users = User::find().all(executor)?;
     /// ```
     fn find() -> SelectQuery<Self>
     where
@@ -145,16 +157,20 @@ pub trait LifeModelTrait {
 ///     .all(executor)?;
 /// ```
 /// 
-/// Note: The trait bound `M: FromRow` is not on the struct definition to avoid
-/// macro expansion issues. It's only required in methods that actually execute queries.
-pub struct SelectQuery<M> {
+/// Following SeaORM's pattern: `SelectQuery<E>` where `E: LifeModelTrait`.
+/// The Entity (not Model) is the type parameter, and Model is accessed via
+/// the associated type `E::Model`.
+pub struct SelectQuery<E>
+where
+    E: LifeModelTrait,
+{
     pub(crate) query: SelectStatement,  // Made pub(crate) for testing
-    _phantom: PhantomData<M>,
+    _phantom: PhantomData<E>,
 }
 
-impl<M> SelectQuery<M>
+impl<E> SelectQuery<E>
 where
-    M: FromRow,
+    E: LifeModelTrait,
 {
     /// Create a new select query
     pub fn new(table_name: &'static str) -> Self {
@@ -316,16 +332,21 @@ where
     /// # Example
     ///
     /// ```no_run
-    /// use lifeguard::{SelectQuery, LifeExecutor};
+    /// use lifeguard::{SelectQuery, LifeModelTrait, LifeExecutor};
     ///
-    /// # struct UserModel { id: i32 };
+    /// # struct User; // Entity
+    /// # struct UserModel { id: i32 }; // Model
     /// # impl lifeguard::FromRow for UserModel {
     /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
     /// # }
+    /// # impl lifeguard::LifeModelTrait for User {
+    /// #     type Model = UserModel;
+    /// #     fn find() -> lifeguard::SelectQuery<Self> { todo!() }
+    /// # }
     /// # let executor: &dyn LifeExecutor = todo!();
-    /// let users = UserModel::find().all(executor)?;
+    /// let users = User::find().all(executor)?;
     /// ```
-    pub fn all<E: LifeExecutor>(self, executor: &E) -> Result<Vec<M>, LifeError> {
+    pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<E::Model>, LifeError> {
         let (sql, values) = self.query.build(PostgresQueryBuilder);
         
         // Convert SeaQuery values to may_postgres ToSql parameters
@@ -464,7 +485,7 @@ where
         
         let mut results = Vec::new();
         for row in rows {
-            let model = M::from_row(&row)
+            let model = <E::Model as FromRow>::from_row(&row)
                 .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))?;
             results.push(model);
         }
@@ -487,7 +508,7 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let user = UserModel::find().one(executor)?;
     /// ```
-    pub fn one<E: LifeExecutor>(self, executor: &E) -> Result<M, LifeError> {
+    pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<E::Model, LifeError> {
         let (sql, values) = self.query.build(PostgresQueryBuilder);
         
         // Convert SeaQuery values to may_postgres ToSql parameters
@@ -623,12 +644,12 @@ where
         }
         
         let row = executor.query_one(&sql, &params)?;
-        M::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))
+        <E::Model as FromRow>::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))
     }
     
     /// Execute the query and return the first result, or None if no results
     ///
-    /// This is similar to `one()` but returns `Option<M>` instead of an error
+    /// This is similar to `one()` but returns `Option<E::Model>` instead of an error
     /// when no rows are found.
     ///
     /// # Example
@@ -643,7 +664,7 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let user = UserModel::find().filter(Expr::col("id").eq(1)).find_one(executor)?;
     /// ```
-    pub fn find_one<E: LifeExecutor>(self, executor: &E) -> Result<Option<M>, LifeError> {
+    pub fn find_one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Option<E::Model>, LifeError> {
         match self.one(executor) {
             Ok(model) => Ok(Some(model)),
             Err(e) => {
@@ -681,7 +702,7 @@ where
     /// let mut paginator = UserModel::find().paginate(executor, 10);
     /// let page_1 = paginator.fetch_page(1)?;
     /// ```
-    pub fn paginate<'e, E: LifeExecutor>(self, executor: &'e E, page_size: usize) -> Paginator<'e, M, E> {
+    pub fn paginate<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> Paginator<'e, E, Ex> {
         Paginator::new(self, executor, page_size)
     }
     
@@ -717,7 +738,7 @@ where
     ///     .filter(Expr::col("age").gt(18))
     ///     .count(executor)?;
     /// ```
-    pub fn count<E: LifeExecutor>(&self, executor: &E) -> Result<usize, LifeError> {
+    pub fn count<Ex: LifeExecutor>(&self, executor: &Ex) -> Result<usize, LifeError> {
         // Build a COUNT(*) query by wrapping the original query in a subquery
         // This preserves all WHERE, GROUP BY, and HAVING conditions
         // while removing ORDER BY, LIMIT, and OFFSET (which don't affect count)
@@ -917,7 +938,7 @@ where
     /// let total = paginator.num_items()?;
     /// let page_1 = paginator.fetch_page(1)?;
     /// ```
-    pub fn paginate_and_count<'e, E: LifeExecutor>(self, executor: &'e E, page_size: usize) -> PaginatorWithCount<'e, M, E> {
+    pub fn paginate_and_count<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> PaginatorWithCount<'e, E, Ex> {
         PaginatorWithCount::new(self, executor, page_size)
     }
 }
@@ -930,18 +951,22 @@ pub trait FromRow: Sized {
 /// Paginator for query results
 ///
 /// Provides pagination functionality for query results.
-pub struct Paginator<'e, M, E> {
-    query: SelectQuery<M>,
-    executor: &'e E,
+pub struct Paginator<'e, E, Ex>
+where
+    E: LifeModelTrait,
+    Ex: LifeExecutor,
+{
+    query: SelectQuery<E>,
+    executor: &'e Ex,
     page_size: usize,
 }
 
-impl<'e, M, E> Paginator<'e, M, E>
+impl<'e, E, Ex> Paginator<'e, E, Ex>
 where
-    M: FromRow,
-    E: LifeExecutor,
+    E: LifeModelTrait,
+    Ex: LifeExecutor,
 {
-    fn new(query: SelectQuery<M>, executor: &'e E, page_size: usize) -> Self {
+    fn new(query: SelectQuery<E>, executor: &'e Ex, page_size: usize) -> Self {
         Self {
             query,
             executor,
@@ -950,7 +975,7 @@ where
     }
     
     /// Fetch a specific page (1-indexed)
-    pub fn fetch_page(&mut self, page: usize) -> Result<Vec<M>, LifeError> {
+    pub fn fetch_page(&mut self, page: usize) -> Result<Vec<E::Model>, LifeError> {
         let offset = (page.saturating_sub(1)) * self.page_size;
         // Clone the query to avoid moving it
         let query = SelectQuery {
@@ -967,9 +992,13 @@ where
 /// Paginator with count support
 ///
 /// Provides pagination functionality with total count tracking.
-pub struct PaginatorWithCount<'e, M, E> {
-    query: SelectQuery<M>,
-    executor: &'e E,
+pub struct PaginatorWithCount<'e, E, Ex>
+where
+    E: LifeModelTrait,
+    Ex: LifeExecutor,
+{
+    query: SelectQuery<E>,
+    executor: &'e Ex,
     page_size: usize,
     #[cfg(test)]
     pub(crate) total_count: Option<usize>,
@@ -977,12 +1006,12 @@ pub struct PaginatorWithCount<'e, M, E> {
     total_count: Option<usize>,
 }
 
-impl<'e, M, E> PaginatorWithCount<'e, M, E>
+impl<'e, E, Ex> PaginatorWithCount<'e, E, Ex>
 where
-    M: FromRow,
-    E: LifeExecutor,
+    E: LifeModelTrait,
+    Ex: LifeExecutor,
 {
-    fn new(query: SelectQuery<M>, executor: &'e E, page_size: usize) -> Self {
+    fn new(query: SelectQuery<E>, executor: &'e Ex, page_size: usize) -> Self {
         Self {
             query,
             executor,
@@ -1009,7 +1038,7 @@ where
     }
     
     /// Fetch a specific page (1-indexed)
-    pub fn fetch_page(&mut self, page: usize) -> Result<Vec<M>, LifeError> {
+    pub fn fetch_page(&mut self, page: usize) -> Result<Vec<E::Model>, LifeError> {
         let offset = (page.saturating_sub(1)) * self.page_size;
         // Clone the query to avoid moving it
         let query = SelectQuery {

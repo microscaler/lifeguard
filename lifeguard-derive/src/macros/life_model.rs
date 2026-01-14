@@ -864,7 +864,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             #(#primary_key_variants)*
         }
         
-        // Entity type alias
+        // Entity type alias (following SeaORM pattern)
         pub type Entity = #struct_name;
         
         // Table name constant
@@ -872,10 +872,15 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             pub const TABLE_NAME: &'static str = #table_name;
         }
         
-        // Implement LifeModelTrait for Model
-        // This trait provides the find() method and avoids macro expansion trait bound issues
-        // The trait bound Self: FromRow is established by the trait itself
-        impl lifeguard::LifeModelTrait for #model_name {
+        // Implement LifeModelTrait for Entity (struct name), not Model
+        // Following SeaORM's pattern: Entity implements EntityTrait, Model is an associated type
+        // This avoids macro expansion trait bound issues because:
+        // - Entity (struct name) implements LifeModelTrait
+        // - SelectQuery<Entity> requires Entity: LifeModelTrait (satisfied by the impl)
+        // - Model is accessed via associated type E::Model, not as a type parameter
+        impl lifeguard::LifeModelTrait for #struct_name {
+            type Model = #model_name;
+            
             fn find() -> lifeguard::SelectQuery<Self> {
                 lifeguard::SelectQuery::new(#struct_name::TABLE_NAME)
             }
