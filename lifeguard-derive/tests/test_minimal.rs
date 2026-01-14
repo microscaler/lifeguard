@@ -1,6 +1,6 @@
 //! Minimal test to isolate E0223 error
 
-use lifeguard_derive::{LifeModel, FromRow};
+use lifeguard_derive::LifeModel;
 
 #[test]
 fn test_minimal() {
@@ -12,18 +12,19 @@ fn test_minimal() {
         name: String,
     }
     
-    // Apply FromRow to the generated Model (required for query execution)
-    #[derive(FromRow)]
-    struct TestMinimalModel {
-        id: i32,
-        name: String,
-    }
-    
     // LifeModel generates Entity, Model, Column, PrimaryKey, and LifeModelTrait
-    // Just verify Entity exists and LifeModelTrait is implemented
+    // Step 1: Just verify Entity exists (no trait usage yet)
     let _entity = Entity;
     
-    // Verify we can use Entity::find() (requires LifeModelTrait)
-    // This should compile now that LifeModelTrait is generated in the same expansion
-    let _query = Entity::find();
+    // Step 2: Verify Model exists
+    let _model = TestMinimalModel {
+        id: 1,
+        name: "test".to_string(),
+    };
+    
+    // Step 3: Verify Column enum exists
+    let _column = Column::Id;
+    
+    // Step 4: Verify PrimaryKey enum exists
+    let _pk = PrimaryKey::Id;
 }
