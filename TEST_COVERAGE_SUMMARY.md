@@ -62,20 +62,17 @@ The query builder is thoroughly tested in `src/query.rs` with comprehensive inte
 
 **Query Builder Tests: 100+ tests in query.rs**
 
-### ⚠️ Partially Covered / Needs Review
+### ❌ Not Implemented (Removed During Simplification)
 
 #### Batch Operations
-According to `SEAORM_LIFEGUARD_MAPPING.md`:
-- `Model::insert_many()` - ✅ Implemented (per mapping)
-- `Model::update_many()` - ✅ Implemented (per mapping)
-- `Model::delete_many()` - ✅ Implemented (per mapping)
+According to `SEAORM_LIFEGUARD_MAPPING.md`, these were listed as implemented:
+- `Model::insert_many()` - ❌ **Removed** (was in life_record.rs, removed during simplification)
+- `Model::update_many()` - ❌ **Removed** (was in life_record.rs, removed during simplification)
+- `Model::delete_many()` - ❌ **Removed** (was in life_model.rs, removed during simplification)
 
-**Status:** These methods are listed as implemented in the mapping document, but need verification:
-1. Check if they exist in the current codebase
-2. If they exist, create comprehensive tests
-3. If they don't exist, update the mapping document
+**Status:** These methods were removed during the codebase simplification. The mapping document needs to be updated to reflect the current state.
 
-**Note:** The old `insert_many.rs` macro file exists but is disabled (uses SeaORM).
+**Note:** The old `insert_many.rs` macro file exists but is disabled (uses SeaORM). These methods will need to be re-implemented in a future phase.
 
 ### ❌ Not Yet Covered
 
