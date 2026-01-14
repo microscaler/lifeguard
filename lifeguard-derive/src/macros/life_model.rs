@@ -786,7 +786,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // 
         // CRITICAL: Pass model name via attribute so DeriveEntity knows which Model to reference
         // The model name is passed as a string literal in the attribute
-        #[derive(lifeguard_derive::DeriveEntity)]
+        // Entity must implement Copy for IdenStatic (following SeaORM pattern)
+        #[derive(Copy, Clone, Default, Debug, lifeguard_derive::DeriveEntity)]
         #[table_name = #table_name]
         #[model = #model_name_lit]
         pub struct Entity;
