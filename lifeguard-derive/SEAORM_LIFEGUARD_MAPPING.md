@@ -167,10 +167,10 @@ This design simplifies the API while maintaining the same functionality.
 
 | SeaORM/SeaQuery | Lifeguard | Status | Notes |
 |----------------|-----------|--------|-------|
-| `ActiveModel::insert()` | `ActiveModelTrait::insert()` | ⚠️ Placeholder | Returns "not yet implemented" error |
-| `ActiveModel::update()` | `ActiveModelTrait::update()` | ⚠️ Placeholder | Returns "not yet implemented" error |
-| `ActiveModel::save()` | `ActiveModelTrait::save()` | ⚠️ Placeholder | Returns "not yet implemented" error |
-| `ActiveModel::delete()` | `ActiveModelTrait::delete()` | ⚠️ Placeholder | Returns "not yet implemented" error |
+| `ActiveModel::insert()` | `ActiveModelTrait::insert()` | ✅ Implemented | INSERT operation with auto-increment PK handling |
+| `ActiveModel::update()` | `ActiveModelTrait::update()` | ✅ Implemented | UPDATE operation with WHERE clause for primary keys |
+| `ActiveModel::save()` | `ActiveModelTrait::save()` | ✅ Implemented | Routes to insert or update based on PK presence |
+| `ActiveModel::delete()` | `ActiveModelTrait::delete()` | ✅ Implemented | DELETE operation with WHERE clause for primary keys |
 | `ActiveModel::reset()` | `ActiveModelTrait::reset()` | ✅ Implemented | Reset all fields to None |
 | `ActiveModel::set()` | `ActiveModelTrait::set()` | ⚠️ Placeholder | Returns error (type conversion needed) |
 | `ActiveModel::get()` | `ActiveModelTrait::get()` | ✅ Implemented | Get field value as Option<Value> (uses to_model() internally) |
