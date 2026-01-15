@@ -62,6 +62,10 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 pub mod query;
 pub use query::{SelectQuery, FromRow, LifeEntityName, LifeModelTrait};
 
+// Model trait - Core Traits & Types
+pub mod model;
+pub use model::{ModelError, ModelTrait};
+
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{
     execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,

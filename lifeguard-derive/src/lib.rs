@@ -14,7 +14,7 @@ use proc_macro::TokenStream;
 /// Following SeaORM's architecture, this is a separate derive from Model.
 ///
 /// Note: This macro is typically used internally by `LifeModel`. See `LifeModel` for usage examples.
-#[proc_macro_derive(DeriveEntity, attributes(table_name, model))]
+#[proc_macro_derive(DeriveEntity, attributes(table_name, model, column))]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     macros::derive_entity(input)
 }

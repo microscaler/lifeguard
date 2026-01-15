@@ -17,10 +17,187 @@ pub struct User {
     pub email: String,
 }
 
+// Entity with Option fields for testing Option<T> edge cases
+// Using a module to avoid name conflicts
+mod option_tests {
+    use super::*;
+    
+    #[derive(LifeModel)]
+    #[table_name = "users_with_options"]
+    pub struct UserWithOptions {
+        #[primary_key]
+        pub id: i32,
+        pub name: Option<String>,
+        pub age: Option<i32>,
+        pub active: Option<bool>,
+    }
+}
+
+// Entity with JSON field for testing JSON edge cases
+// Using a module to avoid name conflicts
+// NOTE: JSON fields require special FromRow handling (deserialize from text/JSONB)
+// For now, we'll test JSON in get/set operations using manual model construction
+mod json_tests {
+    use super::*;
+    
+    // Note: We can't use LifeModel derive for JSON fields yet because FromRow needs
+    // special handling to deserialize JSON from database text/JSONB columns.
+    // For testing get/set operations, we'll manually construct the model.
+    
+    // Manual model for JSON testing (bypasses FromRow requirement)
+    #[derive(Debug, Clone)]
+    pub struct UserWithJsonModel {
+        pub id: i32,
+        pub name: String,
+        pub metadata: serde_json::Value,
+        pub preferences: Option<serde_json::Value>,
+    }
+    
+    // Manual Column enum for JSON testing
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+    pub enum Column {
+        Id,
+        Name,
+        Metadata,
+        Preferences,
+    }
+    
+    impl sea_query::Iden for Column {
+        fn unquoted(&self) -> &str {
+            match self {
+                Column::Id => "id",
+                Column::Name => "name",
+                Column::Metadata => "metadata",
+                Column::Preferences => "preferences",
+            }
+        }
+    }
+    
+    impl sea_query::IdenStatic for Column {
+        fn as_str(&self) -> &'static str {
+            match self {
+                Column::Id => "id",
+                Column::Name => "name",
+                Column::Metadata => "metadata",
+                Column::Preferences => "preferences",
+            }
+        }
+    }
+    
+    // Manual Entity for JSON testing
+    #[derive(Copy, Clone, Debug, Default)]
+    pub struct Entity;
+    
+    impl lifeguard::LifeEntityName for Entity {
+        fn table_name(&self) -> &'static str {
+            "users_with_json"
+        }
+    }
+    
+    impl lifeguard::LifeModelTrait for Entity {
+        type Model = UserWithJsonModel;
+        type Column = Column;
+    }
+    
+    // Manual ModelTrait implementation for JSON testing
+    impl lifeguard::ModelTrait for UserWithJsonModel {
+        type Entity = Entity;
+        
+        fn get(&self, column: Column) -> sea_query::Value {
+            match column {
+                Column::Id => sea_query::Value::Int(Some(self.id)),
+                Column::Name => sea_query::Value::String(Some(self.name.clone())),
+                Column::Metadata => sea_query::Value::Json(Some(Box::new(self.metadata.clone()))),
+                Column::Preferences => match &self.preferences {
+                    Some(v) => sea_query::Value::Json(Some(Box::new(v.clone()))),
+                    None => sea_query::Value::Json(None),
+                },
+            }
+        }
+        
+        fn set(
+            &mut self,
+            column: Column,
+            value: sea_query::Value,
+        ) -> Result<(), lifeguard::ModelError> {
+            match column {
+                Column::Id => match value {
+                    sea_query::Value::Int(Some(v)) => {
+                        self.id = v;
+                        Ok(())
+                    }
+                    sea_query::Value::Int(None) => Err(lifeguard::ModelError::InvalidValueType {
+                        column: "Id".to_string(),
+                        expected: "Int(Some(_))".to_string(),
+                        actual: "Int(None)".to_string(),
+                    }),
+                    _ => Err(lifeguard::ModelError::InvalidValueType {
+                        column: "Id".to_string(),
+                        expected: "Int".to_string(),
+                        actual: format!("{:?}", value),
+                    }),
+                },
+                Column::Name => match value {
+                    sea_query::Value::String(Some(v)) => {
+                        self.name = v;
+                        Ok(())
+                    }
+                    sea_query::Value::String(None) => Err(lifeguard::ModelError::InvalidValueType {
+                        column: "Name".to_string(),
+                        expected: "String(Some(_))".to_string(),
+                        actual: "String(None)".to_string(),
+                    }),
+                    _ => Err(lifeguard::ModelError::InvalidValueType {
+                        column: "Name".to_string(),
+                        expected: "String".to_string(),
+                        actual: format!("{:?}", value),
+                    }),
+                },
+                Column::Metadata => match value {
+                    sea_query::Value::Json(Some(v)) => {
+                        self.metadata = *v;
+                        Ok(())
+                    }
+                    sea_query::Value::Json(None) => Err(lifeguard::ModelError::InvalidValueType {
+                        column: "Metadata".to_string(),
+                        expected: "Json(Some(_))".to_string(),
+                        actual: "Json(None)".to_string(),
+                    }),
+                    _ => Err(lifeguard::ModelError::InvalidValueType {
+                        column: "Metadata".to_string(),
+                        expected: "Json".to_string(),
+                        actual: format!("{:?}", value),
+                    }),
+                },
+                Column::Preferences => match value {
+                    sea_query::Value::Json(Some(v)) => {
+                        self.preferences = Some(*v);
+                        Ok(())
+                    }
+                    sea_query::Value::Json(None) => {
+                        self.preferences = None;
+                        Ok(())
+                    }
+                    _ => Err(lifeguard::ModelError::InvalidValueType {
+                        column: "Preferences".to_string(),
+                        expected: "Json".to_string(),
+                        actual: format!("{:?}", value),
+                    }),
+                },
+            }
+        }
+        
+        fn get_primary_key_value(&self) -> sea_query::Value {
+            sea_query::Value::Int(Some(self.id))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lifeguard::{FromRow, LifeEntityName, LifeModelTrait};
+    use lifeguard::{FromRow, LifeEntityName, LifeModelTrait, ModelTrait};
+    use sea_query::Value;
 
     #[test]
     fn test_entity_exists() {
@@ -98,5 +275,409 @@ mod tests {
     fn test_entity_table_name_constant() {
         // Verify Entity::TABLE_NAME constant exists
         assert_eq!(Entity::TABLE_NAME, "users");
+    }
+
+    #[test]
+    fn test_model_trait_implemented() {
+        // Verify ModelTrait is implemented for UserModel
+        fn _verify_model_trait<M: ModelTrait>() {}
+        _verify_model_trait::<UserModel>();
+        
+        // Verify the associated type Entity is correct
+        fn _verify_entity_type<M: ModelTrait<Entity = Entity>>() {}
+        _verify_entity_type::<UserModel>();
+    }
+
+    #[test]
+    fn test_model_trait_get() {
+        // Test ModelTrait::get() method
+        let model = UserModel {
+            id: 1,
+            name: "Test User".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // Test getting id column
+        let id_value = model.get(Column::Id);
+        match id_value {
+            Value::Int(Some(v)) => assert_eq!(v, 1),
+            _ => panic!("Expected Int(Some(1)), got {:?}", id_value),
+        }
+        
+        // Test getting name column
+        let name_value = model.get(Column::Name);
+        match name_value {
+            Value::String(Some(v)) => assert_eq!(v, "Test User"),
+            _ => panic!("Expected String(Some(\"Test User\")), got {:?}", name_value),
+        }
+        
+        // Test getting email column
+        let email_value = model.get(Column::Email);
+        match email_value {
+            Value::String(Some(v)) => assert_eq!(v, "test@example.com"),
+            _ => panic!("Expected String(Some(\"test@example.com\")), got {:?}", email_value),
+        }
+    }
+
+    #[test]
+    fn test_model_trait_set() {
+        // Test ModelTrait::set() method
+        let mut model = UserModel {
+            id: 1,
+            name: "Test User".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // Test setting name column
+        let result = model.set(Column::Name, Value::String(Some("Updated Name".to_string())));
+        assert!(result.is_ok());
+        assert_eq!(model.name, "Updated Name");
+        
+        // Test setting id column
+        let result = model.set(Column::Id, Value::Int(Some(42)));
+        assert!(result.is_ok());
+        assert_eq!(model.id, 42);
+        
+        // Test setting email column
+        let result = model.set(Column::Email, Value::String(Some("updated@example.com".to_string())));
+        assert!(result.is_ok());
+        assert_eq!(model.email, "updated@example.com");
+        
+        // Test invalid value type
+        let result = model.set(Column::Id, Value::String(Some("invalid".to_string())));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_model_trait_get_primary_key_value() {
+        // Test ModelTrait::get_primary_key_value() method
+        let model = UserModel {
+            id: 123,
+            name: "Test User".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        let pk_value = model.get_primary_key_value();
+        match pk_value {
+            Value::Int(Some(v)) => assert_eq!(v, 123),
+            _ => panic!("Expected Int(Some(123)), got {:?}", pk_value),
+        }
+    }
+
+    #[test]
+    fn test_model_trait_set_null_for_non_option() {
+        // Test that setting None value for non-Option field returns error
+        let mut model = UserModel {
+            id: 1,
+            name: "Test User".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // Attempting to set None for non-Option field should error
+        let result = model.set(Column::Id, Value::Int(None));
+        assert!(result.is_err(), "Setting None for non-Option field should error");
+        
+        // Verify error type
+        match result {
+            Err(lifeguard::ModelError::InvalidValueType { .. }) => (),
+            _ => panic!("Expected InvalidValueType error"),
+        }
+    }
+
+    #[test]
+    fn test_model_trait_set_type_mismatch() {
+        // Test various type mismatches
+        let mut model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // Test i64 to i32 (should error)
+        let result = model.set(Column::Id, Value::BigInt(Some(200)));
+        assert!(result.is_err(), "Setting i64 value to i32 field should error");
+        
+        // Test String to i32 (should error)
+        let result = model.set(Column::Id, Value::String(Some("invalid".to_string())));
+        assert!(result.is_err(), "Setting String value to i32 field should error");
+        
+        // Test Bool to String (should error)
+        let result = model.set(Column::Name, Value::Bool(Some(true)));
+        assert!(result.is_err(), "Setting Bool value to String field should error");
+    }
+
+    #[test]
+    fn test_model_trait_get_boolean() {
+        // Test boolean type handling (if we had a bool field)
+        // Note: User model doesn't have bool field, but this documents expected behavior
+        let _model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // Boolean get() would return Value::Bool(Some(true/false))
+        // This is handled in the macro generation
+    }
+
+    // ===== Option<T> Field Tests =====
+    
+    #[test]
+    fn test_model_trait_option_get_none() {
+        use option_tests::*;
+        
+        // Test getting None value from Option<T> field
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: None,
+            age: None,
+            active: None,
+        };
+        
+        // Test Option<String> with None
+        let name_value = model.get(Column::Name);
+        match name_value {
+            Value::String(None) => (),
+            _ => panic!("Expected String(None) for None Option<String>, got {:?}", name_value),
+        }
+        
+        // Test Option<i32> with None
+        let age_value = model.get(Column::Age);
+        match age_value {
+            Value::Int(None) => (),
+            _ => panic!("Expected Int(None) for None Option<i32>, got {:?}", age_value),
+        }
+        
+        // Test Option<bool> with None
+        let active_value = model.get(Column::Active);
+        match active_value {
+            Value::Bool(None) => (),
+            _ => panic!("Expected Bool(None) for None Option<bool>, got {:?}", active_value),
+        }
+    }
+
+    #[test]
+    fn test_model_trait_option_get_some() {
+        use option_tests::*;
+        
+        // Test getting Some value from Option<T> field
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: Some("Test User".to_string()),
+            age: Some(30),
+            active: Some(true),
+        };
+        
+        // Test Option<String> with Some
+        let name_value = model.get(Column::Name);
+        match name_value {
+            Value::String(Some(v)) => assert_eq!(v, "Test User"),
+            _ => panic!("Expected String(Some(\"Test User\")), got {:?}", name_value),
+        }
+        
+        // Test Option<i32> with Some
+        let age_value = model.get(Column::Age);
+        match age_value {
+            Value::Int(Some(v)) => assert_eq!(v, 30),
+            _ => panic!("Expected Int(Some(30)), got {:?}", age_value),
+        }
+        
+        // Test Option<bool> with Some
+        let active_value = model.get(Column::Active);
+        match active_value {
+            Value::Bool(Some(v)) => assert_eq!(v, true),
+            _ => panic!("Expected Bool(Some(true)), got {:?}", active_value),
+        }
+    }
+
+    #[test]
+    fn test_model_trait_option_set_none() {
+        use option_tests::*;
+        
+        // Test setting None value to Option<T> field
+        let mut model = UserWithOptionsModel {
+            id: 1,
+            name: Some("Test User".to_string()),
+            age: Some(30),
+            active: Some(true),
+        };
+        
+        // Set Option<String> to None
+        let result = model.set(Column::Name, Value::String(None));
+        assert!(result.is_ok());
+        assert_eq!(model.name, None);
+        
+        // Set Option<i32> to None
+        let result = model.set(Column::Age, Value::Int(None));
+        assert!(result.is_ok());
+        assert_eq!(model.age, None);
+        
+        // Set Option<bool> to None
+        let result = model.set(Column::Active, Value::Bool(None));
+        assert!(result.is_ok());
+        assert_eq!(model.active, None);
+    }
+
+    #[test]
+    fn test_model_trait_option_set_some() {
+        use option_tests::*;
+        
+        // Test setting Some value to Option<T> field
+        let mut model = UserWithOptionsModel {
+            id: 1,
+            name: None,
+            age: None,
+            active: None,
+        };
+        
+        // Set Option<String> to Some
+        let result = model.set(Column::Name, Value::String(Some("New Name".to_string())));
+        assert!(result.is_ok());
+        assert_eq!(model.name, Some("New Name".to_string()));
+        
+        // Set Option<i32> to Some
+        let result = model.set(Column::Age, Value::Int(Some(25)));
+        assert!(result.is_ok());
+        assert_eq!(model.age, Some(25));
+        
+        // Set Option<bool> to Some
+        let result = model.set(Column::Active, Value::Bool(Some(false)));
+        assert!(result.is_ok());
+        assert_eq!(model.active, Some(false));
+    }
+
+    // ===== JSON Field Tests =====
+    
+    #[test]
+    fn test_model_trait_json_get() {
+        use json_tests::*;
+        
+        // Test getting JSON value from serde_json::Value field
+        let metadata = serde_json::json!({"key": "value", "number": 42});
+        let model = UserWithJsonModel {
+            id: 1,
+            name: "Test User".to_string(),
+            metadata: metadata.clone(),
+            preferences: None,
+        };
+        
+        // Test non-Option JSON field
+        let metadata_value = model.get(Column::Metadata);
+        match metadata_value {
+            Value::Json(Some(v)) => {
+                assert_eq!(*v, metadata);
+            },
+            _ => panic!("Expected Json(Some(_)), got {:?}", metadata_value),
+        }
+        
+        // Test Option<JSON> with None
+        let preferences_value = model.get(Column::Preferences);
+        match preferences_value {
+            Value::Json(None) => (),
+            _ => panic!("Expected Json(None) for None Option<serde_json::Value>, got {:?}", preferences_value),
+        }
+    }
+
+    #[test]
+    fn test_model_trait_json_get_with_some() {
+        use json_tests::*;
+        
+        // Test getting Some JSON value from Option<serde_json::Value> field
+        let preferences = serde_json::json!({"theme": "dark", "notifications": true});
+        let model = UserWithJsonModel {
+            id: 1,
+            name: "Test User".to_string(),
+            metadata: serde_json::json!({}),
+            preferences: Some(preferences.clone()),
+        };
+        
+        let preferences_value = model.get(Column::Preferences);
+        match preferences_value {
+            Value::Json(Some(v)) => {
+                assert_eq!(*v, preferences);
+            },
+            _ => panic!("Expected Json(Some(_)), got {:?}", preferences_value),
+        }
+    }
+
+    #[test]
+    fn test_model_trait_json_set() {
+        use json_tests::*;
+        
+        // Test setting JSON value to serde_json::Value field
+        let mut model = UserWithJsonModel {
+            id: 1,
+            name: "Test User".to_string(),
+            metadata: serde_json::json!({}),
+            preferences: None,
+        };
+        
+        let new_metadata = serde_json::json!({"updated": true, "version": 2});
+        
+        // Set non-Option JSON field
+        let result = model.set(
+            Column::Metadata,
+            Value::Json(Some(Box::new(new_metadata.clone())))
+        );
+        assert!(result.is_ok());
+        assert_eq!(model.metadata, new_metadata);
+    }
+
+    #[test]
+    fn test_model_trait_json_set_option_none() {
+        use json_tests::*;
+        
+        // Test setting None to Option<serde_json::Value> field
+        let mut model = UserWithJsonModel {
+            id: 1,
+            name: "Test User".to_string(),
+            metadata: serde_json::json!({}),
+            preferences: Some(serde_json::json!({"existing": true})),
+        };
+        
+        let result = model.set(Column::Preferences, Value::Json(None));
+        assert!(result.is_ok());
+        assert_eq!(model.preferences, None);
+    }
+
+    #[test]
+    fn test_model_trait_json_set_option_some() {
+        use json_tests::*;
+        
+        // Test setting Some JSON to Option<serde_json::Value> field
+        let mut model = UserWithJsonModel {
+            id: 1,
+            name: "Test User".to_string(),
+            metadata: serde_json::json!({}),
+            preferences: None,
+        };
+        
+        let new_preferences = serde_json::json!({"theme": "light"});
+        let result = model.set(
+            Column::Preferences,
+            Value::Json(Some(Box::new(new_preferences.clone())))
+        );
+        assert!(result.is_ok());
+        assert_eq!(model.preferences, Some(new_preferences));
+    }
+
+    #[test]
+    fn test_model_trait_json_set_invalid_type() {
+        use json_tests::*;
+        
+        // Test that setting non-JSON value to JSON field returns error
+        let mut model = UserWithJsonModel {
+            id: 1,
+            name: "Test User".to_string(),
+            metadata: serde_json::json!({}),
+            preferences: None,
+        };
+        
+        // Attempting to set String to JSON field should error
+        let result = model.set(
+            Column::Metadata,
+            Value::String(Some("invalid".to_string()))
+        );
+        assert!(result.is_err(), "Setting non-JSON value to JSON field should error");
     }
 }

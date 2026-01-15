@@ -18,3 +18,4 @@ proc-macro2 = "1.0"
 may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
 lifeguard = { path = "..", version = "0.1.0" }
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
+serde_json = "1.0"  # For testing JSON fields

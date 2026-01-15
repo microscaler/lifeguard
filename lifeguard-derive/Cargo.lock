@@ -708,6 +708,7 @@ dependencies = [
  "rand 0.8.5",
  "sea-query",
  "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -720,6 +721,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "sea-query",
+ "serde_json",
  "syn",
 ]
 
