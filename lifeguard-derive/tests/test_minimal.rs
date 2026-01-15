@@ -684,6 +684,218 @@ mod tests {
         assert_eq!(col, Column::Id);
     }
 
+    // ============================================================================
+    // PRIMARY KEY TRAIT EDGE CASE TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_primary_key_trait_value_type_non_option() {
+        // Test ValueType for non-Option primary key (i32)
+        use lifeguard::PrimaryKeyTrait;
+        
+        // User entity has i32 primary key (non-Option)
+        let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+        // Should compile - ValueType should be i32, not Option<i32>
+    }
+
+    #[test]
+    fn test_primary_key_trait_auto_increment_false() {
+        // Test auto_increment() returns false when #[auto_increment] is not present
+        use lifeguard::PrimaryKeyTrait;
+        
+        let pk = PrimaryKey::Id;
+        // User entity doesn't have #[auto_increment] attribute
+        assert_eq!(pk.auto_increment(), false, "Primary key without #[auto_increment] should return false");
+    }
+
+    #[test]
+    fn test_primary_key_to_column_all_variants() {
+        // Test that to_column() works for all PrimaryKey variants
+        use lifeguard::PrimaryKeyToColumn;
+        
+        // User entity only has one primary key variant
+        let pk = PrimaryKey::Id;
+        let col = pk.to_column();
+        assert_eq!(col, Column::Id, "PrimaryKey::Id should map to Column::Id");
+    }
+
+    // ============================================================================
+    // PRIMARY KEY EDGE CASE TESTS
+    // ============================================================================
+
+    // Each entity is in its own module to avoid name conflicts with generated types
+    mod option_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_option_pk"]
+        pub struct OptionPrimaryKeyEntity {
+            #[primary_key]
+            pub id: Option<i32>,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_option_primary_key_value_type() {
+            // Test that Option<i32> primary key extracts inner type (i32) for ValueType
+            // This is a critical edge case - ValueType should be i32, not Option<i32>
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+            // Should compile - ValueType should be i32 (inner type), not Option<i32>
+        }
+
+        #[test]
+        fn test_option_primary_key_auto_increment() {
+            let pk = PrimaryKey::Id;
+            assert_eq!(pk.auto_increment(), false);
+        }
+
+        #[test]
+        fn test_option_primary_key_to_column() {
+            let pk = PrimaryKey::Id;
+            let col = pk.to_column();
+            assert_eq!(col, Column::Id);
+        }
+    }
+
+    mod i64_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_i64_pk"]
+        pub struct I64PrimaryKeyEntity {
+            #[primary_key]
+            pub id: i64,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_i64_primary_key_value_type() {
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i64;
+        }
+
+        #[test]
+        fn test_i64_primary_key_auto_increment() {
+            let pk = PrimaryKey::Id;
+            assert_eq!(pk.auto_increment(), false);
+        }
+    }
+
+    mod string_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_string_pk"]
+        pub struct StringPrimaryKeyEntity {
+            #[primary_key]
+            pub id: String,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_string_primary_key_value_type() {
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = "test".to_string();
+        }
+
+        #[test]
+        fn test_string_primary_key_auto_increment() {
+            let pk = PrimaryKey::Id;
+            assert_eq!(pk.auto_increment(), false);
+        }
+
+        #[test]
+        fn test_string_primary_key_to_column() {
+            let pk = PrimaryKey::Id;
+            let col = pk.to_column();
+            assert_eq!(col, Column::Id);
+        }
+    }
+
+    mod auto_inc_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_auto_inc_pk"]
+        pub struct AutoIncrementPrimaryKeyEntity {
+            #[primary_key]
+            #[auto_increment]
+            pub id: i32,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_auto_increment_primary_key_true() {
+            let pk = PrimaryKey::Id;
+            assert_eq!(pk.auto_increment(), true, "Primary key with #[auto_increment] should return true");
+        }
+
+        #[test]
+        fn test_auto_increment_primary_key_value_type() {
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+        }
+
+        #[test]
+        fn test_auto_increment_primary_key_to_column() {
+            let pk = PrimaryKey::Id;
+            let col = pk.to_column();
+            assert_eq!(col, Column::Id);
+        }
+    }
+
+    mod composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_composite_pk"]
+        pub struct CompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id1: i32,
+            #[primary_key]
+            pub id2: i32,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_composite_primary_key_value_type() {
+            // ValueType should be from first primary key
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+        }
+
+        #[test]
+        fn test_composite_primary_key_auto_increment() {
+            // Both variants return first key's auto_increment (limitation)
+            let pk1 = PrimaryKey::Id1;
+            let pk2 = PrimaryKey::Id2;
+            assert_eq!(pk1.auto_increment(), false);
+            assert_eq!(pk2.auto_increment(), false);
+        }
+
+        #[test]
+        fn test_composite_primary_key_to_column() {
+            let pk1 = PrimaryKey::Id1;
+            let pk2 = PrimaryKey::Id2;
+            assert_eq!(pk1.to_column(), Column::Id1);
+            assert_eq!(pk2.to_column(), Column::Id2);
+        }
+
+        #[test]
+        fn test_composite_primary_key_all_variants() {
+            let pk1 = PrimaryKey::Id1;
+            let pk2 = PrimaryKey::Id2;
+            let _col1 = pk1.to_column();
+            let _col2 = pk2.to_column();
+        }
+    }
+
     #[test]
     fn test_model_struct_exists() {
         // Verify Model struct exists and can be instantiated
