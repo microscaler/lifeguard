@@ -728,6 +728,20 @@ mod tests {
         assert_eq!(arity, PrimaryKeyArity::Single, "Single primary key should return Single arity");
     }
 
+    #[test]
+    fn test_primary_key_arity_granular_variants() {
+        // Test that granular arity variants exist and can be used
+        use lifeguard::PrimaryKeyArity;
+        
+        // Verify all variants exist
+        let _single = PrimaryKeyArity::Single;
+        let _tuple2 = PrimaryKeyArity::Tuple2;
+        let _tuple3 = PrimaryKeyArity::Tuple3;
+        let _tuple4 = PrimaryKeyArity::Tuple4;
+        let _tuple5 = PrimaryKeyArity::Tuple5;
+        let _tuple6plus = PrimaryKeyArity::Tuple6Plus;
+    }
+
     // ============================================================================
     // PRIMARY KEY EDGE CASE TESTS
     // ============================================================================
@@ -874,9 +888,9 @@ mod tests {
         }
 
         #[test]
-        fn test_composite_primary_key_value_type() {
-            // ValueType should be from first primary key
-            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+        fn test_composite_primary_key_value_type_tuple() {
+            // ValueType should be a tuple for composite keys
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, 43i32);
         }
 
         #[test]
@@ -906,11 +920,11 @@ mod tests {
 
         #[test]
         fn test_composite_primary_key_arity() {
-            // Verify PrimaryKeyArityTrait is implemented and returns Tuple for composite keys
+            // Verify PrimaryKeyArityTrait is implemented and returns Tuple2 for 2-column composite keys
             use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
             
             let arity = PrimaryKey::arity();
-            assert_eq!(arity, PrimaryKeyArity::Tuple, "Composite primary key should return Tuple arity");
+            assert_eq!(arity, PrimaryKeyArity::Tuple2, "2-column composite primary key should return Tuple2 arity");
         }
     }
 
@@ -949,11 +963,11 @@ mod tests {
 
         #[test]
         fn test_mixed_auto_increment_composite_primary_key_arity() {
-            // Verify PrimaryKeyArityTrait returns Tuple for composite keys
+            // Verify PrimaryKeyArityTrait returns Tuple2 for 2-column composite keys
             use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
             
             let arity = PrimaryKey::arity();
-            assert_eq!(arity, PrimaryKeyArity::Tuple, "Composite primary key should return Tuple arity");
+            assert_eq!(arity, PrimaryKeyArity::Tuple2, "2-column composite primary key should return Tuple2 arity");
         }
 
         #[test]
@@ -963,7 +977,7 @@ mod tests {
             use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyTrait};
             
             let arity = PrimaryKey::arity();
-            assert_eq!(arity, PrimaryKeyArity::Tuple, "Arity should be Tuple regardless of auto_increment settings");
+            assert_eq!(arity, PrimaryKeyArity::Tuple2, "Arity should be Tuple2 regardless of auto_increment settings");
             
             // Verify auto_increment still works correctly per variant
             let pk1 = PrimaryKey::Id1;
@@ -976,6 +990,120 @@ mod tests {
     // ============================================================================
     // PRIMARY KEY ARITY EDGE CASE TESTS
     // ============================================================================
+
+    mod tuple3_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_tuple3_composite_pk"]
+        pub struct Tuple3CompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id1: i32,
+            #[primary_key]
+            pub id2: i32,
+            #[primary_key]
+            pub id3: i32,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_tuple3_composite_primary_key_arity() {
+            // Test that 3 primary keys return Tuple3
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple3, "3-column composite primary key should return Tuple3 arity");
+        }
+    }
+
+    mod tuple4_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_tuple4_composite_pk"]
+        pub struct Tuple4CompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id1: i32,
+            #[primary_key]
+            pub id2: i32,
+            #[primary_key]
+            pub id3: i32,
+            #[primary_key]
+            pub id4: i32,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_tuple4_composite_primary_key_arity() {
+            // Test that 4 primary keys return Tuple4
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple4, "4-column composite primary key should return Tuple4 arity");
+        }
+    }
+
+    mod tuple5_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_tuple5_composite_pk"]
+        pub struct Tuple5CompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id1: i32,
+            #[primary_key]
+            pub id2: i32,
+            #[primary_key]
+            pub id3: i32,
+            #[primary_key]
+            pub id4: i32,
+            #[primary_key]
+            pub id5: i32,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_tuple5_composite_primary_key_arity() {
+            // Test that 5 primary keys return Tuple5
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple5, "5-column composite primary key should return Tuple5 arity");
+        }
+    }
+
+    mod tuple6plus_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_tuple6plus_composite_pk"]
+        pub struct Tuple6PlusCompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id1: i32,
+            #[primary_key]
+            pub id2: i32,
+            #[primary_key]
+            pub id3: i32,
+            #[primary_key]
+            pub id4: i32,
+            #[primary_key]
+            pub id5: i32,
+            #[primary_key]
+            pub id6: i32,
+            #[primary_key]
+            pub id7: i32,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_tuple6plus_composite_primary_key_arity() {
+            // Test that 6+ primary keys return Tuple6Plus
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple6Plus, "6+ column composite primary key should return Tuple6Plus arity");
+        }
+    }
 
     mod large_composite_pk_entity {
         use super::*;
@@ -998,9 +1126,9 @@ mod tests {
 
         #[test]
         fn test_large_composite_primary_key_arity() {
-            // Test that 3+ primary keys still return Tuple (not a separate variant)
+            // Test that 4 primary keys return Tuple4
             let arity = PrimaryKey::arity();
-            assert_eq!(arity, PrimaryKeyArity::Tuple, "Large composite primary key (3+ columns) should return Tuple arity");
+            assert_eq!(arity, PrimaryKeyArity::Tuple4, "4-column composite primary key should return Tuple4 arity");
         }
 
         #[test]
@@ -1017,6 +1145,14 @@ mod tests {
             assert_eq!(pk2.to_column(), Column::Id2);
             assert_eq!(pk3.to_column(), Column::Id3);
             assert_eq!(pk4.to_column(), Column::Id4);
+        }
+
+        #[test]
+        fn test_large_composite_primary_key_value_type_tuple() {
+            // Verify ValueType is a tuple for large composite keys (3+ columns)
+            use lifeguard::PrimaryKeyTrait;
+            
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (1i32, 2i32, 3i32, 4i32);
         }
     }
 
@@ -1039,17 +1175,15 @@ mod tests {
         fn test_mixed_type_composite_primary_key_arity() {
             // Test composite key with different types (i32 + String)
             let arity = PrimaryKey::arity();
-            assert_eq!(arity, PrimaryKeyArity::Tuple, "Mixed type composite primary key should return Tuple arity");
+            assert_eq!(arity, PrimaryKeyArity::Tuple2, "2-column mixed type composite primary key should return Tuple2 arity");
         }
 
         #[test]
-        fn test_mixed_type_composite_primary_key_value_type_limitation() {
-            // EDGE CASE: ValueType only tracks first primary key type
-            // This is a known limitation - ValueType is i32 (from first key), not a tuple
-            // Full composite key support would require a tuple type, which is a future enhancement
-            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
-            // Note: This compiles because ValueType is i32 (first key), not (i32, String)
-            // This documents the current limitation of ValueType for composite keys
+        fn test_mixed_type_composite_primary_key_value_type_tuple() {
+            // EDGE CASE: ValueType is now a tuple for composite keys
+            // This verifies that ValueType is (i32, String) for composite keys with mixed types
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, "test".to_string());
+            // Note: This compiles because ValueType is (i32, String) - full tuple support!
         }
 
         #[test]
@@ -1061,6 +1195,29 @@ mod tests {
             
             assert_eq!(pk1.to_column(), Column::Id);
             assert_eq!(pk2.to_column(), Column::Code);
+        }
+    }
+
+    mod option_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::PrimaryKeyTrait;
+
+        #[derive(LifeModel)]
+        #[table_name = "test_option_composite_pk"]
+        pub struct OptionCompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id: Option<i32>,
+            #[primary_key]
+            pub code: Option<String>,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_option_composite_primary_key_value_type() {
+            // EDGE CASE: Composite key with Option types - Option should be unwrapped in ValueType tuple
+            // ValueType should be (i32, String), not (Option<i32>, Option<String>)
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, "test".to_string());
         }
     }
 
