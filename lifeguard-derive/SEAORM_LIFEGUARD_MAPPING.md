@@ -22,7 +22,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `EntityName` | `LifeEntityName` | ✅ Implemented | Provides `table_name()` method |
 | `ModelTrait` | ✅ Implemented | ✅ Complete | Model-level operations (get/set columns, get_primary_key_value) |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Converts database rows to Model structs |
-| `ActiveModelTrait` | ✅ Implemented | ⚠️ Partial | Mutable model operations (get, set, take, reset ✅; insert/update/save/delete 🔴 placeholder) |
+| `ActiveModelTrait` | ✅ Implemented | ✅ Complete | Mutable model operations (get, set, take, reset ✅; insert/update/save/delete ✅) |
 | `ActiveModelBehavior` | ❌ Missing | 🟡 **Future** | Custom behavior hooks for ActiveModel |
 | `ColumnTrait` | ✅ Implemented | ✅ Complete | Column-level operations (query builder methods ✅, metadata methods ✅ with default impls) |
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
@@ -172,9 +172,9 @@ This design simplifies the API while maintaining the same functionality.
 | `ActiveModel::save()` | `ActiveModelTrait::save()` | ✅ Implemented | Routes to insert or update based on PK presence |
 | `ActiveModel::delete()` | `ActiveModelTrait::delete()` | ✅ Implemented | DELETE operation with WHERE clause for primary keys |
 | `ActiveModel::reset()` | `ActiveModelTrait::reset()` | ✅ Implemented | Reset all fields to None |
-| `ActiveModel::set()` | `ActiveModelTrait::set()` | ⚠️ Placeholder | Returns error (type conversion needed) |
-| `ActiveModel::get()` | `ActiveModelTrait::get()` | ✅ Implemented | Get field value as Option<Value> (uses to_model() internally) |
-| `ActiveModel::take()` | `ActiveModelTrait::take()` | ✅ Implemented | Take field value (move) (uses to_model() internally) |
+| `ActiveModel::set()` | `ActiveModelTrait::set()` | ✅ Implemented | Set field value from Value (type conversion implemented) |
+| `ActiveModel::get()` | `ActiveModelTrait::get()` | ✅ Implemented | Get field value as Option<Value> (optimized, no to_model() needed) |
+| `ActiveModel::take()` | `ActiveModelTrait::take()` | ✅ Implemented | Take field value (move) (optimized, no to_model() needed) |
 | `ActiveModel::into_active_value()` | ❌ Missing | 🔴 **Future** | Convert to ActiveValue |
 | `ActiveModel::from_json()` | ❌ Missing | 🟡 **Future** | Deserialize from JSON (JSON column support is ✅ core feature) |
 | `ActiveModel::to_json()` | ❌ Missing | 🟡 **Future** | Serialize to JSON (JSON column support is ✅ core feature) |
