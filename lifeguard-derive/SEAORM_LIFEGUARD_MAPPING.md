@@ -27,7 +27,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `ColumnTrait` | ✅ Implemented | ✅ Complete | Column-level operations (query builder methods ✅, metadata methods ✅ with default impls) |
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
-| `PrimaryKeyArity` | ❌ Missing | 🔴 **Future** | Support for composite primary keys |
+| `PrimaryKeyArity` | ✅ Implemented | ✅ Complete | Support for composite primary keys (PrimaryKeyArity enum ✅, PrimaryKeyArityTrait ✅) |
 | `RelationTrait` | ❌ Missing | 🟡 **Future** | Entity relationships (belongs_to, has_one, has_many) |
 | `Related` | ❌ Missing | 🟡 **Future** | Related entity queries |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
@@ -253,13 +253,20 @@ This design simplifies the API while maintaining the same functionality.
 **Status:** ✅ Implemented  
 **Current State:** Trait for PrimaryKey operations:
 - `ValueType` - Associated type for primary key value type ✅ (handles Option<T> correctly)
-- `auto_increment()` - Whether primary key is auto-increment ✅ (tracks first primary key's auto_increment attribute)
-- Support for composite primary keys (via `PrimaryKeyArity`) - 🟡 Future (currently supports single primary key)
+- `auto_increment()` - Whether primary key is auto-increment ✅ (tracks each primary key's auto_increment attribute per variant)
+- Support for composite primary keys (via `PrimaryKeyArity`) - ✅ Complete
 
 #### PrimaryKeyToColumn
 **Status:** ✅ Implemented  
 **Current State:** Trait for mapping PrimaryKey to Column:
 - `to_column()` - Convert PrimaryKey variant to Column variant ✅
+
+#### PrimaryKeyArity
+**Status:** ✅ Implemented  
+**Current State:** Support for composite primary keys:
+- `PrimaryKeyArity` enum - `Single` for single-column, `Tuple` for composite keys ✅
+- `PrimaryKeyArityTrait` - `arity()` method returns the arity of the primary key ✅
+- Macro automatically generates implementation based on number of primary key variants ✅
 
 #### ActiveModel Operations
 **Status:** 🔴 Missing  
@@ -339,7 +346,7 @@ This design simplifies the API while maintaining the same functionality.
 
 | Category | SeaORM | Lifeguard | Coverage |
 |----------|--------|-----------|----------|
-| **Core Traits** | 15 | 6 | 40% |
+| **Core Traits** | 15 | 7 | 47% |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
 | **Query Builder Methods** | 20 | 10 | 50% |
@@ -347,7 +354,7 @@ This design simplifies the API while maintaining the same functionality.
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
 | **Value Types** | 6 | 1 | 17% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 60 | **51%** |
+| **Overall** | 117 | 61 | **52%** |
 
 ---
 

@@ -993,6 +993,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
         });
         
+        // Generate PrimaryKeyArity implementation
+        // Determine arity at macro expansion time based on number of primary key variants
+        let primary_key_arity_impl = if primary_key_variant_idents.len() == 1 {
+            quote! {
+                lifeguard::PrimaryKeyArity::Single
+            }
+        } else {
+            quote! {
+                lifeguard::PrimaryKeyArity::Tuple
+            }
+        };
+        
         quote! {
             // Implement PrimaryKeyTrait
             impl lifeguard::PrimaryKeyTrait for PrimaryKey {
@@ -1015,10 +1027,17 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     }
                 }
             }
+            
+            // Implement PrimaryKeyArityTrait
+            impl lifeguard::PrimaryKeyArityTrait for PrimaryKey {
+                fn arity() -> lifeguard::PrimaryKeyArity {
+                    #primary_key_arity_impl
+                }
+            }
         }
     } else {
         quote! {
-            // No primary key defined - PrimaryKeyTrait and PrimaryKeyToColumn not implemented
+            // No primary key defined - PrimaryKeyTrait, PrimaryKeyToColumn, and PrimaryKeyArityTrait not implemented
         }
     };
 

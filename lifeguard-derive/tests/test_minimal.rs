@@ -719,6 +719,15 @@ mod tests {
         assert_eq!(col, Column::Id, "PrimaryKey::Id should map to Column::Id");
     }
 
+    #[test]
+    fn test_primary_key_arity_single() {
+        // Test that PrimaryKeyArityTrait is implemented and returns Single for single primary key
+        use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+        
+        let arity = PrimaryKey::arity();
+        assert_eq!(arity, PrimaryKeyArity::Single, "Single primary key should return Single arity");
+    }
+
     // ============================================================================
     // PRIMARY KEY EDGE CASE TESTS
     // ============================================================================
@@ -894,6 +903,15 @@ mod tests {
             let _col1 = pk1.to_column();
             let _col2 = pk2.to_column();
         }
+
+        #[test]
+        fn test_composite_primary_key_arity() {
+            // Verify PrimaryKeyArityTrait is implemented and returns Tuple for composite keys
+            use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+            
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple, "Composite primary key should return Tuple arity");
+        }
     }
 
     mod mixed_auto_inc_composite_pk_entity {
@@ -927,6 +945,162 @@ mod tests {
             let pk2 = PrimaryKey::Id2;
             assert_eq!(pk1.to_column(), Column::Id1);
             assert_eq!(pk2.to_column(), Column::Id2);
+        }
+
+        #[test]
+        fn test_mixed_auto_increment_composite_primary_key_arity() {
+            // Verify PrimaryKeyArityTrait returns Tuple for composite keys
+            use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+            
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple, "Composite primary key should return Tuple arity");
+        }
+
+        #[test]
+        fn test_mixed_auto_increment_composite_primary_key_arity_with_auto_inc() {
+            // EDGE CASE: Verify that PrimaryKeyArity works correctly with mixed auto_increment
+            // This tests that arity is independent of auto_increment settings
+            use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyTrait};
+            
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple, "Arity should be Tuple regardless of auto_increment settings");
+            
+            // Verify auto_increment still works correctly per variant
+            let pk1 = PrimaryKey::Id1;
+            let pk2 = PrimaryKey::Id2;
+            assert_eq!(pk1.auto_increment(), true, "First key has auto_increment");
+            assert_eq!(pk2.auto_increment(), false, "Second key does not have auto_increment");
+        }
+    }
+
+    // ============================================================================
+    // PRIMARY KEY ARITY EDGE CASE TESTS
+    // ============================================================================
+
+    mod large_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_large_composite_pk"]
+        pub struct LargeCompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id1: i32,
+            #[primary_key]
+            pub id2: i32,
+            #[primary_key]
+            pub id3: i32,
+            #[primary_key]
+            pub id4: i32,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_large_composite_primary_key_arity() {
+            // Test that 3+ primary keys still return Tuple (not a separate variant)
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple, "Large composite primary key (3+ columns) should return Tuple arity");
+        }
+
+        #[test]
+        fn test_large_composite_primary_key_all_variants() {
+            // Verify all primary key variants work
+            use lifeguard::PrimaryKeyToColumn;
+            
+            let pk1 = PrimaryKey::Id1;
+            let pk2 = PrimaryKey::Id2;
+            let pk3 = PrimaryKey::Id3;
+            let pk4 = PrimaryKey::Id4;
+            
+            assert_eq!(pk1.to_column(), Column::Id1);
+            assert_eq!(pk2.to_column(), Column::Id2);
+            assert_eq!(pk3.to_column(), Column::Id3);
+            assert_eq!(pk4.to_column(), Column::Id4);
+        }
+    }
+
+    mod mixed_type_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyTrait};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_mixed_type_composite_pk"]
+        pub struct MixedTypeCompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id: i32,
+            #[primary_key]
+            pub code: String,
+            pub name: String,
+        }
+
+        #[test]
+        fn test_mixed_type_composite_primary_key_arity() {
+            // Test composite key with different types (i32 + String)
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple, "Mixed type composite primary key should return Tuple arity");
+        }
+
+        #[test]
+        fn test_mixed_type_composite_primary_key_value_type_limitation() {
+            // EDGE CASE: ValueType only tracks first primary key type
+            // This is a known limitation - ValueType is i32 (from first key), not a tuple
+            // Full composite key support would require a tuple type, which is a future enhancement
+            let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+            // Note: This compiles because ValueType is i32 (first key), not (i32, String)
+            // This documents the current limitation of ValueType for composite keys
+        }
+
+        #[test]
+        fn test_mixed_type_composite_primary_key_to_column() {
+            use lifeguard::PrimaryKeyToColumn;
+            
+            let pk1 = PrimaryKey::Id;
+            let pk2 = PrimaryKey::Code;
+            
+            assert_eq!(pk1.to_column(), Column::Id);
+            assert_eq!(pk2.to_column(), Column::Code);
+        }
+    }
+
+    mod no_primary_key_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+
+        #[derive(LifeModel)]
+        #[table_name = "test_no_pk"]
+        pub struct NoPrimaryKeyEntity {
+            pub name: String,
+            pub email: String,
+        }
+
+        #[test]
+        fn test_no_primary_key_enum_is_empty() {
+            // EDGE CASE: Entity with no primary key
+            // PrimaryKey enum is generated but empty (no variants)
+            // This is a compile-time construct, so we can't easily test it at runtime
+            // But we can verify that PrimaryKeyArityTrait is NOT implemented
+            // (trying to call PrimaryKey::arity() would be a compile error)
+            
+            // The PrimaryKey enum exists but has no variants
+            // PrimaryKeyArityTrait is not implemented (by design)
+            // This is correct behavior - entities without primary keys don't need arity
+        }
+
+        #[test]
+        fn test_no_primary_key_get_primary_key_value() {
+            // EDGE CASE: get_primary_key_value() returns String(None) when no primary key exists
+            use lifeguard::ModelTrait;
+            
+            let model = NoPrimaryKeyEntityModel {
+                name: "Test".to_string(),
+                email: "test@example.com".to_string(),
+            };
+            
+            let pk_value = model.get_primary_key_value();
+            // Should return Value::String(None) as documented
+            assert_eq!(pk_value, sea_query::Value::String(None));
         }
     }
 

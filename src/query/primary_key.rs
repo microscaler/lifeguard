@@ -30,6 +30,13 @@ pub trait PrimaryKeyTrait: Copy + std::fmt::Debug {
     /// should be converted to/from. For example, `i32` for integer primary keys,
     /// `String` for string primary keys, etc.
     ///
+    /// # Limitations
+    ///
+    /// **Composite Primary Keys:** For composite primary keys (multiple columns),
+    /// `ValueType` currently only tracks the type of the **first** primary key column.
+    /// This is a known limitation. Full composite key support would require a tuple
+    /// type (e.g., `(i32, String)`), which is a future enhancement.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -37,6 +44,9 @@ pub trait PrimaryKeyTrait: Copy + std::fmt::Debug {
     ///
     /// // For a primary key with type i32:
     /// // type ValueType = i32;
+    ///
+    /// // For a composite primary key (i32, String):
+    /// // type ValueType = i32;  // Only first key's type (limitation)
     /// ```
     type ValueType;
 
@@ -100,6 +110,81 @@ pub trait PrimaryKeyToColumn {
     fn to_column(self) -> Self::Column;
 }
 
+/// Enum representing the arity (number of columns) in a primary key
+///
+/// This enum indicates whether a primary key consists of a single column
+/// or multiple columns (composite key). It's used to determine how to
+/// handle primary key operations, especially for composite keys.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::PrimaryKeyArity;
+///
+/// // Single column primary key
+/// let arity = PrimaryKeyArity::Single;
+///
+/// // Composite primary key (multiple columns)
+/// let arity = PrimaryKeyArity::Tuple;
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PrimaryKeyArity {
+    /// Single column primary key
+    Single,
+    /// Composite primary key (multiple columns)
+    Tuple,
+}
+
+/// Trait for determining the arity of a primary key
+///
+/// This trait provides a method to determine whether a primary key
+/// consists of a single column or multiple columns (composite key).
+/// This is essential for proper handling of composite primary keys
+/// in operations like `get_primary_key_value()`.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+///
+/// // In a real application, the macro would generate this:
+/// // impl PrimaryKeyArityTrait for UserPrimaryKey {
+/// //     fn arity() -> PrimaryKeyArity {
+/// //         PrimaryKeyArity::Single  // Single column
+/// //     }
+/// // }
+///
+/// // For a composite primary key:
+/// // impl PrimaryKeyArityTrait for CompositePrimaryKey {
+/// //     fn arity() -> PrimaryKeyArity {
+/// //         PrimaryKeyArity::Tuple  // Multiple columns
+/// //     }
+/// // }
+/// ```
+pub trait PrimaryKeyArityTrait {
+    /// Returns the arity of the primary key
+    ///
+    /// - `PrimaryKeyArity::Single` for single-column primary keys
+    /// - `PrimaryKeyArity::Tuple` for composite (multi-column) primary keys
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+    ///
+    /// // let arity = UserPrimaryKey::arity();
+    /// // match arity {
+    /// //     PrimaryKeyArity::Single => {
+    /// //         // Handle single column primary key
+    /// //     }
+    /// //     PrimaryKeyArity::Tuple => {
+    /// //         // Handle composite primary key
+    /// //     }
+    /// // }
+    /// ```
+    fn arity() -> PrimaryKeyArity;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +239,51 @@ mod tests {
     fn test_primary_key_value_type() {
         // Test that ValueType is accessible
         let _value: <TestPrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+    }
+
+    // Test PrimaryKeyArity enum
+    #[test]
+    fn test_primary_key_arity_enum() {
+        let single = PrimaryKeyArity::Single;
+        let tuple = PrimaryKeyArity::Tuple;
+        
+        assert_eq!(single, PrimaryKeyArity::Single);
+        assert_eq!(tuple, PrimaryKeyArity::Tuple);
+        assert_ne!(single, tuple);
+    }
+
+    // Test PrimaryKeyArityTrait for single primary key
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+    enum SinglePrimaryKey {
+        Id,
+    }
+
+    impl PrimaryKeyArityTrait for SinglePrimaryKey {
+        fn arity() -> PrimaryKeyArity {
+            PrimaryKeyArity::Single
+        }
+    }
+
+    #[test]
+    fn test_single_primary_key_arity() {
+        assert_eq!(SinglePrimaryKey::arity(), PrimaryKeyArity::Single);
+    }
+
+    // Test PrimaryKeyArityTrait for composite primary key
+    #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+    enum CompositePrimaryKey {
+        Id1,
+        Id2,
+    }
+
+    impl PrimaryKeyArityTrait for CompositePrimaryKey {
+        fn arity() -> PrimaryKeyArity {
+            PrimaryKeyArity::Tuple
+        }
+    }
+
+    #[test]
+    fn test_composite_primary_key_arity() {
+        assert_eq!(CompositePrimaryKey::arity(), PrimaryKeyArity::Tuple);
     }
 }
