@@ -872,7 +872,7 @@ mod tests {
 
         #[test]
         fn test_composite_primary_key_auto_increment() {
-            // Both variants return first key's auto_increment (limitation)
+            // Both variants return their own auto_increment value (fixed!)
             let pk1 = PrimaryKey::Id1;
             let pk2 = PrimaryKey::Id2;
             assert_eq!(pk1.auto_increment(), false);
@@ -893,6 +893,40 @@ mod tests {
             let pk2 = PrimaryKey::Id2;
             let _col1 = pk1.to_column();
             let _col2 = pk2.to_column();
+        }
+    }
+
+    mod mixed_auto_inc_composite_pk_entity {
+        use super::*;
+        use lifeguard_derive::LifeModel;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
+
+        #[derive(LifeModel)]
+        #[table_name = "test_mixed_auto_inc_pk"]
+        pub struct MixedAutoIncrementCompositePrimaryKeyEntity {
+            #[primary_key]
+            #[auto_increment]
+            pub id1: i32,
+            #[primary_key]
+            pub id2: i32, // No auto_increment
+            pub name: String,
+        }
+
+        #[test]
+        fn test_mixed_auto_increment_composite_primary_key() {
+            // This test verifies the fix: each variant returns its own auto_increment value
+            let pk1 = PrimaryKey::Id1;
+            let pk2 = PrimaryKey::Id2;
+            assert_eq!(pk1.auto_increment(), true, "Primary key with #[auto_increment] should return true");
+            assert_eq!(pk2.auto_increment(), false, "Primary key without #[auto_increment] should return false");
+        }
+
+        #[test]
+        fn test_mixed_auto_increment_composite_primary_key_to_column() {
+            let pk1 = PrimaryKey::Id1;
+            let pk2 = PrimaryKey::Id2;
+            assert_eq!(pk1.to_column(), Column::Id1);
+            assert_eq!(pk2.to_column(), Column::Id2);
         }
     }
 

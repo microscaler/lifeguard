@@ -75,7 +75,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     // - Primary key field tracking
     let mut column_variants = Vec::new();
     let mut primary_key_variants = Vec::new();
-    let mut primary_key_variant_idents = Vec::new(); // Store variant identifiers separately for trait implementations
+    let mut primary_key_variant_idents = Vec::new(); // Store (variant identifier, auto_increment) tuples for trait implementations
     let mut model_fields = Vec::new();
     let mut from_row_fields = Vec::new();
     let mut iden_impls = Vec::new();
@@ -117,12 +117,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             primary_key_variants.push(quote! {
                 #column_variant,
             });
-            primary_key_variant_idents.push(column_variant.clone()); // Store identifier for trait implementations
+            primary_key_variant_idents.push((column_variant.clone(), is_auto_increment)); // Store (identifier, auto_increment) for trait implementations
             
             // Track primary key metadata for PrimaryKeyTrait
             if primary_key_type.is_none() {
                 primary_key_type = Some(field_type);
-                _primary_key_auto_increment = is_auto_increment; // Reserved for future PrimaryKeyTrait implementation
+                _primary_key_auto_increment = is_auto_increment; // Keep for backward compatibility, but per-variant tracking is used
             }
             
             // Track mapping for PrimaryKeyToColumn
@@ -979,10 +979,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         };
         
         // Generate auto_increment match arms
-        // Note: Currently tracks auto_increment for the first primary key only.
-        // For composite primary keys with different auto_increment values, this will need enhancement.
-        let auto_increment_arms = primary_key_variant_idents.iter().map(|variant| {
-            if _primary_key_auto_increment {
+        // Each variant uses its own auto_increment value, supporting composite primary keys
+        // with mixed auto_increment settings
+        let auto_increment_arms = primary_key_variant_idents.iter().map(|(variant, auto_inc)| {
+            if *auto_inc {
                 quote! {
                     PrimaryKey::#variant => true,
                 }
