@@ -458,6 +458,108 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                                 })
                                             }
                                         },
+                                        "u8" => quote! {
+                                            match value {
+                                                sea_query::Value::SmallInt(Some(v)) => {
+                                                    self.#field_name = Some(v as u8);
+                                                    Ok(())
+                                                }
+                                                sea_query::Value::SmallInt(None) => {
+                                                    self.#field_name = None;
+                                                    Ok(())
+                                                }
+                                                _ => Err(lifeguard::ModelError::InvalidValueType {
+                                                    column: stringify!(#column_variant).to_string(),
+                                                    expected: "SmallInt".to_string(),
+                                                    actual: format!("{:?}", value),
+                                                })
+                                            }
+                                        },
+                                        "u16" => quote! {
+                                            match value {
+                                                sea_query::Value::Int(Some(v)) => {
+                                                    self.#field_name = Some(v as u16);
+                                                    Ok(())
+                                                }
+                                                sea_query::Value::Int(None) => {
+                                                    self.#field_name = None;
+                                                    Ok(())
+                                                }
+                                                _ => Err(lifeguard::ModelError::InvalidValueType {
+                                                    column: stringify!(#column_variant).to_string(),
+                                                    expected: "Int".to_string(),
+                                                    actual: format!("{:?}", value),
+                                                })
+                                            }
+                                        },
+                                        "u32" => quote! {
+                                            match value {
+                                                sea_query::Value::BigInt(Some(v)) => {
+                                                    self.#field_name = Some(v as u32);
+                                                    Ok(())
+                                                }
+                                                sea_query::Value::BigInt(None) => {
+                                                    self.#field_name = None;
+                                                    Ok(())
+                                                }
+                                                _ => Err(lifeguard::ModelError::InvalidValueType {
+                                                    column: stringify!(#column_variant).to_string(),
+                                                    expected: "BigInt".to_string(),
+                                                    actual: format!("{:?}", value),
+                                                })
+                                            }
+                                        },
+                                        "u64" => quote! {
+                                            match value {
+                                                sea_query::Value::BigInt(Some(v)) => {
+                                                    self.#field_name = Some(v as u64);
+                                                    Ok(())
+                                                }
+                                                sea_query::Value::BigInt(None) => {
+                                                    self.#field_name = None;
+                                                    Ok(())
+                                                }
+                                                _ => Err(lifeguard::ModelError::InvalidValueType {
+                                                    column: stringify!(#column_variant).to_string(),
+                                                    expected: "BigInt".to_string(),
+                                                    actual: format!("{:?}", value),
+                                                })
+                                            }
+                                        },
+                                        "f32" => quote! {
+                                            match value {
+                                                sea_query::Value::Float(Some(v)) => {
+                                                    self.#field_name = Some(v);
+                                                    Ok(())
+                                                }
+                                                sea_query::Value::Float(None) => {
+                                                    self.#field_name = None;
+                                                    Ok(())
+                                                }
+                                                _ => Err(lifeguard::ModelError::InvalidValueType {
+                                                    column: stringify!(#column_variant).to_string(),
+                                                    expected: "Float".to_string(),
+                                                    actual: format!("{:?}", value),
+                                                })
+                                            }
+                                        },
+                                        "f64" => quote! {
+                                            match value {
+                                                sea_query::Value::Double(Some(v)) => {
+                                                    self.#field_name = Some(v);
+                                                    Ok(())
+                                                }
+                                                sea_query::Value::Double(None) => {
+                                                    self.#field_name = None;
+                                                    Ok(())
+                                                }
+                                                _ => Err(lifeguard::ModelError::InvalidValueType {
+                                                    column: stringify!(#column_variant).to_string(),
+                                                    expected: "Double".to_string(),
+                                                    actual: format!("{:?}", value),
+                                                })
+                                            }
+                                        },
                                         _ => quote! {
                                             Err(lifeguard::ModelError::InvalidValueType {
                                                 column: stringify!(#column_variant).to_string(),
@@ -619,6 +721,126 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                         _ => Err(lifeguard::ModelError::InvalidValueType {
                                             column: stringify!(#column_variant).to_string(),
                                             expected: "Bool".to_string(),
+                                            actual: format!("{:?}", value),
+                                        })
+                                    }
+                                },
+                                "u8" => quote! {
+                                    match value {
+                                        sea_query::Value::SmallInt(Some(v)) => {
+                                            self.#field_name = v as u8;
+                                            Ok(())
+                                        }
+                                        sea_query::Value::SmallInt(None) => {
+                                            Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: "SmallInt(Some(_))".to_string(),
+                                                actual: "SmallInt(None)".to_string(),
+                                            })
+                                        }
+                                        _ => Err(lifeguard::ModelError::InvalidValueType {
+                                            column: stringify!(#column_variant).to_string(),
+                                            expected: "SmallInt".to_string(),
+                                            actual: format!("{:?}", value),
+                                        })
+                                    }
+                                },
+                                "u16" => quote! {
+                                    match value {
+                                        sea_query::Value::Int(Some(v)) => {
+                                            self.#field_name = v as u16;
+                                            Ok(())
+                                        }
+                                        sea_query::Value::Int(None) => {
+                                            Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: "Int(Some(_))".to_string(),
+                                                actual: "Int(None)".to_string(),
+                                            })
+                                        }
+                                        _ => Err(lifeguard::ModelError::InvalidValueType {
+                                            column: stringify!(#column_variant).to_string(),
+                                            expected: "Int".to_string(),
+                                            actual: format!("{:?}", value),
+                                        })
+                                    }
+                                },
+                                "u32" => quote! {
+                                    match value {
+                                        sea_query::Value::BigInt(Some(v)) => {
+                                            self.#field_name = v as u32;
+                                            Ok(())
+                                        }
+                                        sea_query::Value::BigInt(None) => {
+                                            Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: "BigInt(Some(_))".to_string(),
+                                                actual: "BigInt(None)".to_string(),
+                                            })
+                                        }
+                                        _ => Err(lifeguard::ModelError::InvalidValueType {
+                                            column: stringify!(#column_variant).to_string(),
+                                            expected: "BigInt".to_string(),
+                                            actual: format!("{:?}", value),
+                                        })
+                                    }
+                                },
+                                "u64" => quote! {
+                                    match value {
+                                        sea_query::Value::BigInt(Some(v)) => {
+                                            self.#field_name = v as u64;
+                                            Ok(())
+                                        }
+                                        sea_query::Value::BigInt(None) => {
+                                            Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: "BigInt(Some(_))".to_string(),
+                                                actual: "BigInt(None)".to_string(),
+                                            })
+                                        }
+                                        _ => Err(lifeguard::ModelError::InvalidValueType {
+                                            column: stringify!(#column_variant).to_string(),
+                                            expected: "BigInt".to_string(),
+                                            actual: format!("{:?}", value),
+                                        })
+                                    }
+                                },
+                                "f32" => quote! {
+                                    match value {
+                                        sea_query::Value::Float(Some(v)) => {
+                                            self.#field_name = v;
+                                            Ok(())
+                                        }
+                                        sea_query::Value::Float(None) => {
+                                            Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: "Float(Some(_))".to_string(),
+                                                actual: "Float(None)".to_string(),
+                                            })
+                                        }
+                                        _ => Err(lifeguard::ModelError::InvalidValueType {
+                                            column: stringify!(#column_variant).to_string(),
+                                            expected: "Float".to_string(),
+                                            actual: format!("{:?}", value),
+                                        })
+                                    }
+                                },
+                                "f64" => quote! {
+                                    match value {
+                                        sea_query::Value::Double(Some(v)) => {
+                                            self.#field_name = v;
+                                            Ok(())
+                                        }
+                                        sea_query::Value::Double(None) => {
+                                            Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: "Double(Some(_))".to_string(),
+                                                actual: "Double(None)".to_string(),
+                                            })
+                                        }
+                                        _ => Err(lifeguard::ModelError::InvalidValueType {
+                                            column: stringify!(#column_variant).to_string(),
+                                            expected: "Double".to_string(),
                                             actual: format!("{:?}", value),
                                         })
                                     }

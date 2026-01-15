@@ -40,14 +40,14 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 
 | SeaORM Macro | Lifeguard Macro | Status | Notes |
 |-------------|----------------|--------|-------|
-| `DeriveEntity` | `DeriveEntity` | ✅ Implemented | Generates Entity, EntityName, Iden, IdenStatic, LifeModelTrait |
-| `DeriveEntityModel` | `LifeModel` | ✅ Implemented | Combined macro (Entity + Model + Column + PrimaryKey + FromRow) |
-| `DeriveModel` | `DeriveModel` | ⚠️ Partial | Exists but not used (LifeModel generates Model directly) |
+| `DeriveEntity` | `DeriveEntity` | ✅ Implemented | Generates Entity, EntityName, Iden, IdenStatic, LifeModelTrait. Used for nested expansion from LifeModel |
+| `DeriveEntityModel` | `LifeModel` | ✅ Implemented | Combined macro (Entity + Model + Column + PrimaryKey + FromRow + ModelTrait) |
+| `DeriveModel` | ❌ Not Needed | ✅ By Design | LifeModel generates Model struct + ModelTrait impl directly. No separate DeriveModel needed (unlike DeriveEntity which is used for nested expansion of unit struct) |
 | `DeriveModelEx` | ❌ Missing | 🔴 **Future** | Complex model with relational fields |
 | `DeriveActiveModel` | ❌ Missing | 🔴 **Future** | ActiveModel struct (our `LifeRecord` is different) |
 | `DeriveActiveModelEx` | ❌ Missing | 🔴 **Future** | Complex ActiveModel with relational fields |
-| `DeriveColumn` | `DeriveColumn` | ⚠️ Partial | Exists but not used (LifeModel generates Column directly) |
-| `DerivePrimaryKey` | `DerivePrimaryKey` | ⚠️ Partial | Exists but not used (LifeModel generates PrimaryKey directly) |
+| `DeriveColumn` | ❌ Not Needed | ✅ By Design | LifeModel generates Column enum + Iden/IdenStatic impls directly |
+| `DerivePrimaryKey` | ❌ Not Needed | ✅ By Design | LifeModel generates PrimaryKey enum directly |
 | `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel |
 | `DeriveActiveModelBehavior` | ❌ Missing | 🟡 **Future** | ActiveModelBehavior trait implementation |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
@@ -63,6 +63,27 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 
 **Lifeguard-Specific:**
 - `LifeRecord` - ✅ Implemented (simplified version, generates Record struct with Option<T> fields)
+
+### Architecture Pattern: Why `DeriveModel` is Not Needed
+
+Lifeguard follows SeaORM's nested macro expansion pattern, but with a key difference:
+
+**SeaORM Pattern:**
+- `DeriveEntityModel` generates Entity struct + Model struct
+- `DeriveEntity` (nested) generates trait implementations for Entity (unit struct)
+- `DeriveModel` (nested) generates trait implementations for Model (data struct)
+
+**Lifeguard Pattern:**
+- `LifeModel` generates Entity struct + Model struct + all trait implementations
+- `DeriveEntity` (nested) generates trait implementations for Entity (unit struct)
+- `DeriveModel` is **not needed** because `LifeModel` generates Model + ModelTrait directly
+
+**Why the difference?**
+- `DeriveEntity` exists because Entity is a **unit struct** used in nested expansion (`#[derive(DeriveEntity)]` on Entity)
+- Model is a **data struct with fields**, so `LifeModel` can generate both the struct and its trait implementations in the same expansion phase
+- No use case exists for manually declaring a Model struct and only deriving traits (unlike Entity which is a unit struct)
+
+This design simplifies the API while maintaining the same functionality.
 
 ---
 
