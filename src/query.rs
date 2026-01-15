@@ -10,7 +10,7 @@ use std::marker::PhantomData;
 
 // Type-safe column operations - Epic 02 Story 05
 pub mod column;
-pub use column::ColumnTrait;
+pub use column::{ColumnTrait, ColumnDefinition};
 
 /// Check if an error represents a "no rows found" condition
 ///
