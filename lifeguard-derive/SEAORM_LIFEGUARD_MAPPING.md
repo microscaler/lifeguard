@@ -270,17 +270,20 @@ This design simplifies the API while maintaining the same functionality.
 - **Lifeguard Enhancement:** Granular arity variants (`Tuple2`, `Tuple3`, `Tuple4`, `Tuple5`, `Tuple6Plus`) provide better type safety than SeaORM's simple `Single`/`Tuple` distinction ✅
 
 #### ActiveModel Operations
-**Status:** ⚠️ Partially Implemented  
-**Current State:** Basic ActiveModel API:
-- `get()` - Get field value as `Option<Value>` ✅ (uses to_model() internally, requires all non-nullable fields)
-- `set()` - Set field value from `Value` ⚠️ (placeholder - returns error, type conversion needed)
-- `take()` - Take (move) field value ✅ (uses to_model() internally, requires all non-nullable fields)
+**Status:** ✅ Complete  
+**Current State:** All core ActiveModel API methods implemented:
+- `get()` - Get field value as `Option<Value>` ✅ (optimized - direct type conversion, no to_model() needed)
+- `set()` - Set field value from `Value` ✅ (type conversion implemented for all supported types)
+- `take()` - Take (move) field value ✅ (optimized - direct type conversion, no to_model() needed)
 - `reset()` - Reset all fields to None ✅
-- `insert()`, `update()`, `save()`, `delete()` - CRUD operations 🔴 (placeholders - return "not yet implemented" errors)
+- `insert()` - INSERT operation ✅ (skips auto-increment PKs, uses SeaQuery)
+- `update()` - UPDATE operation ✅ (requires PK, updates only dirty fields)
+- `save()` - Insert or update based on PK presence ✅ (routes to insert/update)
+- `delete()` - DELETE operation ✅ (requires PK)
 - `from_json()`, `to_json()` serialization 🟡 (Future)
 - Integration with `ActiveModelBehavior` for custom hooks 🟡 (Future)
 
-**Note:** `get()` and `take()` currently use `to_model()` internally, which requires all non-nullable fields to be set. This is a limitation that can be optimized later with direct type conversion from `Option<T>` to `Value`.
+**Note:** All CRUD operations use SeaQuery for SQL generation and proper parameter binding. `get()` and `take()` have been optimized to avoid the `to_model()` requirement, using direct type conversion from `Option<T>` to `Value`.
 
 ### Medium Priority (Relations & Advanced Features)
 
