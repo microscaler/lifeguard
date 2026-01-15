@@ -12,6 +12,10 @@ use std::marker::PhantomData;
 pub mod column;
 pub use column::{ColumnTrait, ColumnDefinition};
 
+// Primary key operations - Epic 02 Story 06
+pub mod primary_key;
+pub use primary_key::{PrimaryKeyTrait, PrimaryKeyToColumn};
+
 /// Check if an error represents a "no rows found" condition
 ///
 /// This function uses specific patterns to detect "no rows found" errors while
