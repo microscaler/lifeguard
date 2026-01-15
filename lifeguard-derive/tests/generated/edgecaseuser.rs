@@ -45,11 +45,11 @@ pub struct EdgeCaseUserModel {
 impl FromRow for EdgeCaseUserModel {
     fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
         Ok(Self {
-            id: row.get::<&str, i32>("id"),
-            name: row.get::<&str, String>("name"),
-            email: row.get::<&str, String>("email"),
+            id: row.try_get::<&str, i32>("id")?,
+            name: row.try_get::<&str, String>("name")?,
+            email: row.try_get::<&str, String>("email")?,
             age: row.try_get::<&str, Option<i32>>("age")?,
-            active: row.get::<&str, bool>("active"),
+            active: row.try_get::<&str, bool>("active")?,
         })
     }
 }

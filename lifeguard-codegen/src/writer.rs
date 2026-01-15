@@ -179,12 +179,31 @@ impl EntityWriter {
                                     if let Some(inner_type) = extract_option_inner_type(field_type) {
                                         // Match on the inner type
                                         if let Type::Path(inner_path) = inner_type {
-                                            if let Some(inner_segment) = inner_path.path.segments.last() {
+                                            // Check for serde_json::Value (multi-segment path)
+                                            let is_json_value = inner_path.path.segments.len() == 2
+                                                && inner_path.path.segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
+                                                && inner_path.path.segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
+                                            
+                                            if is_json_value {
+                                                // Handle Option<serde_json::Value> for primary key
+                                                #[cfg(feature = "with-json")]
+                                                {
+                                                    quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
+                                                }
+                                                #[cfg(not(feature = "with-json"))]
+                                                {
+                                                    quote! { sea_query::Value::String(None) }
+                                                }
+                                            } else if let Some(inner_segment) = inner_path.path.segments.last() {
                                                 let inner_ident = inner_segment.ident.to_string();
                                                 match inner_ident.as_str() {
                                                     "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
                                                     "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
                                                     "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                                    "u8" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                                    "u16" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32))).unwrap_or(sea_query::Value::Int(None)) },
+                                                    "u32" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
+                                                    "u64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
                                                     "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
                                                     _ => quote! { sea_query::Value::String(None) },
                                                 }
@@ -198,7 +217,26 @@ impl EntityWriter {
                                         quote! { sea_query::Value::String(None) }
                                     }
                                 }
-                                _ => quote! { sea_query::Value::String(None) },
+                                _ => {
+                                    // Check for serde_json::Value (multi-segment path)
+                                    let is_json_value = type_path.path.segments.len() == 2
+                                        && type_path.path.segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
+                                        && type_path.path.segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
+                                    
+                                    if is_json_value {
+                                        // Handle serde_json::Value (non-Option) for primary key
+                                        #[cfg(feature = "with-json")]
+                                        {
+                                            quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
+                                        }
+                                        #[cfg(not(feature = "with-json"))]
+                                        {
+                                            quote! { sea_query::Value::String(None) }
+                                        }
+                                    } else {
+                                        quote! { sea_query::Value::String(None) }
+                                    }
+                                },
                             }
                         } else {
                             quote! { sea_query::Value::String(None) }
@@ -236,12 +274,31 @@ impl EntityWriter {
                                 if let Some(inner_type) = extract_option_inner_type(field_type) {
                                     // Match on the inner type
                                     if let Type::Path(inner_path) = inner_type {
-                                        if let Some(inner_segment) = inner_path.path.segments.last() {
+                                        // Check for serde_json::Value (multi-segment path)
+                                        let is_json_value = inner_path.path.segments.len() == 2
+                                            && inner_path.path.segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
+                                            && inner_path.path.segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
+                                        
+                                        if is_json_value {
+                                            // Handle Option<serde_json::Value>
+                                            #[cfg(feature = "with-json")]
+                                            {
+                                                quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
+                                            }
+                                            #[cfg(not(feature = "with-json"))]
+                                            {
+                                                quote! { sea_query::Value::String(None) }
+                                            }
+                                        } else if let Some(inner_segment) = inner_path.path.segments.last() {
                                             let inner_ident = inner_segment.ident.to_string();
                                             match inner_ident.as_str() {
                                                 "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
                                                 "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
                                                 "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                                "u8" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                                "u16" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32))).unwrap_or(sea_query::Value::Int(None)) },
+                                                "u32" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
+                                                "u64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
                                                 "f32" => quote! { self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None)) },
                                                 "f64" => quote! { self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None)) },
                                                 "bool" => quote! { self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None)) },
@@ -258,7 +315,26 @@ impl EntityWriter {
                                     quote! { sea_query::Value::String(None) }
                                 }
                             }
-                            _ => quote! { sea_query::Value::String(None) },
+                            _ => {
+                                // Check for serde_json::Value (multi-segment path)
+                                let is_json_value = type_path.path.segments.len() == 2
+                                    && type_path.path.segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
+                                    && type_path.path.segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
+                                
+                                if is_json_value {
+                                    // Handle serde_json::Value (non-Option)
+                                    #[cfg(feature = "with-json")]
+                                    {
+                                        quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
+                                    }
+                                    #[cfg(not(feature = "with-json"))]
+                                    {
+                                        quote! { sea_query::Value::String(None) }
+                                    }
+                                } else {
+                                    quote! { sea_query::Value::String(None) }
+                                }
+                            }
                         }
                     } else {
                         quote! { sea_query::Value::String(None) }

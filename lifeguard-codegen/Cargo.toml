@@ -27,3 +27,8 @@ proc-macro2 = "1.0"
 
 [dev-dependencies]
 tempfile = "3.0"
+
+[features]
+# This feature is only used in generated code, not in the codegen tool itself
+# It's declared here to silence check-cfg warnings about cfg attributes in quote! macros
+with-json = []

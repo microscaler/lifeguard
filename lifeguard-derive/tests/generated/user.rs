@@ -39,8 +39,8 @@ pub struct UserModel {
 impl FromRow for UserModel {
     fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
         Ok(Self {
-            id: row.get::<&str, i32>("id"),
-            email: row.get::<&str, String>("email"),
+            id: row.try_get::<&str, i32>("id")?,
+            email: row.try_get::<&str, String>("email")?,
             name: row.try_get::<&str, Option<String>>("name")?,
         })
     }
