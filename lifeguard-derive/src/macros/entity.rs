@@ -50,6 +50,31 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         }
     };
     
+    // Extract Column enum name from attributes
+    // Note: Column is generated in the parent expansion (LifeModel), so we need to extract
+    // it from attributes. The parent macro passes it via #[column = "ColumnName"] attribute.
+    // For now, we'll use a default pattern: if Entity is "Entity", Column is "Column"
+    // Otherwise, it's "{Entity}Column" or just "Column" if Entity ends with "Entity"
+    let column_name = match attributes::extract_column_enum_name(&input.attrs) {
+        Some(ident) => ident,
+        None => {
+            // Default: assume Column is named "Column" (SeaORM convention)
+            // or "{Entity}Column" if Entity is not "Entity"
+            if struct_name.to_string() == "Entity" {
+                syn::Ident::new("Column", struct_name.span())
+            } else {
+                // Remove "Entity" suffix if present, add "Column"
+                let base = struct_name.to_string();
+                let base = if base.ends_with("Entity") {
+                    &base[..base.len() - 6]
+                } else {
+                    &base
+                };
+                syn::Ident::new(&format!("{}Column", base), struct_name.span())
+            }
+        }
+    };
+    
     // Following SeaORM's EXACT pattern: DeriveEntity generates trait implementations
     // for an already-declared Entity struct. The struct itself is NOT generated here.
     // This is called via NESTED macro expansion from DeriveEntityModel (or our LifeModel).
@@ -93,6 +118,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         // By the time this expands, Model should already exist from the parent expansion
         impl lifeguard::LifeModelTrait for #struct_name {
             type Model = #model_name;
+            type Column = #column_name;
         }
     };
     
