@@ -546,7 +546,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         if !is_primary_key {
             update_set_clauses.push(quote! {
                 if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    query = query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
+                    query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
                 }
             });
         }
@@ -555,7 +555,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         if is_primary_key {
             delete_where_clauses.push(quote! {
                 if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    query = query.and_where(sea_query::Expr::col(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).eq(pk_value));
+                    let expr = sea_query::Expr::col(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).eq(pk_value);
+                    query.and_where(expr);
                 } else {
                     return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
                 }
@@ -686,8 +687,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
                 
+                // Convert Values to Vec<Value> for parameter binding
+                // SeaQuery's Values implements IntoIterator<Item = Value>
+                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+                
                 // Convert values to parameters and execute
-                lifeguard::with_converted_params(&sql_values, |params| {
+                lifeguard::with_converted_params(&values_vec, |params| {
                     executor.execute(&sql, params).map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
@@ -724,8 +729,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
                 
+                // Convert Values to Vec<Value> for parameter binding
+                // SeaQuery's Values implements IntoIterator<Item = Value>
+                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+                
                 // Convert values to parameters and execute
-                lifeguard::with_converted_params(&sql_values, |params| {
+                lifeguard::with_converted_params(&values_vec, |params| {
                     executor.execute(&sql, params).map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
@@ -773,8 +782,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
                 
+                // Convert Values to Vec<Value> for parameter binding
+                // SeaQuery's Values implements IntoIterator<Item = Value>
+                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+                
                 // Convert values to parameters and execute
-                lifeguard::with_converted_params(&sql_values, |params| {
+                lifeguard::with_converted_params(&values_vec, |params| {
                     executor.execute(&sql, params).map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
