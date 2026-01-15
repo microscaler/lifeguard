@@ -182,13 +182,20 @@ mod tests {
     #[test]
     fn test_get_connection_string_env_var() {
         // Test that environment variable is respected
-        env::set_var(
-            "TEST_DATABASE_URL",
-            "postgresql://test:test@localhost:5432/test",
-        );
+        // Clear DATABASE_URL first to ensure TEST_DATABASE_URL takes priority
+        let old_database_url = env::var("DATABASE_URL").ok();
+        env::remove_var("DATABASE_URL");
+        
+        let expected_url = "postgresql://test:test@localhost:5432/test";
+        env::set_var("TEST_DATABASE_URL", expected_url);
         let url = TestDatabase::get_connection_string().unwrap();
-        assert!(url.contains("test"));
+        assert_eq!(url, expected_url, "Should return exact TEST_DATABASE_URL value");
+        
+        // Cleanup
         env::remove_var("TEST_DATABASE_URL");
+        if let Some(old_url) = old_database_url {
+            env::set_var("DATABASE_URL", old_url);
+        }
     }
 
     #[test]

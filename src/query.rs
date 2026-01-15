@@ -6,7 +6,6 @@
 use crate::executor::{LifeError, LifeExecutor};
 use may_postgres::{types::ToSql, Row};
 use sea_query::{Expr, Iden, IntoColumnRef, Order, PostgresQueryBuilder, SelectStatement};
-#[cfg(feature = "with-json")]
 use serde_json;
 use std::marker::PhantomData;
 
@@ -446,14 +445,12 @@ where
                 | sea_query::Value::BigUnsigned(None)
                 | sea_query::Value::Float(None)
                 | sea_query::Value::Double(None) => nulls.push(None),
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(Some(j)) => {
                     // Convert Json to String for may_postgres
                     strings.push(
                         serde_json::to_string(j.as_ref()).unwrap_or_else(|_| "{}".to_string()),
                     );
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(None) => nulls.push(None),
                 _ => {
                     return Err(LifeError::Other(format!(
@@ -536,12 +533,10 @@ where
                     params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                     null_idx += 1;
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(Some(_)) => {
                     params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                     string_idx += 1;
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(None) => {
                     params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                     null_idx += 1;
@@ -636,14 +631,12 @@ where
                 | sea_query::Value::BigUnsigned(None)
                 | sea_query::Value::Float(None)
                 | sea_query::Value::Double(None) => nulls.push(None),
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(Some(j)) => {
                     // Convert Json to String for may_postgres
                     strings.push(
                         serde_json::to_string(j.as_ref()).unwrap_or_else(|_| "{}".to_string()),
                     );
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(None) => nulls.push(None),
                 _ => {
                     return Err(LifeError::Other(format!(
@@ -726,12 +719,10 @@ where
                     params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                     null_idx += 1;
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(Some(_)) => {
                     params.push(&strings[string_idx] as &dyn may_postgres::types::ToSql);
                     string_idx += 1;
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(None) => {
                     params.push(&nulls[null_idx] as &dyn may_postgres::types::ToSql);
                     null_idx += 1;
@@ -1017,12 +1008,10 @@ where
                     params.push(&nulls[null_idx]);
                     null_idx += 1;
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(Some(_)) => {
                     params.push(&strings[string_idx]);
                     string_idx += 1;
                 }
-                #[cfg(feature = "with-json")]
                 sea_query::Value::Json(None) => {
                     params.push(&nulls[null_idx]);
                     null_idx += 1;

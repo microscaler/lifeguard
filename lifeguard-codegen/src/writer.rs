@@ -502,9 +502,10 @@ fn format_with_cargo_fmt(code: &str) -> anyhow::Result<String> {
     match output {
         Ok(result) if result.status.success() => {
             // Read formatted code
-            let formatted = fs::read_to_string(&temp_file)?;
-            fs::remove_file(&temp_file).ok(); // Clean up
-            Ok(formatted)
+            // Read first, then always clean up, even if read fails
+            let result = fs::read_to_string(&temp_file);
+            fs::remove_file(&temp_file).ok(); // Always clean up
+            Ok(result?)
         }
         _ => {
             // Both rustfmt and cargo fmt failed, return unformatted

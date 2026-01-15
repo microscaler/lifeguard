@@ -134,14 +134,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                         
                                         if is_json_value {
                                             // Handle Option<serde_json::Value> for primary key
-                                            #[cfg(feature = "with-json")]
-                                            {
-                                                quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
-                                            }
-                                            #[cfg(not(feature = "with-json"))]
-                                            {
-                                                quote! { sea_query::Value::String(None) }
-                                            }
+                                            quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
                                         } else if let Some(inner_segment) = inner_path.path.segments.last() {
                                             let inner_ident = inner_segment.ident.to_string();
                                             match inner_ident.as_str() {
@@ -176,14 +169,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 
                                 if is_json_value {
                                     // Handle serde_json::Value (non-Option) for primary key
-                                    #[cfg(feature = "with-json")]
-                                    {
-                                        quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
-                                    }
-                                    #[cfg(not(feature = "with-json"))]
-                                    {
-                                        quote! { sea_query::Value::String(None) }
-                                    }
+                                    quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
                                 } else if let Some(segment) = segments.first() {
                                     let ident_str = segment.ident.to_string();
                                     match ident_str.as_str() {
@@ -253,14 +239,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 
                                 if is_json_value {
                                     // Handle Option<serde_json::Value>
-                                    #[cfg(feature = "with-json")]
-                                    {
-                                        quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
-                                    }
-                                    #[cfg(not(feature = "with-json"))]
-                                    {
-                                        quote! { sea_query::Value::String(None) }
-                                    }
+                                    quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
                                 } else if let Some(inner_segment) = inner_path.path.segments.last() {
                                     let inner_ident = inner_segment.ident.to_string();
                                     match inner_ident.as_str() {
@@ -295,14 +274,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         
                         if is_json_value {
                             // Handle serde_json::Value (non-Option)
-                            #[cfg(feature = "with-json")]
-                            {
-                                quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
-                            }
-                            #[cfg(not(feature = "with-json"))]
-                            {
-                                quote! { sea_query::Value::String(None) }
-                            }
+                            quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
                         } else if let Some(segment) = segments.first() {
                             let ident_str = segment.ident.to_string();
                             match ident_str.as_str() {
