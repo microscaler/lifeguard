@@ -403,6 +403,17 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut active_model_take_match_arms = Vec::new();
     let mut active_model_reset_fields = Vec::new();
     
+    // Track primary keys for CRUD operations
+    // We use separate vectors because tuples don't work well in quote! macro
+    let mut primary_key_field_names = Vec::new();
+    let mut primary_key_column_variants = Vec::new();
+    let mut primary_key_auto_increment = Vec::new();
+    
+    // Generate CRUD operation code for each field
+    let mut insert_column_checks = Vec::new(); // Check if field should be included in INSERT
+    let mut update_set_clauses = Vec::new(); // SET clauses for UPDATE
+    let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
+    
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
@@ -411,6 +422,17 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         let column_name = attributes::extract_column_name(field)
             .unwrap_or_else(|| utils::pascal_case(&field_name.to_string()));
         let column_variant = Ident::new(&column_name, field_name.span());
+        
+        // Check if field is primary key
+        let is_primary_key = attributes::has_attribute(field, "primary_key");
+        let is_auto_increment = attributes::has_attribute(field, "auto_increment");
+        
+        // Track primary key information
+        if is_primary_key {
+            primary_key_field_names.push(field_name.clone());
+            primary_key_column_variants.push(column_variant.clone());
+            primary_key_auto_increment.push(is_auto_increment);
+        }
         
         // Check if field is nullable (has #[nullable] attribute)
         let is_nullable = attributes::has_attribute(field, "nullable");
@@ -490,6 +512,62 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         
         active_model_reset_fields.push(quote! {
             self.#field_name = None;
+        });
+        
+        // Generate INSERT column/value collection
+        // Skip auto-increment primary keys if not set
+        if is_primary_key && is_auto_increment {
+            // Auto-increment PK: include only if set
+            insert_column_checks.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    values.push(value);
+                }
+            });
+        } else if !is_primary_key {
+            // Non-PK field: include if set
+            insert_column_checks.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    values.push(value);
+                }
+            });
+        } else {
+            // Non-auto-increment PK: include if set (required for composite keys)
+            insert_column_checks.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    values.push(value);
+                }
+            });
+        }
+        
+        // Generate UPDATE SET clause (skip primary keys)
+        if !is_primary_key {
+            update_set_clauses.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    query = query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, value);
+                }
+            });
+        }
+        
+        // Generate DELETE WHERE clause (only for primary keys)
+        if is_primary_key {
+            delete_where_clauses.push(quote! {
+                if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    query = query.and_where(sea_query::Expr::col(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).eq(pk_value));
+                } else {
+                    return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                }
+            });
+        }
+    }
+    
+    // Generate primary key check code for save()
+    let mut save_pk_checks = Vec::new();
+    for (field_name, column_variant) in primary_key_field_names.iter().zip(primary_key_column_variants.iter()) {
+        save_pk_checks.push(quote! {
+            self.#field_name.is_some() &&
         });
     }
     
@@ -577,6 +655,131 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             
             fn reset(&mut self) {
                 #(#active_model_reset_fields)*
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                use sea_query::{Query, PostgresQueryBuilder};
+                use lifeguard::LifeEntityName;
+                
+                // Build INSERT statement
+                let mut query = Query::insert();
+                let entity = <#entity_name as lifeguard::LifeEntityName>::default();
+                query.into_table(entity);
+                
+                // Collect columns and values (skip auto-increment PKs if not set)
+                let mut columns = Vec::new();
+                let mut values = Vec::new();
+                
+                #(#insert_column_checks)*
+                
+                if columns.is_empty() {
+                    return Err(lifeguard::ActiveModelError::Other("No fields set for insert".to_string()));
+                }
+                
+                // Add columns and values to query
+                // SeaQuery API: columns() takes an iterator, values() takes a single row
+                query.columns(columns.iter().copied());
+                query.values(vec![values.iter().cloned().collect::<Vec<_>>()])?;
+                
+                // Build SQL
+                let (sql, sql_values) = query.build(PostgresQueryBuilder);
+                
+                // Convert values to parameters and execute
+                lifeguard::with_converted_params(&sql_values, |params| {
+                    executor.execute(&sql, params).map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                    })?;
+                    Ok(())
+                })?;
+                
+                // Return the model constructed from the record
+                // TODO: For auto-increment PKs, fetch the generated value using RETURNING
+                Ok(self.to_model())
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                use sea_query::{Query, PostgresQueryBuilder, Expr};
+                use lifeguard::LifeEntityName;
+                
+                // Check primary key is set
+                #(
+                    if self.#primary_key_field_names.is_none() {
+                        return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                    }
+                )*
+                
+                // Build UPDATE statement
+                let mut query = Query::update();
+                let entity = <#entity_name as lifeguard::LifeEntityName>::default();
+                query.table(entity);
+                
+                // Add SET clauses for dirty fields (skip primary keys)
+                #(#update_set_clauses)*
+                
+                // Add WHERE clause for primary keys
+                #(#delete_where_clauses)*
+                
+                // Build SQL
+                let (sql, sql_values) = query.build(PostgresQueryBuilder);
+                
+                // Convert values to parameters and execute
+                lifeguard::with_converted_params(&sql_values, |params| {
+                    executor.execute(&sql, params).map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                    })?;
+                    Ok(())
+                })?;
+                
+                // Return the updated model
+                Ok(self.to_model())
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                // Check if primary key is set
+                let has_primary_key = #(#save_pk_checks)* true;
+                
+                if has_primary_key {
+                    // Try to find the record to see if it exists
+                    // For now, try update first, if it fails with "no rows", do insert
+                    // TODO: Use Entity::find() to check if record exists
+                    match self.update(executor) {
+                        Ok(model) => Ok(model),
+                        Err(lifeguard::ActiveModelError::DatabaseError(_)) => {
+                            // Update failed, try insert instead
+                            self.insert(executor)
+                        },
+                        Err(e) => Err(e), // Propagate other errors
+                    }
+                } else {
+                    // No primary key set, do insert
+                    self.insert(executor)
+                }
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                use sea_query::{Query, PostgresQueryBuilder, Expr};
+                use lifeguard::LifeEntityName;
+                
+                // Build DELETE statement
+                let mut query = Query::delete();
+                let entity = <#entity_name as lifeguard::LifeEntityName>::default();
+                query.from_table(entity);
+                
+                // Add WHERE clause for primary keys
+                #(#delete_where_clauses)*
+                
+                // Build SQL
+                let (sql, sql_values) = query.build(PostgresQueryBuilder);
+                
+                // Convert values to parameters and execute
+                lifeguard::with_converted_params(&sql_values, |params| {
+                    executor.execute(&sql, params).map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                    })?;
+                    Ok(())
+                })?;
+                
+                Ok(())
             }
         }
     };
