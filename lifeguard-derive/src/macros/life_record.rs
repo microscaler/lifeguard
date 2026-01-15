@@ -43,6 +43,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let _table_name = attributes::extract_table_name(&input.attrs)
         .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
     
+    // Generate Entity name (assumes Entity struct exists from LifeModel)
+    let entity_name = Ident::new("Entity", struct_name.span());
+    
     // Process fields
     let mut record_fields = Vec::new();
     let mut record_field_names = Vec::new();
@@ -51,9 +54,20 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut dirty_fields_check = Vec::new();
     let mut setter_methods = Vec::new();
     
+    // For ActiveModelTrait implementation
+    let mut active_model_get_match_arms = Vec::new();
+    let mut active_model_set_match_arms = Vec::new();
+    let mut active_model_take_match_arms = Vec::new();
+    let mut active_model_reset_fields = Vec::new();
+    
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
+        
+        // Extract column name (use column_name attribute or convert field name to PascalCase)
+        let column_name = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::pascal_case(&field_name.to_string()));
+        let column_variant = Ident::new(&column_name, field_name.span());
         
         // Check if field is nullable (has #[nullable] attribute)
         let is_nullable = attributes::has_attribute(field, "nullable");
@@ -98,6 +112,52 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 self.#field_name = Some(value);
                 self
             }
+        });
+        
+        // Generate ActiveModelTrait match arms
+        // For get(), we convert the field value to Value using ModelTrait::get() on a temporary model
+        // This is not optimal but works for now - can be optimized later with direct type conversion
+        active_model_get_match_arms.push(quote! {
+            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                if let Some(_) = self.#field_name {
+                    // Convert to model temporarily to use ModelTrait::get()
+                    // This is inefficient but works - can be optimized later
+                    let temp_model = self.to_model();
+                    Some(lifeguard::model::ModelTrait::get(&temp_model, <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant))
+                } else {
+                    None
+                }
+            }
+        });
+        
+        // For set(), we need to convert Value to field_type
+        // This is complex and type-specific, so we'll use a placeholder for now
+        // TODO: Implement proper type conversion from Value to field_type
+        active_model_set_match_arms.push(quote! {
+            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                // Convert Value to field_type
+                // This requires type-specific conversion logic
+                // For now, return an error - full implementation will be added later
+                Err(lifeguard::ActiveModelError::Other(format!("set() for column {} not yet fully implemented - type conversion needed", stringify!(#column_variant))))
+            }
+        });
+        
+        // For take(), we get the value and then set the field to None
+        active_model_take_match_arms.push(quote! {
+            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                let value = if let Some(_) = self.#field_name {
+                    let temp_model = self.to_model();
+                    Some(lifeguard::model::ModelTrait::get(&temp_model, <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant))
+                } else {
+                    None
+                };
+                self.#field_name = None;
+                value
+            }
+        });
+        
+        active_model_reset_fields.push(quote! {
+            self.#field_name = None;
         });
     }
     
@@ -157,6 +217,34 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         impl Default for #record_name {
             fn default() -> Self {
                 Self::new()
+            }
+        }
+        
+        // Implement ActiveModelTrait for Record
+        impl lifeguard::ActiveModelTrait for #record_name {
+            type Entity = #entity_name;
+            type Model = #model_name;
+            
+            fn get(&self, column: <#entity_name as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                match column {
+                    #(#active_model_get_match_arms)*
+                }
+            }
+            
+            fn set(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                match column {
+                    #(#active_model_set_match_arms)*
+                }
+            }
+            
+            fn take(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                match column {
+                    #(#active_model_take_match_arms)*
+                }
+            }
+            
+            fn reset(&mut self) {
+                #(#active_model_reset_fields)*
             }
         }
     };

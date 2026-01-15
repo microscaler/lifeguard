@@ -22,7 +22,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `EntityName` | `LifeEntityName` | ✅ Implemented | Provides `table_name()` method |
 | `ModelTrait` | ✅ Implemented | ✅ Complete | Model-level operations (get/set columns, get_primary_key_value) |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Converts database rows to Model structs |
-| `ActiveModelTrait` | ❌ Missing | 🔴 **Future** | Mutable model for inserts/updates (our `LifeRecord` is similar but different) |
+| `ActiveModelTrait` | ✅ Implemented | ⚠️ Partial | Mutable model operations (get, set, take, reset ✅; insert/update/save/delete 🔴 placeholder) |
 | `ActiveModelBehavior` | ❌ Missing | 🟡 **Future** | Custom behavior hooks for ActiveModel |
 | `ColumnTrait` | ✅ Implemented | ✅ Complete | Column-level operations (query builder methods ✅, metadata methods ✅ with default impls) |
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
@@ -167,14 +167,14 @@ This design simplifies the API while maintaining the same functionality.
 
 | SeaORM/SeaQuery | Lifeguard | Status | Notes |
 |----------------|-----------|--------|-------|
-| `ActiveModel::insert()` | `Record::insert()` | ⚠️ Removed | Was in life_record.rs, removed in simplification |
-| `ActiveModel::update()` | `Record::update()` | ⚠️ Removed | Was in life_record.rs, removed in simplification |
-| `ActiveModel::save()` | ❌ Missing | 🔴 **Future** | Insert or update based on primary key |
-| `ActiveModel::delete()` | ❌ Missing | 🔴 **Future** | Delete by primary key |
-| `ActiveModel::reset()` | ❌ Missing | 🔴 **Future** | Reset all fields to default |
-| `ActiveModel::set()` | `Record::set_*()` | ✅ Implemented | Setter methods (different API) |
-| `ActiveModel::get()` | ❌ Missing | 🔴 **Future** | Get field value |
-| `ActiveModel::take()` | ❌ Missing | 🔴 **Future** | Take field value (move) |
+| `ActiveModel::insert()` | `ActiveModelTrait::insert()` | ⚠️ Placeholder | Returns "not yet implemented" error |
+| `ActiveModel::update()` | `ActiveModelTrait::update()` | ⚠️ Placeholder | Returns "not yet implemented" error |
+| `ActiveModel::save()` | `ActiveModelTrait::save()` | ⚠️ Placeholder | Returns "not yet implemented" error |
+| `ActiveModel::delete()` | `ActiveModelTrait::delete()` | ⚠️ Placeholder | Returns "not yet implemented" error |
+| `ActiveModel::reset()` | `ActiveModelTrait::reset()` | ✅ Implemented | Reset all fields to None |
+| `ActiveModel::set()` | `ActiveModelTrait::set()` | ⚠️ Placeholder | Returns error (type conversion needed) |
+| `ActiveModel::get()` | `ActiveModelTrait::get()` | ✅ Implemented | Get field value as Option<Value> (uses to_model() internally) |
+| `ActiveModel::take()` | `ActiveModelTrait::take()` | ✅ Implemented | Take field value (move) (uses to_model() internally) |
 | `ActiveModel::into_active_value()` | ❌ Missing | 🔴 **Future** | Convert to ActiveValue |
 | `ActiveModel::from_json()` | ❌ Missing | 🟡 **Future** | Deserialize from JSON (JSON column support is ✅ core feature) |
 | `ActiveModel::to_json()` | ❌ Missing | 🟡 **Future** | Serialize to JSON (JSON column support is ✅ core feature) |
@@ -270,13 +270,17 @@ This design simplifies the API while maintaining the same functionality.
 - **Lifeguard Enhancement:** Granular arity variants (`Tuple2`, `Tuple3`, `Tuple4`, `Tuple5`, `Tuple6Plus`) provide better type safety than SeaORM's simple `Single`/`Tuple` distinction ✅
 
 #### ActiveModel Operations
-**Status:** 🔴 Missing  
-**Future State:** Full ActiveModel API:
-- `insert()`, `update()`, `save()`, `delete()` methods
-- `get()`, `set()`, `take()` field access
-- `reset()` to reset all fields
-- `from_json()`, `to_json()` serialization
-- Integration with `ActiveModelBehavior` for custom hooks
+**Status:** ⚠️ Partially Implemented  
+**Current State:** Basic ActiveModel API:
+- `get()` - Get field value as `Option<Value>` ✅ (uses to_model() internally, requires all non-nullable fields)
+- `set()` - Set field value from `Value` ⚠️ (placeholder - returns error, type conversion needed)
+- `take()` - Take (move) field value ✅ (uses to_model() internally, requires all non-nullable fields)
+- `reset()` - Reset all fields to None ✅
+- `insert()`, `update()`, `save()`, `delete()` - CRUD operations 🔴 (placeholders - return "not yet implemented" errors)
+- `from_json()`, `to_json()` serialization 🟡 (Future)
+- Integration with `ActiveModelBehavior` for custom hooks 🟡 (Future)
+
+**Note:** `get()` and `take()` currently use `to_model()` internally, which requires all non-nullable fields to be set. This is a limitation that can be optimized later with direct type conversion from `Option<T>` to `Value`.
 
 ### Medium Priority (Relations & Advanced Features)
 

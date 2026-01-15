@@ -62,6 +62,10 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 pub mod query;
 pub use query::{SelectQuery, FromRow, LifeEntityName, LifeModelTrait, ColumnTrait, ColumnDefinition, PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait};
 
+// ActiveModel operations - Epic 02 Story 07
+pub mod active_model;
+pub use active_model::{ActiveModelTrait, ActiveModelError};
+
 // Model trait - Core Traits & Types
 pub mod model;
 pub use model::{ModelError, ModelTrait};

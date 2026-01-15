@@ -5,10 +5,10 @@
 //! 2. DeriveEntity (nested) generates LifeModelTrait
 //! 3. All generated code compiles and works together
 
-use lifeguard_derive::LifeModel;
+use lifeguard_derive::{LifeModel, LifeRecord};
 
 // Simple user entity for testing
-#[derive(LifeModel)]
+#[derive(LifeModel, LifeRecord)]
 #[table_name = "users"]
 pub struct User {
     #[primary_key]
@@ -2080,5 +2080,81 @@ mod tests {
         
         // String to numeric (should error)
         assert!(model.set(Column::U8Field, Value::String(Some("invalid".to_string()))).is_err());
+    }
+}
+
+// ============================================================================
+// ACTIVEMODEL TRAIT TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod active_model_trait_tests {
+    use super::*;
+    use lifeguard::{ActiveModelTrait, LifeModelTrait};
+
+    #[test]
+    fn test_active_model_trait_get() {
+        // Test that ActiveModelTrait::get() works
+        // Note: get() uses to_model() internally, which requires all non-nullable fields to be set
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Get values using ActiveModelTrait
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "Name should be set");
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_some(), "Email should be set");
+        
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some(), "Id should be set");
+    }
+
+    #[test]
+    fn test_active_model_trait_take() {
+        // Test that ActiveModelTrait::take() works
+        // Note: take() uses to_model() internally, which requires all non-nullable fields to be set
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Take the value
+        let name_value = record.take(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "Name should be returned");
+        
+        // After take, the field should be None (but get() will still work with remaining fields)
+        // Note: get() will fail if we try to get the taken field because to_model() requires all fields
+        // This is a limitation of the current implementation
+    }
+
+    #[test]
+    fn test_active_model_trait_reset() {
+        // Test that ActiveModelTrait::reset() works
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Verify fields are set using dirty_fields() (get() requires all fields to be set)
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        assert!(record.dirty_fields().contains(&"email".to_string()));
+        
+        // Reset all fields
+        record.reset();
+        
+        // Verify all fields are now None using dirty_fields()
+        assert!(record.dirty_fields().is_empty(), "All fields should be reset");
+    }
+
+    #[test]
+    fn test_active_model_trait_set_placeholder() {
+        // Test that ActiveModelTrait::set() returns an error (not yet implemented)
+        let mut record = UserRecord::new();
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
+        assert!(result.is_err(), "set() should return an error (not yet fully implemented)");
     }
 }
