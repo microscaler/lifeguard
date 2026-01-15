@@ -4,6 +4,14 @@
 
 This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to their Lifeguard equivalents, identifying what exists, what's missing, and future state.
 
+## Core Features
+
+**JSON Support:** JSON is a **core feature** in Lifeguard and is always enabled. All JSON-related functionality is implemented as standard functionality, not as optional features. This includes:
+- JSON column type support via `serde_json::Value`
+- JSON value serialization/deserialization in queries
+- JSON handling in ModelTrait get/set operations
+- No feature flags required - JSON support is built-in
+
 ---
 
 ## 1. Core Traits & Types
@@ -12,7 +20,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 |----------------|-----------|--------|-------|
 | `EntityTrait` | `LifeModelTrait` | ✅ Implemented | Similar API, provides `find()` method |
 | `EntityName` | `LifeEntityName` | ✅ Implemented | Provides `table_name()` method |
-| `ModelTrait` | ❌ Missing | 🔴 **Future** | Model-level operations (get/set columns, find_related, etc.) |
+| `ModelTrait` | ✅ Implemented | ✅ Complete | Model-level operations (get/set columns, get_primary_key_value) |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Converts database rows to Model structs |
 | `ActiveModelTrait` | ❌ Missing | 🔴 **Future** | Mutable model for inserts/updates (our `LifeRecord` is similar but different) |
 | `ActiveModelBehavior` | ❌ Missing | 🟡 **Future** | Custom behavior hooks for ActiveModel |
@@ -32,14 +40,14 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 
 | SeaORM Macro | Lifeguard Macro | Status | Notes |
 |-------------|----------------|--------|-------|
-| `DeriveEntity` | `DeriveEntity` | ✅ Implemented | Generates Entity, EntityName, Iden, IdenStatic, LifeModelTrait |
-| `DeriveEntityModel` | `LifeModel` | ✅ Implemented | Combined macro (Entity + Model + Column + PrimaryKey + FromRow) |
-| `DeriveModel` | `DeriveModel` | ⚠️ Partial | Exists but not used (LifeModel generates Model directly) |
+| `DeriveEntity` | `DeriveEntity` | ✅ Implemented | Generates Entity, EntityName, Iden, IdenStatic, LifeModelTrait. Used for nested expansion from LifeModel |
+| `DeriveEntityModel` | `LifeModel` | ✅ Implemented | Combined macro (Entity + Model + Column + PrimaryKey + FromRow + ModelTrait) |
+| `DeriveModel` | ❌ Not Needed | ✅ By Design | LifeModel generates Model struct + ModelTrait impl directly. No separate DeriveModel needed (unlike DeriveEntity which is used for nested expansion of unit struct) |
 | `DeriveModelEx` | ❌ Missing | 🔴 **Future** | Complex model with relational fields |
 | `DeriveActiveModel` | ❌ Missing | 🔴 **Future** | ActiveModel struct (our `LifeRecord` is different) |
 | `DeriveActiveModelEx` | ❌ Missing | 🔴 **Future** | Complex ActiveModel with relational fields |
-| `DeriveColumn` | `DeriveColumn` | ⚠️ Partial | Exists but not used (LifeModel generates Column directly) |
-| `DerivePrimaryKey` | `DerivePrimaryKey` | ⚠️ Partial | Exists but not used (LifeModel generates PrimaryKey directly) |
+| `DeriveColumn` | ❌ Not Needed | ✅ By Design | LifeModel generates Column enum + Iden/IdenStatic impls directly |
+| `DerivePrimaryKey` | ❌ Not Needed | ✅ By Design | LifeModel generates PrimaryKey enum directly |
 | `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel |
 | `DeriveActiveModelBehavior` | ❌ Missing | 🟡 **Future** | ActiveModelBehavior trait implementation |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
@@ -47,7 +55,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveRelation` | ❌ Missing | 🟡 **Future** | Relation enum with RelationTrait |
 | `DeriveRelatedEntity` | ❌ Missing | 🟡 **Future** | RelatedEntity enum |
 | `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation |
-| `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization |
+| `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
 | `DerivePartialModel` | ❌ Missing | 🟡 **Future** | PartialModelTrait implementation |
 | `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types |
 | `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum |
@@ -55,6 +63,27 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 
 **Lifeguard-Specific:**
 - `LifeRecord` - ✅ Implemented (simplified version, generates Record struct with Option<T> fields)
+
+### Architecture Pattern: Why `DeriveModel` is Not Needed
+
+Lifeguard follows SeaORM's nested macro expansion pattern, but with a key difference:
+
+**SeaORM Pattern:**
+- `DeriveEntityModel` generates Entity struct + Model struct
+- `DeriveEntity` (nested) generates trait implementations for Entity (unit struct)
+- `DeriveModel` (nested) generates trait implementations for Model (data struct)
+
+**Lifeguard Pattern:**
+- `LifeModel` generates Entity struct + Model struct + all trait implementations
+- `DeriveEntity` (nested) generates trait implementations for Entity (unit struct)
+- `DeriveModel` is **not needed** because `LifeModel` generates Model + ModelTrait directly
+
+**Why the difference?**
+- `DeriveEntity` exists because Entity is a **unit struct** used in nested expansion (`#[derive(DeriveEntity)]` on Entity)
+- Model is a **data struct with fields**, so `LifeModel` can generate both the struct and its trait implementations in the same expansion phase
+- No use case exists for manually declaring a Model struct and only deriving traits (unlike Entity which is a unit struct)
+
+This design simplifies the API while maintaining the same functionality.
 
 ---
 
@@ -146,8 +175,8 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `ActiveModel::get()` | ❌ Missing | 🔴 **Future** | Get field value |
 | `ActiveModel::take()` | ❌ Missing | 🔴 **Future** | Take field value (move) |
 | `ActiveModel::into_active_value()` | ❌ Missing | 🔴 **Future** | Convert to ActiveValue |
-| `ActiveModel::from_json()` | ❌ Missing | 🟡 **Future** | Deserialize from JSON |
-| `ActiveModel::to_json()` | ❌ Missing | 🟡 **Future** | Serialize to JSON |
+| `ActiveModel::from_json()` | ❌ Missing | 🟡 **Future** | Deserialize from JSON (JSON column support is ✅ core feature) |
+| `ActiveModel::to_json()` | ❌ Missing | 🟡 **Future** | Serialize to JSON (JSON column support is ✅ core feature) |
 | `Model::into_active_model()` | `Model::to_record()` | ✅ Implemented | Convert Model to Record (different name) |
 | `Record::from_model()` | ✅ Implemented | Create Record from Model |
 | `Record::to_model()` | ✅ Implemented | Convert Record to Model |
@@ -199,14 +228,14 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 ### High Priority (Core Functionality)
 
 #### ModelTrait
-**Status:** 🔴 Missing  
-**Future State:** Trait for Model-level operations:
-- `get(column)` - Get column value as `Value`
-- `set(column, value)` - Set column value
-- `get_value_type(column)` - Get column's value type
-- `get_primary_key_value()` - Get primary key value(s)
-- `find_related<R>()` - Find related entities
-- `find_linked<L>()` - Find linked entities
+**Status:** ✅ Implemented  
+**Current State:** Trait for Model-level operations:
+- `get(column)` - Get column value as `Value` ✅
+- `set(column, value)` - Set column value ✅
+- `get_primary_key_value()` - Get primary key value(s) ✅
+- `get_value_type(column)` - Get column's value type (🟡 Future)
+- `find_related<R>()` - Find related entities (🟡 Future)
+- `find_linked<L>()` - Find linked entities (🟡 Future)
 
 #### ColumnTrait
 **Status:** 🔴 Missing  
@@ -276,11 +305,18 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 - Integration with migration tools
 
 #### JSON Support
-**Status:** 🟡 Future  
-**Future State:**
-- `FromJsonQueryResult` - JSON query result deserialization
-- `ActiveModel::from_json()`, `ActiveModel::to_json()`
-- JSON column type support
+**Status:** ✅ Core Feature (Always Enabled)  
+**Current State:**
+- ✅ JSON column type support via `serde_json::Value` - Fully implemented
+- ✅ JSON value serialization in queries - Fully implemented
+- ✅ JSON handling in ModelTrait get/set operations - Fully implemented
+- ✅ No feature flags required - JSON is always available
+
+**Future Enhancements:**
+- `FromJsonQueryResult` - JSON query result deserialization (🟡 Future)
+- `ActiveModel::from_json()`, `ActiveModel::to_json()` - ActiveModel JSON methods (🟡 Future)
+
+**Note:** JSON support is a core feature and is always enabled. All JSON functionality works out of the box without any feature flags or configuration.
 
 #### Enum Support
 **Status:** 🟡 Future  
@@ -355,7 +391,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 1. Partial models
 2. Advanced query features (JOINs, GROUP BY, etc.)
 3. Value type system enhancements
-4. JSON and enum support
+4. Enum support (JSON is ✅ already implemented as core feature)
 
 ---
 
@@ -364,4 +400,5 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 - **Current Focus:** Core ORM functionality (Entity, Model, Record, Query Builder)
 - **Design Philosophy:** Simpler API than SeaORM, optimized for coroutines
 - **Compatibility:** Uses SeaQuery directly, ensuring SQL compatibility
+- **JSON Support:** JSON is a **core feature** and is always enabled. All JSON functionality (column types, serialization, ModelTrait operations) works out of the box without feature flags.
 - **Future:** Incremental feature addition based on user needs

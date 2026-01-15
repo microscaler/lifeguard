@@ -35,10 +35,12 @@ once_cell = "1"
 log = "0.4"
 config = "0.14"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"  # JSON support is always enabled (core functionality)
 chrono = { version = "0.4.41", features = ["serde"] }
 
 # SQL Builder (borrowed, runtime-agnostic)
-sea-query = "1.0.0-rc.29"
+# JSON support is always enabled (core functionality)
+sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
 
 # Security: Force protobuf 3.7.2 to address CVE-2025-53605
 # Adding as direct dependency forces all transitive dependencies to use this version
