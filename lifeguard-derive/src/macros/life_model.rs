@@ -83,7 +83,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut model_set_match_arms = Vec::new();
     let mut primary_key_value_expr: Option<proc_macro2::TokenStream> = None;
     // Track primary key metadata for PrimaryKeyTrait
-    let mut primary_key_type: Option<&Type> = None;
+    let mut primary_key_type: Option<&Type> = None; // Keep for backward compatibility (first key only)
+    let mut primary_key_types: Vec<&Type> = Vec::new(); // Track all primary key types for tuple ValueType
     let mut _primary_key_auto_increment = false; // Reserved for future PrimaryKeyTrait implementation
     let mut primary_key_to_column_mappings = Vec::new();
 
@@ -124,6 +125,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 primary_key_type = Some(field_type);
                 _primary_key_auto_increment = is_auto_increment; // Keep for backward compatibility, but per-variant tracking is used
             }
+            // Track all primary key types for tuple ValueType support
+            primary_key_types.push(field_type);
             
             // Track mapping for PrimaryKeyToColumn
             primary_key_to_column_mappings.push(quote! {
@@ -964,8 +967,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
     // Generate PrimaryKeyTrait and PrimaryKeyToColumn implementations (if primary key exists)
     let primary_key_trait_impls = if !primary_key_variant_idents.is_empty() && primary_key_type.is_some() {
-        // Extract ValueType from primary key type (handle Option<T>)
-        let value_type = if let Some(pk_type) = primary_key_type {
+        // Generate ValueType - tuple for composite keys, single type for single keys
+        let value_type = if primary_key_types.len() == 1 {
+            // Single primary key - extract inner type if Option<T>
+            let pk_type = primary_key_types[0];
             if let Some(inner_type) = extract_option_inner_type(pk_type) {
                 // Option<T> -> use inner type T
                 quote! { #inner_type }
@@ -974,8 +979,17 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 quote! { #pk_type }
             }
         } else {
-            // Fallback (shouldn't happen if primary_key_type is Some)
-            quote! { i32 }
+            // Composite primary key - generate tuple type
+            let tuple_types: Vec<proc_macro2::TokenStream> = primary_key_types.iter().map(|pk_type| {
+                if let Some(inner_type) = extract_option_inner_type(pk_type) {
+                    // Option<T> -> use inner type T
+                    quote! { #inner_type }
+                } else {
+                    // Non-Option type -> use as-is
+                    quote! { #pk_type }
+                }
+            }).collect();
+            quote! { (#(#tuple_types),*) }
         };
         
         // Generate auto_increment match arms
@@ -992,6 +1006,30 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 }
             }
         });
+        
+        // Generate PrimaryKeyArity implementation
+        // Determine arity at macro expansion time based on number of primary key variants
+        // Lifeguard enhancement: granular arity variants for better type safety
+        let primary_key_arity_impl = match primary_key_variant_idents.len() {
+            1 => quote! {
+                lifeguard::PrimaryKeyArity::Single
+            },
+            2 => quote! {
+                lifeguard::PrimaryKeyArity::Tuple2
+            },
+            3 => quote! {
+                lifeguard::PrimaryKeyArity::Tuple3
+            },
+            4 => quote! {
+                lifeguard::PrimaryKeyArity::Tuple4
+            },
+            5 => quote! {
+                lifeguard::PrimaryKeyArity::Tuple5
+            },
+            _ => quote! {
+                lifeguard::PrimaryKeyArity::Tuple6Plus
+            },
+        };
         
         quote! {
             // Implement PrimaryKeyTrait
@@ -1015,10 +1053,17 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     }
                 }
             }
+            
+            // Implement PrimaryKeyArityTrait
+            impl lifeguard::PrimaryKeyArityTrait for PrimaryKey {
+                fn arity() -> lifeguard::PrimaryKeyArity {
+                    #primary_key_arity_impl
+                }
+            }
         }
     } else {
         quote! {
-            // No primary key defined - PrimaryKeyTrait and PrimaryKeyToColumn not implemented
+            // No primary key defined - PrimaryKeyTrait, PrimaryKeyToColumn, and PrimaryKeyArityTrait not implemented
         }
     };
 
