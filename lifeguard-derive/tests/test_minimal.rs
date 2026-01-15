@@ -2151,11 +2151,28 @@ mod active_model_trait_tests {
     }
 
     #[test]
-    fn test_active_model_trait_set_placeholder() {
-        // Test that ActiveModelTrait::set() returns an error (not yet implemented)
+    fn test_active_model_trait_set_works_implementation() {
+        // Test that ActiveModelTrait::set() now works with proper type conversion
         let mut record = UserRecord::new();
+        
+        // Set String field
         let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
-        assert!(result.is_err(), "set() should return an error (not yet fully implemented)");
+        assert!(result.is_ok(), "set() should work for String fields");
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        
+        // Set Int field
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::Int(Some(42)));
+        assert!(result.is_ok(), "set() should work for i32 fields");
+        
+        // Set None value
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(None));
+        assert!(result.is_ok(), "set() should work for None values");
+        
+        // Test invalid type
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::String(Some("invalid".to_string())));
+        assert!(result.is_err(), "set() should return error for invalid type");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Invalid value type"), "Error should indicate invalid type");
     }
 
     // ============================================================================
@@ -2344,32 +2361,49 @@ mod active_model_trait_tests {
 
     #[test]
     fn test_active_model_trait_set_different_value_types() {
-        // EDGE CASE: Testing set() with different Value types (all should return error for now)
+        // EDGE CASE: Testing set() with different Value types (now fully implemented)
         let mut record = UserRecord::new();
         
         // Test with String value
         let result1 = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
-        assert!(result1.is_err(), "set() should return error (not yet implemented)");
+        assert!(result1.is_ok(), "set() should work for String values");
         
         // Test with Int value
         let result2 = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::Int(Some(42)));
-        assert!(result2.is_err(), "set() should return error (not yet implemented)");
+        assert!(result2.is_ok(), "set() should work for Int values");
         
         // Test with None value
         let result3 = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(None));
-        assert!(result3.is_err(), "set() should return error (not yet implemented)");
+        assert!(result3.is_ok(), "set() should work for None values");
+        
+        // Test with invalid type
+        let result4 = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::String(Some("invalid".to_string())));
+        assert!(result4.is_err(), "set() should return error for invalid type");
     }
 
     #[test]
-    fn test_active_model_trait_set_error_message() {
-        // EDGE CASE: Verify set() returns a meaningful error message
+    fn test_active_model_trait_set_works() {
+        // Test that set() now works with proper type conversion
         let mut record = UserRecord::new();
-        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
         
-        assert!(result.is_err());
+        // Set String field
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
+        assert!(result.is_ok(), "set() should work for String fields");
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        
+        // Set Int field
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::Int(Some(42)));
+        assert!(result.is_ok(), "set() should work for i32 fields");
+        
+        // Set None value
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(None));
+        assert!(result.is_ok(), "set() should work for None values");
+        
+        // Test invalid type
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::String(Some("invalid".to_string())));
+        assert!(result.is_err(), "set() should return error for invalid type");
         let error = result.unwrap_err();
-        assert!(error.to_string().contains("not yet fully implemented") || error.to_string().contains("type conversion needed"),
-                "Error message should indicate implementation status");
+        assert!(error.to_string().contains("Invalid value type"), "Error should indicate invalid type");
     }
 
     // ============================================================================

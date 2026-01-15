@@ -1,11 +1,354 @@
 //! LifeRecord derive macro implementation
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, GenericArgument, PathArguments, Type};
 use quote::quote;
 
 use crate::attributes;
 use crate::utils;
+
+/// Extract the inner type from Option<T>
+/// Returns None if the type is not Option<T> or if extraction fails
+fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
+    if let Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Option" {
+                // Extract inner type from generic arguments
+                if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(GenericArgument::Type(inner_type)) = args.args.first() {
+                        return Some(inner_type);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Generate field to Value conversion code for ActiveModelTrait::get() and take()
+/// Since LifeRecord fields are always Option<T>, we convert Option<T> to Option<Value>
+/// Note: field_type here is the INNER type (e.g., i32), not Option<i32>
+/// The actual record field is Option<field_type>
+fn generate_field_to_value_conversion(
+    field_name: &Ident,
+    field_type: &Type,
+) -> proc_macro2::TokenStream {
+    // In LifeRecord, field_type is the inner type (e.g., i32), and the actual field is Option<i32>
+    // So we need to match on field_type directly, not extract from Option
+    if let Type::Path(type_path) = field_type {
+        let segments = &type_path.path.segments;
+        
+        // Check for serde_json::Value (multi-segment path)
+        let is_json_value = segments.len() == 2
+            && segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
+            && segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
+        
+        if is_json_value {
+            quote! {
+                self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone()))))
+            }
+        } else if let Some(segment) = segments.last() {
+            let ident_str = segment.ident.to_string();
+            match ident_str.as_str() {
+                "i32" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::Int(Some(v)))
+                },
+                "i64" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v)))
+                },
+                "i16" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v)))
+                },
+                "String" => quote! {
+                    self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone())))
+                },
+                "bool" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::Bool(Some(v)))
+                },
+                "u8" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16)))
+                },
+                "u16" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32)))
+                },
+                "u32" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64)))
+                },
+                "u64" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64)))
+                },
+                "f32" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::Float(Some(v)))
+                },
+                "f64" => quote! {
+                    self.#field_name.map(|v| sea_query::Value::Double(Some(v)))
+                },
+                _ => quote! {
+                    None // Unknown type
+                },
+            }
+        } else {
+            quote! { None }
+        }
+    } else {
+        quote! { None }
+    }
+}
+
+/// Generate Value to field conversion code for ActiveModelTrait::set()
+/// Since LifeRecord fields are always Option<T>, we convert Value to T and wrap in Some()
+/// Note: field_type here is the INNER type (e.g., i32), not Option<i32>
+/// The actual record field is Option<field_type>
+fn generate_value_to_field_conversion(
+    field_name: &Ident,
+    field_type: &Type,
+    column_variant: &Ident,
+) -> proc_macro2::TokenStream {
+    // In LifeRecord, field_type is the inner type (e.g., i32), and the actual field is Option<i32>
+    // So we need to match on field_type directly, not extract from Option
+    if let Type::Path(type_path) = field_type {
+        let segments = &type_path.path.segments;
+        
+        // Check for serde_json::Value (multi-segment path)
+        let is_json_value = segments.len() == 2
+            && segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
+            && segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
+        
+        if is_json_value {
+            quote! {
+                match value {
+                    sea_query::Value::Json(Some(v)) => {
+                        self.#field_name = Some(*v);
+                        Ok(())
+                    }
+                    sea_query::Value::Json(None) => {
+                        self.#field_name = None;
+                        Ok(())
+                    }
+                    _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                        column: stringify!(#column_variant).to_string(),
+                        expected: "Json".to_string(),
+                        actual: format!("{:?}", value),
+                    })
+                }
+            }
+        } else if let Some(segment) = segments.last() {
+            let ident_str = segment.ident.to_string();
+            match ident_str.as_str() {
+                    "i32" => quote! {
+                        match value {
+                            sea_query::Value::Int(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::Int(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "Int".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "i64" => quote! {
+                        match value {
+                            sea_query::Value::BigInt(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::BigInt(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "BigInt".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "i16" => quote! {
+                        match value {
+                            sea_query::Value::SmallInt(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::SmallInt(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "SmallInt".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "String" => quote! {
+                        match value {
+                            sea_query::Value::String(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::String(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "String".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "bool" => quote! {
+                        match value {
+                            sea_query::Value::Bool(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::Bool(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "Bool".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "u8" => quote! {
+                        match value {
+                            sea_query::Value::SmallInt(Some(v)) => {
+                                self.#field_name = Some(v as u8);
+                                Ok(())
+                            }
+                            sea_query::Value::SmallInt(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "SmallInt".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "u16" => quote! {
+                        match value {
+                            sea_query::Value::Int(Some(v)) => {
+                                self.#field_name = Some(v as u16);
+                                Ok(())
+                            }
+                            sea_query::Value::Int(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "Int".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "u32" => quote! {
+                        match value {
+                            sea_query::Value::BigInt(Some(v)) => {
+                                self.#field_name = Some(v as u32);
+                                Ok(())
+                            }
+                            sea_query::Value::BigInt(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "BigInt".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "u64" => quote! {
+                        match value {
+                            sea_query::Value::BigInt(Some(v)) => {
+                                self.#field_name = Some(v as u64);
+                                Ok(())
+                            }
+                            sea_query::Value::BigInt(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "BigInt".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "f32" => quote! {
+                        match value {
+                            sea_query::Value::Float(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::Float(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "Float".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    "f64" => quote! {
+                        match value {
+                            sea_query::Value::Double(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::Double(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
+                            _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                                column: stringify!(#column_variant).to_string(),
+                                expected: "Double".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    },
+                    _ => quote! {
+                        Err(lifeguard::ActiveModelError::InvalidValueType {
+                            column: stringify!(#column_variant).to_string(),
+                            expected: "supported type".to_string(),
+                            actual: format!("{:?}", value),
+                        })
+                    },
+            }
+        } else {
+            quote! {
+                Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "supported type".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        }
+    } else {
+        quote! {
+            Err(lifeguard::ActiveModelError::InvalidValueType {
+                column: stringify!(#column_variant).to_string(),
+                expected: "supported type".to_string(),
+                actual: format!("{:?}", value),
+            })
+        }
+    }
+}
 
 /// Derive macro for `LifeRecord` - generates mutable change-set objects
 ///
@@ -115,42 +458,31 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
         
         // Generate ActiveModelTrait match arms
-        // For get(), we convert the field value to Value using ModelTrait::get() on a temporary model
-        // This is not optimal but works for now - can be optimized later with direct type conversion
+        // For get(), convert directly from Option<T> to Option<Value> (optimized, no to_model() needed)
+        let field_to_value_conversion = generate_field_to_value_conversion(field_name, field_type);
         active_model_get_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                if let Some(_) = self.#field_name {
-                    // Convert to model temporarily to use ModelTrait::get()
-                    // This is inefficient but works - can be optimized later
-                    let temp_model = self.to_model();
-                    Some(lifeguard::model::ModelTrait::get(&temp_model, <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant))
-                } else {
-                    None
-                }
+                #field_to_value_conversion
             }
         });
         
-        // For set(), we need to convert Value to field_type
-        // This is complex and type-specific, so we'll use a placeholder for now
-        // TODO: Implement proper type conversion from Value to field_type
+        // For set(), generate type conversion code
+        let value_to_field_conversion = generate_value_to_field_conversion(
+            field_name,
+            field_type,
+            &column_variant,
+        );
         active_model_set_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                // Convert Value to field_type
-                // This requires type-specific conversion logic
-                // For now, return an error - full implementation will be added later
-                Err(lifeguard::ActiveModelError::Other(format!("set() for column {} not yet fully implemented - type conversion needed", stringify!(#column_variant))))
+                #value_to_field_conversion
             }
         });
         
-        // For take(), we get the value and then set the field to None
+        // For take(), convert directly from Option<T> to Option<Value> and set field to None (optimized)
+        let field_to_value_conversion = generate_field_to_value_conversion(field_name, field_type);
         active_model_take_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                let value = if let Some(_) = self.#field_name {
-                    let temp_model = self.to_model();
-                    Some(lifeguard::model::ModelTrait::get(&temp_model, <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant))
-                } else {
-                    None
-                };
+                let value = #field_to_value_conversion;
                 self.#field_name = None;
                 value
             }
