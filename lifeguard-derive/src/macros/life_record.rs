@@ -546,7 +546,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         if !is_primary_key {
             update_set_clauses.push(quote! {
                 if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    query = query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, value);
+                    query = query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
                 }
             });
         }
@@ -663,7 +663,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 // Build INSERT statement
                 let mut query = Query::insert();
-                let entity = <#entity_name as lifeguard::LifeEntityName>::default();
+                let entity = #entity_name::default();
                 query.into_table(entity);
                 
                 // Collect columns and values (skip auto-increment PKs if not set)
@@ -677,9 +677,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
                 
                 // Add columns and values to query
-                // SeaQuery API: columns() takes an iterator, values() takes a single row
-                query.columns(columns.iter().copied());
-                query.values(vec![values.iter().cloned().collect::<Vec<_>>()])?;
+                // SeaQuery API: columns() takes items that implement IntoIden
+                // values_panic() takes an iterator of Expr (wrapping Values)
+                query.columns(columns.iter().map(|c| *c));
+                let exprs: Vec<sea_query::Expr> = values.iter().map(|v| sea_query::Expr::val(v.clone())).collect();
+                query.values_panic(exprs.iter().cloned());
                 
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
@@ -710,7 +712,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 // Build UPDATE statement
                 let mut query = Query::update();
-                let entity = <#entity_name as lifeguard::LifeEntityName>::default();
+                let entity = #entity_name::default();
                 query.table(entity);
                 
                 // Add SET clauses for dirty fields (skip primary keys)
@@ -762,7 +764,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 // Build DELETE statement
                 let mut query = Query::delete();
-                let entity = <#entity_name as lifeguard::LifeEntityName>::default();
+                let entity = #entity_name::default();
                 query.from_table(entity);
                 
                 // Add WHERE clause for primary keys
