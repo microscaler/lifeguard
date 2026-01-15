@@ -127,4 +127,153 @@ mod tests {
         let pk_value = model.get_primary_key_value();
         assert!(matches!(pk_value, sea_query::Value::Int(_)));
     }
+
+    // ============================================================================
+    // Option Type Detection Tests - Verifies the fix for Option<T> field handling
+    // ============================================================================
+
+    #[test]
+    fn test_option_i32_detection_some() {
+        // CRITICAL TEST: Verify Option<i32> generates Int values, not String
+        // This test verifies the fix for the bug where Option<T> fields were
+        // incorrectly generating String(None) instead of properly-typed values
+        use lifeguard::ModelTrait;
+
+        let model = EdgeCaseUserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+            age: Some(42),
+            active: true,
+        };
+
+        let age_value = model.get(Column::Age);
+        
+        // Verify it's Int(Some(42)), not String(None)
+        match age_value {
+            sea_query::Value::Int(Some(42)) => {
+                // Correct! Option<i32> with Some(42) generates Int(Some(42))
+            }
+            sea_query::Value::String(_) => {
+                panic!("BUG: Option<i32> generated String value instead of Int! This indicates the Option detection fix is broken.");
+            }
+            sea_query::Value::Int(Some(v)) => {
+                panic!("Option<i32> generated Int(Some({})) but expected Int(Some(42))", v);
+            }
+            _ => {
+                panic!("Option<i32> generated unexpected value type: {:?}", age_value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_option_i32_detection_none() {
+        // CRITICAL TEST: Verify Option<i32> with None generates Int(None), not String(None)
+        use lifeguard::ModelTrait;
+
+        let model = EdgeCaseUserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+            age: None,
+            active: true,
+        };
+
+        let age_value = model.get(Column::Age);
+        
+        // Verify it's Int(None), not String(None)
+        match age_value {
+            sea_query::Value::Int(None) => {
+                // Correct! Option<i32> with None generates Int(None)
+            }
+            sea_query::Value::String(_) => {
+                panic!("BUG: Option<i32> with None generated String(None) instead of Int(None)! This indicates the Option detection fix is broken.");
+            }
+            _ => {
+                panic!("Option<i32> with None generated unexpected value type: {:?}", age_value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_option_detection_uses_correct_type() {
+        // Verify that Option types are detected using segments.last() (the fix)
+        // and generate correctly-typed values based on the inner type
+        use lifeguard::ModelTrait;
+
+        // Test with Some value
+        let model_some = EdgeCaseUserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+            age: Some(100),
+            active: true,
+        };
+
+        let age_value_some = model_some.get(Column::Age);
+        assert!(matches!(age_value_some, sea_query::Value::Int(Some(100))), 
+            "Option<i32> with Some(100) should generate Int(Some(100)), got: {:?}", age_value_some);
+
+        // Test with None value
+        let model_none = EdgeCaseUserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+            age: None,
+            active: true,
+        };
+
+        let age_value_none = model_none.get(Column::Age);
+        assert!(matches!(age_value_none, sea_query::Value::Int(None)), 
+            "Option<i32> with None should generate Int(None), got: {:?}", age_value_none);
+    }
+
+    #[test]
+    fn test_non_option_types_still_work() {
+        // Regression test: Verify non-Option types still work correctly
+        use lifeguard::ModelTrait;
+
+        let model = EdgeCaseUserModel {
+            id: 42,
+            name: "Test Name".to_string(),
+            email: "test@example.com".to_string(),
+            age: Some(30),
+            active: true,
+        };
+
+        // Verify i32 (non-Option) generates Int
+        let id_value = model.get(Column::Id);
+        assert!(matches!(id_value, sea_query::Value::Int(Some(42))), 
+            "i32 field should generate Int(Some(42)), got: {:?}", id_value);
+
+        // Verify String (non-Option) generates String
+        let name_value = model.get(Column::Name);
+        assert!(matches!(name_value, sea_query::Value::String(Some(_))), 
+            "String field should generate String(Some(_)), got: {:?}", name_value);
+
+        // Verify bool (non-Option) generates Bool
+        let active_value = model.get(Column::Active);
+        assert!(matches!(active_value, sea_query::Value::Bool(Some(true))), 
+            "bool field should generate Bool(Some(true)), got: {:?}", active_value);
+    }
+
+    #[test]
+    fn test_option_detection_does_not_affect_primary_key() {
+        // Verify that Option detection fix doesn't break primary key handling
+        use lifeguard::ModelTrait;
+
+        let model = EdgeCaseUserModel {
+            id: 999,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+            age: Some(25),
+            active: false,
+        };
+
+        let pk_value = model.get_primary_key_value();
+        
+        // Primary key is i32 (non-Option), should generate Int
+        assert!(matches!(pk_value, sea_query::Value::Int(Some(999))), 
+            "Primary key i32 should generate Int(Some(999)), got: {:?}", pk_value);
+    }
 }

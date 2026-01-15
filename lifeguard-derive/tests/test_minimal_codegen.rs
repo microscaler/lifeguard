@@ -87,4 +87,97 @@ mod tests {
         // Verify User::TABLE_NAME constant exists
         assert_eq!(User::TABLE_NAME, "users");
     }
+
+    // ============================================================================
+    // Option Type Detection Tests - Verifies Option<String> handling
+    // ============================================================================
+
+    #[test]
+    fn test_option_string_detection_some() {
+        // CRITICAL TEST: Verify Option<String> generates String values correctly
+        use lifeguard::ModelTrait;
+
+        let model = UserModel {
+            id: 1,
+            email: "test@example.com".to_string(),
+            name: Some("John Doe".to_string()),
+        };
+
+        let name_value = model.get(Column::Name);
+        
+        // Verify it's String(Some("John Doe")), not String(None) or wrong type
+        match name_value {
+            sea_query::Value::String(Some(ref s)) if s == "John Doe" => {
+                // Correct! Option<String> with Some("John Doe") generates String(Some("John Doe"))
+            }
+            sea_query::Value::String(None) => {
+                panic!("BUG: Option<String> with Some(_) generated String(None)! This indicates the Option detection fix is broken.");
+            }
+            sea_query::Value::Int(_) | sea_query::Value::BigInt(_) | sea_query::Value::SmallInt(_) => {
+                panic!("BUG: Option<String> generated integer value instead of String! This indicates the Option detection fix is broken.");
+            }
+            _ => {
+                panic!("Option<String> generated unexpected value: {:?}", name_value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_option_string_detection_none() {
+        // CRITICAL TEST: Verify Option<String> with None generates String(None) correctly
+        use lifeguard::ModelTrait;
+
+        let model = UserModel {
+            id: 1,
+            email: "test@example.com".to_string(),
+            name: None,
+        };
+
+        let name_value = model.get(Column::Name);
+        
+        // Verify it's String(None)
+        match name_value {
+            sea_query::Value::String(None) => {
+                // Correct! Option<String> with None generates String(None)
+            }
+            sea_query::Value::String(Some(_)) => {
+                panic!("BUG: Option<String> with None generated String(Some(_))! This indicates the Option detection fix is broken.");
+            }
+            _ => {
+                panic!("Option<String> with None generated unexpected value type: {:?}", name_value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_option_string_vs_non_option_string() {
+        // Verify Option<String> and String are handled differently
+        use lifeguard::ModelTrait;
+
+        let model = UserModel {
+            id: 1,
+            email: "test@example.com".to_string(), // Non-Option String
+            name: Some("John".to_string()),        // Option<String>
+        };
+
+        // Non-Option String should generate String(Some(_))
+        let email_value = model.get(Column::Email);
+        assert!(matches!(email_value, sea_query::Value::String(Some(_))), 
+            "Non-Option String should generate String(Some(_)), got: {:?}", email_value);
+
+        // Option<String> with Some should also generate String(Some(_))
+        let name_value = model.get(Column::Name);
+        assert!(matches!(name_value, sea_query::Value::String(Some(_))), 
+            "Option<String> with Some should generate String(Some(_)), got: {:?}", name_value);
+
+        // Option<String> with None should generate String(None)
+        let model_none = UserModel {
+            id: 1,
+            email: "test@example.com".to_string(),
+            name: None,
+        };
+        let name_none_value = model_none.get(Column::Name);
+        assert!(matches!(name_none_value, sea_query::Value::String(None)), 
+            "Option<String> with None should generate String(None), got: {:?}", name_none_value);
+    }
 }

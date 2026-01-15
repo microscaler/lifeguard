@@ -118,47 +118,23 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         path: syn::Path { segments, .. },
                         ..
                     }) => {
-                        if let Some(segment) = segments.first() {
-                            let ident_str = segment.ident.to_string();
-                            match ident_str.as_str() {
-                                "i32" => quote! { sea_query::Value::Int(Some(self.#field_name)) },
-                                "i64" => {
-                                    quote! { sea_query::Value::BigInt(Some(self.#field_name)) }
-                                }
-                                "i16" => {
-                                    quote! { sea_query::Value::SmallInt(Some(self.#field_name)) }
-                                }
-                                "u8" => {
-                                    quote! { sea_query::Value::SmallInt(Some(self.#field_name as i16)) }
-                                }
-                                "u16" => {
-                                    quote! { sea_query::Value::Int(Some(self.#field_name as i32)) }
-                                }
-                                "u32" => {
-                                    quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) }
-                                }
-                                "u64" => {
-                                    quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) }
-                                }
-                                "String" => {
-                                    quote! { sea_query::Value::String(Some(self.#field_name.clone())) }
-                                }
-                                "Option" => {
-                                    // Handle Option<T> for primary key - extract inner type from generic arguments
-                                    if let Some(inner_type) = extract_option_inner_type(field_type) {
-                                        // Match on the inner type
-                                        if let Type::Path(inner_path) = inner_type {
-                                            if let Some(inner_segment) = inner_path.path.segments.last() {
-                                                let inner_ident = inner_segment.ident.to_string();
-                                                match inner_ident.as_str() {
-                                                    "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
-                                                    "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                                    "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
-                                                    "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
-                                                    _ => quote! { sea_query::Value::String(None) },
-                                                }
-                                            } else {
-                                                quote! { sea_query::Value::String(None) }
+                        // Check if this is Option<T> first (using segments.last() like extract_option_inner_type)
+                        // In syn's representation, Option<i32> is a single path segment with generic arguments,
+                        // so segments.len() is 1, not 2. We need to check the last segment for "Option".
+                        if let Some(last_segment) = segments.last() {
+                            if last_segment.ident == "Option" {
+                                // Handle Option<T> for primary key - extract inner type from generic arguments
+                                if let Some(inner_type) = extract_option_inner_type(field_type) {
+                                    // Match on the inner type
+                                    if let Type::Path(inner_path) = inner_type {
+                                        if let Some(inner_segment) = inner_path.path.segments.last() {
+                                            let inner_ident = inner_segment.ident.to_string();
+                                            match inner_ident.as_str() {
+                                                "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
+                                                "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
+                                                "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                                "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
+                                                _ => quote! { sea_query::Value::String(None) },
                                             }
                                         } else {
                                             quote! { sea_query::Value::String(None) }
@@ -166,8 +142,41 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                     } else {
                                         quote! { sea_query::Value::String(None) }
                                     }
+                                } else {
+                                    quote! { sea_query::Value::String(None) }
                                 }
-                                _ => quote! { sea_query::Value::String(None) },
+                            } else {
+                                // Not Option, check first segment for primitive types
+                                if let Some(segment) = segments.first() {
+                                    let ident_str = segment.ident.to_string();
+                                    match ident_str.as_str() {
+                                        "i32" => quote! { sea_query::Value::Int(Some(self.#field_name)) },
+                                        "i64" => {
+                                            quote! { sea_query::Value::BigInt(Some(self.#field_name)) }
+                                        }
+                                        "i16" => {
+                                            quote! { sea_query::Value::SmallInt(Some(self.#field_name)) }
+                                        }
+                                        "u8" => {
+                                            quote! { sea_query::Value::SmallInt(Some(self.#field_name as i16)) }
+                                        }
+                                        "u16" => {
+                                            quote! { sea_query::Value::Int(Some(self.#field_name as i32)) }
+                                        }
+                                        "u32" => {
+                                            quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) }
+                                        }
+                                        "u64" => {
+                                            quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) }
+                                        }
+                                        "String" => {
+                                            quote! { sea_query::Value::String(Some(self.#field_name.clone())) }
+                                        }
+                                        _ => quote! { sea_query::Value::String(None) },
+                                    }
+                                } else {
+                                    quote! { sea_query::Value::String(None) }
+                                }
                             }
                         } else {
                             quote! { sea_query::Value::String(None) }
@@ -191,43 +200,26 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 path: syn::Path { segments, .. },
                 ..
             }) => {
-                if let Some(segment) = segments.first() {
-                    let ident_str = segment.ident.to_string();
-                    match ident_str.as_str() {
-                        "i32" => quote! { sea_query::Value::Int(Some(self.#field_name)) },
-                        "i64" => quote! { sea_query::Value::BigInt(Some(self.#field_name)) },
-                        "i16" => quote! { sea_query::Value::SmallInt(Some(self.#field_name)) },
-                        "u8" => {
-                            quote! { sea_query::Value::SmallInt(Some(self.#field_name as i16)) }
-                        }
-                        "u16" => quote! { sea_query::Value::Int(Some(self.#field_name as i32)) },
-                        "u32" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
-                        "u64" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
-                        "f32" => quote! { sea_query::Value::Float(Some(self.#field_name)) },
-                        "f64" => quote! { sea_query::Value::Double(Some(self.#field_name)) },
-                        "bool" => quote! { sea_query::Value::Bool(Some(self.#field_name)) },
-                        "String" => {
-                            quote! { sea_query::Value::String(Some(self.#field_name.clone())) }
-                        }
-                        "Option" => {
-                            // Handle Option<T> - extract inner type from generic arguments
-                            if let Some(inner_type) = extract_option_inner_type(field_type) {
-                                // Match on the inner type
-                                if let Type::Path(inner_path) = inner_type {
-                                    if let Some(inner_segment) = inner_path.path.segments.last() {
-                                        let inner_ident = inner_segment.ident.to_string();
-                                        match inner_ident.as_str() {
-                                            "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
-                                            "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                            "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
-                                            "f32" => quote! { self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None)) },
-                                            "f64" => quote! { self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None)) },
-                                            "bool" => quote! { self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None)) },
-                                            "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
-                                            _ => quote! { sea_query::Value::String(None) },
-                                        }
-                                    } else {
-                                        quote! { sea_query::Value::String(None) }
+                // Check if this is Option<T> first (using segments.last() like extract_option_inner_type)
+                // In syn's representation, Option<i32> is a single path segment with generic arguments,
+                // so segments.len() is 1, not 2. We need to check the last segment for "Option".
+                if let Some(last_segment) = segments.last() {
+                    if last_segment.ident == "Option" {
+                        // Handle Option<T> - extract inner type from generic arguments
+                        if let Some(inner_type) = extract_option_inner_type(field_type) {
+                            // Match on the inner type
+                            if let Type::Path(inner_path) = inner_type {
+                                if let Some(inner_segment) = inner_path.path.segments.last() {
+                                    let inner_ident = inner_segment.ident.to_string();
+                                    match inner_ident.as_str() {
+                                        "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
+                                        "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
+                                        "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
+                                        "f32" => quote! { self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None)) },
+                                        "f64" => quote! { self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None)) },
+                                        "bool" => quote! { self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None)) },
+                                        "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
+                                        _ => quote! { sea_query::Value::String(None) },
                                     }
                                 } else {
                                     quote! { sea_query::Value::String(None) }
@@ -235,8 +227,34 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                             } else {
                                 quote! { sea_query::Value::String(None) }
                             }
+                        } else {
+                            quote! { sea_query::Value::String(None) }
                         }
-                        _ => quote! { sea_query::Value::String(None) }, // Fallback for unknown types
+                    } else {
+                        // Not Option, check first segment for primitive types
+                        if let Some(segment) = segments.first() {
+                            let ident_str = segment.ident.to_string();
+                            match ident_str.as_str() {
+                                "i32" => quote! { sea_query::Value::Int(Some(self.#field_name)) },
+                                "i64" => quote! { sea_query::Value::BigInt(Some(self.#field_name)) },
+                                "i16" => quote! { sea_query::Value::SmallInt(Some(self.#field_name)) },
+                                "u8" => {
+                                    quote! { sea_query::Value::SmallInt(Some(self.#field_name as i16)) }
+                                }
+                                "u16" => quote! { sea_query::Value::Int(Some(self.#field_name as i32)) },
+                                "u32" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
+                                "u64" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
+                                "f32" => quote! { sea_query::Value::Float(Some(self.#field_name)) },
+                                "f64" => quote! { sea_query::Value::Double(Some(self.#field_name)) },
+                                "bool" => quote! { sea_query::Value::Bool(Some(self.#field_name)) },
+                                "String" => {
+                                    quote! { sea_query::Value::String(Some(self.#field_name.clone())) }
+                                }
+                                _ => quote! { sea_query::Value::String(None) }, // Fallback for unknown types
+                            }
+                        } else {
+                            quote! { sea_query::Value::String(None) }
+                        }
                     }
                 } else {
                     quote! { sea_query::Value::String(None) }
