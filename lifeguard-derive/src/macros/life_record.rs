@@ -555,7 +555,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         if is_primary_key {
             delete_where_clauses.push(quote! {
                 if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    let expr = sea_query::Expr::col(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).eq(pk_value);
+                    use lifeguard::ColumnTrait;
+                    let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.eq(pk_value);
                     query.and_where(expr);
                 } else {
                     return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
@@ -678,9 +679,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
                 
                 // Add columns and values to query
-                // SeaQuery API: columns() takes items that implement IntoIden
+                // SeaQuery API: columns() takes items that implement IntoIden (Column implements Iden, which provides IntoIden via blanket impl)
                 // values_panic() takes an iterator of Expr (wrapping Values)
-                query.columns(columns.iter().map(|c| *c));
+                query.columns(columns.iter().copied());
                 let exprs: Vec<sea_query::Expr> = values.iter().map(|v| sea_query::Expr::val(v.clone())).collect();
                 query.values_panic(exprs.iter().cloned());
                 
