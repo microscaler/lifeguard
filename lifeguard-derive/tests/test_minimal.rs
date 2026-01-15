@@ -654,6 +654,37 @@ mod tests {
     }
 
     #[test]
+    fn test_primary_key_trait_value_type() {
+        // Verify PrimaryKeyTrait is implemented and ValueType is correct
+        use lifeguard::PrimaryKeyTrait;
+        
+        // ValueType should be i32 for User entity
+        let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+    }
+
+    #[test]
+    fn test_primary_key_trait_auto_increment() {
+        // Verify auto_increment() method works
+        use lifeguard::PrimaryKeyTrait;
+        
+        let pk = PrimaryKey::Id;
+        // User entity doesn't have #[auto_increment], so should return false
+        assert_eq!(pk.auto_increment(), false);
+    }
+
+    #[test]
+    fn test_primary_key_to_column() {
+        // Verify PrimaryKeyToColumn is implemented and works correctly
+        use lifeguard::PrimaryKeyToColumn;
+        
+        let pk = PrimaryKey::Id;
+        let col = pk.to_column();
+        
+        // Should convert to Column::Id
+        assert_eq!(col, Column::Id);
+    }
+
+    #[test]
     fn test_model_struct_exists() {
         // Verify Model struct exists and can be instantiated
         let model = UserModel {

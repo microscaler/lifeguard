@@ -25,8 +25,8 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `ActiveModelTrait` | ❌ Missing | 🔴 **Future** | Mutable model for inserts/updates (our `LifeRecord` is similar but different) |
 | `ActiveModelBehavior` | ❌ Missing | 🟡 **Future** | Custom behavior hooks for ActiveModel |
 | `ColumnTrait` | ✅ Implemented | ✅ Complete | Column-level operations (query builder methods ✅, metadata methods ✅ with default impls) |
-| `PrimaryKeyTrait` | ❌ Missing | 🔴 **Future** | Primary key operations (auto_increment, ValueType) |
-| `PrimaryKeyToColumn` | ❌ Missing | 🔴 **Future** | Mapping between PrimaryKey and Column |
+| `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
+| `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ❌ Missing | 🔴 **Future** | Support for composite primary keys |
 | `RelationTrait` | ❌ Missing | 🟡 **Future** | Entity relationships (belongs_to, has_one, has_many) |
 | `Related` | ❌ Missing | 🟡 **Future** | Related entity queries |
@@ -250,11 +250,16 @@ This design simplifies the API while maintaining the same functionality.
 **Note:** Query builder methods are fully functional. Metadata methods have default implementations that return empty/None values. The `LifeModel` macro should generate column-specific overrides based on field attributes to provide actual metadata. This allows the trait to work immediately while macro generation can enhance it with real column metadata.
 
 #### PrimaryKeyTrait
-**Status:** 🔴 Missing  
-**Future State:** Trait for PrimaryKey operations:
-- `ValueType` - Associated type for primary key value type
-- `auto_increment()` - Whether primary key is auto-increment
-- Support for composite primary keys (via `PrimaryKeyArity`)
+**Status:** ✅ Implemented  
+**Current State:** Trait for PrimaryKey operations:
+- `ValueType` - Associated type for primary key value type ✅ (handles Option<T> correctly)
+- `auto_increment()` - Whether primary key is auto-increment ✅ (tracks first primary key's auto_increment attribute)
+- Support for composite primary keys (via `PrimaryKeyArity`) - 🟡 Future (currently supports single primary key)
+
+#### PrimaryKeyToColumn
+**Status:** ✅ Implemented  
+**Current State:** Trait for mapping PrimaryKey to Column:
+- `to_column()` - Convert PrimaryKey variant to Column variant ✅
 
 #### ActiveModel Operations
 **Status:** 🔴 Missing  
@@ -334,7 +339,7 @@ This design simplifies the API while maintaining the same functionality.
 
 | Category | SeaORM | Lifeguard | Coverage |
 |----------|--------|-----------|----------|
-| **Core Traits** | 15 | 4 | 27% |
+| **Core Traits** | 15 | 6 | 40% |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
 | **Query Builder Methods** | 20 | 10 | 50% |
@@ -342,7 +347,7 @@ This design simplifies the API while maintaining the same functionality.
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
 | **Value Types** | 6 | 1 | 17% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 58 | **50%** |
+| **Overall** | 117 | 60 | **51%** |
 
 ---
 
