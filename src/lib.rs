@@ -60,7 +60,7 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 
 // Query builder - Epic 02 Story 03
 pub mod query;
-pub use query::{SelectQuery, FromRow, LifeEntityName, LifeModelTrait, ColumnTrait, ColumnDefinition, PrimaryKeyTrait, PrimaryKeyToColumn};
+pub use query::{SelectQuery, FromRow, LifeEntityName, LifeModelTrait, ColumnTrait, ColumnDefinition, PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait};
 
 // Model trait - Core Traits & Types
 pub mod model;

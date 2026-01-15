@@ -14,7 +14,7 @@ pub use column::{ColumnTrait, ColumnDefinition};
 
 // Primary key operations - Epic 02 Story 06
 pub mod primary_key;
-pub use primary_key::{PrimaryKeyTrait, PrimaryKeyToColumn};
+pub use primary_key::{PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait};
 
 /// Check if an error represents a "no rows found" condition
 ///
