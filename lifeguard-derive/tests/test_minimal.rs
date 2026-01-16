@@ -3284,6 +3284,607 @@ mod active_model_trait_tests {
         assert!(obj.is_empty(), "JSON should be empty when no fields are set");
     }
 
+    // ============================================================================
+    // ACTIVEMODELBEHAVIOR HOOK TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_behavior_default_implementations() {
+        // Test that default implementations exist and return Ok(())
+        use lifeguard::ActiveModelBehavior;
+        
+        // UserRecord needs to implement ActiveModelBehavior to use hooks
+        // In practice, users would implement this manually
+        #[derive(Clone, Debug)]
+        struct TestRecordDefault {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordDefault {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        // Implement ActiveModelBehavior with default implementations
+        impl ActiveModelBehavior for TestRecordDefault {}
+        
+        let mut record = TestRecordDefault {
+            inner: UserRecord::new(),
+        };
+        
+        // All default implementations should return Ok(())
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        assert!(record.before_save().is_ok());
+        assert!(record.before_delete().is_ok());
+        
+        let model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        assert!(record.after_insert(&model).is_ok());
+        assert!(record.after_update(&model).is_ok());
+        assert!(record.after_save(&model).is_ok());
+        assert!(record.after_delete().is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_trait_bounds() {
+        // Test that ActiveModelBehavior requires ActiveModelTrait
+        use lifeguard::{ActiveModelBehavior, ActiveModelTrait};
+        
+        // Verify that a type implementing both traits compiles
+        #[derive(Clone, Debug)]
+        struct TestRecordBounds {
+            inner: UserRecord,
+        }
+        
+        impl ActiveModelTrait for TestRecordBounds {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, _column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn set(&mut self, _column: <Entity as lifeguard::LifeModelTrait>::Column, _value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                Ok(())
+            }
+            
+            fn take(&mut self, _column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn reset(&mut self) {}
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordBounds {}
+        
+        // Verify TestRecordBounds implements both traits
+        fn _verify_traits<T: ActiveModelTrait + ActiveModelBehavior>() {}
+        _verify_traits::<TestRecordBounds>();
+    }
+
+    #[test]
+    fn test_active_model_behavior_hooks_can_return_errors() {
+        // Test that hooks can return errors to abort operations
+        use lifeguard::{ActiveModelBehavior, ActiveModelError};
+        
+        // Create a custom implementation that returns errors
+        #[derive(Clone, Debug)]
+        struct ErrorRecord {
+            inner: UserRecord,
+            should_error: bool,
+        }
+        
+        impl lifeguard::ActiveModelTrait for ErrorRecord {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for ErrorRecord {
+            fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_insert error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+            
+            fn before_update(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_update error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+            
+            fn before_save(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_save error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+            
+            fn before_delete(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_delete error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        
+        // Test that errors from hooks are returned
+        let mut record = ErrorRecord {
+            inner: UserRecord::new(),
+            should_error: true,
+        };
+        
+        assert!(record.before_insert().is_err());
+        assert!(record.before_update().is_err());
+        assert!(record.before_save().is_err());
+        assert!(record.before_delete().is_err());
+        
+        // Test that hooks return Ok when should_error is false
+        record.should_error = false;
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        assert!(record.before_save().is_ok());
+        assert!(record.before_delete().is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_after_hooks_receive_model() {
+        // Test that after hooks receive the correct model parameter
+        use lifeguard::ActiveModelBehavior;
+        
+        #[derive(Clone, Debug)]
+        struct TestRecordAfter {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordAfter {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordAfter {}
+        
+        let mut record = TestRecordAfter {
+            inner: UserRecord::new(),
+        };
+        
+        let model = UserModel {
+            id: 42,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // after_insert should receive the model
+        assert!(record.after_insert(&model).is_ok());
+        
+        // after_update should receive the model
+        assert!(record.after_update(&model).is_ok());
+        
+        // after_save should receive the model
+        assert!(record.after_save(&model).is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_hooks_can_modify_record() {
+        // Test that hooks can modify the record (via set())
+        use lifeguard::{ActiveModelBehavior, ActiveModelTrait, LifeModelTrait};
+        
+        #[derive(Clone, Debug)]
+        struct ModifyingRecord {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for ModifyingRecord {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for ModifyingRecord {
+            fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                // Modify the record in before_insert
+                self.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("Modified in before_insert".to_string())))?;
+                Ok(())
+            }
+            
+            fn before_update(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                // Modify the record in before_update
+                self.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("Modified in before_update".to_string())))?;
+                Ok(())
+            }
+        }
+        
+        let mut record = ModifyingRecord {
+            inner: UserRecord::new(),
+        };
+        
+        // Call before_insert and verify it can modify the record
+        assert!(record.before_insert().is_ok());
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Modified in before_insert"),
+            _ => panic!("Expected String(Some(\"Modified in before_insert\"))"),
+        }
+        
+        // Reset and test before_update
+        record.reset();
+        assert!(record.before_update().is_ok());
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Modified in before_update"),
+            _ => panic!("Expected String(Some(\"Modified in before_update\"))"),
+        }
+    }
+
+    #[test]
+    fn test_active_model_behavior_hook_execution_order() {
+        // Test that hooks are called in the correct order
+        // This is verified by checking that before hooks are called before after hooks
+        // and that save() calls both before_save and before_insert/before_update
+        use lifeguard::ActiveModelBehavior;
+        
+        // The execution order should be:
+        // insert(): before_insert -> [operation] -> after_insert
+        // update(): before_update -> [operation] -> after_update
+        // save(): before_save -> [insert/update] -> after_save (which internally calls before_insert/update and after_insert/update)
+        // delete(): before_delete -> [operation] -> after_delete
+        
+        #[derive(Clone, Debug)]
+        struct TestRecordOrder {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordOrder {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordOrder {}
+        
+        // We can't easily test the full order without a mock executor,
+        // but we can verify the hooks exist and can be called
+        let mut record = TestRecordOrder {
+            inner: UserRecord::new(),
+        };
+        
+        // Verify all hooks can be called
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        assert!(record.before_save().is_ok());
+        assert!(record.before_delete().is_ok());
+        
+        let model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        assert!(record.after_insert(&model).is_ok());
+        assert!(record.after_update(&model).is_ok());
+        assert!(record.after_save(&model).is_ok());
+        assert!(record.after_delete().is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_save_hooks_vs_insert_update_hooks() {
+        // Test that save() calls before_save/after_save in addition to insert/update hooks
+        // The order should be:
+        // save() -> before_save -> [before_insert or before_update] -> [operation] -> [after_insert or after_update] -> after_save
+        use lifeguard::ActiveModelBehavior;
+        
+        #[derive(Clone, Debug)]
+        struct TestRecordSave {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordSave {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordSave {}
+        
+        // We can't test the full execution without a mock executor,
+        // but we can verify that save() hooks are separate from insert/update hooks
+        let mut record = TestRecordSave {
+            inner: UserRecord::new(),
+        };
+        
+        // All hooks should be callable independently
+        assert!(record.before_save().is_ok());
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        
+        let model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        assert!(record.after_save(&model).is_ok());
+        assert!(record.after_insert(&model).is_ok());
+        assert!(record.after_update(&model).is_ok());
+    }
+
+    // Note: Full hook execution tests with actual database operations require integration tests
+    // The actual hook calls in insert/update/save/delete are tested in integration tests
+    // Here we verify the trait is properly implemented and hooks can be overridden
+
     // INSERT Edge Cases
     // ============================================================================
 

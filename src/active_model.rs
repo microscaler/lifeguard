@@ -643,3 +643,146 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
         ))
     }
 }
+
+/// ActiveModelBehavior trait for lifecycle hooks
+///
+/// This trait allows you to define custom behavior that runs before or after
+/// CRUD operations. All methods have default empty implementations, so you
+/// only need to override the hooks you want to use.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{ActiveModelBehavior, ActiveModelTrait};
+///
+/// struct UserRecord;
+///
+/// impl ActiveModelBehavior for UserRecord {
+///     fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+///         // Set default values, validate, etc.
+///         Ok(())
+///     }
+///
+///     fn after_insert(&mut self, model: &Self::Model) -> Result<(), ActiveModelError> {
+///         // Log, send notifications, etc.
+///         Ok(())
+///     }
+/// }
+/// ```
+pub trait ActiveModelBehavior: ActiveModelTrait {
+    /// Hook called before insert operation
+    ///
+    /// This is called before the INSERT query is executed. You can use this to:
+    /// - Set default values
+    /// - Validate data
+    /// - Transform fields
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the insert, or an error to abort.
+    fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after insert operation
+    ///
+    /// This is called after the INSERT query is executed successfully.
+    /// The `model` parameter contains the inserted model (with generated IDs).
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model that was inserted (includes generated primary key values)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_insert(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called before update operation
+    ///
+    /// This is called before the UPDATE query is executed. You can use this to:
+    /// - Validate changes
+    /// - Set updated_at timestamps
+    /// - Transform fields
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the update, or an error to abort.
+    fn before_update(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after update operation
+    ///
+    /// This is called after the UPDATE query is executed successfully.
+    /// The `model` parameter contains the updated model.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model that was updated
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_update(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called before save operation (insert or update)
+    ///
+    /// This is called before the save operation determines whether to insert or update.
+    /// You can use this to:
+    /// - Set default values
+    /// - Validate data
+    /// - Transform fields
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the save, or an error to abort.
+    fn before_save(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after save operation (insert or update)
+    ///
+    /// This is called after the save operation completes successfully.
+    /// The `model` parameter contains the saved model.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model that was saved (inserted or updated)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_save(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called before delete operation
+    ///
+    /// This is called before the DELETE query is executed. You can use this to:
+    /// - Validate deletion is allowed
+    /// - Perform soft deletes (set a deleted_at flag instead)
+    /// - Check dependencies
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the delete, or an error to abort.
+    fn before_delete(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after delete operation
+    ///
+    /// This is called after the DELETE query is executed successfully.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_delete(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+}
