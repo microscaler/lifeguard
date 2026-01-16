@@ -427,6 +427,13 @@ pub fn generate_value_to_field(
                 "i16" => quote! {
                     match value {
                         sea_query::Value::SmallInt(Some(v)) => {
+                            if v < -32768 || v > 32767 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "SmallInt in range -32768..=32767".to_string(),
+                                    actual: format!("SmallInt({})", v),
+                                });
+                            }
                             self.#field_name = v;
                             Ok(())
                         }
@@ -447,6 +454,13 @@ pub fn generate_value_to_field(
                 "i8" => quote! {
                     match value {
                         sea_query::Value::TinyInt(Some(v)) => {
+                            if v < -128 || v > 127 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "TinyInt in range -128..=127".to_string(),
+                                    actual: format!("TinyInt({})", v),
+                                });
+                            }
                             self.#field_name = v as i8;
                             Ok(())
                         }
@@ -467,6 +481,13 @@ pub fn generate_value_to_field(
                 "u8" => quote! {
                     match value {
                         sea_query::Value::SmallInt(Some(v)) => {
+                            if v < 0 || v > 255 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "SmallInt in range 0..=255".to_string(),
+                                    actual: format!("SmallInt({})", v),
+                                });
+                            }
                             self.#field_name = v as u8;
                             Ok(())
                         }
@@ -487,6 +508,13 @@ pub fn generate_value_to_field(
                 "u16" => quote! {
                     match value {
                         sea_query::Value::Int(Some(v)) => {
+                            if v < 0 || v > 65535 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "Int in range 0..=65535".to_string(),
+                                    actual: format!("Int({})", v),
+                                });
+                            }
                             self.#field_name = v as u16;
                             Ok(())
                         }
@@ -507,6 +535,13 @@ pub fn generate_value_to_field(
                 "u32" => quote! {
                     match value {
                         sea_query::Value::BigInt(Some(v)) => {
+                            if v < 0 || v > 4294967295 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "BigInt in range 0..=4294967295".to_string(),
+                                    actual: format!("BigInt({})", v),
+                                });
+                            }
                             self.#field_name = v as u32;
                             Ok(())
                         }
@@ -773,6 +808,13 @@ pub fn generate_value_to_option_field(
                 "i16" => quote! {
                     match value {
                         sea_query::Value::SmallInt(Some(v)) => {
+                            if v < -32768 || v > 32767 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "SmallInt in range -32768..=32767".to_string(),
+                                    actual: format!("SmallInt({})", v),
+                                });
+                            }
                             self.#field_name = Some(v);
                             Ok(())
                         }
@@ -790,6 +832,13 @@ pub fn generate_value_to_option_field(
                 "i8" => quote! {
                     match value {
                         sea_query::Value::TinyInt(Some(v)) => {
+                            if v < -128 || v > 127 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "TinyInt in range -128..=127".to_string(),
+                                    actual: format!("TinyInt({})", v),
+                                });
+                            }
                             self.#field_name = Some(v as i8);
                             Ok(())
                         }
@@ -807,6 +856,13 @@ pub fn generate_value_to_option_field(
                 "u8" => quote! {
                     match value {
                         sea_query::Value::SmallInt(Some(v)) => {
+                            if v < 0 || v > 255 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "SmallInt in range 0..=255".to_string(),
+                                    actual: format!("SmallInt({})", v),
+                                });
+                            }
                             self.#field_name = Some(v as u8);
                             Ok(())
                         }
@@ -824,6 +880,13 @@ pub fn generate_value_to_option_field(
                 "u16" => quote! {
                     match value {
                         sea_query::Value::Int(Some(v)) => {
+                            if v < 0 || v > 65535 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "Int in range 0..=65535".to_string(),
+                                    actual: format!("Int({})", v),
+                                });
+                            }
                             self.#field_name = Some(v as u16);
                             Ok(())
                         }
@@ -841,6 +904,13 @@ pub fn generate_value_to_option_field(
                 "u32" => quote! {
                     match value {
                         sea_query::Value::BigInt(Some(v)) => {
+                            if v < 0 || v > 4294967295 {
+                                return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                    column: stringify!(#column_variant).to_string(),
+                                    expected: "BigInt in range 0..=4294967295".to_string(),
+                                    actual: format!("BigInt({})", v),
+                                });
+                            }
                             self.#field_name = Some(v as u32);
                             Ok(())
                         }

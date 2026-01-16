@@ -147,6 +147,13 @@ mod numeric_tests {
                 },
                 Column::U8Field => match value {
                     sea_query::Value::SmallInt(Some(v)) => {
+                        if v < 0 || v > 255 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U8Field".to_string(),
+                                expected: "SmallInt in range 0..=255".to_string(),
+                                actual: format!("SmallInt({})", v),
+                            });
+                        }
                         self.u8_field = v as u8;
                         Ok(())
                     }
@@ -163,6 +170,13 @@ mod numeric_tests {
                 },
                 Column::U16Field => match value {
                     sea_query::Value::Int(Some(v)) => {
+                        if v < 0 || v > 65535 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U16Field".to_string(),
+                                expected: "Int in range 0..=65535".to_string(),
+                                actual: format!("Int({})", v),
+                            });
+                        }
                         self.u16_field = v as u16;
                         Ok(())
                     }
@@ -179,6 +193,13 @@ mod numeric_tests {
                 },
                 Column::U32Field => match value {
                     sea_query::Value::BigInt(Some(v)) => {
+                        if v < 0 || v > 4294967295 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U32Field".to_string(),
+                                expected: "BigInt in range 0..=4294967295".to_string(),
+                                actual: format!("BigInt({})", v),
+                            });
+                        }
                         self.u32_field = v as u32;
                         Ok(())
                     }
@@ -361,6 +382,13 @@ mod option_numeric_tests {
                 },
                 Column::U8Field => match value {
                     sea_query::Value::SmallInt(Some(v)) => {
+                        if v < 0 || v > 255 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U8Field".to_string(),
+                                expected: "SmallInt in range 0..=255".to_string(),
+                                actual: format!("SmallInt({})", v),
+                            });
+                        }
                         self.u8_field = Some(v as u8);
                         Ok(())
                     }
@@ -376,6 +404,13 @@ mod option_numeric_tests {
                 },
                 Column::U16Field => match value {
                     sea_query::Value::Int(Some(v)) => {
+                        if v < 0 || v > 65535 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U16Field".to_string(),
+                                expected: "Int in range 0..=65535".to_string(),
+                                actual: format!("Int({})", v),
+                            });
+                        }
                         self.u16_field = Some(v as u16);
                         Ok(())
                     }
@@ -391,6 +426,13 @@ mod option_numeric_tests {
                 },
                 Column::U32Field => match value {
                     sea_query::Value::BigInt(Some(v)) => {
+                        if v < 0 || v > 4294967295 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U32Field".to_string(),
+                                expected: "BigInt in range 0..=4294967295".to_string(),
+                                actual: format!("BigInt({})", v),
+                            });
+                        }
                         self.u32_field = Some(v as u32);
                         Ok(())
                     }
@@ -2080,6 +2122,119 @@ mod tests {
         
         // String to numeric (should error)
         assert!(model.set(Column::U8Field, Value::String(Some("invalid".to_string()))).is_err());
+    }
+
+    #[test]
+    fn test_model_trait_option_numeric_unsigned_range_validation() {
+        use option_numeric_tests::*;
+        
+        // Test that negative values are rejected for unsigned Option<T> types
+        let mut model = OptionNumericFieldsModel {
+            id: 1,
+            u8_field: None,
+            u16_field: None,
+            u32_field: None,
+            u64_field: None,
+            f32_field: None,
+            f64_field: None,
+        };
+        
+        // Test Option<u8>: negative value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(-1)));
+        assert!(result.is_err(), "Option<u8> should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=255"), "Error should mention valid range");
+        
+        // Test Option<u8>: out-of-range value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(256)));
+        assert!(result.is_err(), "Option<u8> should reject values > 255");
+        
+        // Test Option<u16>: negative value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(-1)));
+        assert!(result.is_err(), "Option<u16> should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=65535"), "Error should mention valid range");
+        
+        // Test Option<u16>: out-of-range value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(65536)));
+        assert!(result.is_err(), "Option<u16> should reject values > 65535");
+        
+        // Test Option<u32>: negative value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(-1)));
+        assert!(result.is_err(), "Option<u32> should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=4294967295"), "Error should mention valid range");
+        
+        // Test Option<u32>: out-of-range value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(4294967296i64)));
+        assert!(result.is_err(), "Option<u32> should reject values > 4294967295");
+        
+        // Test that valid values still work
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(0))).is_ok());
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(255))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(0))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(65535))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(0))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(4294967295i64))).is_ok());
+        
+        // Test that None values still work
+        assert!(model.set(Column::U8Field, Value::SmallInt(None)).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(None)).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(None)).is_ok());
+    }
+
+    #[test]
+    fn test_model_trait_numeric_unsigned_range_validation() {
+        use numeric_tests::*;
+        
+        // Test that negative values are rejected for unsigned types
+        let mut model = NumericFieldsModel {
+            id: 1,
+            u8_field: 0,
+            u16_field: 0,
+            u32_field: 0,
+            u64_field: 0,
+            f32_field: 0.0,
+            f64_field: 0.0,
+        };
+        
+        // Test u8: negative value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(-1)));
+        assert!(result.is_err(), "u8 should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=255"), "Error should mention valid range");
+        
+        // Test u8: out-of-range value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(256)));
+        assert!(result.is_err(), "u8 should reject values > 255");
+        
+        // Test u16: negative value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(-1)));
+        assert!(result.is_err(), "u16 should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=65535"), "Error should mention valid range");
+        
+        // Test u16: out-of-range value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(65536)));
+        assert!(result.is_err(), "u16 should reject values > 65535");
+        
+        // Test u32: negative value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(-1)));
+        assert!(result.is_err(), "u32 should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=4294967295"), "Error should mention valid range");
+        
+        // Test u32: out-of-range value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(4294967296i64)));
+        assert!(result.is_err(), "u32 should reject values > 4294967295");
+        
+        // Test that valid values still work
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(0))).is_ok());
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(255))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(0))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(65535))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(0))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(4294967295i64))).is_ok());
     }
 }
 
