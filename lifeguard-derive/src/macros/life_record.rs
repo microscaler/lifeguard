@@ -419,6 +419,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
         
+        // Extract the inner type from Option<T> if present
+        // This is critical: conversion functions need the inner type (e.g., String), not Option<String>
+        let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
+        
         // Extract column name (use column_name attribute or convert field name to PascalCase)
         let column_name = attributes::extract_column_name(field)
             .unwrap_or_else(|| utils::pascal_case(&field_name.to_string()));
@@ -482,7 +486,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         
         // Generate ActiveModelTrait match arms
         // For get(), convert directly from Option<T> to Option<Value> (optimized, no to_model() needed)
-        let field_to_value_conversion = generate_field_to_value_conversion(field_name, field_type);
+        // Use inner_type for type conversion (e.g., String from Option<String>)
+        let field_to_value_conversion = generate_field_to_value_conversion(field_name, inner_type);
         active_model_get_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
                 #field_to_value_conversion
@@ -490,9 +495,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
         
         // For set(), generate type conversion code
+        // Use inner_type for type conversion (e.g., String from Option<String>)
         let value_to_field_conversion = generate_value_to_field_conversion(
             field_name,
-            field_type,
+            inner_type,
             &column_variant,
         );
         active_model_set_match_arms.push(quote! {
@@ -502,7 +508,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
         
         // For take(), convert directly from Option<T> to Option<Value> and set field to None (optimized)
-        let field_to_value_conversion = generate_field_to_value_conversion(field_name, field_type);
+        // Use inner_type for type conversion (e.g., String from Option<String>)
+        let field_to_value_conversion = generate_field_to_value_conversion(field_name, inner_type);
         active_model_take_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
                 let value = #field_to_value_conversion;
