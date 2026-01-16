@@ -8,6 +8,7 @@ use quote::quote;
 use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Fields, Ident, GenericArgument, PathArguments, Type};
 
 use crate::attributes;
+use crate::type_conversion;
 use crate::utils;
 
 /// Extract the inner type from Option<T>
@@ -87,8 +88,6 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut primary_key_types: Vec<&Type> = Vec::new(); // Track all primary key types for tuple ValueType
     let mut _primary_key_auto_increment = false; // Reserved for future PrimaryKeyTrait implementation
     let mut primary_key_to_column_mappings = Vec::new();
-    // Track column definitions for ColumnTrait::def()
-    let mut column_def_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
 
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
@@ -150,81 +149,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                             if last_segment.ident == "Option" {
                                 // Handle Option<T> for primary key - extract inner type from generic arguments
                                 if let Some(inner_type) = extract_option_inner_type(field_type) {
-                                    // Match on the inner type
-                                    if let Type::Path(inner_path) = inner_type {
-                                        // Check for serde_json::Value (multi-segment path)
-                                        let is_json_value = inner_path.path.segments.len() == 2
-                                            && inner_path.path.segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
-                                            && inner_path.path.segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
-                                        
-                                        if is_json_value {
-                                            // Handle Option<serde_json::Value> for primary key
-                                            quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
-                                        } else if let Some(inner_segment) = inner_path.path.segments.last() {
-                                            let inner_ident = inner_segment.ident.to_string();
-                                            match inner_ident.as_str() {
-                                                "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
-                                                "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                                "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
-                                                "u8" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16))).unwrap_or(sea_query::Value::SmallInt(None)) },
-                                                "u16" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32))).unwrap_or(sea_query::Value::Int(None)) },
-                                                "u32" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                                "u64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                                "f32" => quote! { self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None)) },
-                                                "f64" => quote! { self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None)) },
-                                                "bool" => quote! { self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None)) },
-                                                "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
-                                                _ => quote! { sea_query::Value::String(None) },
-                                            }
-                                        } else {
-                                            quote! { sea_query::Value::String(None) }
-                                        }
-                                    } else {
-                                        quote! { sea_query::Value::String(None) }
-                                    }
+                                    type_conversion::generate_option_field_to_value_with_default(field_name, inner_type)
                                 } else {
                                     quote! { sea_query::Value::String(None) }
                                 }
                             } else {
-                                // Not Option, check for serde_json::Value or primitive types
-                                // Check for serde_json::Value (multi-segment path)
-                                let is_json_value = segments.len() == 2
-                                    && segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
-                                    && segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
-                                
-                                if is_json_value {
-                                    // Handle serde_json::Value (non-Option) for primary key
-                                    quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
-                                } else if let Some(segment) = segments.first() {
-                                    let ident_str = segment.ident.to_string();
-                                    match ident_str.as_str() {
-                                        "i32" => quote! { sea_query::Value::Int(Some(self.#field_name)) },
-                                        "i64" => {
-                                            quote! { sea_query::Value::BigInt(Some(self.#field_name)) }
-                                        }
-                                        "i16" => {
-                                            quote! { sea_query::Value::SmallInt(Some(self.#field_name)) }
-                                        }
-                                        "u8" => {
-                                            quote! { sea_query::Value::SmallInt(Some(self.#field_name as i16)) }
-                                        }
-                                        "u16" => {
-                                            quote! { sea_query::Value::Int(Some(self.#field_name as i32)) }
-                                        }
-                                        "u32" => {
-                                            quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) }
-                                        }
-                                        "u64" => {
-                                            quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) }
-                                        }
-                                        "String" => {
-                                            quote! { sea_query::Value::String(Some(self.#field_name.clone())) }
-                                        }
-                                        _ => quote! { sea_query::Value::String(None) },
-                                    }
-                                } else {
-                                    quote! { sea_query::Value::String(None) }
-                                }
+                                // Not Option, use direct field-to-value conversion
+                                type_conversion::generate_field_to_value(field_name, field_type)
                             }
                         } else {
                             quote! { sea_query::Value::String(None) }
@@ -255,80 +186,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     if last_segment.ident == "Option" {
                         // Handle Option<T> - extract inner type from generic arguments
                         if let Some(inner_type) = extract_option_inner_type(field_type) {
-                            // Match on the inner type
-                            if let Type::Path(inner_path) = inner_type {
-                                // Check for serde_json::Value (multi-segment path)
-                                let is_json_value = inner_path.path.segments.len() == 2
-                                    && inner_path.path.segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
-                                    && inner_path.path.segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
-                                
-                                if is_json_value {
-                                    // Handle Option<serde_json::Value>
-                                    quote! { self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None)) }
-                                } else if let Some(inner_segment) = inner_path.path.segments.last() {
-                                    let inner_ident = inner_segment.ident.to_string();
-                                    match inner_ident.as_str() {
-                                        "i32" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None)) },
-                                        "i64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                        "i16" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None)) },
-                                        "u8" => quote! { self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16))).unwrap_or(sea_query::Value::SmallInt(None)) },
-                                        "u16" => quote! { self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32))).unwrap_or(sea_query::Value::Int(None)) },
-                                        "u32" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                        "u64" => quote! { self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None)) },
-                                        "f32" => quote! { self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None)) },
-                                        "f64" => quote! { self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None)) },
-                                        "bool" => quote! { self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None)) },
-                                        "String" => quote! { self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None)) },
-                                        _ => quote! { sea_query::Value::String(None) },
-                                    }
-                                } else {
-                                    quote! { sea_query::Value::String(None) }
-                                }
-                            } else {
-                                quote! { sea_query::Value::String(None) }
-                            }
+                            type_conversion::generate_option_field_to_value_with_default(field_name, inner_type)
                         } else {
                             quote! { sea_query::Value::String(None) }
                         }
                     } else {
-                        // Not Option, check for serde_json::Value or primitive types
-                        // Check for serde_json::Value (multi-segment path)
-                        let is_json_value = segments.len() == 2
-                            && segments.first().map(|s| s.ident.to_string()) == Some("serde_json".to_string())
-                            && segments.last().map(|s| s.ident.to_string()) == Some("Value".to_string());
-                        
-                        if is_json_value {
-                            // Handle serde_json::Value (non-Option)
-                            quote! { sea_query::Value::Json(Some(Box::new(self.#field_name.clone()))) }
-                        } else if let Some(segment) = segments.first() {
-                            let ident_str = segment.ident.to_string();
-                            match ident_str.as_str() {
-                                "i32" => quote! { sea_query::Value::Int(Some(self.#field_name)) },
-                                "i64" => quote! { sea_query::Value::BigInt(Some(self.#field_name)) },
-                                "i16" => quote! { sea_query::Value::SmallInt(Some(self.#field_name)) },
-                                "u8" => {
-                                    quote! { sea_query::Value::SmallInt(Some(self.#field_name as i16)) }
-                                }
-                                "u16" => quote! { sea_query::Value::Int(Some(self.#field_name as i32)) },
-                                "u32" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
-                                "u64" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
-                                "f32" => quote! { sea_query::Value::Float(Some(self.#field_name)) },
-                                "f64" => quote! { sea_query::Value::Double(Some(self.#field_name)) },
-                                "bool" => quote! { sea_query::Value::Bool(Some(self.#field_name)) },
-                                "String" => {
-                                    quote! { sea_query::Value::String(Some(self.#field_name.clone())) }
-                                }
-                                _ => {
-                                    // Unknown type - fallback to String(None)
-                                    // NOTE: This may hide bugs. Consider using only supported types:
-                                    // i32, i64, i16, u8, u16, u32, u64, f32, f64, bool, String,
-                                    // Option<T>, serde_json::Value
-                                    quote! { sea_query::Value::String(None) }
-                                }
-                            }
-                        } else {
-                            quote! { sea_query::Value::String(None) }
-                        }
+                        // Not Option, use direct field-to-value conversion
+                        type_conversion::generate_field_to_value(field_name, field_type)
                     }
                 } else {
                     quote! { sea_query::Value::String(None) }

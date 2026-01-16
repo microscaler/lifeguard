@@ -223,7 +223,9 @@ impl ColumnDefinition {
             "f64" => Some("Double".to_string()),
             _ => {
                 // Try to infer from common patterns
-                if inner_type.contains("Json") {
+                if inner_type == "Vec<u8>" || inner_type.starts_with("Vec<") && inner_type.contains("u8") {
+                    Some("Binary".to_string())
+                } else if inner_type.contains("Json") {
                     Some("Json".to_string())
                 } else if inner_type.contains("Uuid") {
                     Some("Uuid".to_string())
