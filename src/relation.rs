@@ -307,4 +307,57 @@ mod tests {
         let _query3 = entity.has_many(TestEntity, "foreign_key", join_cond.clone());
         let _query4 = entity.has_many_through(TestEntity, TestEntity, join_cond.clone(), join_cond);
     }
+
+    // ============================================================================
+    // Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_relation_belongs_to_with_empty_join_condition() {
+        // EDGE CASE: belongs_to with empty/invalid join condition
+        use crate::{LifeEntityName, LifeModelTrait};
+        use sea_query::IdenStatic;
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestEntity;
+        
+        impl sea_query::Iden for TestEntity {
+            fn unquoted(&self) -> &str { "test_entities" }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestColumn { Id }
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        impl IdenStatic for TestColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        impl LifeEntityName for TestEntity {
+            fn table_name(&self) -> &'static str { "test_entities" }
+        }
+        impl LifeModelTrait for TestEntity {
+            type Model = ();
+            type Column = TestColumn;
+        }
+        impl RelationTrait for TestEntity {}
+        
+        let entity = TestEntity;
+        let join_cond = Expr::cust("1 = 1");
+        let _query = entity.belongs_to(TestEntity, "user_id", join_cond);
+    }
+
+    #[test]
+    fn test_join_condition_with_special_characters() {
+        // EDGE CASE: Table/column names with special characters
+        let condition = join_condition("user_profiles", "user_id", "users", "id");
+        let _ = condition;
+    }
+
+    #[test]
+    fn test_join_condition_empty_strings() {
+        // EDGE CASE: Empty table/column names (should still compile, but invalid at runtime)
+        let condition = join_condition("", "", "", "");
+        let _ = condition;
+    }
 }

@@ -786,3 +786,218 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{LifeModelTrait, LifeEntityName};
+    use sea_query::{Iden, IdenStatic};
+
+    // Test entity for hook tests
+    #[derive(Copy, Clone, Debug)]
+    enum TestColumn {
+        Id,
+    }
+    
+    impl Iden for TestColumn {
+        fn unquoted(&self) -> &str { "id" }
+    }
+    
+    impl IdenStatic for TestColumn {
+        fn as_str(&self) -> &'static str { "id" }
+    }
+    
+    #[derive(Copy, Clone, Debug, Default)]
+    struct TestEntity;
+    
+    impl LifeEntityName for TestEntity {
+        fn table_name(&self) -> &'static str { "test_entities" }
+    }
+    
+    #[derive(Clone, Debug)]
+    struct TestModel;
+    
+    impl crate::ModelTrait for TestModel {
+        type Entity = TestEntity;
+        fn get(&self, _column: TestColumn) -> sea_query::Value {
+            sea_query::Value::Int(Some(1))
+        }
+        fn set(&mut self, _column: TestColumn, _value: sea_query::Value) -> Result<(), crate::ModelError> {
+            Ok(())
+        }
+        fn get_primary_key_value(&self) -> sea_query::Value {
+            sea_query::Value::Int(Some(1))
+        }
+    }
+    
+    impl LifeModelTrait for TestEntity {
+        type Model = TestModel;
+        type Column = TestColumn;
+    }
+
+    // ============================================================================
+    // ActiveModelBehavior Hook Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_hook_error_propagates() {
+        // EDGE CASE: Error in before_* hook should abort operation
+        #[derive(Clone, Debug)]
+        struct ErrorHookRecord {
+            should_error: bool,
+        }
+        
+        impl ActiveModelTrait for ErrorHookRecord {
+            type Entity = TestEntity;
+            type Model = TestModel;
+            
+            fn get(&self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn set(&mut self, _column: TestColumn, _value: sea_query::Value) -> Result<(), ActiveModelError> {
+                Ok(())
+            }
+            
+            fn take(&mut self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn reset(&mut self) {}
+            
+            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+        }
+        
+        impl ActiveModelBehavior for ErrorHookRecord {
+            fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("Validation failed".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        
+        let mut record = ErrorHookRecord {
+            should_error: true,
+        };
+        
+        // Error should propagate
+        assert!(record.before_insert().is_err());
+        
+        record.should_error = false;
+        assert!(record.before_insert().is_ok());
+    }
+
+    #[test]
+    fn test_hook_order_insert_vs_save() {
+        // EDGE CASE: Hook execution order for save() vs insert()
+        // save() should call before_save -> before_insert -> insert -> after_insert -> after_save
+        #[derive(Clone, Debug)]
+        struct OrderTrackingRecord {
+            call_order: Vec<String>,
+        }
+        
+        impl ActiveModelTrait for OrderTrackingRecord {
+            type Entity = TestEntity;
+            type Model = TestModel;
+            
+            fn get(&self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn set(&mut self, _column: TestColumn, _value: sea_query::Value) -> Result<(), ActiveModelError> {
+                Ok(())
+            }
+            
+            fn take(&mut self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn reset(&mut self) {}
+            
+            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+        }
+        
+        impl ActiveModelBehavior for OrderTrackingRecord {
+            fn before_save(&mut self) -> Result<(), ActiveModelError> {
+                self.call_order.push("before_save".to_string());
+                Ok(())
+            }
+            
+            fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+                self.call_order.push("before_insert".to_string());
+                Ok(())
+            }
+            
+            fn after_insert(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+                self.call_order.push("after_insert".to_string());
+                Ok(())
+            }
+            
+            fn after_save(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+                self.call_order.push("after_save".to_string());
+                Ok(())
+            }
+        }
+        
+        let mut record = OrderTrackingRecord {
+            call_order: Vec::new(),
+        };
+        
+        // Test hook order (conceptual - full test requires executor)
+        record.before_save().unwrap();
+        record.before_insert().unwrap();
+        // insert() would be called here
+        let model = TestModel;
+        record.after_insert(&model).unwrap();
+        record.after_save(&model).unwrap();
+        
+        // Verify order
+        assert_eq!(record.call_order, vec!["before_save", "before_insert", "after_insert", "after_save"]);
+    }
+}

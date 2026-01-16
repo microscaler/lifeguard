@@ -74,6 +74,10 @@ pub use model::{ModelError, ModelTrait};
 pub mod relation;
 pub use relation::{RelationTrait, RelationBuilder, join_condition};
 
+// Partial Model trait - Epic 02 Story 09
+pub mod partial_model;
+pub use partial_model::{PartialModelTrait, PartialModelBuilder, SelectPartialQuery};
+
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{
     execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,

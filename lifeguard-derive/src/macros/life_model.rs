@@ -167,8 +167,11 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
         }
 
-        // Generate Model field
+        // Generate Model field with serde rename attribute to match to_json() behavior
+        // This ensures from_json() and to_json() use the same JSON key names (database column names)
+        let column_name_lit = syn::LitStr::new(&column_name, field_name.span());
         model_fields.push(quote! {
+            #[serde(rename = #column_name_lit)]
             pub #field_name: #field_type,
         });
 

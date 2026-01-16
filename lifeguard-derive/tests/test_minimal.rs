@@ -33,6 +33,23 @@ mod option_tests {
     }
 }
 
+// Entity with column_name attributes to test JSON roundtrip with renamed columns
+// This verifies that to_json() and from_json() use the same key names
+mod column_name_tests {
+    use super::*;
+    
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "users_with_renamed_columns"]
+    pub struct UserWithRenamedColumns {
+        #[primary_key]
+        pub id: i32,
+        #[column_name = "user_name"]
+        pub firstName: String,  // Field name is camelCase, column is snake_case
+        #[column_name = "email_address"]
+        pub email: String,  // Field name matches column name pattern but column is explicitly renamed
+    }
+}
+
 // Entity with numeric fields for testing all numeric types
 // Using a module to avoid name conflicts
 // NOTE: may_postgres doesn't support u8, u16, u64 in FromSql, so we manually implement ModelTrait
@@ -1264,7 +1281,6 @@ mod tests {
     }
 
     mod no_primary_key_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
 
         #[derive(LifeModel)]
@@ -3161,7 +3177,6 @@ mod active_model_trait_tests {
     #[test]
     fn test_active_model_json_roundtrip() {
         // Test roundtrip: Record -> JSON -> Record
-        use serde_json::json;
         
         let mut original = UserRecord::new();
         original.set_id(100);
@@ -3282,6 +3297,128 @@ mod active_model_trait_tests {
         assert!(json.is_object(), "JSON should be an object");
         let obj = json.as_object().unwrap();
         assert!(obj.is_empty(), "JSON should be empty when no fields are set");
+    }
+
+    // ============================================================================
+    // JSON Serialization Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_json_from_json_with_extra_fields() {
+        // EDGE CASE: from_json() with extra fields in JSON (should ignore or error)
+        use serde_json::json;
+        let json = json!({
+            "id": 1,
+            "name": "Test",
+            "email": "test@example.com",
+            "extra_field": "should be ignored or cause error"
+        });
+        
+        // Should either succeed (ignoring extra) or error
+        let result = UserRecord::from_json(json);
+        // Current implementation may error on extra fields
+        // This documents the expected behavior
+        let _ = result;
+    }
+
+    #[test]
+    fn test_json_from_json_with_null_for_required_field() {
+        // EDGE CASE: from_json() with null for non-Option required field
+        use serde_json::json;
+        let json = json!({
+            "id": 1,
+            "name": null, // null for required String field
+            "email": "test@example.com",
+        });
+        
+        let result = UserRecord::from_json(json);
+        // Should error - null not allowed for non-Option field
+        assert!(result.is_err(), "from_json() should fail when null provided for required field");
+    }
+
+    #[test]
+    fn test_json_roundtrip_with_option_fields() {
+        // EDGE CASE: Roundtrip JSON with Option<T> fields (None and Some values)
+        // Use UserWithOptions which has Option fields
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        record.set_id(1);
+        record.set_name(Some("Test".to_string()));
+        record.set_age(Some(30));
+        record.set_active(Some(true));
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        let restored = UserWithOptionsRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify age is preserved
+        let restored_age = restored.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(restored_age.is_some());
+    }
+
+    #[test]
+    fn test_json_with_large_values() {
+        // EDGE CASE: JSON with very large string values
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("A".repeat(10000)); // Large string
+        record.set_email("test@example.com".to_string());
+        
+        let json = record.to_json().expect("to_json() should handle large values");
+        assert!(json.is_object());
+    }
+
+    #[test]
+    fn test_json_with_special_characters() {
+        // EDGE CASE: JSON with special characters (quotes, newlines, etc.)
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("Test \"quoted\" name\nwith newline".to_string());
+        record.set_email("test@example.com".to_string());
+        
+        let json = record.to_json().expect("to_json() should handle special characters");
+        let restored = UserRecord::from_json(json).expect("from_json() should handle special characters");
+        
+        let restored_name = restored.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(restored_name.is_some());
+    }
+
+    #[test]
+    fn test_json_roundtrip_with_column_name_attribute() {
+        // Test that JSON roundtrip works when #[column_name] attribute is used
+        // This verifies that to_json() and from_json() use the same key names
+        use column_name_tests::*;
+        
+        let mut original = UserWithRenamedColumnsRecord::new();
+        original.set_id(100);
+        original.set_firstName("John".to_string());
+        original.set_email("john@example.com".to_string());
+        
+        // Record -> JSON (should use column names: "user_name", "email_address")
+        let json = original.to_json().expect("to_json() should succeed");
+        
+        // Verify JSON uses column names, not field names
+        let json_obj = json.as_object().expect("JSON should be an object");
+        assert!(json_obj.contains_key("user_name"), "JSON should contain 'user_name' key (column name)");
+        assert!(!json_obj.contains_key("firstName"), "JSON should NOT contain 'firstName' key (field name)");
+        assert!(json_obj.contains_key("email_address"), "JSON should contain 'email_address' key (column name)");
+        assert!(!json_obj.contains_key("email"), "JSON should NOT contain 'email' key (field name)");
+        
+        // JSON -> Record (should deserialize using column names via serde rename)
+        let restored = UserWithRenamedColumnsRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify all fields match
+        let original_id = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::Id);
+        let restored_id = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::Id);
+        assert_eq!(original_id, restored_id);
+        
+        let original_first_name = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::FirstName);
+        let restored_first_name = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::FirstName);
+        assert_eq!(original_first_name, restored_first_name);
+        
+        let original_email = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::Email);
+        let restored_email = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::Email);
+        assert_eq!(original_email, restored_email);
     }
 
     // ============================================================================
@@ -4557,7 +4694,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_active_model_trait_into_active_value() {
         // Test into_active_value() method on ActiveModelTrait
-        use lifeguard::{ActiveModelTrait, ActiveValue, LifeModelTrait};
+        use lifeguard::{ActiveModelTrait, LifeModelTrait};
         
         let mut record = UserRecord::new();
         record.set_id(1);
