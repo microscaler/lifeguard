@@ -71,6 +71,20 @@ local_resource(
     allow_parallel=True,
 )
 
+# Build lifeguard-codegen (code generation CLI tool)
+local_resource(
+    'build-codegen',
+    cmd='cargo build -p lifeguard-codegen',
+    deps=[
+        'lifeguard-codegen/src',
+        'lifeguard-codegen/Cargo.toml',
+        'lifeguard-codegen/Cargo.lock',
+    ],
+    resource_deps=[],  # No dependencies - standalone crate
+    labels=['build'],
+    allow_parallel=True,
+)
+
 # Build main lifeguard crate (depends on lifeguard-derive)
 local_resource(
     'build-lifeguard',
@@ -149,6 +163,22 @@ local_resource(
         'lifeguard-derive/Cargo.lock',
     ],
     resource_deps=['build-derive'],  # Wait for build to complete first
+    labels=['tests'],
+    allow_parallel=True,
+)
+
+# Run lifeguard-codegen tests (code generation CLI tests)
+# These tests verify the code generation tool works correctly
+local_resource(
+    'test-codegen',
+    cmd='cd lifeguard-codegen && cargo test --no-fail-fast',
+    deps=[
+        'lifeguard-codegen/src',
+        'lifeguard-codegen/tests',
+        'lifeguard-codegen/Cargo.toml',
+        'lifeguard-codegen/Cargo.lock',
+    ],
+    resource_deps=['build-codegen'],  # Wait for build to complete first
     labels=['tests'],
     allow_parallel=True,
 )
