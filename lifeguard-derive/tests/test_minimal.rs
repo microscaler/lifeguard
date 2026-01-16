@@ -22,7 +22,7 @@ pub struct User {
 mod option_tests {
     use super::*;
     
-    #[derive(LifeModel)]
+    #[derive(LifeModel, LifeRecord)]
     #[table_name = "users_with_options"]
     pub struct UserWithOptions {
         #[primary_key]
@@ -2603,6 +2603,193 @@ mod active_model_trait_tests {
         match name_value.unwrap() {
             sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
             _ => panic!("Expected String(Some(\"John\"))"),
+        }
+    }
+
+    // ============================================================================
+    // OPTION<T> FIELDS IN RECORDS - FIX FOR Option<Option<T>> ISSUE
+    // ============================================================================
+
+    #[test]
+    fn test_record_with_option_fields_not_double_wrapped() {
+        // CRITICAL TEST: Verify that Option<T> fields in Model don't become Option<Option<T>> in Record
+        use option_tests::*;
+        
+        // Create a model with Option<String> field
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: Some("John".to_string()),
+            age: Some(30),
+            active: Some(true),
+        };
+        
+        // Create record from model
+        let record = UserWithOptionsRecord::from_model(&model);
+        
+        // Verify the record field is Option<String>, not Option<Option<String>>
+        // We can't directly check the type, but we can verify behavior:
+        // - get() should work correctly
+        // - set() should work correctly
+        // - to_model() should work correctly
+        
+        // Test get() with Option<String> field
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for Option<String> field");
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\")) for Option<String> field"),
+        }
+        
+        // Test get() with Option<i32> field
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_some(), "get() should return Some(Value) for Option<i32> field");
+        match age_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 30),
+            _ => panic!("Expected Int(Some(30)) for Option<i32> field"),
+        }
+        
+        // Test get() with Option<bool> field
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_some(), "get() should return Some(Value) for Option<bool> field");
+        match active_value.unwrap() {
+            sea_query::Value::Bool(Some(v)) => assert_eq!(v, true),
+            _ => panic!("Expected Bool(Some(true)) for Option<bool> field"),
+        }
+    }
+
+    #[test]
+    fn test_record_with_option_fields_set_works() {
+        // Test that set() works correctly for Option<T> fields
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        
+        // Set Option<String> field to Some
+        let result = record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(Some("Jane".to_string()))
+        );
+        assert!(result.is_ok(), "set() should work for Option<String> field with Some value");
+        
+        // Verify get() returns the correct value
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Jane"),
+            _ => panic!("Expected String(Some(\"Jane\"))"),
+        }
+        
+        // Set Option<String> field to None
+        let result = record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(None)
+        );
+        assert!(result.is_ok(), "set() should work for Option<String> field with None value");
+        
+        // Verify get() returns None
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value::String(None)) for None Option<String>");
+        match name_value.unwrap() {
+            sea_query::Value::String(None) => (),
+            _ => panic!("Expected String(None) for None Option<String>"),
+        }
+    }
+
+    #[test]
+    fn test_record_with_option_fields_from_model_to_model_roundtrip() {
+        // Test roundtrip: Model with Option<T> -> Record -> Model
+        use option_tests::*;
+        
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: Some("John".to_string()),
+            age: Some(30),
+            active: Some(true),
+        };
+        
+        // Create record from model
+        let record = UserWithOptionsRecord::from_model(&model);
+        
+        // Convert back to model
+        let model2 = record.to_model();
+        assert_eq!(model2.id, 1);
+        assert_eq!(model2.name, Some("John".to_string()));
+        assert_eq!(model2.age, Some(30));
+        assert_eq!(model2.active, Some(true));
+    }
+
+    #[test]
+    fn test_record_with_option_fields_none_values() {
+        // Test that None values in Option<T> fields work correctly
+        use option_tests::*;
+        
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: None,
+            age: None,
+            active: None,
+        };
+        
+        // Create record from model
+        let record = UserWithOptionsRecord::from_model(&model);
+        
+        // Verify get() returns None for all Option<T> fields
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value::String(None))");
+        match name_value.unwrap() {
+            sea_query::Value::String(None) => (),
+            _ => panic!("Expected String(None) for None Option<String>"),
+        }
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_some(), "get() should return Some(Value::Int(None))");
+        match age_value.unwrap() {
+            sea_query::Value::Int(None) => (),
+            _ => panic!("Expected Int(None) for None Option<i32>"),
+        }
+        
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_some(), "get() should return Some(Value::Bool(None))");
+        match active_value.unwrap() {
+            sea_query::Value::Bool(None) => (),
+            _ => panic!("Expected Bool(None) for None Option<bool>"),
+        }
+        
+        // Convert back to model
+        let model2 = record.to_model();
+        assert_eq!(model2.id, 1);
+        assert_eq!(model2.name, None);
+        assert_eq!(model2.age, None);
+        assert_eq!(model2.active, None);
+    }
+
+    #[test]
+    fn test_record_with_option_fields_setter_accepts_option() {
+        // Test that setter for Option<T> fields accepts Option<T> directly
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        
+        // Setter should accept Option<String> directly (not String)
+        record.set_name(Some("John".to_string()));
+        
+        // Verify the value was set
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\"))"),
+        }
+        
+        // Setter should accept None
+        record.set_name(None);
+        
+        // Verify the value is None
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(None) => (),
+            _ => panic!("Expected String(None)"),
         }
     }
 

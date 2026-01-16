@@ -95,6 +95,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
         
+        // Check if field type is already Option<T>
+        let is_already_option = extract_option_inner_type(field_type).is_some();
+        
         // Extract the inner type from Option<T> if present
         // This is critical: conversion functions need the inner type (e.g., String), not Option<String>
         let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
@@ -118,32 +121,59 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Check if field is nullable (has #[nullable] attribute)
         let is_nullable = attributes::has_attribute(field, "nullable");
         
-        // Generate record field (Option<T>)
+        // Generate record field type
+        // If field is already Option<T>, use it directly (don't wrap in Option<> again)
+        // Otherwise, wrap in Option<>
+        let record_field_type = if is_already_option {
+            // Field is already Option<T>, use it directly
+            quote! { #field_type }
+        } else {
+            // Field is T, wrap in Option<T>
+            quote! { Option<#field_type> }
+        };
+        
         record_fields.push(quote! {
-            pub #field_name: Option<#field_type>,
+            pub #field_name: #record_field_type,
         });
         
         // Store field name for struct initialization
         record_field_names.push(field_name);
         
         // Generate from_model field assignment
-        from_model_fields.push(quote! {
-            #field_name: Some(model.#field_name.clone()),
-        });
+        // If field is already Option<T>, assign directly (don't wrap in Some())
+        // Otherwise, wrap in Some()
+        if is_already_option {
+            from_model_fields.push(quote! {
+                #field_name: model.#field_name.clone(),
+            });
+        } else {
+            from_model_fields.push(quote! {
+                #field_name: Some(model.#field_name.clone()),
+            });
+        }
         
         // Generate to_model field extraction
-        // For inserts, None fields use defaults (or panic if required)
-        if is_nullable {
+        // For Option<T> fields, clone directly (Record field is Option<T>, Model field is Option<T>)
+        // For non-Option fields, unwrap (Record field is Option<T>, Model field is T)
+        if is_already_option {
+            // Field is already Option<T>, clone directly
+            to_model_fields.push(quote! {
+                #field_name: self.#field_name.clone(),
+            });
+        } else if is_nullable {
+            // Non-Option field, but nullable - use default if None
             to_model_fields.push(quote! {
                 #field_name: self.#field_name.clone().unwrap_or_default(),
             });
         } else {
+            // Non-Option field, required - panic if None
             to_model_fields.push(quote! {
                 #field_name: self.#field_name.clone().expect(&format!("Field {} is required but not set", stringify!(#field_name))),
             });
         }
         
         // Generate dirty field check
+        // For Option<T> fields (both cases), check if Some
         dirty_fields_check.push(quote! {
             if self.#field_name.is_some() {
                 dirty.push(stringify!(#field_name).to_string());
@@ -151,14 +181,26 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
         
         // Generate setter method
+        // If field is already Option<T>, setter accepts Option<T> directly
+        // Otherwise, setter accepts T and wraps in Some()
         let setter_name = Ident::new(&format!("set_{}", field_name), field_name.span());
-        setter_methods.push(quote! {
-            /// Set the #field_name field
-            pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
-                self.#field_name = Some(value);
-                self
-            }
-        });
+        if is_already_option {
+            setter_methods.push(quote! {
+                /// Set the #field_name field
+                pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.#field_name = value;
+                    self
+                }
+            });
+        } else {
+            setter_methods.push(quote! {
+                /// Set the #field_name field
+                pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.#field_name = Some(value);
+                    self
+                }
+            });
+        }
         
         // Generate ActiveModelTrait match arms
         // For get(), convert directly from Option<T> to Option<Value> (optimized, no to_model() needed)
@@ -210,11 +252,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             });
             // Track auto-increment PKs that need RETURNING (if not set)
             // Generate code to check if this PK needs RETURNING and extract if so
+            // Database returns T (inner type), not Option<T>, so we use inner_type
+            // Both Option<T> and T fields need to wrap the returned value in Some()
             returning_extractors.push(quote! {
                 // Check if this auto-increment PK was not set and needs RETURNING
                 if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
-                    // Extract returned value for #field_name
-                    let pk_value: #field_type = row.get(returning_idx);
+                    // Extract returned value for #field_name (database returns T, wrap in Some())
+                    let pk_value: #inner_type = row.get(returning_idx);
                     returning_idx += 1;
                     updated_record.#field_name = Some(pk_value);
                 }

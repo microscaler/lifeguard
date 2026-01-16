@@ -219,14 +219,18 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
     // Check for serde_json::Value first
     if is_json_value_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone()))))
+            Some(self.#field_name.as_ref()
+                .map(|v| sea_query::Value::Json(Some(Box::new(v.clone()))))
+                .unwrap_or(sea_query::Value::Json(None)))
         };
     }
     
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref().map(|v| sea_query::Value::Bytes(Some(v.clone())))
+            Some(self.#field_name.as_ref()
+                .map(|v| sea_query::Value::Bytes(Some(v.clone())))
+                .unwrap_or(sea_query::Value::Bytes(None)))
         };
     }
     
@@ -236,50 +240,74 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
             let ident_str = segment.ident.to_string();
             match ident_str.as_str() {
                 "i32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Int(Some(v)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::Int(Some(v)))
+                        .unwrap_or(sea_query::Value::Int(None)))
                 },
                 "i64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::BigInt(Some(v)))
+                        .unwrap_or(sea_query::Value::BigInt(None)))
                 },
                 "i16" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::SmallInt(Some(v)))
+                        .unwrap_or(sea_query::Value::SmallInt(None)))
                 },
                 "i8" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::TinyInt(Some(v as i8)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::TinyInt(Some(v as i8)))
+                        .unwrap_or(sea_query::Value::TinyInt(None)))
                 },
                 "u8" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::SmallInt(Some(v as i16)))
+                        .unwrap_or(sea_query::Value::SmallInt(None)))
                 },
                 "u16" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::Int(Some(v as i32)))
+                        .unwrap_or(sea_query::Value::Int(None)))
                 },
                 "u32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::BigInt(Some(v as i64)))
+                        .unwrap_or(sea_query::Value::BigInt(None)))
                 },
                 "u64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigUnsigned(Some(v)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::BigUnsigned(Some(v)))
+                        .unwrap_or(sea_query::Value::BigUnsigned(None)))
                 },
                 "f32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Float(Some(v)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::Float(Some(v)))
+                        .unwrap_or(sea_query::Value::Float(None)))
                 },
                 "f64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Double(Some(v)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::Double(Some(v)))
+                        .unwrap_or(sea_query::Value::Double(None)))
                 },
                 "bool" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Bool(Some(v)))
+                    Some(self.#field_name
+                        .map(|v| sea_query::Value::Bool(Some(v)))
+                        .unwrap_or(sea_query::Value::Bool(None)))
                 },
                 "String" => quote! {
-                    self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone())))
+                    Some(self.#field_name.as_ref()
+                        .map(|v| sea_query::Value::String(Some(v.clone())))
+                        .unwrap_or(sea_query::Value::String(None)))
                 },
                 _ => quote! {
-                    None // Unknown type
+                    Some(sea_query::Value::String(None)) // Unknown type, default to String(None)
                 },
             }
         } else {
-            quote! { None }
+            quote! { Some(sea_query::Value::String(None)) }
         }
     } else {
-        quote! { None }
+        quote! { Some(sea_query::Value::String(None)) }
     }
 }
 

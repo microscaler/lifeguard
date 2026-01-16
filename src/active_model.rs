@@ -448,8 +448,25 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
         // Default implementation: convert get() result to ActiveValue
         // Records can override this to provide more detailed state information
         match self.get(column) {
-            Some(value) => ActiveValue::Set(value),
-            None => ActiveValue::NotSet, // Field is None (could be unset or explicitly None)
+            Some(value) => {
+                // Check if the value is a None variant (field is not set)
+                // For Option<T> fields, get() returns Some(Value::String(None)) when field is None
+                match &value {
+                    sea_query::Value::String(None)
+                    | sea_query::Value::Int(None)
+                    | sea_query::Value::BigInt(None)
+                    | sea_query::Value::SmallInt(None)
+                    | sea_query::Value::TinyInt(None)
+                    | sea_query::Value::BigUnsigned(None)
+                    | sea_query::Value::Float(None)
+                    | sea_query::Value::Double(None)
+                    | sea_query::Value::Bool(None)
+                    | sea_query::Value::Bytes(None)
+                    | sea_query::Value::Json(None) => ActiveValue::NotSet,
+                    _ => ActiveValue::Set(value),
+                }
+            }
+            None => ActiveValue::NotSet, // get() returned None (shouldn't happen with current implementation)
         }
     }
 
