@@ -166,6 +166,146 @@ pub trait LifeModelTrait: LifeEntityName {
     {
         SelectQuery::new()
     }
+
+    /// Insert an ActiveModel (Record) into the database
+    ///
+    /// This is a convenience method that delegates to `ActiveModelTrait::insert()`.
+    /// It provides a static method on Entity for consistency with SeaORM's API.
+    ///
+    /// # Arguments
+    ///
+    /// * `active_model` - The ActiveModel (Record) to insert
+    /// * `executor` - The database executor to use
+    ///
+    /// # Returns
+    ///
+    /// Returns the inserted model on success, or an error if the operation fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor};
+    ///
+    /// # struct User; // Entity
+    /// # struct UserModel { id: i32, name: String }; // Model
+    /// # struct UserRecord; // Record
+    /// # impl lifeguard::ActiveModelTrait for UserRecord {
+    /// #     type Model = UserModel;
+    /// #     fn insert<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
+    /// #     // ... other methods
+    /// # }
+    /// # impl lifeguard::LifeModelTrait for User {
+    /// #     type Model = UserModel;
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// # let record = UserRecord; // UserRecord::new();
+    ///
+    /// let model = User::insert(record, executor)?;
+    /// ```
+    fn insert<AM, E>(active_model: AM, executor: &E) -> Result<Self::Model, crate::active_model::ActiveModelError>
+    where
+        Self: Sized,
+        AM: crate::active_model::ActiveModelTrait<Model = Self::Model>,
+        E: LifeExecutor,
+    {
+        active_model.insert(executor)
+    }
+
+    /// Update an ActiveModel (Record) in the database
+    ///
+    /// This is a convenience method that delegates to `ActiveModelTrait::update()`.
+    /// It provides a static method on Entity for consistency with SeaORM's API.
+    ///
+    /// # Arguments
+    ///
+    /// * `active_model` - The ActiveModel (Record) to update
+    /// * `executor` - The database executor to use
+    ///
+    /// # Returns
+    ///
+    /// Returns the updated model on success, or an error if the operation fails.
+    ///
+    /// # Note
+    ///
+    /// This requires a primary key to be set in the ActiveModel.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor};
+    ///
+    /// # struct User; // Entity
+    /// # struct UserModel { id: i32, name: String }; // Model
+    /// # struct UserRecord; // Record
+    /// # impl lifeguard::ActiveModelTrait for UserRecord {
+    /// #     type Model = UserModel;
+    /// #     fn update<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
+    /// #     // ... other methods
+    /// # }
+    /// # impl lifeguard::LifeModelTrait for User {
+    /// #     type Model = UserModel;
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// # let record = UserRecord; // UserRecord::from_model(&existing_model);
+    ///
+    /// let model = User::update(record, executor)?;
+    /// ```
+    fn update<AM, E>(active_model: AM, executor: &E) -> Result<Self::Model, crate::active_model::ActiveModelError>
+    where
+        Self: Sized,
+        AM: crate::active_model::ActiveModelTrait<Model = Self::Model>,
+        E: LifeExecutor,
+    {
+        active_model.update(executor)
+    }
+
+    /// Delete a record from the database by primary key
+    ///
+    /// This is a convenience method that delegates to `ActiveModelTrait::delete()`.
+    /// It provides a static method on Entity for consistency with SeaORM's API.
+    ///
+    /// # Arguments
+    ///
+    /// * `active_model` - The ActiveModel (Record) with primary key set
+    /// * `executor` - The database executor to use
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if the operation fails.
+    ///
+    /// # Note
+    ///
+    /// This requires a primary key to be set in the ActiveModel.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor};
+    ///
+    /// # struct User; // Entity
+    /// # struct UserModel { id: i32, name: String }; // Model
+    /// # struct UserRecord; // Record
+    /// # impl lifeguard::ActiveModelTrait for UserRecord {
+    /// #     type Model = UserModel;
+    /// #     fn delete<E: LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> { Ok(()) }
+    /// #     // ... other methods
+    /// # }
+    /// # impl lifeguard::LifeModelTrait for User {
+    /// #     type Model = UserModel;
+    /// # }
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// # let record = UserRecord; // UserRecord::from_model(&existing_model);
+    ///
+    /// User::delete(record, executor)?;
+    /// ```
+    fn delete<AM, E>(active_model: AM, executor: &E) -> Result<(), crate::active_model::ActiveModelError>
+    where
+        Self: Sized,
+        AM: crate::active_model::ActiveModelTrait<Model = Self::Model>,
+        E: LifeExecutor,
+    {
+        active_model.delete(executor)
+    }
 }
 
 /// Query builder for selecting records

@@ -129,9 +129,9 @@ This design simplifies the API while maintaining the same functionality.
 | `Select<E>::count()` | `SelectQuery<E>::count()` | ✅ Implemented | COUNT query |
 | `Model::find_related<R>()` | ❌ Missing | 🟡 **Future** | Find related entities |
 | `Model::find_linked<L>()` | ❌ Missing | 🟡 **Future** | Find linked entities |
-| `Entity::insert()` | ❌ Missing | 🔴 **Future** | Insert ActiveModel |
-| `Entity::update()` | ❌ Missing | 🔴 **Future** | Update ActiveModel |
-| `Entity::delete()` | ❌ Missing | 🔴 **Future** | Delete by primary key |
+| `Entity::insert()` | ✅ Implemented | ✅ Complete | Insert ActiveModel (static convenience method) |
+| `Entity::update()` | ✅ Implemented | ✅ Complete | Update ActiveModel (static convenience method) |
+| `Entity::delete()` | ✅ Implemented | ✅ Complete | Delete by primary key (static convenience method) |
 | `Entity::delete_many()` | `Model::delete_many()` | ✅ Implemented | Batch delete (different API) |
 | `Entity::insert_many()` | `Model::insert_many()` | ✅ Implemented | Batch insert (different API) |
 | `Entity::update_many()` | `Model::update_many()` | ✅ Implemented | Batch update (different API) |
@@ -357,7 +357,7 @@ This design simplifies the API while maintaining the same functionality.
 | **Core Traits** | 15 | 7 | 47% (Enhanced: PrimaryKeyArity with granular variants) |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
-| **Query Builder Methods** | 20 | 10 | 50% |
+| **Query Builder Methods** | 20 | 13 | 65% |
 | **Column Operations** | 15 | 15 | 100% |
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
 | **Value Types** | 6 | 1 | 17% |
