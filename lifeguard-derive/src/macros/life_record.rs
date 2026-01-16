@@ -245,10 +245,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         
         // Generate INSERT column/value collection
         // Skip auto-increment primary keys if not set
+        // NOTE: These checks use record_for_hooks.get() to include modifications made by before_insert() hook
         if is_primary_key && is_auto_increment {
             // Auto-increment PK: include only if set
             insert_column_checks.push(quote! {
-                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     values.push(value);
                 }
@@ -257,9 +258,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // Generate code to check if this PK needs RETURNING and extract if so
             // Database returns T (inner type), not Option<T>, so we use inner_type
             // Both Option<T> and T fields need to wrap the returned value in Some()
+            // NOTE: Check record_for_hooks to see if PK is still unset after before_insert() hook
             returning_extractors.push(quote! {
                 // Check if this auto-increment PK was not set and needs RETURNING
-                if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
+                if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
                     // Extract returned value for #field_name (database returns T, wrap in Some())
                     let pk_value: #inner_type = row.get(returning_idx);
                     returning_idx += 1;
@@ -269,7 +271,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         } else if !is_primary_key {
             // Non-PK field: include if set
             insert_column_checks.push(quote! {
-                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     values.push(value);
                 }
@@ -277,7 +279,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         } else {
             // Non-auto-increment PK: include if set (required for composite keys)
             insert_column_checks.push(quote! {
-                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     values.push(value);
                 }
@@ -547,10 +549,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 // Check if we need RETURNING clause for auto-increment primary keys
                 // Track which auto-increment PKs were not set and need RETURNING
+                // NOTE: Check record_for_hooks to see if PK is still unset after before_insert() hook
                 let mut needs_returning = false;
                 let mut returning_cols = Vec::new();
                 #(
-                    if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants).is_none() && #primary_key_auto_increment {
+                    if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants).is_none() && #primary_key_auto_increment {
                         needs_returning = true;
                         returning_cols.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants);
                     }

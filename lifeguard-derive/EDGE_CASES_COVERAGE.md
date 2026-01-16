@@ -84,8 +84,35 @@ This document tracks edge case coverage for all Lifeguard features.
 
 - Default implementations (all hooks return Ok(()))
 - Error handling (hooks can return errors)
-- Model modification in hooks
+- Model modification in hooks (in-memory only)
 - Hook execution order for insert/update/save/delete
+
+### ✅ CRITICAL: Integration Tests Added (tests/integration/active_model_crud.rs)
+
+**Status:** ✅ **NEW - Critical Bug Prevention Tests**
+
+These tests verify that hook modifications are **actually persisted to the database**:
+
+1. **`test_before_insert_hook_modifications_are_persisted()`** - Verifies that:
+   - Modifications made in `before_insert()` are saved to the database
+   - Returned model matches database state
+   - Would catch bug where `insert()` uses `self.get()` instead of `record_for_hooks.get()`
+
+2. **`test_before_update_hook_modifications_are_persisted()`** - Verifies that:
+   - Modifications made in `before_update()` are saved to the database
+   - Returned model matches database state
+   - Would catch bug where `update()` uses `self.get()` instead of `record_for_hooks.get()`
+
+3. **`test_before_insert_hook_modifications_with_multiple_fields()`** - Verifies that:
+   - ALL hook modifications are persisted (not just some fields)
+   - Non-hook-modified fields remain unchanged
+   - Edge case: Multiple field modifications in single hook
+
+**Why These Tests Are Critical:**
+- Previous tests only verified hooks could modify records in-memory
+- No tests verified hook modifications were actually saved to the database
+- This gap allowed the `insert()` bug to exist undetected
+- These tests would have caught the bug immediately
 
 ---
 

@@ -1091,3 +1091,285 @@ fn test_get_returns_none_for_unset_fields_integration() {
     assert_eq!(model.email, ""); // Default for unset String field (from to_model())
     assert_eq!(model.age, None); // None for unset Option<i32> field
 }
+
+// ============================================================================
+// CRITICAL BUG FIX TESTS: Hook modifications must be persisted
+// ============================================================================
+// These tests verify that modifications made in before_insert() and before_update()
+// hooks are actually saved to the database. This catches bugs where hooks modify
+// record_for_hooks but the INSERT/UPDATE query uses self.get() instead of
+// record_for_hooks.get().
+
+// Test entity with hook modifications
+#[derive(LifeModel, LifeRecord)]
+#[table_name = "test_hook_users"]
+pub struct TestHookUser {
+    #[primary_key]
+    #[auto_increment]
+    pub id: i32,
+    pub name: String,
+    pub email: String,
+    pub created_at: Option<String>, // Set by before_insert hook
+    pub updated_at: Option<String>, // Set by before_update hook
+}
+
+fn setup_hook_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS test_hook_users (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        "#,
+        &[],
+    )?;
+    Ok(())
+}
+
+fn cleanup_hook_test_data(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute("DELETE FROM test_hook_users", &[])?;
+    Ok(())
+}
+
+// Custom Record with before_insert hook that modifies fields
+#[derive(Clone, Debug)]
+struct HookModifyingRecord {
+    inner: TestHookUserRecord,
+}
+
+impl lifeguard::ActiveModelTrait for HookModifyingRecord {
+    type Entity = TestHookUser;
+    type Model = TestHookUserModel;
+    
+    fn get(&self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+        self.inner.get(column)
+    }
+    
+    fn set(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+        self.inner.set(column, value)
+    }
+    
+    fn take(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+        self.inner.take(column)
+    }
+    
+    fn reset(&mut self) {
+        self.inner.reset()
+    }
+    
+    fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        self.inner.insert(executor)
+    }
+    
+    fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        self.inner.update(executor)
+    }
+    
+    fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        self.inner.save(executor)
+    }
+    
+    fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+        self.inner.delete(executor)
+    }
+    
+    fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+        Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+    }
+    
+    fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+        self.inner.to_json()
+    }
+}
+
+impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
+    fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+        // CRITICAL: Modify fields in before_insert hook
+        // These modifications MUST be saved to the database
+        use lifeguard::LifeModelTrait;
+        let timestamp = "2024-01-01T00:00:00Z".to_string();
+        self.set(
+            <TestHookUser as LifeModelTrait>::Column::CreatedAt,
+            sea_query::Value::String(Some(timestamp.clone()))
+        )?;
+        // Also modify name to verify hook changes are persisted
+        self.set(
+            <TestHookUser as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(Some("Modified by before_insert hook".to_string()))
+        )?;
+        Ok(())
+    }
+    
+    fn before_update(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+        // CRITICAL: Modify fields in before_update hook
+        // These modifications MUST be saved to the database
+        use lifeguard::LifeModelTrait;
+        let timestamp = "2024-01-02T00:00:00Z".to_string();
+        self.set(
+            <TestHookUser as LifeModelTrait>::Column::UpdatedAt,
+            sea_query::Value::String(Some(timestamp.clone()))
+        )?;
+        // Also modify name to verify hook changes are persisted
+        self.set(
+            <TestHookUser as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(Some("Modified by before_update hook".to_string()))
+        )?;
+        Ok(())
+    }
+}
+
+#[test]
+fn test_before_insert_hook_modifications_are_persisted() {
+    // CRITICAL BUG FIX TEST: Verify that modifications made in before_insert()
+    // hook are actually saved to the database. This test would have caught the
+    // bug where insert() used self.get() instead of record_for_hooks.get().
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_hook_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_hook_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a record with initial values
+    let mut record = HookModifyingRecord {
+        inner: TestHookUserRecord::new(),
+    };
+    record.set_name("Original Name".to_string()).expect("Failed to set name");
+    record.set_email("test@example.com".to_string()).expect("Failed to set email");
+    // created_at is NOT set - should be set by before_insert hook
+
+    // Insert the record - before_insert hook will modify name and set created_at
+    let model = record.insert(&executor).expect("Failed to insert");
+
+    // CRITICAL ASSERTION: The returned model should reflect hook modifications
+    assert_eq!(model.name, "Modified by before_insert hook", 
+        "Returned model should reflect before_insert hook modifications");
+    assert_eq!(model.created_at, Some("2024-01-01T00:00:00Z".to_string()),
+        "Returned model should have created_at set by before_insert hook");
+
+    // CRITICAL ASSERTION: The database should contain hook-modified values
+    let rows = executor.query_all(
+        "SELECT name, created_at FROM test_hook_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1, "Record should exist in database");
+    let row = &rows[0];
+    let db_name: String = row.get(0);
+    let db_created_at: Option<String> = row.get(1);
+    
+    assert_eq!(db_name, "Modified by before_insert hook",
+        "Database should contain name modified by before_insert hook");
+    assert_eq!(db_created_at, Some("2024-01-01T00:00:00Z".to_string()),
+        "Database should contain created_at set by before_insert hook");
+
+    // CRITICAL ASSERTION: Returned model should match database state
+    assert_eq!(model.name, db_name, "Returned model name should match database");
+    assert_eq!(model.created_at, db_created_at, "Returned model created_at should match database");
+}
+
+#[test]
+fn test_before_update_hook_modifications_are_persisted() {
+    // CRITICAL BUG FIX TEST: Verify that modifications made in before_update()
+    // hook are actually saved to the database. This test would have caught the
+    // bug where update() used self.get() instead of record_for_hooks.get().
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_hook_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_hook_test_data(&executor).expect("Failed to cleanup");
+
+    // First, insert a record
+    let mut insert_record = TestHookUserRecord::new();
+    insert_record.set_name("Original Name".to_string()).expect("Failed to set name");
+    insert_record.set_email("test@example.com".to_string()).expect("Failed to set email");
+    let original_model = insert_record.insert(&executor).expect("Failed to insert");
+
+    // Now update it with a hook-modifying record
+    let mut update_record = HookModifyingRecord {
+        inner: TestHookUserRecord::from_model(&original_model),
+    };
+    update_record.set_name("Update Name".to_string()).expect("Failed to set name");
+    // updated_at is NOT set - should be set by before_update hook
+
+    // Update the record - before_update hook will modify name and set updated_at
+    let model = update_record.update(&executor).expect("Failed to update");
+
+    // CRITICAL ASSERTION: The returned model should reflect hook modifications
+    assert_eq!(model.name, "Modified by before_update hook",
+        "Returned model should reflect before_update hook modifications");
+    assert_eq!(model.updated_at, Some("2024-01-02T00:00:00Z".to_string()),
+        "Returned model should have updated_at set by before_update hook");
+
+    // CRITICAL ASSERTION: The database should contain hook-modified values
+    let rows = executor.query_all(
+        "SELECT name, updated_at FROM test_hook_users WHERE id = $1",
+        &[&original_model.id],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1, "Record should exist in database");
+    let row = &rows[0];
+    let db_name: String = row.get(0);
+    let db_updated_at: Option<String> = row.get(1);
+    
+    assert_eq!(db_name, "Modified by before_update hook",
+        "Database should contain name modified by before_update hook");
+    assert_eq!(db_updated_at, Some("2024-01-02T00:00:00Z".to_string()),
+        "Database should contain updated_at set by before_update hook");
+
+    // CRITICAL ASSERTION: Returned model should match database state
+    assert_eq!(model.name, db_name, "Returned model name should match database");
+    assert_eq!(model.updated_at, db_updated_at, "Returned model updated_at should match database");
+}
+
+#[test]
+fn test_before_insert_hook_modifications_with_multiple_fields() {
+    // EDGE CASE: Verify that ALL modifications made in before_insert() are persisted
+    // This ensures that the fix works for all field types and scenarios
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_hook_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_hook_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a record with initial values
+    let mut record = HookModifyingRecord {
+        inner: TestHookUserRecord::new(),
+    };
+    record.set_name("Initial Name".to_string()).expect("Failed to set name");
+    record.set_email("initial@example.com".to_string()).expect("Failed to set email");
+    // created_at is NOT set - should be set by before_insert hook
+    // name will be modified by before_insert hook
+
+    // Insert the record
+    let model = record.insert(&executor).expect("Failed to insert");
+
+    // Verify ALL hook modifications are in the database
+    let rows = executor.query_all(
+        "SELECT name, email, created_at FROM test_hook_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    let db_name: String = row.get(0);
+    let db_email: String = row.get(1);
+    let db_created_at: Option<String> = row.get(2);
+    
+    // Verify hook-modified field
+    assert_eq!(db_name, "Modified by before_insert hook");
+    // Verify non-hook-modified field is unchanged
+    assert_eq!(db_email, "initial@example.com");
+    // Verify hook-set field
+    assert_eq!(db_created_at, Some("2024-01-01T00:00:00Z".to_string()));
+
+    // Verify returned model matches database
+    assert_eq!(model.name, db_name);
+    assert_eq!(model.email, db_email);
+    assert_eq!(model.created_at, db_created_at);
+}
