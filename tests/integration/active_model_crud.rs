@@ -1401,6 +1401,26 @@ impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
         )?;
         Ok(())
     }
+    
+    fn before_delete(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+        // CRITICAL: Modify primary key in before_delete hook
+        // This modification MUST be used in the DELETE WHERE clause
+        // This test verifies that delete() uses record_for_hooks.get() instead of self.get()
+        use lifeguard::LifeModelTrait;
+        // Get the current ID value
+        if let Some(current_id) = self.get(<TestHookUser as LifeModelTrait>::Column::Id) {
+            if let sea_query::Value::Int(Some(id)) = current_id {
+                // Modify the ID to a different value (for testing purposes)
+                // In a real scenario, this might be used for soft deletes or conditional deletes
+                // For this test, we'll set it to a non-existent ID to verify the hook modification is used
+                self.set(
+                    <TestHookUser as LifeModelTrait>::Column::Id,
+                    sea_query::Value::Int(Some(id + 1000)) // Set to non-existent ID
+                )?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[test]
@@ -1554,4 +1574,104 @@ fn test_before_insert_hook_modifications_with_multiple_fields() {
     assert_eq!(model.name, db_name);
     assert_eq!(model.email, db_email);
     assert_eq!(model.created_at, db_created_at);
+}
+
+#[test]
+fn test_before_delete_hook_modifications_are_used_in_where_clause() {
+    // CRITICAL BUG FIX TEST: Verify that modifications made in before_delete()
+    // hook are actually used in the DELETE WHERE clause. This test would have caught the
+    // bug where delete() used self.get() instead of record_for_hooks.get().
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_hook_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_hook_test_data(&executor).expect("Failed to cleanup");
+
+    // Insert two records
+    let mut insert_record1 = TestHookUserRecord::new();
+    insert_record1.set_name("Record 1".to_string()).expect("Failed to set name");
+    insert_record1.set_email("record1@example.com".to_string()).expect("Failed to set email");
+    let model1 = insert_record1.insert(&executor).expect("Failed to insert");
+
+    let mut insert_record2 = TestHookUserRecord::new();
+    insert_record2.set_name("Record 2".to_string()).expect("Failed to set name");
+    insert_record2.set_email("record2@example.com".to_string()).expect("Failed to set email");
+    let model2 = insert_record2.insert(&executor).expect("Failed to insert");
+
+    // Verify both records exist
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_hook_users",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 2, "Both records should exist");
+
+    // Create a delete record with the first model's ID
+    // The before_delete hook will modify the ID to a non-existent value (id + 1000)
+    let mut delete_record = HookModifyingRecord {
+        inner: TestHookUserRecord::from_model(&model1),
+    };
+
+    // Delete should use the modified ID from before_delete hook
+    // Since the modified ID doesn't exist, no record should be deleted
+    delete_record.delete(&executor).expect("Delete should succeed (even if no rows affected)");
+
+    // CRITICAL ASSERTION: Both records should still exist because the hook-modified ID doesn't exist
+    // This verifies that delete() used record_for_hooks.get() (the hook-modified value)
+    // instead of self.get() (the original value)
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_hook_users",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 2, "Both records should still exist because hook-modified ID doesn't exist");
+
+    // Verify both records are still there
+    let count1 = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_hook_users WHERE id = $1",
+        &[&model1.id],
+    ).expect("Failed to query database");
+    assert_eq!(count1, 1, "Record 1 should still exist");
+
+    let count2 = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_hook_users WHERE id = $1",
+        &[&model2.id],
+    ).expect("Failed to query database");
+    assert_eq!(count2, 1, "Record 2 should still exist");
+}
+
+#[test]
+fn test_before_delete_hook_with_original_id_deletes_correctly() {
+    // POSITIVE TEST: Verify that delete() works correctly when before_delete() doesn't modify the ID
+    // This ensures the fix doesn't break normal delete operations
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_hook_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_hook_test_data(&executor).expect("Failed to cleanup");
+
+    // Insert a record
+    let mut insert_record = TestHookUserRecord::new();
+    insert_record.set_name("To Delete".to_string()).expect("Failed to set name");
+    insert_record.set_email("delete@example.com".to_string()).expect("Failed to set email");
+    let model = insert_record.insert(&executor).expect("Failed to insert");
+
+    // Create a delete record (using regular TestHookUserRecord, not HookModifyingRecord)
+    // This record doesn't modify the ID in before_delete, so it should delete normally
+    let delete_record = TestHookUserRecord::from_model(&model);
+
+    // Delete should work normally (no hook modifications)
+    delete_record.delete(&executor).expect("Failed to delete");
+
+    // Verify the record is deleted
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_hook_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 0, "Record should be deleted");
 }

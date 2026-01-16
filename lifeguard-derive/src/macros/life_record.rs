@@ -304,9 +304,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
         
         // Generate DELETE WHERE clause (only for primary keys)
+        // Use record_for_hooks to include any changes made in before_delete()
+        // This ensures before_delete() changes are included in the DELETE query WHERE clause
         if is_primary_key {
             delete_where_clauses.push(quote! {
-                if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(pk_value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     use lifeguard::ColumnTrait;
                     let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.eq(pk_value);
                     query.and_where(expr);
