@@ -28,7 +28,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ✅ Implemented | ✅ Enhanced | Support for composite primary keys with granular variants (Single, Tuple2-Tuple5, Tuple6Plus) - Lifeguard enhancement beyond SeaORM |
-| `RelationTrait` | ❌ Missing | 🟡 **Future** | Entity relationships (belongs_to, has_one, has_many) |
+| `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Basic trait structure implemented, full query building pending |
 | `Related` | ❌ Missing | 🟡 **Future** | Related entity queries |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
 | `PartialModelTrait` | ❌ Missing | 🟡 **Future** | Partial model queries (select subset of columns) |
@@ -291,13 +291,18 @@ This design simplifies the API while maintaining the same functionality.
 ### Medium Priority (Relations & Advanced Features)
 
 #### Relations
-**Status:** 🟡 Future  
-**Future State:** Entity relationship support:
-- `RelationTrait` - Define relationships (belongs_to, has_one, has_many, has_many_through)
+**Status:** 🟡 Partial  
+**Current State:**
+- `RelationTrait` - ✅ Basic trait structure implemented (belongs_to, has_one, has_many, has_many_through methods)
+- `join_condition()` helper function - ✅ Placeholder implementation
+**Future State:**
+- Full relationship query building with automatic join conditions
 - `Related` - Related entity queries
 - `Linked` - Multi-hop relationship queries
 - `DeriveRelation` - Generate Relation enum
 - `DeriveRelatedEntity` - Generate RelatedEntity enum
+- Eager loading support
+- Lazy loading support
 
 #### Partial Models
 **Status:** 🟡 Future  

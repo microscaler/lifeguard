@@ -70,6 +70,10 @@ pub use active_model::{ActiveModelTrait, ActiveModelBehavior, ActiveModelError, 
 pub mod model;
 pub use model::{ModelError, ModelTrait};
 
+// Relation trait - Epic 02 Story 08
+pub mod relation;
+pub use relation::{RelationTrait, RelationBuilder, join_condition};
+
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{
     execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
