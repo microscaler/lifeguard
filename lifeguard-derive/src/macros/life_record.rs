@@ -566,12 +566,69 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     }
     
     // Generate primary key check code for save()
+    // If there are no primary keys, save() should always do insert
+    let has_primary_keys = !primary_key_field_names.is_empty();
     let mut save_pk_checks = Vec::new();
-    for (field_name, column_variant) in primary_key_field_names.iter().zip(primary_key_column_variants.iter()) {
+    for field_name in primary_key_field_names.iter() {
         save_pk_checks.push(quote! {
             self.#field_name.is_some() &&
         });
     }
+    
+    // Generate conditional code for methods that require primary keys
+    let update_pk_check = if has_primary_keys {
+        quote! {
+            // Check primary key is set
+            #(
+                if self.#primary_key_field_names.is_none() {
+                    return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                }
+            )*
+        }
+    } else {
+        quote! {
+            // Entity has no primary keys - update is not supported
+            return Err(lifeguard::ActiveModelError::Other("Cannot update entity without primary key".to_string()));
+        }
+    };
+    
+    let delete_pk_check = if has_primary_keys {
+        quote! {}
+    } else {
+        quote! {
+            // Entity has no primary keys - delete is not supported
+            return Err(lifeguard::ActiveModelError::Other("Cannot delete entity without primary key".to_string()));
+        }
+    };
+    
+    let save_pk_logic = if has_primary_keys {
+        quote! {
+            // Check if primary key is set
+            let has_primary_key = #(#save_pk_checks)* true;
+            
+            if has_primary_key {
+                // Try to find the record to see if it exists
+                // For now, try update first, if it fails with "no rows", do insert
+                // TODO: Use Entity::find() to check if record exists
+                match self.update(executor) {
+                    Ok(model) => Ok(model),
+                    Err(lifeguard::ActiveModelError::DatabaseError(_)) => {
+                        // Update failed, try insert instead
+                        self.insert(executor)
+                    },
+                    Err(e) => Err(e), // Propagate other errors
+                }
+            } else {
+                // No primary key set, do insert
+                self.insert(executor)
+            }
+        }
+    } else {
+        quote! {
+            // Entity has no primary keys - always do insert
+            self.insert(executor)
+        }
+    };
     
     // Generate the expanded code
     let expanded = quote! {
@@ -709,12 +766,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 use sea_query::{Query, PostgresQueryBuilder, Expr};
                 use lifeguard::LifeEntityName;
                 
-                // Check primary key is set
-                #(
-                    if self.#primary_key_field_names.is_none() {
-                        return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
-                    }
-                )*
+                #update_pk_check
                 
                 // Build UPDATE statement
                 let mut query = Query::update();
@@ -747,30 +799,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
             
             fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-                // Check if primary key is set
-                let has_primary_key = #(#save_pk_checks)* true;
-                
-                if has_primary_key {
-                    // Try to find the record to see if it exists
-                    // For now, try update first, if it fails with "no rows", do insert
-                    // TODO: Use Entity::find() to check if record exists
-                    match self.update(executor) {
-                        Ok(model) => Ok(model),
-                        Err(lifeguard::ActiveModelError::DatabaseError(_)) => {
-                            // Update failed, try insert instead
-                            self.insert(executor)
-                        },
-                        Err(e) => Err(e), // Propagate other errors
-                    }
-                } else {
-                    // No primary key set, do insert
-                    self.insert(executor)
-                }
+                #save_pk_logic
             }
             
             fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
                 use sea_query::{Query, PostgresQueryBuilder, Expr};
                 use lifeguard::LifeEntityName;
+                
+                #delete_pk_check
                 
                 // Build DELETE statement
                 let mut query = Query::delete();

@@ -363,3 +363,339 @@ fn test_entity_static_methods() {
     ).expect("Failed to query database");
     assert_eq!(count, 0);
 }
+
+// ============================================================================
+// TESTS FOR BUG FIX: Entities without primary keys
+// ============================================================================
+// These tests verify that entities without #[primary_key] attributes
+// correctly handle CRUD operations:
+// - update() and delete() should return errors (prevent mass updates/deletes)
+// - insert() and save() should work (no primary key required)
+
+// Test entity WITHOUT primary key
+#[derive(LifeModel, LifeRecord)]
+#[table_name = "test_no_pk_entities"]
+pub struct TestNoPkEntity {
+    pub name: String,
+    pub email: String,
+    pub age: Option<i32>,
+}
+
+fn setup_no_pk_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS test_no_pk_entities (
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            age INTEGER
+        )
+        "#,
+        &[],
+    )?;
+    Ok(())
+}
+
+fn cleanup_no_pk_data(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute("DELETE FROM test_no_pk_entities", &[])?;
+    Ok(())
+}
+
+#[test]
+fn test_no_primary_key_update_returns_error() {
+    // BUG FIX TEST: update() should return error for entities without primary keys
+    // This prevents mass updates that would affect all rows
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_no_pk_schema(&executor).expect("Failed to setup schema");
+    cleanup_no_pk_data(&executor).expect("Failed to cleanup");
+
+    // Insert some test data
+    executor.execute(
+        "INSERT INTO test_no_pk_entities (name, email) VALUES ($1, $2), ($3, $4)",
+        &[&"User1".to_string(), &"user1@example.com".to_string(), 
+          &"User2".to_string(), &"user2@example.com".to_string()],
+    ).expect("Failed to insert test data");
+
+    // Verify we have 2 rows
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 2);
+
+    // Try to update - should fail because entity has no primary key
+    let mut record = TestNoPkEntityRecord::new();
+    record.set_name("Updated Name".to_string());
+    record.set_email("updated@example.com".to_string());
+
+    let result = record.update(&executor);
+    assert!(result.is_err(), "update() should fail for entities without primary keys");
+    
+    match result.unwrap_err() {
+        ActiveModelError::Other(msg) => {
+            assert!(msg.contains("without primary key"), 
+                "Error message should mention 'without primary key', got: {}", msg);
+        }
+        e => panic!("Expected Other error with 'without primary key' message, got: {:?}", e),
+    }
+
+    // Verify no rows were updated (critical: prevents mass updates)
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities WHERE name = 'Updated Name'",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 0, "No rows should be updated when update() fails");
+}
+
+#[test]
+fn test_no_primary_key_delete_returns_error() {
+    // BUG FIX TEST: delete() should return error for entities without primary keys
+    // This prevents mass deletes that would affect all rows
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_no_pk_schema(&executor).expect("Failed to setup schema");
+    cleanup_no_pk_data(&executor).expect("Failed to cleanup");
+
+    // Insert some test data
+    executor.execute(
+        "INSERT INTO test_no_pk_entities (name, email) VALUES ($1, $2), ($3, $4)",
+        &[&"User1".to_string(), &"user1@example.com".to_string(), 
+          &"User2".to_string(), &"user2@example.com".to_string()],
+    ).expect("Failed to insert test data");
+
+    // Verify we have 2 rows
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 2);
+
+    // Try to delete - should fail because entity has no primary key
+    let record = TestNoPkEntityRecord::new();
+
+    let result = record.delete(&executor);
+    assert!(result.is_err(), "delete() should fail for entities without primary keys");
+    
+    match result.unwrap_err() {
+        ActiveModelError::Other(msg) => {
+            assert!(msg.contains("without primary key"), 
+                "Error message should mention 'without primary key', got: {}", msg);
+        }
+        e => panic!("Expected Other error with 'without primary key' message, got: {:?}", e),
+    }
+
+    // Verify no rows were deleted (critical: prevents mass deletes)
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 2, "No rows should be deleted when delete() fails");
+}
+
+#[test]
+fn test_no_primary_key_save_always_inserts() {
+    // BUG FIX TEST: save() should always do insert for entities without primary keys
+    // Previously, save_pk_checks was empty, causing has_primary_key to always be true
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_no_pk_schema(&executor).expect("Failed to setup schema");
+    cleanup_no_pk_data(&executor).expect("Failed to cleanup");
+
+    // Create a new record
+    let mut record = TestNoPkEntityRecord::new();
+    record.set_name("Save Test".to_string());
+    record.set_email("save@example.com".to_string());
+    record.set_age(Some(25));
+
+    // save() should insert (no primary key means always insert)
+    let model = record.save(&executor).expect("Failed to save");
+
+    // Verify it was inserted
+    assert_eq!(model.name, "Save Test");
+    assert_eq!(model.email, "save@example.com");
+    assert_eq!(model.age, Some(25));
+
+    // Verify in database
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities WHERE name = $1 AND email = $2",
+        &[&"Save Test".to_string(), &"save@example.com".to_string()],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Record should be inserted");
+}
+
+#[test]
+fn test_no_primary_key_insert_works() {
+    // POSITIVE TEST: insert() should work for entities without primary keys
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_no_pk_schema(&executor).expect("Failed to setup schema");
+    cleanup_no_pk_data(&executor).expect("Failed to cleanup");
+
+    // Create a new record
+    let mut record = TestNoPkEntityRecord::new();
+    record.set_name("Insert Test".to_string());
+    record.set_email("insert@example.com".to_string());
+    record.set_age(Some(30));
+
+    // insert() should work
+    let model = record.insert(&executor).expect("Failed to insert");
+
+    // Verify it was inserted
+    assert_eq!(model.name, "Insert Test");
+    assert_eq!(model.email, "insert@example.com");
+    assert_eq!(model.age, Some(30));
+
+    // Verify in database
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities WHERE name = $1 AND email = $2",
+        &[&"Insert Test".to_string(), &"insert@example.com".to_string()],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Record should be inserted");
+}
+
+#[test]
+fn test_with_primary_key_update_works() {
+    // POSITIVE TEST: update() should work for entities WITH primary keys
+    // This verifies the fix doesn't break existing functionality
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Insert a record
+    let mut insert_record = TestUserRecord::new();
+    insert_record.set_name("Original".to_string());
+    insert_record.set_email("original@example.com".to_string());
+    let original_model = insert_record.insert(&executor).expect("Failed to insert");
+
+    // Update it
+    let mut update_record = TestUserRecord::from_model(&original_model);
+    update_record.set_name("Updated".to_string());
+    update_record.set_email("updated@example.com".to_string());
+
+    let updated_model = update_record.update(&executor).expect("Failed to update");
+
+    // Verify it was updated (same ID, new values)
+    assert_eq!(updated_model.id, original_model.id);
+    assert_eq!(updated_model.name, "Updated");
+    assert_eq!(updated_model.email, "updated@example.com");
+
+    // Verify only one row was updated (WHERE clause works correctly)
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users WHERE name = 'Updated'",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Only one row should be updated");
+}
+
+#[test]
+fn test_with_primary_key_delete_works() {
+    // POSITIVE TEST: delete() should work for entities WITH primary keys
+    // This verifies the fix doesn't break existing functionality
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Insert two records
+    let mut record1 = TestUserRecord::new();
+    record1.set_name("User1".to_string());
+    record1.set_email("user1@example.com".to_string());
+    let model1 = record1.insert(&executor).expect("Failed to insert");
+
+    let mut record2 = TestUserRecord::new();
+    record2.set_name("User2".to_string());
+    record2.set_email("user2@example.com".to_string());
+    let model2 = record2.insert(&executor).expect("Failed to insert");
+
+    // Verify both exist
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 2);
+
+    // Delete only one
+    let delete_record = TestUserRecord::from_model(&model1);
+    delete_record.delete(&executor).expect("Failed to delete");
+
+    // Verify only one was deleted (WHERE clause works correctly)
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Only one row should be deleted");
+
+    // Verify the correct one was deleted
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users WHERE id = $1",
+        &[&model1.id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 0, "First record should be deleted");
+
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users WHERE id = $1",
+        &[&model2.id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Second record should still exist");
+}
+
+#[test]
+fn test_with_primary_key_save_works() {
+    // POSITIVE TEST: save() should work correctly for entities WITH primary keys
+    // This verifies the fix doesn't break existing functionality
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Test save() with no primary key set (should insert)
+    let mut record = TestUserRecord::new();
+    record.set_name("New User".to_string());
+    record.set_email("new@example.com".to_string());
+    
+    let model = record.save(&executor).expect("Failed to save");
+    assert!(model.id > 0);
+    assert_eq!(model.name, "New User");
+
+    // Test save() with primary key set (should update)
+    let mut update_record = TestUserRecord::from_model(&model);
+    update_record.set_name("Updated User".to_string());
+    
+    let updated = update_record.save(&executor).expect("Failed to save");
+    assert_eq!(updated.id, model.id);
+    assert_eq!(updated.name, "Updated User");
+
+    // Verify in database
+    let rows = executor.query_all(
+        "SELECT name FROM test_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, String>(0), "Updated User");
+}
