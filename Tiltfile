@@ -72,13 +72,12 @@ local_resource(
 )
 
 # Build lifeguard-codegen (code generation CLI tool)
+# Only build if Cargo.toml exists (crate may not be created yet)
 local_resource(
     'build-codegen',
-    cmd='cargo build -p lifeguard-codegen',
+    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cargo build -p lifeguard-codegen; else echo "⚠️  lifeguard-codegen crate not found, skipping build"; fi',
     deps=[
-        'lifeguard-codegen/src',
-        'lifeguard-codegen/Cargo.toml',
-        'lifeguard-codegen/Cargo.lock',
+        'lifeguard-codegen',
     ],
     resource_deps=[],  # No dependencies - standalone crate
     labels=['build'],
@@ -169,14 +168,12 @@ local_resource(
 
 # Run lifeguard-codegen tests (code generation CLI tests)
 # These tests verify the code generation tool works correctly
+# Only test if Cargo.toml exists (crate may not be created yet)
 local_resource(
     'test-codegen',
-    cmd='cd lifeguard-codegen && cargo test --no-fail-fast',
+    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cd lifeguard-codegen && cargo test --no-fail-fast; else echo "⚠️  lifeguard-codegen crate not found, skipping tests"; fi',
     deps=[
-        'lifeguard-codegen/src',
-        'lifeguard-codegen/tests',
-        'lifeguard-codegen/Cargo.toml',
-        'lifeguard-codegen/Cargo.lock',
+        'lifeguard-codegen',
     ],
     resource_deps=['build-codegen'],  # Wait for build to complete first
     labels=['tests'],
