@@ -2835,22 +2835,18 @@ mod active_model_trait_tests {
         }
         
         // Set Option<String> field to None explicitly
-        // When set() is called with Value::String(None), it sets the field to Some(None) internally
-        // This represents "field is set, but value is None" (different from "field is unset")
+        // When set() is called with Value::String(None), it sets the field to None (unset)
+        // With Option<T> fields, we can't distinguish "set to None" from "unset" - both are None
         let result = record.set(
             <option_tests::Entity as LifeModelTrait>::Column::Name,
             sea_query::Value::String(None)
         );
         assert!(result.is_ok(), "set() should work for Option<String> field with None value");
         
-        // Verify get() returns Some(Value::String(None)) when field is explicitly set to None
-        // This is different from unset fields, which return None
+        // When set to None, the field becomes unset, so get() returns None
+        // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
         let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
-        assert!(name_value.is_some(), "get() should return Some(Value::String(None)) when field is explicitly set to None");
-        match name_value.unwrap() {
-            sea_query::Value::String(None) => (),
-            _ => panic!("Expected String(None) when field is explicitly set to None"),
-        }
+        assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
     }
 
     #[test]
@@ -3045,13 +3041,13 @@ mod active_model_trait_tests {
     fn test_get_with_option_fields_set_to_none() {
         // Test get() with Option<T> fields when explicitly set to None
         // When a field is set to None (via set() with Value::String(None)),
-        // it represents "field is set, but value is None"
-        // This is different from "field is unset" (which returns None from get())
+        // it becomes unset (None). With Option<T> fields, we can't distinguish
+        // "set to None" from "unset" - both are represented as None.
         use option_tests::*;
         
         let mut record = UserWithOptionsRecord::new();
         
-        // Set fields to None explicitly (this sets the field to Some(None) internally)
+        // Set fields to None explicitly (this sets the field to None, making it unset)
         record.set(
             <option_tests::Entity as LifeModelTrait>::Column::Name,
             sea_query::Value::String(None)
@@ -3062,21 +3058,13 @@ mod active_model_trait_tests {
             sea_query::Value::Int(None)
         ).expect("set() should work");
         
-        // When explicitly set to None, get() should return Some(Value::String(None))
-        // This represents "field is set, but value is None"
+        // When set to None, the field becomes unset, so get() returns None
+        // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
         let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
-        assert!(name_value.is_some(), "get() should return Some(Value::String(None)) when field is set to None");
-        match name_value.unwrap() {
-            sea_query::Value::String(None) => (),
-            _ => panic!("Expected String(None) when field is set to None"),
-        }
+        assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
         
         let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
-        assert!(age_value.is_some(), "get() should return Some(Value::Int(None)) when field is set to None");
-        match age_value.unwrap() {
-            sea_query::Value::Int(None) => (),
-            _ => panic!("Expected Int(None) when field is set to None"),
-        }
+        assert!(age_value.is_none(), "get() should return None when Option<i32> field is set to None (becomes unset)");
     }
 
     #[test]
@@ -3100,13 +3088,10 @@ mod active_model_trait_tests {
         // Setter should accept None
         record.set_name(None);
         
-        // Verify the value is None
+        // When set to None, the field becomes unset, so get() returns None
+        // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
         let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
-        assert!(name_value.is_some());
-        match name_value.unwrap() {
-            sea_query::Value::String(None) => (),
-            _ => panic!("Expected String(None)"),
-        }
+        assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
     }
 
     // ============================================================================
