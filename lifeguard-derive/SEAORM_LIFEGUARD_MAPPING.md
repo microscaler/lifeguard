@@ -101,7 +101,7 @@ This design simplifies the API while maintaining the same functionality.
 | `ColumnDef` | ✅ Enhanced | ✅ Complete | Column definition with SQL attributes (via ColumnDefinition::to_column_def()) |
 | `RelationDef` | ❌ Missing | 🟡 **Future** | Relation definition |
 | `Select<E>` | `SelectQuery<E>` | ✅ Implemented | Query builder (different API) |
-| `SelectModel<E>` | ❌ Missing | 🔴 **Future** | Typed select with Model return type |
+| `SelectModel<E>` | ✅ Implemented | ✅ Complete | Typed select with Model return type (SelectModel<E, M>) |
 | `Paginator` | `Paginator` | ✅ Implemented | Pagination support |
 | `PaginatorWithCount` | `PaginatorWithCount` | ✅ Implemented | Pagination with total count |
 

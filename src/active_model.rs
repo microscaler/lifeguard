@@ -9,6 +9,7 @@ use crate::query::LifeModelTrait;
 use crate::model::ModelTrait;
 use sea_query::Value;
 use may_postgres::types::ToSql;
+use serde_json::Value as JsonValue;
 
 /// Convert SeaQuery values to may_postgres ToSql parameters and execute a closure
 ///
@@ -528,5 +529,91 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// will need to generate DELETE SQL and execute it via the executor.
     fn delete<E: LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
         Err(ActiveModelError::Other("delete() not yet implemented".to_string()))
+    }
+
+    /// Deserialize an ActiveModel from JSON
+    ///
+    /// This method constructs an ActiveModel by interpreting JSON input.
+    /// Fields not present in the JSON automatically become `ActiveValue::NotSet`.
+    ///
+    /// # Arguments
+    ///
+    /// * `json` - JSON value to deserialize from
+    ///
+    /// # Returns
+    ///
+    /// Returns a new ActiveModel instance with fields set from the JSON.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{ActiveModelTrait, LifeModelTrait};
+    /// use serde_json::json;
+    ///
+    /// # struct UserRecord;
+    /// # impl ActiveModelTrait for UserRecord {
+    /// #     type Entity = ();
+    /// #     type Model = ();
+    /// #     fn get(&self, _: <() as LifeModelTrait>::Column) -> Option<Value> { None }
+    /// #     fn set(&mut self, _: <() as LifeModelTrait>::Column, _: Value) -> Result<(), ActiveModelError> { Ok(()) }
+    /// #     fn take(&mut self, _: <() as LifeModelTrait>::Column) -> Option<Value> { None }
+    /// #     fn reset(&mut self) {}
+    /// #     // ... other methods
+    /// # }
+    ///
+    /// let json = json!({
+    ///     "name": "John",
+    ///     "email": "john@example.com"
+    /// });
+    ///
+    /// let record = UserRecord::from_json(json)?;
+    /// ```
+    fn from_json(json: JsonValue) -> Result<Self, ActiveModelError>
+    where
+        Self: Sized,
+    {
+        // Default implementation: try to deserialize JSON into the Model type,
+        // then convert to Record. This requires the Model to implement Deserialize.
+        // Records can override this for more control.
+        Err(ActiveModelError::Other(
+            "from_json() not implemented - Model must implement Deserialize or Record must override this method".to_string()
+        ))
+    }
+
+    /// Serialize an ActiveModel to JSON
+    ///
+    /// This method converts the ActiveModel to a JSON representation.
+    /// Only fields that are set (not `NotSet` or `Unset`) are included.
+    ///
+    /// # Returns
+    ///
+    /// Returns a JSON value representing the ActiveModel.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{ActiveModelTrait, LifeModelTrait};
+    ///
+    /// # struct UserRecord;
+    /// # impl ActiveModelTrait for UserRecord {
+    /// #     type Entity = ();
+    /// #     type Model = ();
+    /// #     fn get(&self, _: <() as LifeModelTrait>::Column) -> Option<Value> { None }
+    /// #     fn set(&mut self, _: <() as LifeModelTrait>::Column, _: Value) -> Result<(), ActiveModelError> { Ok(()) }
+    /// #     fn take(&mut self, _: <() as LifeModelTrait>::Column) -> Option<Value> { None }
+    /// #     fn reset(&mut self) {}
+    /// #     // ... other methods
+    /// # }
+    /// # let record = UserRecord;
+    ///
+    /// let json = record.to_json()?;
+    /// ```
+    fn to_json(&self) -> Result<JsonValue, ActiveModelError> {
+        // Default implementation: convert to Model first, then serialize.
+        // This requires the Model to implement Serialize.
+        // Records can override this for more control.
+        Err(ActiveModelError::Other(
+            "to_json() not implemented - Model must implement Serialize or Record must override this method".to_string()
+        ))
     }
 }

@@ -7,6 +7,7 @@ use crate::executor::{LifeExecutor, LifeError};
 use may_postgres::{Row, types::ToSql};
 use sea_query::{SelectStatement, PostgresQueryBuilder, Iden, Expr, Order, IntoColumnRef};
 use std::marker::PhantomData;
+use serde_json::Value as JsonValue;
 
 // Type-safe column operations - Epic 02 Story 05
 pub mod column;
@@ -347,6 +348,41 @@ where
     _phantom: PhantomData<E>,
 }
 
+/// Typed select query that returns a specific Model type
+///
+/// This is similar to SeaORM's `SelectModel<E>` and provides type-safe
+/// query results. It wraps a `SelectQuery<E>` and ensures results are
+/// properly typed as `M` where `M: FromRow`.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{SelectModel, LifeModelTrait, LifeExecutor};
+///
+/// # struct User; // Entity
+/// # struct UserModel { id: i32, name: String };
+/// # impl lifeguard::FromRow for UserModel {
+/// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+/// # }
+/// # impl lifeguard::LifeModelTrait for User {
+/// #     type Model = UserModel;
+/// # }
+/// # let executor: &dyn LifeExecutor = todo!();
+///
+/// // Get typed results
+/// let users: Vec<UserModel> = User::find()
+///     .into_model::<UserModel>()
+///     .all(executor)?;
+/// ```
+pub struct SelectModel<E, M>
+where
+    E: LifeModelTrait,
+    M: FromRow,
+{
+    query: SelectQuery<E>,
+    _model: PhantomData<M>,
+}
+
 impl<E> SelectQuery<E>
 where
     E: LifeModelTrait,
@@ -675,7 +711,185 @@ where
         }
         Ok(results)
     }
+}
+
+impl<E, M> SelectModel<E, M>
+where
+    E: LifeModelTrait,
+    M: FromRow,
+{
+    /// Create a new SelectModel from a SelectQuery
+    pub(crate) fn new(query: SelectQuery<E>) -> Self {
+        Self {
+            query,
+            _model: PhantomData,
+        }
+    }
     
+    /// Execute the query and return all results as the specified Model type
+    pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<M>, LifeError> {
+        // Delegate to SelectQuery's all() method but with type M
+        let (sql, values) = self.query.query.build(PostgresQueryBuilder);
+        
+        // Convert SeaQuery values to may_postgres ToSql parameters
+        let mut bools: Vec<bool> = Vec::new();
+        let mut ints: Vec<i32> = Vec::new();
+        let mut big_ints: Vec<i64> = Vec::new();
+        let mut strings: Vec<String> = Vec::new();
+        let mut bytes: Vec<Vec<u8>> = Vec::new();
+        let mut nulls: Vec<Option<i32>> = Vec::new();
+        let mut floats: Vec<f32> = Vec::new();
+        let mut doubles: Vec<f64> = Vec::new();
+        
+        for value in values.iter() {
+            match value {
+                sea_query::Value::Bool(Some(b)) => bools.push(*b),
+                sea_query::Value::Int(Some(i)) => ints.push(*i),
+                sea_query::Value::BigInt(Some(i)) => big_ints.push(*i),
+                sea_query::Value::String(Some(s)) => strings.push(s.clone()),
+                sea_query::Value::Bytes(Some(b)) => bytes.push(b.clone()),
+                sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
+                sea_query::Value::BigInt(None) | sea_query::Value::String(None) | 
+                sea_query::Value::Bytes(None) => nulls.push(None),
+                sea_query::Value::TinyInt(Some(i)) => ints.push(*i as i32),
+                sea_query::Value::SmallInt(Some(i)) => ints.push(*i as i32),
+                sea_query::Value::TinyUnsigned(Some(u)) => ints.push(*u as i32),
+                sea_query::Value::SmallUnsigned(Some(u)) => ints.push(*u as i32),
+                sea_query::Value::Unsigned(Some(u)) => big_ints.push(*u as i64),
+                sea_query::Value::BigUnsigned(Some(u)) => {
+                    if *u > i64::MAX as u64 {
+                        return Err(LifeError::Other(format!(
+                            "BigUnsigned value {} exceeds i64::MAX",
+                            u
+                        )));
+                    }
+                    big_ints.push(*u as i64);
+                },
+                sea_query::Value::Float(Some(f)) => floats.push(*f),
+                sea_query::Value::Double(Some(d)) => doubles.push(*d),
+                sea_query::Value::TinyInt(None) | sea_query::Value::SmallInt(None) |
+                sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
+                sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
+                sea_query::Value::Float(None) | sea_query::Value::Double(None) => nulls.push(None),
+                sea_query::Value::Json(Some(j)) => {
+                    strings.push(serde_json::to_string(&**j).map_err(|e| {
+                        LifeError::Other(format!("Failed to serialize JSON: {}", e))
+                    })?);
+                }
+                sea_query::Value::Json(None) => nulls.push(None),
+                _ => {
+                    return Err(LifeError::Other(format!("Unsupported value type: {:?}", value)));
+                }
+            }
+        }
+        
+        let mut bool_idx = 0;
+        let mut int_idx = 0;
+        let mut big_int_idx = 0;
+        let mut string_idx = 0;
+        let mut byte_idx = 0;
+        let mut null_idx = 0;
+        let mut float_idx = 0;
+        let mut double_idx = 0;
+        
+        let mut params: Vec<&dyn ToSql> = Vec::new();
+        
+        for value in values.iter() {
+            match value {
+                sea_query::Value::Bool(Some(_)) => {
+                    params.push(&bools[bool_idx] as &dyn ToSql);
+                    bool_idx += 1;
+                }
+                sea_query::Value::Int(Some(_)) => {
+                    params.push(&ints[int_idx] as &dyn ToSql);
+                    int_idx += 1;
+                }
+                sea_query::Value::BigInt(Some(_)) => {
+                    params.push(&big_ints[big_int_idx] as &dyn ToSql);
+                    big_int_idx += 1;
+                }
+                sea_query::Value::String(Some(_)) => {
+                    params.push(&strings[string_idx] as &dyn ToSql);
+                    string_idx += 1;
+                }
+                sea_query::Value::Bytes(Some(_)) => {
+                    params.push(&bytes[byte_idx] as &dyn ToSql);
+                    byte_idx += 1;
+                }
+                sea_query::Value::Bool(None) | sea_query::Value::Int(None) | 
+                sea_query::Value::BigInt(None) | sea_query::Value::String(None) | 
+                sea_query::Value::Bytes(None) => {
+                    params.push(&nulls[null_idx] as &dyn ToSql);
+                    null_idx += 1;
+                }
+                sea_query::Value::TinyInt(Some(_)) | sea_query::Value::SmallInt(Some(_)) |
+                sea_query::Value::TinyUnsigned(Some(_)) | sea_query::Value::SmallUnsigned(Some(_)) => {
+                    params.push(&ints[int_idx] as &dyn ToSql);
+                    int_idx += 1;
+                }
+                sea_query::Value::Unsigned(Some(_)) | sea_query::Value::BigUnsigned(Some(_)) => {
+                    params.push(&big_ints[big_int_idx] as &dyn ToSql);
+                    big_int_idx += 1;
+                }
+                sea_query::Value::Float(Some(_)) => {
+                    params.push(&floats[float_idx] as &dyn ToSql);
+                    float_idx += 1;
+                }
+                sea_query::Value::Double(Some(_)) => {
+                    params.push(&doubles[double_idx] as &dyn ToSql);
+                    double_idx += 1;
+                }
+                sea_query::Value::TinyInt(None) | sea_query::Value::SmallInt(None) |
+                sea_query::Value::TinyUnsigned(None) | sea_query::Value::SmallUnsigned(None) |
+                sea_query::Value::Unsigned(None) | sea_query::Value::BigUnsigned(None) |
+                sea_query::Value::Float(None) | sea_query::Value::Double(None) => {
+                    params.push(&nulls[null_idx] as &dyn ToSql);
+                    null_idx += 1;
+                }
+                sea_query::Value::Json(Some(_)) => {
+                    params.push(&strings[string_idx] as &dyn ToSql);
+                    string_idx += 1;
+                }
+                sea_query::Value::Json(None) => {
+                    params.push(&nulls[null_idx] as &dyn ToSql);
+                    null_idx += 1;
+                }
+                _ => {
+                    return Err(LifeError::Other(format!("Unsupported value type: {:?}", value)));
+                }
+            }
+        }
+        
+        let rows = executor.query_all(&sql, &params)?;
+        
+        let mut results = Vec::new();
+        for row in rows {
+            let model = M::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))?;
+            results.push(model);
+        }
+        Ok(results)
+    }
+    
+    /// Execute the query and return a single result as the specified Model type
+    pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<M, LifeError> {
+        let results = self.all(executor)?;
+        
+        if results.len() != 1 {
+            return Err(LifeError::Other(format!(
+                "Expected exactly one row, got {}",
+                results.len()
+            )));
+        }
+        
+        Ok(results.into_iter().next().unwrap())
+    }
+}
+
+impl<E> SelectQuery<E>
+where
+    E: LifeModelTrait,
+{
     /// Execute the query and return a single result
     ///
     /// Returns an error if zero or more than one row is returned.
@@ -1136,6 +1350,38 @@ where
 /// Trait for types that can be created from a database row
 pub trait FromRow: Sized {
     fn from_row(row: &Row) -> Result<Self, may_postgres::Error>;
+}
+
+/// Implement FromRow for serde_json::Value to support JSON queries
+///
+/// This implementation attempts to read the first column as JSON.
+/// It reads the column as text and parses it as JSON.
+///
+/// Note: This is a simplified implementation. For production use, you may want
+/// to handle JSONB types more directly if may_postgres supports them.
+impl FromRow for JsonValue {
+    fn from_row(row: &Row) -> Result<Self, may_postgres::Error> {
+        // Try to get the first column as text (JSONB is stored as text in PostgreSQL)
+        // Then parse the text as JSON
+        if row.len() == 0 {
+            // Trigger an error by accessing invalid column
+            let _: String = row.try_get::<_, String>(999)?;
+            unreachable!()
+        }
+        
+        // Get as text and parse
+        let text: String = row.get(0);
+        match serde_json::from_str(&text) {
+            Ok(json) => Ok(json),
+            Err(_e) => {
+                // Convert serde_json error to may_postgres::Error
+                // We'll trigger a conversion error as a workaround
+                // In practice, valid JSON columns should parse successfully
+                let _: i32 = row.try_get::<_, i32>(0)?;
+                unreachable!()
+            }
+        }
+    }
 }
 
 /// Paginator for query results
