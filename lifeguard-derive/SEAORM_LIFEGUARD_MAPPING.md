@@ -23,7 +23,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `ModelTrait` | ✅ Implemented | ✅ Complete | Model-level operations (get/set columns, get_primary_key_value) |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Converts database rows to Model structs |
 | `ActiveModelTrait` | ✅ Implemented | ✅ Complete | Mutable model operations (get, set, take, reset ✅; insert/update/save/delete ✅) |
-| `ActiveModelBehavior` | ❌ Missing | 🟡 **Future** | Custom behavior hooks for ActiveModel |
+| `ActiveModelBehavior` | ✅ Implemented | ✅ Complete | Custom behavior hooks for ActiveModel (8 lifecycle hooks) |
 | `ColumnTrait` | ✅ Implemented | ✅ Complete | Column-level operations (query builder methods ✅, metadata methods ✅ with default impls) |
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
@@ -49,7 +49,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveColumn` | ❌ Not Needed | ✅ By Design | LifeModel generates Column enum + Iden/IdenStatic impls directly |
 | `DerivePrimaryKey` | ❌ Not Needed | ✅ By Design | LifeModel generates PrimaryKey enum directly |
 | `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel |
-| `DeriveActiveModelBehavior` | ❌ Missing | 🟡 **Future** | ActiveModelBehavior trait implementation |
+| `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Separate derive (matches SeaORM pattern) |
 | `DeriveRelation` | ❌ Missing | 🟡 **Future** | Relation enum with RelationTrait |
@@ -284,7 +284,7 @@ This design simplifies the API while maintaining the same functionality.
 - `save()` - Insert or update based on PK presence ✅ (routes to insert/update)
 - `delete()` - DELETE operation ✅ (requires PK)
 - `from_json()`, `to_json()` serialization ✅ (Implemented - from_json() uses Model Deserialize, to_json() iterates set fields directly)
-- Integration with `ActiveModelBehavior` for custom hooks 🟡 (Future)
+- Integration with `ActiveModelBehavior` for custom hooks ✅ (Implemented - 8 lifecycle hooks with default implementations)
 
 **Note:** All CRUD operations use SeaQuery for SQL generation and proper parameter binding. `get()` and `take()` have been optimized to avoid the `to_model()` requirement, using direct type conversion from `Option<T>` to `Value`.
 
@@ -365,7 +365,7 @@ This design simplifies the API while maintaining the same functionality.
 | **ActiveModel/Record Operations** | 12 | 7 | 58% |
 | **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 73 | **62%** |
+| **Overall** | 117 | 74 | **63%** |
 
 ---
 
