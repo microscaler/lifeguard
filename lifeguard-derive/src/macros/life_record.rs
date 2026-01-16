@@ -75,7 +75,7 @@ fn generate_field_to_value_conversion(
                     self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64)))
                 },
                 "u64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64)))
+                    self.#field_name.map(|v| sea_query::Value::BigUnsigned(Some(v)))
                 },
                 "f32" => quote! {
                     self.#field_name.map(|v| sea_query::Value::Float(Some(v)))
@@ -273,7 +273,22 @@ fn generate_value_to_field_conversion(
                     },
                     "u64" => quote! {
                         match value {
+                            sea_query::Value::BigUnsigned(Some(v)) => {
+                                self.#field_name = Some(v);
+                                Ok(())
+                            }
+                            sea_query::Value::BigUnsigned(None) => {
+                                self.#field_name = None;
+                                Ok(())
+                            }
                             sea_query::Value::BigInt(Some(v)) => {
+                                if v < 0 {
+                                    return Err(lifeguard::ActiveModelError::InvalidValueType {
+                                        column: stringify!(#column_variant).to_string(),
+                                        expected: "BigUnsigned or non-negative BigInt".to_string(),
+                                        actual: format!("BigInt({})", v),
+                                    });
+                                }
                                 self.#field_name = Some(v as u64);
                                 Ok(())
                             }
@@ -283,7 +298,7 @@ fn generate_value_to_field_conversion(
                             }
                             _ => Err(lifeguard::ActiveModelError::InvalidValueType {
                                 column: stringify!(#column_variant).to_string(),
-                                expected: "BigInt".to_string(),
+                                expected: "BigUnsigned or BigInt".to_string(),
                                 actual: format!("{:?}", value),
                             })
                         }
