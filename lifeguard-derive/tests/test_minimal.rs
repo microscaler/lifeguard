@@ -3180,4 +3180,158 @@ mod active_model_trait_tests {
         // This test verifies the types are compatible
         let _ = _record;
     }
+
+    // ============================================================================
+    // ACTIVEVALUE WRAPPER TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_active_value_set() {
+        // Test ActiveValue::Set variant
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
+        assert!(value.is_set());
+        assert!(!value.is_not_set());
+        assert!(!value.is_unset());
+        
+        let extracted = value.into_value();
+        assert!(extracted.is_some());
+        match extracted.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int(Some(42))"),
+        }
+    }
+
+    #[test]
+    fn test_active_value_not_set() {
+        // Test ActiveValue::NotSet variant
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::NotSet;
+        assert!(!value.is_set());
+        assert!(value.is_not_set());
+        assert!(!value.is_unset());
+        
+        let extracted = value.into_value();
+        assert!(extracted.is_none());
+    }
+
+    #[test]
+    fn test_active_value_unset() {
+        // Test ActiveValue::Unset variant
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::Unset;
+        assert!(!value.is_set());
+        assert!(!value.is_not_set());
+        assert!(value.is_unset());
+        
+        let extracted = value.into_value();
+        assert!(extracted.is_none());
+    }
+
+    #[test]
+    fn test_active_value_from_value() {
+        // Test conversion from Option<Value>
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::from_value(Some(sea_query::Value::Int(Some(42))));
+        assert!(value.is_set());
+        
+        let value = ActiveValue::from_value(None);
+        assert!(value.is_not_set());
+    }
+
+    #[test]
+    fn test_active_value_from_trait() {
+        // Test From trait implementations
+        use lifeguard::ActiveValue;
+        
+        // From<Value>
+        let value: ActiveValue = sea_query::Value::Int(Some(42)).into();
+        assert!(value.is_set());
+        
+        // From<Option<Value>>
+        let value: ActiveValue = Some(sea_query::Value::String(Some("test".to_string()))).into();
+        assert!(value.is_set());
+        
+        let value: ActiveValue = None.into();
+        assert!(value.is_not_set());
+        
+        // From<ActiveValue> for Option<Value>
+        let active_value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
+        let option_value: Option<sea_query::Value> = active_value.into();
+        assert!(option_value.is_some());
+    }
+
+    #[test]
+    fn test_active_value_as_value() {
+        // Test as_value() method
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
+        let ref_value = value.as_value();
+        assert!(ref_value.is_some());
+        
+        let value = ActiveValue::NotSet;
+        let ref_value = value.as_value();
+        assert!(ref_value.is_none());
+    }
+
+    #[test]
+    fn test_active_model_trait_into_active_value() {
+        // Test into_active_value() method on ActiveModelTrait
+        use lifeguard::{ActiveModelTrait, ActiveValue, LifeModelTrait};
+        
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Test with set field
+        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Id);
+        assert!(active_value.is_set());
+        
+        // Test with another set field
+        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Name);
+        assert!(active_value.is_set());
+        
+        // Test with unset field (after reset)
+        record.reset();
+        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Id);
+        assert!(active_value.is_not_set());
+    }
+
+    #[test]
+    fn test_active_value_conversion_roundtrip() {
+        // Test roundtrip conversion: Value -> ActiveValue -> Option<Value>
+        use lifeguard::ActiveValue;
+        
+        let original = sea_query::Value::Int(Some(42));
+        let active_value: ActiveValue = original.clone().into();
+        let converted: Option<sea_query::Value> = active_value.into();
+        
+        assert_eq!(converted, Some(original));
+    }
+
+    #[test]
+    fn test_active_value_all_variants() {
+        // Test all ActiveValue variants
+        use lifeguard::ActiveValue;
+        
+        let set = ActiveValue::Set(sea_query::Value::String(Some("test".to_string())));
+        let not_set = ActiveValue::NotSet;
+        let unset = ActiveValue::Unset;
+        
+        // Verify they're distinct
+        assert_ne!(set, not_set);
+        assert_ne!(set, unset);
+        assert_ne!(not_set, unset);
+        
+        // Verify is_* methods
+        assert!(set.is_set());
+        assert!(not_set.is_not_set());
+        assert!(unset.is_unset());
+    }
 }

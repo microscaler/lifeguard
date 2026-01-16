@@ -64,7 +64,7 @@ pub use query::{SelectQuery, FromRow, LifeEntityName, LifeModelTrait, ColumnTrai
 
 // ActiveModel operations - Epic 02 Story 07
 pub mod active_model;
-pub use active_model::{ActiveModelTrait, ActiveModelError, with_converted_params};
+pub use active_model::{ActiveModelTrait, ActiveModelError, ActiveValue, with_converted_params};
 
 // Model trait - Core Traits & Types
 pub mod model;

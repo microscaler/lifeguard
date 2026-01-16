@@ -178,6 +178,100 @@ where
     f(&params)
 }
 
+/// Wrapper for ActiveModel field values with metadata
+///
+/// Similar to SeaORM's `ActiveValue`, this enum wraps field values with
+/// information about whether they are set, unset, or have been modified.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::ActiveValue;
+///
+/// // Set value
+/// let value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
+///
+/// // Unset value (field not initialized)
+/// let unset = ActiveValue::Unset;
+///
+/// // Not set (explicitly set to None for Option fields)
+/// let not_set = ActiveValue::NotSet;
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActiveValue {
+    /// Value is set (field has a value)
+    Set(Value),
+    /// Value is not set (field is uninitialized/None)
+    NotSet,
+    /// Value is unset (field was never set, different from NotSet for Option fields)
+    Unset,
+}
+
+impl ActiveValue {
+    /// Convert to `Option<Value>`
+    ///
+    /// Returns `Some(Value)` if the value is `Set`, `None` otherwise.
+    pub fn into_value(self) -> Option<Value> {
+        match self {
+            ActiveValue::Set(v) => Some(v),
+            ActiveValue::NotSet | ActiveValue::Unset => None,
+        }
+    }
+
+    /// Convert from `Option<Value>`
+    ///
+    /// Creates an `ActiveValue` from an `Option<Value>`:
+    /// - `Some(value)` → `ActiveValue::Set(value)`
+    /// - `None` → `ActiveValue::NotSet`
+    pub fn from_value(value: Option<Value>) -> Self {
+        match value {
+            Some(v) => ActiveValue::Set(v),
+            None => ActiveValue::NotSet,
+        }
+    }
+
+    /// Check if the value is set
+    pub fn is_set(&self) -> bool {
+        matches!(self, ActiveValue::Set(_))
+    }
+
+    /// Check if the value is not set
+    pub fn is_not_set(&self) -> bool {
+        matches!(self, ActiveValue::NotSet)
+    }
+
+    /// Check if the value is unset
+    pub fn is_unset(&self) -> bool {
+        matches!(self, ActiveValue::Unset)
+    }
+
+    /// Get the value if set, otherwise return None
+    pub fn as_value(&self) -> Option<&Value> {
+        match self {
+            ActiveValue::Set(v) => Some(v),
+            ActiveValue::NotSet | ActiveValue::Unset => None,
+        }
+    }
+}
+
+impl From<Value> for ActiveValue {
+    fn from(value: Value) -> Self {
+        ActiveValue::Set(value)
+    }
+}
+
+impl From<Option<Value>> for ActiveValue {
+    fn from(value: Option<Value>) -> Self {
+        ActiveValue::from_value(value)
+    }
+}
+
+impl From<ActiveValue> for Option<Value> {
+    fn from(value: ActiveValue) -> Self {
+        value.into_value()
+    }
+}
+
 /// Error type for ActiveModel operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveModelError {
@@ -301,6 +395,57 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// This clears all field values, setting them back to their uninitialized state.
     fn reset(&mut self);
+
+    /// Convert a column value to `ActiveValue`
+    ///
+    /// This method wraps the column value in an `ActiveValue` enum, which provides
+    /// metadata about whether the value is set, not set, or unset.
+    ///
+    /// # Arguments
+    ///
+    /// * `column` - The column to get the value for
+    ///
+    /// # Returns
+    ///
+    /// Returns `ActiveValue::Set(value)` if the field is set, `ActiveValue::NotSet` if it's None,
+    /// or `ActiveValue::Unset` if the field was never initialized.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{ActiveModelTrait, ActiveValue};
+    ///
+    /// # struct UserRecord;
+    /// # impl ActiveModelTrait for UserRecord {
+    /// #     type Entity = ();
+    /// #     type Model = ();
+    /// #     fn get(&self, _: <() as LifeModelTrait>::Column) -> Option<Value> { None }
+    /// #     fn set(&mut self, _: <() as LifeModelTrait>::Column, _: Value) -> Result<(), ActiveModelError> { Ok(()) }
+    /// #     fn take(&mut self, _: <() as LifeModelTrait>::Column) -> Option<Value> { None }
+    /// #     fn reset(&mut self) {}
+    /// #     // ... other methods
+    /// # }
+    /// # let mut record = UserRecord;
+    /// # let column = ();
+    ///
+    /// let active_value = record.into_active_value(column);
+    /// match active_value {
+    ///     ActiveValue::Set(value) => println!("Value is set: {:?}", value),
+    ///     ActiveValue::NotSet => println!("Value is explicitly None"),
+    ///     ActiveValue::Unset => println!("Value was never set"),
+    /// }
+    /// ```
+    fn into_active_value(
+        &self,
+        column: <Self::Entity as LifeModelTrait>::Column,
+    ) -> ActiveValue {
+        // Default implementation: convert get() result to ActiveValue
+        // Records can override this to provide more detailed state information
+        match self.get(column) {
+            Some(value) => ActiveValue::Set(value),
+            None => ActiveValue::NotSet, // Field is None (could be unset or explicitly None)
+        }
+    }
 
     /// Insert the active model into the database
     ///
