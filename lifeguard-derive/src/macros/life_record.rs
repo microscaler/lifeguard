@@ -413,6 +413,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut insert_column_checks = Vec::new(); // Check if field should be included in INSERT
     let mut update_set_clauses = Vec::new(); // SET clauses for UPDATE
     let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
+    let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
     
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
@@ -522,6 +523,17 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     values.push(value);
+                }
+            });
+            // Track auto-increment PKs that need RETURNING (if not set)
+            // Generate code to check if this PK needs RETURNING and extract if so
+            returning_extractors.push(quote! {
+                // Check if this auto-increment PK was not set and needs RETURNING
+                if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
+                    // Extract returned value for #field_name
+                    let pk_value: #field_type = row.get(returning_idx);
+                    returning_idx += 1;
+                    updated_record.#field_name = Some(pk_value);
                 }
             });
         } else if !is_primary_key {
@@ -742,6 +754,27 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let exprs: Vec<sea_query::Expr> = values.iter().map(|v| sea_query::Expr::val(v.clone())).collect();
                 query.values_panic(exprs.iter().cloned());
                 
+                // Check if we need RETURNING clause for auto-increment primary keys
+                // Track which auto-increment PKs were not set and need RETURNING
+                let mut needs_returning = false;
+                let mut returning_cols = Vec::new();
+                #(
+                    if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants).is_none() && #primary_key_auto_increment {
+                        needs_returning = true;
+                        returning_cols.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants);
+                    }
+                )*
+                
+                // Add RETURNING clause if needed
+                // SeaQuery's returning() expects ReturningClause enum
+                // ReturningClause::Columns expects Vec<ColumnRef>
+                if needs_returning {
+                    use sea_query::{ReturningClause, ColumnRef};
+                    // Convert Column enum variants to ColumnRef
+                    let returning_vec: Vec<ColumnRef> = returning_cols.iter().copied().map(|c| ColumnRef::from(c)).collect();
+                    query.returning(ReturningClause::Columns(returning_vec));
+                }
+                
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
                 
@@ -749,17 +782,33 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // SeaQuery's Values implements IntoIterator<Item = Value>
                 let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
                 
-                // Convert values to parameters and execute
-                lifeguard::with_converted_params(&values_vec, |params| {
-                    executor.execute(&sql, params).map_err(|e| {
-                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
-                    })?;
-                    Ok(())
-                })?;
+                // Create a mutable copy of self to update with returned PK values
+                let mut updated_record = self.clone();
                 
-                // Return the model constructed from the record
-                // TODO: For auto-increment PKs, fetch the generated value using RETURNING
-                Ok(self.to_model())
+                // Execute query and handle RETURNING if needed
+                if needs_returning {
+                    // Use query_one() to get returned values
+                    let row = lifeguard::with_converted_params(&values_vec, |params| {
+                        executor.query_one(&sql, params).map_err(|e| {
+                            lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                        })
+                    })?;
+                    
+                    // Extract returned primary key values and update the record
+                    let mut returning_idx = 0usize;
+                    #(#returning_extractors)*
+                } else {
+                    // No RETURNING needed, just execute
+                    lifeguard::with_converted_params(&values_vec, |params| {
+                        executor.execute(&sql, params).map_err(|e| {
+                            lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                        })?;
+                        Ok(())
+                    })?;
+                }
+                
+                // Return the model constructed from the updated record
+                Ok(updated_record.to_model())
             }
             
             fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {

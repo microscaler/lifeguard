@@ -17,6 +17,7 @@ use lifeguard_derive::{LifeModel, LifeRecord};
 #[table_name = "test_users"]
 pub struct TestUser {
     #[primary_key]
+    #[auto_increment]
     pub id: i32,
     pub name: String,
     pub email: String,
@@ -698,4 +699,82 @@ fn test_with_primary_key_save_works() {
     ).expect("Failed to query database");
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get::<_, String>(0), "Updated User");
+}
+
+#[test]
+fn test_active_model_insert_auto_increment_pk_not_set() {
+    // POSITIVE TEST: insert() should work when auto-increment PK is not set
+    // This test verifies the fix for the panic issue where to_model() would fail
+    // when the auto-increment PK field was None after insert
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a new record WITHOUT setting the auto-increment PK
+    let mut record = TestUserRecord::new();
+    record.set_name("Auto Inc Test".to_string());
+    record.set_email("autoinc@example.com".to_string());
+    // Note: We explicitly do NOT set record.set_id() - the PK should be auto-generated
+
+    // Insert should succeed and return a model with the generated PK
+    // This should NOT panic even though id was None before insert
+    let model = record.insert(&executor).expect("Insert should succeed without panicking");
+
+    // Verify the inserted model has a generated PK
+    assert!(model.id > 0, "Auto-increment PK should be generated");
+    assert_eq!(model.name, "Auto Inc Test");
+    assert_eq!(model.email, "autoinc@example.com");
+
+    // Verify in database
+    let rows = executor.query_all(
+        "SELECT id, name, email FROM test_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.get::<_, i32>(0), model.id);
+    assert_eq!(row.get::<_, String>(1), "Auto Inc Test");
+    assert_eq!(row.get::<_, String>(2), "autoinc@example.com");
+}
+
+#[test]
+fn test_active_model_insert_with_manual_auto_increment_pk() {
+    // POSITIVE TEST: insert() should work when auto-increment PK is manually set
+    // If the user explicitly sets the auto-increment PK, it should be used
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a new record WITH a manually set auto-increment PK
+    let mut record = TestUserRecord::new();
+    record.set_id(999); // Manually set the PK
+    record.set_name("Manual PK Test".to_string());
+    record.set_email("manualpk@example.com".to_string());
+
+    // Insert should succeed and use the provided PK value
+    let model = record.insert(&executor).expect("Insert should succeed with manual PK");
+
+    // Verify the inserted model uses the provided PK
+    assert_eq!(model.id, 999, "Should use manually set PK value");
+    assert_eq!(model.name, "Manual PK Test");
+    assert_eq!(model.email, "manualpk@example.com");
+
+    // Verify in database
+    let rows = executor.query_all(
+        "SELECT id, name, email FROM test_users WHERE id = $1",
+        &[&999i32],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.get::<_, i32>(0), 999);
+    assert_eq!(row.get::<_, String>(1), "Manual PK Test");
+    assert_eq!(row.get::<_, String>(2), "manualpk@example.com");
 }
