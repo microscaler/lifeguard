@@ -28,7 +28,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ✅ Implemented | ✅ Enhanced | Support for composite primary keys with granular variants (Single, Tuple2-Tuple5, Tuple6Plus) - Lifeguard enhancement beyond SeaORM |
-| `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Basic trait structure implemented, full query building pending |
+| `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support, automatic join condition generation pending |
 | `Related` | ❌ Missing | 🟡 **Future** | Related entity queries |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
 | `PartialModelTrait` | ❌ Missing | 🟡 **Future** | Partial model queries (select subset of columns) |
@@ -293,10 +293,11 @@ This design simplifies the API while maintaining the same functionality.
 #### Relations
 **Status:** 🟡 Partial  
 **Current State:**
-- `RelationTrait` - ✅ Basic trait structure implemented (belongs_to, has_one, has_many, has_many_through methods)
-- `join_condition()` helper function - ✅ Placeholder implementation
+- `RelationTrait` - ✅ Implemented with functional query building (belongs_to, has_one, has_many, has_many_through methods accept foreign keys and join conditions)
+- `join_condition()` helper function - ✅ Implemented (creates join conditions from table/column names)
+- All relationship methods build actual queries with LEFT JOIN clauses
 **Future State:**
-- Full relationship query building with automatic join conditions
+- Automatic join condition generation from foreign key metadata
 - `Related` - Related entity queries
 - `Linked` - Multi-hop relationship queries
 - `DeriveRelation` - Generate Relation enum

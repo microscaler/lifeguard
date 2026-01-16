@@ -7,7 +7,7 @@
 //! - has_many_through: Many-to-many relationship (via join table)
 
 use crate::query::{SelectQuery, LifeModelTrait};
-use sea_query::Expr;
+use sea_query::{Expr, Iden};
 
 /// Trait for defining entity relationships
 ///
@@ -43,15 +43,38 @@ pub trait RelationTrait: LifeModelTrait {
     /// # Arguments
     ///
     /// * `rel` - The related entity type
+    /// * `foreign_key` - The foreign key column in the current entity (e.g., "user_id")
+    /// * `on` - The join condition expression (e.g., `Expr::col(("posts", "user_id")).eq(Expr::col(("users", "id")))`)
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery` builder for the related entity
-    fn belongs_to<R>(&self, _rel: R) -> SelectQuery<R>
+    /// Returns a `SelectQuery` builder for the related entity with the join condition applied
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{RelationTrait, LifeModelTrait};
+    /// use sea_query::Expr;
+    ///
+    /// struct Post;
+    /// struct User;
+    ///
+    /// impl RelationTrait for Post {
+    ///     fn belongs_to<R>(&self, rel: R, foreign_key: &str, on: Expr) -> SelectQuery<R>
+    ///     where
+    ///         R: LifeModelTrait,
+    ///     {
+    ///         SelectQuery::new().left_join(rel, on)
+    ///     }
+    /// }
+    /// ```
+    fn belongs_to<R>(&self, rel: R, _foreign_key: &str, on: Expr) -> SelectQuery<R>
     where
-        R: LifeModelTrait,
+        R: LifeModelTrait + Iden,
     {
-        SelectQuery::new()
+        // belongs_to: Join the related entity table using LEFT JOIN
+        // The join condition should be: current_table.foreign_key = related_table.primary_key
+        SelectQuery::new().left_join(rel, on)
     }
 
     /// Get a query builder for a has_one relationship
@@ -62,15 +85,19 @@ pub trait RelationTrait: LifeModelTrait {
     /// # Arguments
     ///
     /// * `rel` - The related entity type
+    /// * `foreign_key` - The foreign key column in the related entity (e.g., "user_id")
+    /// * `on` - The join condition expression
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery` builder for the related entity
-    fn has_one<R>(&self, _rel: R) -> SelectQuery<R>
+    /// Returns a `SelectQuery` builder for the related entity with the join condition applied
+    fn has_one<R>(&self, rel: R, _foreign_key: &str, on: Expr) -> SelectQuery<R>
     where
-        R: LifeModelTrait,
+        R: LifeModelTrait + Iden,
     {
-        SelectQuery::new()
+        // has_one: Join the related entity table using LEFT JOIN
+        // The join condition should be: current_table.primary_key = related_table.foreign_key
+        SelectQuery::new().left_join(rel, on)
     }
 
     /// Get a query builder for a has_many relationship
@@ -81,15 +108,19 @@ pub trait RelationTrait: LifeModelTrait {
     /// # Arguments
     ///
     /// * `rel` - The related entity type
+    /// * `foreign_key` - The foreign key column in the related entity (e.g., "user_id")
+    /// * `on` - The join condition expression
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery` builder for the related entities
-    fn has_many<R>(&self, _rel: R) -> SelectQuery<R>
+    /// Returns a `SelectQuery` builder for the related entities with the join condition applied
+    fn has_many<R>(&self, rel: R, _foreign_key: &str, on: Expr) -> SelectQuery<R>
     where
-        R: LifeModelTrait,
+        R: LifeModelTrait + Iden,
     {
-        SelectQuery::new()
+        // has_many: Join the related entity table using LEFT JOIN
+        // The join condition should be: current_table.primary_key = related_table.foreign_key
+        SelectQuery::new().left_join(rel, on)
     }
 
     /// Get a query builder for a has_many_through relationship
@@ -101,16 +132,23 @@ pub trait RelationTrait: LifeModelTrait {
     ///
     /// * `rel` - The related entity type
     /// * `through` - The intermediate entity type (join table)
+    /// * `first_join` - The join condition for the first join (current -> through)
+    /// * `second_join` - The join condition for the second join (through -> related)
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery` builder for the related entities
-    fn has_many_through<R, T>(&self, _rel: R, _through: T) -> SelectQuery<R>
+    /// Returns a `SelectQuery` builder for the related entities with both joins applied
+    fn has_many_through<R, T>(&self, rel: R, through: T, first_join: Expr, second_join: Expr) -> SelectQuery<R>
     where
-        R: LifeModelTrait,
-        T: LifeModelTrait,
+        R: LifeModelTrait + Iden,
+        T: LifeModelTrait + Iden,
     {
+        // has_many_through: Join through the intermediate table, then to the related entity
+        // First join: current_table -> through_table
+        // Second join: through_table -> related_table
         SelectQuery::new()
+            .left_join(through, first_join)
+            .left_join(rel, second_join)
     }
 }
 
@@ -156,36 +194,49 @@ pub trait RelationBuilder {
 /// Helper function to create a join condition for relationships
 ///
 /// This creates an expression that joins two tables based on foreign key
-/// relationships. Users should construct join conditions manually using
-/// SeaQuery's Expr API, as column-to-column comparisons require specific
-/// SeaQuery expressions.
+/// relationships. The function creates a table-qualified column comparison
+/// expression.
 ///
-/// # Note
+/// # Arguments
 ///
-/// This is a placeholder function. In practice, users should construct
-/// join conditions directly using SeaQuery's Expr API:
+/// * `from_table` - The source table name
+/// * `from_column` - The foreign key column in the source table
+/// * `to_table` - The target table name
+/// * `to_column` - The referenced column in the target table (usually primary key)
+///
+/// # Returns
+///
+/// Returns an `Expr` representing the join condition: `from_table.from_column = to_table.to_column`
+///
+/// # Example
 ///
 /// ```no_run
+/// use lifeguard::join_condition;
 /// use sea_query::Expr;
 ///
-/// // Create a join condition manually
-/// let condition = Expr::col(("posts", "user_id"))
-///     .eq(Expr::col(("users", "id")));
-/// ```
+/// // Create a join condition: posts.user_id = users.id
+/// let condition = join_condition("posts", "user_id", "users", "id");
 ///
-/// For now, this function returns a simple equality expression that users
-/// can customize. The actual implementation will be enhanced when we add
-/// full relation support with automatic join condition generation.
+/// // Or construct manually for more control:
+/// let condition = Expr::col(("posts", "user_id"))
+///     .equals(Expr::col(("users", "id")));
+/// ```
 pub fn join_condition(
-    _from_table: &str,
-    _from_column: &str,
-    _to_table: &str,
-    _to_column: &str,
+    from_table: &str,
+    from_column: &str,
+    to_table: &str,
+    to_column: &str,
 ) -> Expr {
-    // TODO: Implement proper column-to-column comparison
-    // For now, return a placeholder expression
-    // Users should construct join conditions manually using SeaQuery's Expr API
-    Expr::cust("1 = 1") // Placeholder - always true, users should replace with actual condition
+    // Create table-qualified column references and compare them
+    // SeaQuery doesn't have a direct .equals() method for column-to-column comparisons,
+    // so we use a custom SQL expression
+    // Note: This creates a raw SQL string, so table/column names should be validated
+    // to prevent SQL injection if user input is involved
+    let condition = format!(
+        "{}.{} = {}.{}",
+        from_table, from_column, to_table, to_column
+    );
+    Expr::cust(condition)
 }
 
 #[cfg(test)]
@@ -208,8 +259,14 @@ mod tests {
         use crate::{LifeEntityName, LifeModelTrait};
         use sea_query::IdenStatic;
         
-        #[derive(Default)]
+        #[derive(Default, Copy, Clone)]
         struct TestEntity;
+        
+        impl sea_query::Iden for TestEntity {
+            fn unquoted(&self) -> &str {
+                "test_entities"
+            }
+        }
         
         #[derive(Copy, Clone, Debug)]
         enum TestColumn {
@@ -242,9 +299,12 @@ mod tests {
         impl RelationTrait for TestEntity {}
         
         let entity = TestEntity;
-        let _query1 = entity.belongs_to(TestEntity);
-        let _query2 = entity.has_one(TestEntity);
-        let _query3 = entity.has_many(TestEntity);
-        let _query4 = entity.has_many_through(TestEntity, TestEntity);
+        use sea_query::Expr;
+        // Create placeholder join conditions for testing
+        let join_cond = Expr::cust("1 = 1");
+        let _query1 = entity.belongs_to(TestEntity, "foreign_key", join_cond.clone());
+        let _query2 = entity.has_one(TestEntity, "foreign_key", join_cond.clone());
+        let _query3 = entity.has_many(TestEntity, "foreign_key", join_cond.clone());
+        let _query4 = entity.has_many_through(TestEntity, TestEntity, join_cond.clone(), join_cond);
     }
 }
