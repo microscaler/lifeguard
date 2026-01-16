@@ -619,16 +619,15 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             let has_primary_key = #(#save_pk_checks)* true;
             
             if has_primary_key {
-                // Try to find the record to see if it exists
-                // For now, try update first, if it fails with "no rows", do insert
-                // TODO: Use Entity::find() to check if record exists
+                // Try to update first. If record doesn't exist (RecordNotFound),
+                // fall back to insert. This implements upsert behavior.
                 match self.update(executor) {
                     Ok(model) => Ok(model),
-                    Err(lifeguard::ActiveModelError::DatabaseError(_)) => {
-                        // Update failed, try insert instead
+                    Err(lifeguard::ActiveModelError::RecordNotFound) => {
+                        // Update affected zero rows - record doesn't exist, try insert
                         self.insert(executor)
                     },
-                    Err(e) => Err(e), // Propagate other errors
+                    Err(e) => Err(e), // Propagate other errors (DatabaseError, etc.)
                 }
             } else {
                 // No primary key set, do insert
@@ -836,12 +835,16 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
                 
                 // Convert values to parameters and execute
-                lifeguard::with_converted_params(&values_vec, |params| {
+                let rows_affected = lifeguard::with_converted_params(&values_vec, |params| {
                     executor.execute(&sql, params).map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
-                    })?;
-                    Ok(())
+                    })
                 })?;
+                
+                // Check if any rows were affected
+                if rows_affected == 0 {
+                    return Err(lifeguard::ActiveModelError::RecordNotFound);
+                }
                 
                 // Return the updated model
                 Ok(self.to_model())

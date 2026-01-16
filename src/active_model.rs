@@ -286,6 +286,8 @@ pub enum ActiveModelError {
     ColumnNotFound(String),
     /// Primary key required but not set
     PrimaryKeyRequired,
+    /// Record not found (e.g., UPDATE/DELETE affected zero rows)
+    RecordNotFound,
     /// Database operation failed
     DatabaseError(String),
     /// Other error
@@ -309,6 +311,9 @@ impl std::fmt::Display for ActiveModelError {
             }
             ActiveModelError::PrimaryKeyRequired => {
                 write!(f, "Primary key is required for this operation")
+            }
+            ActiveModelError::RecordNotFound => {
+                write!(f, "Record not found (no rows affected)")
             }
             ActiveModelError::DatabaseError(msg) => {
                 write!(f, "Database error: {}", msg)

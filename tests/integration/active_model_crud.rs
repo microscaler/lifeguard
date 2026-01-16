@@ -702,6 +702,131 @@ fn test_with_primary_key_save_works() {
 }
 
 #[test]
+fn test_save_with_nonexistent_record_should_insert() {
+    // NEGATIVE TEST: save() with primary key set but record doesn't exist
+    // This tests the bug fix - previously save() would return Ok() but nothing was saved
+    // Now it should detect zero rows from update() and fall back to insert
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a record with a primary key that doesn't exist in the database
+    // This simulates the bug scenario where save() was called with a PK set
+    // but the record doesn't actually exist
+    let mut record = TestUserRecord::new();
+    record.set_id(999); // Set a PK that doesn't exist
+    record.set_name("Non-existent User".to_string());
+    record.set_email("nonexistent@example.com".to_string());
+    
+    // save() should detect that update() affected zero rows and fall back to insert
+    // However, since we're setting an auto-increment PK, this might fail
+    // Let's test with a non-auto-increment scenario or just verify the behavior
+    
+    // Actually, for auto-increment PKs, we can't set them manually in insert
+    // So let's test a different scenario: create a record, delete it, then try to save with that ID
+    // First, insert a record normally
+    let mut insert_record = TestUserRecord::new();
+    insert_record.set_name("Original User".to_string());
+    insert_record.set_email("original@example.com".to_string());
+    let original_model = insert_record.insert(&executor).expect("Failed to insert");
+    let original_id = original_model.id;
+    
+    // Delete the record
+    let delete_record = TestUserRecord::from_model(&original_model);
+    delete_record.delete(&executor).expect("Failed to delete");
+    
+    // Verify it's gone
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users WHERE id = $1",
+        &[&original_id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 0, "Record should be deleted");
+    
+    // Now try to save with the deleted record's ID
+    // This should detect zero rows from update() and fall back to insert
+    // But since the PK is auto-increment, insert will generate a new ID
+    let mut save_record = TestUserRecord::new();
+    save_record.set_id(original_id); // Set the deleted record's ID
+    save_record.set_name("Resurrected User".to_string());
+    save_record.set_email("resurrected@example.com".to_string());
+    
+    // save() should detect RecordNotFound from update() and fall back to insert
+    // Since it's auto-increment, insert will ignore the set ID and generate a new one
+    let saved_model = save_record.save(&executor).expect("Failed to save");
+    
+    // The saved model should have a NEW ID (not the original_id) because insert ignores set auto-increment PKs
+    assert_ne!(saved_model.id, original_id, "Insert should generate a new ID for auto-increment PK");
+    assert_eq!(saved_model.name, "Resurrected User");
+    
+    // Verify the new record exists in database
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users WHERE id = $1",
+        &[&saved_model.id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "New record should exist");
+    
+    // Verify the old ID is still gone
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users WHERE id = $1",
+        &[&original_id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 0, "Old record should still be deleted");
+}
+
+#[test]
+fn test_save_with_existing_record_should_update() {
+    // POSITIVE TEST: save() with existing record should update it
+    // This verifies the fix doesn't break the normal update path
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // First, insert a record
+    let mut insert_record = TestUserRecord::new();
+    insert_record.set_name("Original Name".to_string());
+    insert_record.set_email("original@example.com".to_string());
+    let original_model = insert_record.insert(&executor).expect("Failed to insert");
+    
+    // Now save with the same record (should update)
+    let mut save_record = TestUserRecord::from_model(&original_model);
+    save_record.set_name("Updated via Save".to_string());
+    save_record.set_email("updated@example.com".to_string());
+    
+    let saved_model = save_record.save(&executor).expect("Failed to save");
+    
+    // Should have the same ID (update, not insert)
+    assert_eq!(saved_model.id, original_model.id);
+    assert_eq!(saved_model.name, "Updated via Save");
+    assert_eq!(saved_model.email, "updated@example.com");
+    
+    // Verify in database
+    let rows = executor.query_all(
+        "SELECT name, email FROM test_users WHERE id = $1",
+        &[&original_model.id],
+    ).expect("Failed to query database");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, String>(0), "Updated via Save");
+    assert_eq!(rows[0].get::<_, String>(1), "updated@example.com");
+    
+    // Verify only one record exists (not inserted a new one)
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Should only have one record");
+}
+
+#[test]
 fn test_active_model_insert_auto_increment_pk_not_set() {
     // POSITIVE TEST: insert() should work when auto-increment PK is not set
     // This test verifies the fix for the panic issue where to_model() would fail
