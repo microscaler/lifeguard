@@ -4,6 +4,7 @@
 
 mod attributes;
 mod macros;
+mod type_conversion;
 mod utils;
 
 use proc_macro::TokenStream;

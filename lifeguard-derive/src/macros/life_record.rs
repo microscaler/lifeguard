@@ -1,11 +1,30 @@
 //! LifeRecord derive macro implementation
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, GenericArgument, PathArguments, Type};
 use quote::quote;
 
 use crate::attributes;
+use crate::type_conversion;
 use crate::utils;
+
+/// Extract the inner type from Option<T>
+/// Returns None if the type is not Option<T> or if extraction fails
+fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
+    if let Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            if segment.ident == "Option" {
+                // Extract inner type from generic arguments
+                if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(GenericArgument::Type(inner_type)) = args.args.first() {
+                        return Some(inner_type);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
 
 /// Derive macro for `LifeRecord` - generates mutable change-set objects
 ///
@@ -43,6 +62,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let _table_name = attributes::extract_table_name(&input.attrs)
         .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
     
+    // Generate Entity name (assumes Entity struct exists from LifeModel)
+    let entity_name = Ident::new("Entity", struct_name.span());
+    
     // Process fields
     let mut record_fields = Vec::new();
     let mut record_field_names = Vec::new();
@@ -51,39 +73,107 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut dirty_fields_check = Vec::new();
     let mut setter_methods = Vec::new();
     
+    // For ActiveModelTrait implementation
+    let mut active_model_get_match_arms = Vec::new();
+    let mut active_model_set_match_arms = Vec::new();
+    let mut active_model_take_match_arms = Vec::new();
+    let mut active_model_reset_fields = Vec::new();
+    
+    // Track primary keys for CRUD operations
+    // We use separate vectors because tuples don't work well in quote! macro
+    let mut primary_key_field_names = Vec::new();
+    let mut primary_key_column_variants = Vec::new();
+    let mut primary_key_auto_increment = Vec::new();
+    
+    // Generate CRUD operation code for each field
+    let mut insert_column_checks = Vec::new(); // Check if field should be included in INSERT
+    let mut update_set_clauses = Vec::new(); // SET clauses for UPDATE
+    let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
+    let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
+    
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
         
+        // Check if field type is already Option<T>
+        let is_already_option = extract_option_inner_type(field_type).is_some();
+        
+        // Extract the inner type from Option<T> if present
+        // This is critical: conversion functions need the inner type (e.g., String), not Option<String>
+        let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
+        
+        // Extract column name (use column_name attribute or convert field name to PascalCase)
+        let column_name = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::pascal_case(&field_name.to_string()));
+        let column_variant = Ident::new(&column_name, field_name.span());
+        
+        // Check if field is primary key
+        let is_primary_key = attributes::has_attribute(field, "primary_key");
+        let is_auto_increment = attributes::has_attribute(field, "auto_increment");
+        
+        // Track primary key information
+        if is_primary_key {
+            primary_key_field_names.push(field_name.clone());
+            primary_key_column_variants.push(column_variant.clone());
+            primary_key_auto_increment.push(is_auto_increment);
+        }
+        
         // Check if field is nullable (has #[nullable] attribute)
         let is_nullable = attributes::has_attribute(field, "nullable");
         
-        // Generate record field (Option<T>)
+        // Generate record field type
+        // If field is already Option<T>, use it directly (don't wrap in Option<> again)
+        // Otherwise, wrap in Option<>
+        let record_field_type = if is_already_option {
+            // Field is already Option<T>, use it directly
+            quote! { #field_type }
+        } else {
+            // Field is T, wrap in Option<T>
+            quote! { Option<#field_type> }
+        };
+        
         record_fields.push(quote! {
-            pub #field_name: Option<#field_type>,
+            pub #field_name: #record_field_type,
         });
         
         // Store field name for struct initialization
         record_field_names.push(field_name);
         
         // Generate from_model field assignment
-        from_model_fields.push(quote! {
-            #field_name: Some(model.#field_name.clone()),
-        });
+        // If field is already Option<T>, assign directly (don't wrap in Some())
+        // Otherwise, wrap in Some()
+        if is_already_option {
+            from_model_fields.push(quote! {
+                #field_name: model.#field_name.clone(),
+            });
+        } else {
+            from_model_fields.push(quote! {
+                #field_name: Some(model.#field_name.clone()),
+            });
+        }
         
         // Generate to_model field extraction
-        // For inserts, None fields use defaults (or panic if required)
-        if is_nullable {
+        // For Option<T> fields, clone directly (Record field is Option<T>, Model field is Option<T>)
+        // For non-Option fields, unwrap (Record field is Option<T>, Model field is T)
+        if is_already_option {
+            // Field is already Option<T>, clone directly
+            to_model_fields.push(quote! {
+                #field_name: self.#field_name.clone(),
+            });
+        } else if is_nullable {
+            // Non-Option field, but nullable - use default if None
             to_model_fields.push(quote! {
                 #field_name: self.#field_name.clone().unwrap_or_default(),
             });
         } else {
+            // Non-Option field, required - panic if None
             to_model_fields.push(quote! {
                 #field_name: self.#field_name.clone().expect(&format!("Field {} is required but not set", stringify!(#field_name))),
             });
         }
         
         // Generate dirty field check
+        // For Option<T> fields (both cases), check if Some
         dirty_fields_check.push(quote! {
             if self.#field_name.is_some() {
                 dirty.push(stringify!(#field_name).to_string());
@@ -91,15 +181,192 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
         
         // Generate setter method
+        // If field is already Option<T>, setter accepts Option<T> directly
+        // Otherwise, setter accepts T and wraps in Some()
         let setter_name = Ident::new(&format!("set_{}", field_name), field_name.span());
-        setter_methods.push(quote! {
-            /// Set the #field_name field
-            pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
-                self.#field_name = Some(value);
-                self
+        if is_already_option {
+            setter_methods.push(quote! {
+                /// Set the #field_name field
+                pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.#field_name = value;
+                    self
+                }
+            });
+        } else {
+            setter_methods.push(quote! {
+                /// Set the #field_name field
+                pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.#field_name = Some(value);
+                    self
+                }
+            });
+        }
+        
+        // Generate ActiveModelTrait match arms
+        // For get(), convert directly from Option<T> to Option<Value> (optimized, no to_model() needed)
+        // Use inner_type for type conversion (e.g., String from Option<String>)
+        let field_to_value_conversion = type_conversion::generate_option_field_to_value(field_name, inner_type);
+        active_model_get_match_arms.push(quote! {
+            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                #field_to_value_conversion
             }
         });
+        
+        // For set(), generate type conversion code
+        // Use inner_type for type conversion (e.g., String from Option<String>)
+        let value_to_field_conversion = type_conversion::generate_value_to_option_field(
+            field_name,
+            inner_type,
+            &column_variant,
+        );
+        active_model_set_match_arms.push(quote! {
+            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                #value_to_field_conversion
+            }
+        });
+        
+        // For take(), convert directly from Option<T> to Option<Value> and set field to None (optimized)
+        // Use inner_type for type conversion (e.g., String from Option<String>)
+        let field_to_value_conversion = type_conversion::generate_option_field_to_value(field_name, inner_type);
+        active_model_take_match_arms.push(quote! {
+            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                let value = #field_to_value_conversion;
+                self.#field_name = None;
+                value
+            }
+        });
+        
+        active_model_reset_fields.push(quote! {
+            self.#field_name = None;
+        });
+        
+        // Generate INSERT column/value collection
+        // Skip auto-increment primary keys if not set
+        if is_primary_key && is_auto_increment {
+            // Auto-increment PK: include only if set
+            insert_column_checks.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    values.push(value);
+                }
+            });
+            // Track auto-increment PKs that need RETURNING (if not set)
+            // Generate code to check if this PK needs RETURNING and extract if so
+            // Database returns T (inner type), not Option<T>, so we use inner_type
+            // Both Option<T> and T fields need to wrap the returned value in Some()
+            returning_extractors.push(quote! {
+                // Check if this auto-increment PK was not set and needs RETURNING
+                if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
+                    // Extract returned value for #field_name (database returns T, wrap in Some())
+                    let pk_value: #inner_type = row.get(returning_idx);
+                    returning_idx += 1;
+                    updated_record.#field_name = Some(pk_value);
+                }
+            });
+        } else if !is_primary_key {
+            // Non-PK field: include if set
+            insert_column_checks.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    values.push(value);
+                }
+            });
+        } else {
+            // Non-auto-increment PK: include if set (required for composite keys)
+            insert_column_checks.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    values.push(value);
+                }
+            });
+        }
+        
+        // Generate UPDATE SET clause (skip primary keys)
+        if !is_primary_key {
+            update_set_clauses.push(quote! {
+                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
+                }
+            });
+        }
+        
+        // Generate DELETE WHERE clause (only for primary keys)
+        if is_primary_key {
+            delete_where_clauses.push(quote! {
+                if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    use lifeguard::ColumnTrait;
+                    let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.eq(pk_value);
+                    query.and_where(expr);
+                } else {
+                    return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                }
+            });
+        }
     }
+    
+    // Generate primary key check code for save()
+    // If there are no primary keys, save() should always do insert
+    let has_primary_keys = !primary_key_field_names.is_empty();
+    let mut save_pk_checks = Vec::new();
+    for field_name in primary_key_field_names.iter() {
+        save_pk_checks.push(quote! {
+            self.#field_name.is_some() &&
+        });
+    }
+    
+    // Generate conditional code for methods that require primary keys
+    let update_pk_check = if has_primary_keys {
+        quote! {
+            // Check primary key is set
+            #(
+                if self.#primary_key_field_names.is_none() {
+                    return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                }
+            )*
+        }
+    } else {
+        quote! {
+            // Entity has no primary keys - update is not supported
+            return Err(lifeguard::ActiveModelError::Other("Cannot update entity without primary key".to_string()));
+        }
+    };
+    
+    let delete_pk_check = if has_primary_keys {
+        quote! {}
+    } else {
+        quote! {
+            // Entity has no primary keys - delete is not supported
+            return Err(lifeguard::ActiveModelError::Other("Cannot delete entity without primary key".to_string()));
+        }
+    };
+    
+    let save_pk_logic = if has_primary_keys {
+        quote! {
+            // Check if primary key is set
+            let has_primary_key = #(#save_pk_checks)* true;
+            
+            if has_primary_key {
+                // Try to update first. If record doesn't exist (RecordNotFound),
+                // fall back to insert. This implements upsert behavior.
+                match self.update(executor) {
+                    Ok(model) => Ok(model),
+                    Err(lifeguard::ActiveModelError::RecordNotFound) => {
+                        // Update affected zero rows - record doesn't exist, try insert
+                        self.insert(executor)
+                    },
+                    Err(e) => Err(e), // Propagate other errors (DatabaseError, etc.)
+                }
+            } else {
+                // No primary key set, do insert
+                self.insert(executor)
+            }
+        }
+    } else {
+        quote! {
+            // Entity has no primary keys - always do insert
+            self.insert(executor)
+        }
+    };
     
     // Generate the expanded code
     let expanded = quote! {
@@ -157,6 +424,193 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         impl Default for #record_name {
             fn default() -> Self {
                 Self::new()
+            }
+        }
+        
+        // Implement ActiveModelTrait for Record
+        impl lifeguard::ActiveModelTrait for #record_name {
+            type Entity = #entity_name;
+            type Model = #model_name;
+            
+            fn get(&self, column: <#entity_name as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                match column {
+                    #(#active_model_get_match_arms)*
+                }
+            }
+            
+            fn set(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                match column {
+                    #(#active_model_set_match_arms)*
+                }
+            }
+            
+            fn take(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                match column {
+                    #(#active_model_take_match_arms)*
+                }
+            }
+            
+            fn reset(&mut self) {
+                #(#active_model_reset_fields)*
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                use sea_query::{Query, PostgresQueryBuilder};
+                use lifeguard::LifeEntityName;
+                
+                // Build INSERT statement
+                let mut query = Query::insert();
+                let entity = #entity_name::default();
+                query.into_table(entity);
+                
+                // Collect columns and values (skip auto-increment PKs if not set)
+                let mut columns = Vec::new();
+                let mut values = Vec::new();
+                
+                #(#insert_column_checks)*
+                
+                if columns.is_empty() {
+                    return Err(lifeguard::ActiveModelError::Other("No fields set for insert".to_string()));
+                }
+                
+                // Add columns and values to query
+                // SeaQuery API: columns() takes items that implement IntoIden (Column implements Iden, which provides IntoIden via blanket impl)
+                // values_panic() takes an iterator of Expr (wrapping Values)
+                query.columns(columns.iter().copied());
+                let exprs: Vec<sea_query::Expr> = values.iter().map(|v| sea_query::Expr::val(v.clone())).collect();
+                query.values_panic(exprs.iter().cloned());
+                
+                // Check if we need RETURNING clause for auto-increment primary keys
+                // Track which auto-increment PKs were not set and need RETURNING
+                let mut needs_returning = false;
+                let mut returning_cols = Vec::new();
+                #(
+                    if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants).is_none() && #primary_key_auto_increment {
+                        needs_returning = true;
+                        returning_cols.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants);
+                    }
+                )*
+                
+                // Add RETURNING clause if needed
+                // SeaQuery's returning() expects ReturningClause enum
+                // ReturningClause::Columns expects Vec<ColumnRef>
+                if needs_returning {
+                    use sea_query::{ReturningClause, ColumnRef};
+                    // Convert Column enum variants to ColumnRef
+                    let returning_vec: Vec<ColumnRef> = returning_cols.iter().copied().map(|c| ColumnRef::from(c)).collect();
+                    query.returning(ReturningClause::Columns(returning_vec));
+                }
+                
+                // Build SQL
+                let (sql, sql_values) = query.build(PostgresQueryBuilder);
+                
+                // Convert Values to Vec<Value> for parameter binding
+                // SeaQuery's Values implements IntoIterator<Item = Value>
+                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+                
+                // Create a mutable copy of self to update with returned PK values
+                let mut updated_record = self.clone();
+                
+                // Execute query and handle RETURNING if needed
+                if needs_returning {
+                    // Use query_one() to get returned values
+                    let row = lifeguard::with_converted_params(&values_vec, |params| {
+                        executor.query_one(&sql, params).map_err(|e| {
+                            lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                        })
+                    })?;
+                    
+                    // Extract returned primary key values and update the record
+                    let mut returning_idx = 0usize;
+                    #(#returning_extractors)*
+                } else {
+                    // No RETURNING needed, just execute
+                    lifeguard::with_converted_params(&values_vec, |params| {
+                        executor.execute(&sql, params).map_err(|e| {
+                            lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                        })?;
+                        Ok(())
+                    })?;
+                }
+                
+                // Return the model constructed from the updated record
+                Ok(updated_record.to_model())
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                use sea_query::{Query, PostgresQueryBuilder, Expr};
+                use lifeguard::LifeEntityName;
+                
+                #update_pk_check
+                
+                // Build UPDATE statement
+                let mut query = Query::update();
+                let entity = #entity_name::default();
+                query.table(entity);
+                
+                // Add SET clauses for dirty fields (skip primary keys)
+                #(#update_set_clauses)*
+                
+                // Add WHERE clause for primary keys
+                #(#delete_where_clauses)*
+                
+                // Build SQL
+                let (sql, sql_values) = query.build(PostgresQueryBuilder);
+                
+                // Convert Values to Vec<Value> for parameter binding
+                // SeaQuery's Values implements IntoIterator<Item = Value>
+                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+                
+                // Convert values to parameters and execute
+                let rows_affected = lifeguard::with_converted_params(&values_vec, |params| {
+                    executor.execute(&sql, params).map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                    })
+                })?;
+                
+                // Check if any rows were affected
+                if rows_affected == 0 {
+                    return Err(lifeguard::ActiveModelError::RecordNotFound);
+                }
+                
+                // Return the updated model
+                Ok(self.to_model())
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                #save_pk_logic
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                use sea_query::{Query, PostgresQueryBuilder, Expr};
+                use lifeguard::LifeEntityName;
+                
+                #delete_pk_check
+                
+                // Build DELETE statement
+                let mut query = Query::delete();
+                let entity = #entity_name::default();
+                query.from_table(entity);
+                
+                // Add WHERE clause for primary keys
+                #(#delete_where_clauses)*
+                
+                // Build SQL
+                let (sql, sql_values) = query.build(PostgresQueryBuilder);
+                
+                // Convert Values to Vec<Value> for parameter binding
+                // SeaQuery's Values implements IntoIterator<Item = Value>
+                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+                
+                // Convert values to parameters and execute
+                lifeguard::with_converted_params(&values_vec, |params| {
+                    executor.execute(&sql, params).map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                    })?;
+                    Ok(())
+                })?;
+                
+                Ok(())
             }
         }
     };
