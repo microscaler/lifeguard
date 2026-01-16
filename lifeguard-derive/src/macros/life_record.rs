@@ -373,9 +373,42 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut save_pk_checks = Vec::new();
     for field_name in primary_key_field_names.iter() {
         save_pk_checks.push(quote! {
-            self.#field_name.is_some() &&
+            record_for_hooks.#field_name.is_some() &&
         });
     }
+    
+    // Generate save logic that handles both cases: entities with and without primary keys
+    let save_pk_logic = if has_primary_keys {
+        quote! {
+            {
+                // Check if primary key is set (using record_for_hooks)
+                let has_primary_key = #(#save_pk_checks)* true;
+                
+                if has_primary_key {
+                    // Try to update first. If record doesn't exist (RecordNotFound),
+                    // fall back to insert. This implements upsert behavior.
+                    match record_for_hooks.update(executor) {
+                        Ok(model) => Ok(model),
+                        Err(lifeguard::ActiveModelError::RecordNotFound) => {
+                            // Update affected zero rows - record doesn't exist, try insert
+                            record_for_hooks.insert(executor)
+                        },
+                        Err(e) => Err(e), // Propagate other errors (DatabaseError, etc.)
+                    }
+                } else {
+                    // No primary key set, do insert
+                    record_for_hooks.insert(executor)
+                }
+            }
+        }
+    } else {
+        quote! {
+            {
+                // Entity has no primary keys - always do insert
+                record_for_hooks.insert(executor)
+            }
+        }
+    };
     
     // Generate conditional code for methods that require primary keys
     let update_pk_check = if has_primary_keys {
@@ -400,34 +433,6 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             // Entity has no primary keys - delete is not supported
             return Err(lifeguard::ActiveModelError::Other("Cannot delete entity without primary key".to_string()));
-        }
-    };
-    
-    let _save_pk_logic = if has_primary_keys {
-        quote! {
-            // Check if primary key is set
-            let has_primary_key = #(#save_pk_checks)* true;
-            
-            if has_primary_key {
-                // Try to update first. If record doesn't exist (RecordNotFound),
-                // fall back to insert. This implements upsert behavior.
-                match self.update(executor) {
-                    Ok(model) => Ok(model),
-                    Err(lifeguard::ActiveModelError::RecordNotFound) => {
-                        // Update affected zero rows - record doesn't exist, try insert
-                        self.insert(executor)
-                    },
-                    Err(e) => Err(e), // Propagate other errors (DatabaseError, etc.)
-                }
-            } else {
-                // No primary key set, do insert
-                self.insert(executor)
-            }
-        }
-    } else {
-        quote! {
-            // Entity has no primary keys - always do insert
-            self.insert(executor)
         }
     };
     
@@ -681,30 +686,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 record_for_hooks.before_save()?;
                 
                 // Execute save logic (insert or update) using record_for_hooks
-                // Note: save_pk_logic uses self, so we need to delegate to record_for_hooks
-                // For now, we'll call insert/update on record_for_hooks directly
-                let model = {
-                    // Check if primary key is set (using record_for_hooks)
-                    let has_primary_key = #(
-                        record_for_hooks.#primary_key_field_names.is_some() &&
-                    )* true;
-                    
-                    if has_primary_key {
-                        // Try to update first. If record doesn't exist (RecordNotFound),
-                        // fall back to insert. This implements upsert behavior.
-                        match record_for_hooks.update(executor) {
-                            Ok(model) => Ok(model),
-                            Err(lifeguard::ActiveModelError::RecordNotFound) => {
-                                // Update affected zero rows - record doesn't exist, try insert
-                                record_for_hooks.insert(executor)
-                            },
-                            Err(e) => Err(e), // Propagate other errors (DatabaseError, etc.)
-                        }
-                    } else {
-                        // No primary key set, do insert
-                        record_for_hooks.insert(executor)
-                    }
-                }?;
+                // This handles both entities with and without primary keys correctly
+                let model = #save_pk_logic?;
                 
                 // Call after_save hook
                 record_for_hooks.after_save(&model)?;

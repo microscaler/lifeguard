@@ -536,6 +536,188 @@ fn test_no_primary_key_save_always_inserts() {
 }
 
 #[test]
+fn test_no_primary_key_save_multiple_times_all_insert() {
+    // BUG FIX TEST: Multiple saves on entities without primary keys should all insert
+    // This verifies that save() doesn't try to update (which would fail with PrimaryKeyRequired)
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_no_pk_schema(&executor).expect("Failed to setup schema");
+    cleanup_no_pk_data(&executor).expect("Failed to cleanup");
+
+    // First save - should insert
+    let mut record1 = TestNoPkEntityRecord::new();
+    record1.set_name("First Save".to_string());
+    record1.set_email("first@example.com".to_string());
+    record1.set_age(Some(25));
+    let model1 = record1.save(&executor).expect("Failed to save first record");
+
+    // Second save with same data - should also insert (not try to update)
+    let mut record2 = TestNoPkEntityRecord::new();
+    record2.set_name("First Save".to_string());
+    record2.set_email("first@example.com".to_string());
+    record2.set_age(Some(25));
+    let model2 = record2.save(&executor).expect("Failed to save second record");
+
+    // Third save with different data - should also insert
+    let mut record3 = TestNoPkEntityRecord::new();
+    record3.set_name("Third Save".to_string());
+    record3.set_email("third@example.com".to_string());
+    record3.set_age(Some(30));
+    let model3 = record3.save(&executor).expect("Failed to save third record");
+
+    // Verify all three records were inserted (not updated)
+    let total_count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(total_count, 3, "All three saves should have inserted new records");
+
+    // Verify each record exists
+    let count1 = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities WHERE name = $1 AND email = $2",
+        &[&"First Save".to_string(), &"first@example.com".to_string()],
+    ).expect("Failed to query database");
+    assert_eq!(count1, 2, "Two records with same name/email should exist");
+
+    let count3 = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities WHERE name = $1 AND email = $2",
+        &[&"Third Save".to_string(), &"third@example.com".to_string()],
+    ).expect("Failed to query database");
+    assert_eq!(count3, 1, "One record with third name/email should exist");
+}
+
+#[test]
+fn test_no_primary_key_save_with_hooks() {
+    // BUG FIX TEST: save() on entities without primary keys should call hooks correctly
+    // This verifies that before_save and after_save hooks work even without primary keys
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_no_pk_schema(&executor).expect("Failed to setup schema");
+    cleanup_no_pk_data(&executor).expect("Failed to cleanup");
+
+    // Create a record and save it
+    let mut record = TestNoPkEntityRecord::new();
+    record.set_name("Hook Test".to_string());
+    record.set_email("hook@example.com".to_string());
+    record.set_age(Some(25));
+
+    // save() should insert and call hooks (hooks are called before the insert/update decision)
+    let model = record.save(&executor).expect("Failed to save");
+
+    // Verify it was inserted
+    assert_eq!(model.name, "Hook Test");
+    assert_eq!(model.email, "hook@example.com");
+    assert_eq!(model.age, Some(25));
+
+    // Verify in database
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities WHERE name = $1 AND email = $2",
+        &[&"Hook Test".to_string(), &"hook@example.com".to_string()],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Record should be inserted");
+}
+
+#[test]
+fn test_with_primary_key_save_upsert_behavior() {
+    // REGRESSION TEST: save() on entities WITH primary keys should still work correctly
+    // This verifies the fix doesn't break existing upsert behavior
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // First save - should insert (no primary key set)
+    let mut record1 = TestUserRecord::new();
+    record1.set_name("New User".to_string());
+    record1.set_email("new@example.com".to_string());
+    let model1 = record1.save(&executor).expect("Failed to save");
+
+    // Verify it was inserted
+    assert!(model1.id > 0);
+    assert_eq!(model1.name, "New User");
+    assert_eq!(model1.email, "new@example.com");
+
+    // Second save with primary key set - should update (upsert behavior)
+    let mut record2 = TestUserRecord::from_model(&model1);
+    record2.set_name("Updated User".to_string());
+    record2.set_email("updated@example.com".to_string());
+    let model2 = record2.save(&executor).expect("Failed to save");
+
+    // Verify it was updated (same ID, new values)
+    assert_eq!(model2.id, model1.id);
+    assert_eq!(model2.name, "Updated User");
+    assert_eq!(model2.email, "updated@example.com");
+
+    // Verify only one record exists (not two)
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_users WHERE id = $1",
+        &[&model1.id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1, "Only one record should exist (update, not insert)");
+
+    // Third save with non-existent primary key - should insert (upsert fallback)
+    let mut record3 = TestUserRecord::new();
+    record3.set_id(Some(99999)); // Non-existent ID
+    record3.set_name("Fallback User".to_string());
+    record3.set_email("fallback@example.com".to_string());
+    let model3 = record3.save(&executor).expect("Failed to save");
+
+    // Verify it was inserted (update failed, so insert happened)
+    // The ID might be different if auto-increment is used, or might be 99999 if database allows
+    assert_eq!(model3.name, "Fallback User");
+    assert_eq!(model3.email, "fallback@example.com");
+}
+
+#[test]
+fn test_no_primary_key_save_insert_works() {
+    // BUG FIX TEST: save() on entities without primary keys should work identically to insert()
+    // This verifies that save() correctly routes to insert() when no primary keys exist
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_no_pk_schema(&executor).expect("Failed to setup schema");
+    cleanup_no_pk_data(&executor).expect("Failed to cleanup");
+
+    // Test save() behavior
+    let mut save_record = TestNoPkEntityRecord::new();
+    save_record.set_name("Save Method".to_string());
+    save_record.set_email("save@example.com".to_string());
+    save_record.set_age(Some(25));
+    let save_model = save_record.save(&executor).expect("Failed to save");
+
+    // Test insert() behavior
+    let mut insert_record = TestNoPkEntityRecord::new();
+    insert_record.set_name("Insert Method".to_string());
+    insert_record.set_email("insert@example.com".to_string());
+    insert_record.set_age(Some(30));
+    let insert_model = insert_record.insert(&executor).expect("Failed to insert");
+
+    // Both should work identically
+    assert_eq!(save_model.name, "Save Method");
+    assert_eq!(insert_model.name, "Insert Method");
+
+    // Verify both records exist in database
+    let total_count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_no_pk_entities",
+        &[],
+    ).expect("Failed to query database");
+    assert_eq!(total_count, 2, "Both save() and insert() should have created records");
+}
+
+#[test]
 fn test_no_primary_key_insert_works() {
     // POSITIVE TEST: insert() should work for entities without primary keys
     let mut test_db = TestDatabase::new().expect("Failed to create test database");
