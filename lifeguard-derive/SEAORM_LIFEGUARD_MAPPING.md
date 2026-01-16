@@ -361,7 +361,7 @@ This design simplifies the API while maintaining the same functionality.
 | **Query Builder Methods** | 20 | 13 | 65% |
 | **Column Operations** | 15 | 15 | 100% |
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
-| **Value Types** | 6 | 1 | 17% |
+| **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
 | **Overall** | 117 | 65 | **56%** |
 
