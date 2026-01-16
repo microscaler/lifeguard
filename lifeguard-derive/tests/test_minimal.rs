@@ -2834,19 +2834,22 @@ mod active_model_trait_tests {
             _ => panic!("Expected String(Some(\"Jane\"))"),
         }
         
-        // Set Option<String> field to None
+        // Set Option<String> field to None explicitly
+        // When set() is called with Value::String(None), it sets the field to Some(None) internally
+        // This represents "field is set, but value is None" (different from "field is unset")
         let result = record.set(
             <option_tests::Entity as LifeModelTrait>::Column::Name,
             sea_query::Value::String(None)
         );
         assert!(result.is_ok(), "set() should work for Option<String> field with None value");
         
-        // Verify get() returns None
+        // Verify get() returns Some(Value::String(None)) when field is explicitly set to None
+        // This is different from unset fields, which return None
         let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
-        assert!(name_value.is_some(), "get() should return Some(Value::String(None)) for None Option<String>");
+        assert!(name_value.is_some(), "get() should return Some(Value::String(None)) when field is explicitly set to None");
         match name_value.unwrap() {
             sea_query::Value::String(None) => (),
-            _ => panic!("Expected String(None) for None Option<String>"),
+            _ => panic!("Expected String(None) when field is explicitly set to None"),
         }
     }
 
@@ -2886,29 +2889,23 @@ mod active_model_trait_tests {
         };
         
         // Create record from model
+        // When from_model() is called with a model that has None values,
+        // the Record fields are set to None (unset), not Some(None)
+        // This is because from_model() does: name: model.name.clone()
+        // So if model.name is None, record.name is None (unset)
         let record = UserWithOptionsRecord::from_model(&model);
         
-        // Verify get() returns None for all Option<T> fields
+        // Verify get() returns None for all unset Option<T> fields
+        // This is the correct behavior - unset fields return None from get()
+        // This allows CRUD operations to correctly detect unset fields
         let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
-        assert!(name_value.is_some(), "get() should return Some(Value::String(None))");
-        match name_value.unwrap() {
-            sea_query::Value::String(None) => (),
-            _ => panic!("Expected String(None) for None Option<String>"),
-        }
+        assert!(name_value.is_none(), "get() should return None for unset Option<String> field");
         
         let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
-        assert!(age_value.is_some(), "get() should return Some(Value::Int(None))");
-        match age_value.unwrap() {
-            sea_query::Value::Int(None) => (),
-            _ => panic!("Expected Int(None) for None Option<i32>"),
-        }
+        assert!(age_value.is_none(), "get() should return None for unset Option<i32> field");
         
         let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
-        assert!(active_value.is_some(), "get() should return Some(Value::Bool(None))");
-        match active_value.unwrap() {
-            sea_query::Value::Bool(None) => (),
-            _ => panic!("Expected Bool(None) for None Option<bool>"),
-        }
+        assert!(active_value.is_none(), "get() should return None for unset Option<bool> field");
         
         // Convert back to model
         let model2 = record.to_model();
@@ -2916,6 +2913,170 @@ mod active_model_trait_tests {
         assert_eq!(model2.name, None);
         assert_eq!(model2.age, None);
         assert_eq!(model2.active, None);
+    }
+
+    // ============================================================================
+    // BUG FIX TESTS: get() returns None for unset fields
+    // ============================================================================
+    // These tests verify the fix for generate_option_field_to_value which was
+    // always wrapping results in Some(...), preventing get() from returning None
+    // for unset fields. This broke CRUD operations that rely on get().is_none()
+    // to detect unset fields.
+
+    #[test]
+    fn test_get_returns_none_for_unset_fields() {
+        // CRITICAL TEST: get() should return None for unset fields
+        // This is required for CRUD operations to correctly detect unset fields
+        let record = UserRecord::new();
+        
+        // All fields are unset, so get() should return None
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_none(), "get() should return None for unset id field");
+        
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None for unset name field");
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_none(), "get() should return None for unset email field");
+    }
+
+    #[test]
+    fn test_get_returns_some_for_set_fields() {
+        // POSITIVE TEST: get() should return Some(Value) for set fields
+        let mut record = UserRecord::new();
+        record.set_id(42);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // All fields are set, so get() should return Some(Value)
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some(), "get() should return Some(Value) for set id field");
+        match id_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int(Some(42))"),
+        }
+        
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for set name field");
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\"))"),
+        }
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_some(), "get() should return Some(Value) for set email field");
+        match email_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "john@example.com"),
+            _ => panic!("Expected String(Some(\"john@example.com\"))"),
+        }
+    }
+
+    #[test]
+    fn test_get_partially_set_record() {
+        // EDGE CASE: get() should return None for unset fields, Some for set fields
+        let mut record = UserRecord::new();
+        record.set_name("Jane".to_string());
+        // id and email are not set
+        
+        // Set field should return Some
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for set name field");
+        
+        // Unset fields should return None
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_none(), "get() should return None for unset id field");
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_none(), "get() should return None for unset email field");
+    }
+
+    #[test]
+    fn test_get_with_option_fields_unset() {
+        // Test get() with Option<T> fields when unset
+        use option_tests::*;
+        
+        let record = UserWithOptionsRecord::new();
+        
+        // All Option<T> fields are unset, so get() should return None
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None for unset Option<String> field");
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_none(), "get() should return None for unset Option<i32> field");
+        
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_none(), "get() should return None for unset Option<bool> field");
+    }
+
+    #[test]
+    fn test_get_with_option_fields_set_to_some() {
+        // Test get() with Option<T> fields when set to Some(value)
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        record.set_name(Some("Alice".to_string()));
+        record.set_age(Some(25));
+        record.set_active(Some(true));
+        
+        // All Option<T> fields are set to Some, so get() should return Some(Value)
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for set Option<String> field");
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Alice"),
+            _ => panic!("Expected String(Some(\"Alice\"))"),
+        }
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_some(), "get() should return Some(Value) for set Option<i32> field");
+        match age_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 25),
+            _ => panic!("Expected Int(Some(25))"),
+        }
+        
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_some(), "get() should return Some(Value) for set Option<bool> field");
+        match active_value.unwrap() {
+            sea_query::Value::Bool(Some(v)) => assert_eq!(v, true),
+            _ => panic!("Expected Bool(Some(true))"),
+        }
+    }
+
+    #[test]
+    fn test_get_with_option_fields_set_to_none() {
+        // Test get() with Option<T> fields when explicitly set to None
+        // When a field is set to None (via set() with Value::String(None)),
+        // it represents "field is set, but value is None"
+        // This is different from "field is unset" (which returns None from get())
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        
+        // Set fields to None explicitly (this sets the field to Some(None) internally)
+        record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(None)
+        ).expect("set() should work");
+        
+        record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Age,
+            sea_query::Value::Int(None)
+        ).expect("set() should work");
+        
+        // When explicitly set to None, get() should return Some(Value::String(None))
+        // This represents "field is set, but value is None"
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value::String(None)) when field is set to None");
+        match name_value.unwrap() {
+            sea_query::Value::String(None) => (),
+            _ => panic!("Expected String(None) when field is set to None"),
+        }
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_some(), "get() should return Some(Value::Int(None)) when field is set to None");
+        match age_value.unwrap() {
+            sea_query::Value::Int(None) => (),
+            _ => panic!("Expected Int(None) when field is set to None"),
+        }
     }
 
     #[test]

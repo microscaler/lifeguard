@@ -903,3 +903,191 @@ fn test_active_model_insert_with_manual_auto_increment_pk() {
     assert_eq!(row.get::<_, String>(1), "Manual PK Test");
     assert_eq!(row.get::<_, String>(2), "manualpk@example.com");
 }
+
+// ============================================================================
+// BUG FIX TESTS: get() returns None for unset fields
+// ============================================================================
+// These tests verify the fix for generate_option_field_to_value which was
+// always wrapping results in Some(...), preventing get() from returning None
+// for unset fields. This broke CRUD operations that rely on get().is_none()
+// to detect unset fields.
+
+#[test]
+fn test_insert_skips_unset_auto_increment_pk() {
+    // CRITICAL TEST: INSERT should skip unset auto-increment primary keys
+    // Previously, get() returned Some(Value::Int(None)) for unset fields,
+    // causing INSERT to include the PK with NULL, which would fail
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a record WITHOUT setting the auto-increment PK
+    let mut record = TestUserRecord::new();
+    record.set_name("Unset PK Test".to_string());
+    record.set_email("unsetpk@example.com".to_string());
+    // Note: We explicitly do NOT set record.set_id() - the PK should be auto-generated
+
+    // Verify get() returns None for unset PK
+    let id_value = record.get(<TestUser as LifeModelTrait>::Column::Id);
+    assert!(id_value.is_none(), "get() should return None for unset auto-increment PK");
+
+    // Insert should succeed and skip the unset PK (let database generate it)
+    let model = record.insert(&executor).expect("Insert should succeed without unset PK");
+
+    // Verify the inserted model has a generated PK
+    assert!(model.id > 0, "Auto-increment PK should be generated");
+    assert_eq!(model.name, "Unset PK Test");
+    assert_eq!(model.email, "unsetpk@example.com");
+
+    // Verify in database
+    let rows = executor.query_all(
+        "SELECT id, name, email FROM test_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.get::<_, i32>(0), model.id);
+    assert_eq!(row.get::<_, String>(1), "Unset PK Test");
+    assert_eq!(row.get::<_, String>(2), "unsetpk@example.com");
+}
+
+#[test]
+fn test_insert_returns_generated_auto_increment_pk() {
+    // CRITICAL TEST: INSERT with RETURNING clause should fetch generated auto-increment PK
+    // Previously, get().is_none() was always false, so RETURNING clause was never added
+    // This test verifies that RETURNING works correctly when PK is unset
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a record WITHOUT setting the auto-increment PK
+    let mut record = TestUserRecord::new();
+    record.set_name("RETURNING Test".to_string());
+    record.set_email("returning@example.com".to_string());
+    // Note: We explicitly do NOT set record.set_id() - the PK should be auto-generated
+
+    // Verify get() returns None for unset PK (this triggers RETURNING clause)
+    let id_value = record.get(<TestUser as LifeModelTrait>::Column::Id);
+    assert!(id_value.is_none(), "get() should return None for unset auto-increment PK");
+
+    // Insert should succeed, use RETURNING to fetch generated PK, and return model with PK set
+    let model = record.insert(&executor).expect("Insert should succeed and return model with generated PK");
+
+    // Verify the inserted model has a generated PK (RETURNING clause worked)
+    assert!(model.id > 0, "Auto-increment PK should be generated and returned via RETURNING");
+    assert_eq!(model.name, "RETURNING Test");
+    assert_eq!(model.email, "returning@example.com");
+
+    // Verify in database
+    let rows = executor.query_all(
+        "SELECT id, name, email FROM test_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.get::<_, i32>(0), model.id);
+    assert_eq!(row.get::<_, String>(1), "RETURNING Test");
+    assert_eq!(row.get::<_, String>(2), "returning@example.com");
+}
+
+#[test]
+fn test_update_only_includes_set_fields() {
+    // CRITICAL TEST: UPDATE should only include set fields in SET clauses
+    // Previously, get() returned Some(Value::String(None)) for unset fields,
+    // causing UPDATE to include all fields, setting unset ones to NULL
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // First, insert a record with all fields set
+    let mut insert_record = TestUserRecord::new();
+    insert_record.set_name("Original Name".to_string());
+    insert_record.set_email("original@example.com".to_string());
+    insert_record.set_age(Some(30));
+    let original_model = insert_record.insert(&executor).expect("Failed to insert");
+
+    // Now create an update record with only name changed (email and age not set)
+    let mut update_record = TestUserRecord::new();
+    update_record.set_id(original_model.id); // Set PK for WHERE clause
+    update_record.set_name("Updated Name".to_string());
+    // Note: email and age are NOT set - they should NOT appear in UPDATE SET clause
+
+    // Verify get() returns None for unset fields
+    let email_value = update_record.get(<TestUser as LifeModelTrait>::Column::Email);
+    assert!(email_value.is_none(), "get() should return None for unset email field");
+    
+    let age_value = update_record.get(<TestUser as LifeModelTrait>::Column::Age);
+    assert!(age_value.is_none(), "get() should return None for unset age field");
+
+    // Update should only update the name field, not email or age
+    let updated_model = update_record.update(&executor).expect("Failed to update");
+
+    // Verify only name was updated
+    assert_eq!(updated_model.id, original_model.id);
+    assert_eq!(updated_model.name, "Updated Name");
+    assert_eq!(updated_model.email, "original@example.com"); // Should remain unchanged
+    assert_eq!(updated_model.age, Some(30)); // Should remain unchanged
+
+    // Verify in database
+    let rows = executor.query_all(
+        "SELECT name, email, age FROM test_users WHERE id = $1",
+        &[&original_model.id],
+    ).expect("Failed to query database");
+    
+    assert_eq!(rows.len(), 1);
+    let row = &rows[0];
+    assert_eq!(row.get::<_, String>(0), "Updated Name");
+    assert_eq!(row.get::<_, String>(1), "original@example.com"); // Unchanged
+    assert_eq!(row.get::<_, Option<i32>>(2), Some(30)); // Unchanged
+}
+
+#[test]
+fn test_get_returns_none_for_unset_fields_integration() {
+    // INTEGRATION TEST: Verify get() returns None for unset fields in real scenario
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a new record with only some fields set
+    let mut record = TestUserRecord::new();
+    record.set_name("Partial Set".to_string());
+    // email and age are NOT set
+
+    // Verify get() returns None for unset fields
+    let email_value = record.get(<TestUser as LifeModelTrait>::Column::Email);
+    assert!(email_value.is_none(), "get() should return None for unset email field");
+    
+    let age_value = record.get(<TestUser as LifeModelTrait>::Column::Age);
+    assert!(age_value.is_none(), "get() should return None for unset age field");
+
+    // Verify get() returns Some for set fields
+    let name_value = record.get(<TestUser as LifeModelTrait>::Column::Name);
+    assert!(name_value.is_some(), "get() should return Some(Value) for set name field");
+    match name_value.unwrap() {
+        sea_query::Value::String(Some(v)) => assert_eq!(v, "Partial Set"),
+        _ => panic!("Expected String(Some(\"Partial Set\"))"),
+    }
+
+    // Insert should work (only set fields are included)
+    let model = record.insert(&executor).expect("Insert should succeed with partial fields");
+
+    // Verify inserted model
+    assert!(model.id > 0);
+    assert_eq!(model.name, "Partial Set");
+    assert_eq!(model.email, ""); // Default for unset String field (from to_model())
+    assert_eq!(model.age, None); // None for unset Option<i32> field
+}
