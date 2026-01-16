@@ -362,7 +362,7 @@ This design simplifies the API while maintaining the same functionality.
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
 | **Value Types** | 6 | 1 | 17% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 61 | **52%** |
+| **Overall** | 117 | 64 | **55%** |
 
 ---
 
