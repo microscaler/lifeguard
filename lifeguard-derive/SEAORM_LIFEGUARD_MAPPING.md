@@ -191,6 +191,7 @@ This design simplifies the API while maintaining the same functionality.
 | SeaORM/SeaQuery | Lifeguard | Status | Notes |
 |----------------|-----------|--------|-------|
 | `Value` (enum) | `sea_query::Value` | ✅ Used | Direct use of SeaQuery's Value |
+| `ActiveValue` | `lifeguard::ActiveValue` | ✅ Implemented | Wrapper for ActiveModel field values (Set, NotSet, Unset) |
 | `ValueType` | ❌ Missing | 🟡 **Future** | Trait for value type conversions |
 | `TryGetable` | ❌ Missing | 🟡 **Future** | Trait for safe value extraction |
 | `TryGetableMany` | ❌ Missing | 🟡 **Future** | Trait for extracting multiple values |
