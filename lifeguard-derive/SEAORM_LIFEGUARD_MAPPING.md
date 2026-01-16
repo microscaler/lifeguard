@@ -179,7 +179,7 @@ This design simplifies the API while maintaining the same functionality.
 | `ActiveModel::take()` | `ActiveModelTrait::take()` | ✅ Implemented | Take field value (move) (optimized, no to_model() needed) |
 | `ActiveModel::into_active_value()` | ✅ Implemented | ✅ Complete | Convert to ActiveValue (default implementation in trait) |
 | `ActiveModel::from_json()` | `ActiveModelTrait::from_json()` | ✅ Implemented | Deserialize from JSON (uses Model Deserialize, then from_model()) |
-| `ActiveModel::to_json()` | `ActiveModelTrait::to_json()` | ✅ Implemented | Serialize to JSON (uses to_model() then Model Serialize) |
+| `ActiveModel::to_json()` | `ActiveModelTrait::to_json()` | ✅ Implemented | Serialize to JSON (iterates over set fields using get(), converts Value to JSON - no to_model() needed) |
 | `Model::into_active_model()` | `Model::to_record()` | ✅ Implemented | Convert Model to Record (different name) |
 | `Record::from_model()` | ✅ Implemented | Create Record from Model |
 | `Record::to_model()` | ✅ Implemented | Convert Record to Model |
@@ -283,7 +283,7 @@ This design simplifies the API while maintaining the same functionality.
 - `update()` - UPDATE operation ✅ (requires PK, updates only dirty fields)
 - `save()` - Insert or update based on PK presence ✅ (routes to insert/update)
 - `delete()` - DELETE operation ✅ (requires PK)
-- `from_json()`, `to_json()` serialization ✅ (Implemented - uses Model Serialize/Deserialize)
+- `from_json()`, `to_json()` serialization ✅ (Implemented - from_json() uses Model Deserialize, to_json() iterates set fields directly)
 - Integration with `ActiveModelBehavior` for custom hooks 🟡 (Future)
 
 **Note:** All CRUD operations use SeaQuery for SQL generation and proper parameter binding. `get()` and `take()` have been optimized to avoid the `to_model()` requirement, using direct type conversion from `Option<T>` to `Value`.

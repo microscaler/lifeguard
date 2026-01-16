@@ -355,7 +355,11 @@ All implementation steps have been completed:
 - Proper error handling for all edge cases
 - Comprehensive test coverage
 
+**Completed Enhancements:**
+- ✅ `from_json()` and `to_json()` serialization methods (implemented)
+  - `from_json()`: Deserializes JSON to Model, then converts to Record using `from_model()`
+  - `to_json()`: Iterates over set fields using `get()`, converts `Value` to JSON (no `to_model()` needed, prevents panics)
+
 **Next Steps (Future Enhancements):**
-- `from_json()` and `to_json()` serialization methods
 - `ActiveModelBehavior` hooks for custom behavior
 - Performance optimizations if needed
