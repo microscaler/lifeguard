@@ -1,7 +1,7 @@
 //! LifeRecord derive macro implementation
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, GenericArgument, PathArguments, Type};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, GenericArgument, PathArguments, Type, LitStr};
 use quote::quote;
 
 use crate::attributes;
@@ -90,6 +90,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut update_set_clauses = Vec::new(); // SET clauses for UPDATE
     let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
     let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
+    let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
     
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
@@ -102,10 +103,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // This is critical: conversion functions need the inner type (e.g., String), not Option<String>
         let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
         
-        // Extract column name (use column_name attribute or convert field name to PascalCase)
-        let column_name = attributes::extract_column_name(field)
-            .unwrap_or_else(|| utils::pascal_case(&field_name.to_string()));
-        let column_variant = Ident::new(&column_name, field_name.span());
+        // Extract column name for database (snake_case) and enum variant (PascalCase)
+        let db_column_name = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+        let column_variant_name = utils::pascal_case(&field_name.to_string());
+        let column_variant = Ident::new(&column_variant_name, field_name.span());
         
         // Check if field is primary key
         let is_primary_key = attributes::has_attribute(field, "primary_key");
@@ -302,6 +304,56 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
             });
         }
+        
+        // Generate to_json() field conversion code
+        // Only include fields that are set (get() returns Some)
+        // Convert sea_query::Value to serde_json::Value
+        // Use the database column name (snake_case) for JSON keys
+        let json_key = db_column_name.clone();
+        let json_key_lit = LitStr::new(&json_key, field_name.span());
+        to_json_field_conversions.push(quote! {
+            if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                // Convert sea_query::Value to serde_json::Value
+                let json_value = match value {
+                    sea_query::Value::TinyInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v as i64)),
+                    sea_query::Value::TinyInt(None) => serde_json::Value::Null,
+                    sea_query::Value::SmallInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v as i64)),
+                    sea_query::Value::SmallInt(None) => serde_json::Value::Null,
+                    sea_query::Value::Int(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v)),
+                    sea_query::Value::Int(None) => serde_json::Value::Null,
+                    sea_query::Value::BigInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v)),
+                    sea_query::Value::BigInt(None) => serde_json::Value::Null,
+                    sea_query::Value::BigUnsigned(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v)),
+                    sea_query::Value::BigUnsigned(None) => serde_json::Value::Null,
+                    sea_query::Value::Float(Some(v)) => {
+                        // f32 to JSON number (may lose precision, but JSON only supports f64)
+                        serde_json::Value::Number(serde_json::Number::from_f64(v as f64).unwrap_or_else(|| serde_json::Number::from(0)))
+                    },
+                    sea_query::Value::Float(None) => serde_json::Value::Null,
+                    sea_query::Value::Double(Some(v)) => {
+                        serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap_or_else(|| serde_json::Number::from(0)))
+                    },
+                    sea_query::Value::Double(None) => serde_json::Value::Null,
+                    sea_query::Value::Bool(Some(v)) => serde_json::Value::Bool(v),
+                    sea_query::Value::Bool(None) => serde_json::Value::Null,
+                    sea_query::Value::String(Some(v)) => serde_json::Value::String(v),
+                    sea_query::Value::String(None) => serde_json::Value::Null,
+                    sea_query::Value::Bytes(Some(v)) => {
+                        // Convert bytes to JSON array of numbers
+                        serde_json::Value::Array(v.iter().map(|&b| serde_json::Value::Number(serde_json::Number::from(b))).collect())
+                    },
+                    sea_query::Value::Bytes(None) => serde_json::Value::Null,
+                    sea_query::Value::Json(Some(v)) => (*v).clone(),
+                    sea_query::Value::Json(None) => serde_json::Value::Null,
+                    _ => {
+                        // Unknown value type - convert to string representation
+                        // This handles any Value variants we haven't explicitly covered
+                        serde_json::Value::String(format!("{:?}", value))
+                    },
+                };
+                map.insert(#json_key_lit.to_string(), json_value);
+            }
+        });
     }
     
     // Generate primary key check code for save()
@@ -626,13 +678,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
             
             fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
-                // Convert Record to Model, then serialize to JSON
-                // This requires the Model to implement Serialize (typically via #[derive(Serialize)])
-                let model = self.to_model();
-                serde_json::to_value(&model)
-                    .map_err(|e| lifeguard::ActiveModelError::Other(
-                        format!("Failed to serialize Model to JSON: {}", e)
-                    ))
+                // Build JSON object from set fields only (doesn't require to_model())
+                // This matches the documentation: "Only fields that are set... are included"
+                let mut map = serde_json::Map::new();
+                
+                #(#to_json_field_conversions)*
+                
+                Ok(serde_json::Value::Object(map))
             }
         }
     };

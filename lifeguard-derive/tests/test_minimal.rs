@@ -3248,6 +3248,42 @@ mod active_model_trait_tests {
         }
     }
 
+    #[test]
+    fn test_active_model_to_json_with_unset_required_fields() {
+        // Test that to_json() doesn't panic when required fields are unset
+        // This is the fix for the issue where to_json() called to_model() which panics
+        use serde_json::json;
+        
+        // Create a record with only some fields set (required fields are unset)
+        let mut record = UserRecord::new();
+        record.set_id(42);
+        // name and email are required but not set
+        
+        // to_json() should succeed and only include set fields
+        let json = record.to_json().expect("to_json() should succeed even with unset required fields");
+        
+        // Verify JSON only contains set fields
+        assert!(json.is_object(), "JSON should be an object");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("id"), Some(&json!(42)), "id should be in JSON");
+        assert_eq!(obj.get("name"), None, "name should not be in JSON (unset)");
+        assert_eq!(obj.get("email"), None, "email should not be in JSON (unset)");
+        assert_eq!(obj.len(), 1, "JSON should only contain one field (id)");
+    }
+
+    #[test]
+    fn test_active_model_to_json_empty_record() {
+        // Test that to_json() works on an empty record (no fields set)
+        let record = UserRecord::new();
+        
+        // to_json() should succeed and return an empty object
+        let json = record.to_json().expect("to_json() should succeed on empty record");
+        
+        assert!(json.is_object(), "JSON should be an object");
+        let obj = json.as_object().unwrap();
+        assert!(obj.is_empty(), "JSON should be empty when no fields are set");
+    }
+
     // INSERT Edge Cases
     // ============================================================================
 
