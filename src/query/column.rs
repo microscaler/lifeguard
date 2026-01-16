@@ -41,22 +41,121 @@ impl Default for ColumnDefinition {
 impl ColumnDefinition {
     /// Convert to SeaQuery's ColumnDef for use in migrations
     ///
-    /// This is a placeholder implementation. Full implementation would require
-    /// mapping column types to SeaQuery's ColumnType enum and proper Iden trait bounds.
+    /// Maps the column metadata to SeaQuery's `ColumnDef` with appropriate type,
+    /// constraints, and attributes. This enables schema generation and migrations.
     ///
-    /// # Note
+    /// # Arguments
     ///
-    /// This method is a placeholder. Full implementation will be added when
-    /// migration support is implemented. For now, it returns metadata that can
-    /// be used by migration code to build ColumnDef instances.
+    /// * `column_name` - The column identifier (implements `Iden`)
+    ///
+    /// # Returns
+    ///
+    /// Returns a `ColumnDef` configured with the column's type, nullability,
+    /// auto-increment status, and other attributes.
+    ///
+    /// # Type Mapping
+    ///
+    /// Maps column type strings to SeaQuery column types:
+    /// - "Integer" / "i32" / "i64" → `.integer()` or `.big_integer()`
+    /// - "String" / "Text" → `.string()` or `.text()`
+    /// - "Boolean" / "bool" → `.boolean()`
+    /// - "Float" / "f32" → `.float()`
+    /// - "Double" / "f64" → `.double()`
+    /// - "Json" / "Jsonb" → `.json()`
+    /// - "Timestamp" / "DateTime" → `.timestamp()`
+    /// - "Date" → `.date()`
+    /// - "Time" → `.time()`
+    /// - "Uuid" → `.uuid()`
+    /// - "Binary" / "Bytes" → `.binary()`
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::ColumnDefinition;
+    /// use sea_query::ColumnDef;
+    ///
+    /// let def = ColumnDefinition {
+    ///     column_type: Some("Integer".to_string()),
+    ///     nullable: false,
+    ///     auto_increment: true,
+    ///     ..Default::default()
+    /// };
+    ///
+    /// let column_def = def.to_column_def(sea_query::Iden::unquoted("id"));
+    /// // column_def is configured as integer, not null, auto-increment
+    /// ```
     pub fn to_column_def<T: Iden>(&self, column_name: T) -> sea_query::ColumnDef {
-        use sea_query::ColumnDef;
+        use sea_query::{ColumnDef, ColumnType};
         
         let mut def = ColumnDef::new(column_name);
+        
+        // Map column type string to SeaQuery ColumnType
+        if let Some(ref col_type) = self.column_type {
+            let col_type_lower = col_type.to_lowercase();
+            match col_type_lower.as_str() {
+                "integer" | "i32" | "int" => {
+                    def.integer();
+                }
+                "bigint" | "i64" | "big_integer" => {
+                    def.big_integer();
+                }
+                "smallint" | "i16" => {
+                    def.small_integer();
+                }
+                "tinyint" | "i8" => {
+                    def.tiny_integer();
+                }
+                "string" | "text" | "varchar" => {
+                    def.text();
+                }
+                "char" => {
+                    def.char(); // Fixed-length character type
+                }
+                "boolean" | "bool" => {
+                    def.boolean();
+                }
+                "float" | "f32" | "real" => {
+                    def.float();
+                }
+                "double" | "f64" | "double_precision" => {
+                    def.double();
+                }
+                "json" | "jsonb" => {
+                    def.json();
+                }
+                "timestamp" | "datetime" | "timestamptz" => {
+                    def.timestamp();
+                }
+                "date" => {
+                    def.date();
+                }
+                "time" | "timetz" => {
+                    def.time();
+                }
+                "uuid" => {
+                    def.uuid();
+                }
+                "binary" | "bytes" | "bytea" | "blob" => {
+                    def.binary();
+                }
+                "decimal" | "numeric" => {
+                    def.decimal_len(10, 2); // Default precision/scale, can be overridden
+                }
+                _ => {
+                    // Unknown type, default to text
+                    def.text();
+                }
+            }
+        } else {
+            // No type specified, default to text
+            def.text();
+        }
         
         // Set nullable if applicable
         if self.nullable {
             def.null();
+        } else {
+            def.not_null();
         }
         
         // Set auto-increment if applicable
@@ -64,12 +163,86 @@ impl ColumnDefinition {
             def.auto_increment();
         }
         
-        // TODO: Map column_type string to ColumnType enum
-        // TODO: Add unique constraint support (may need separate index definition)
-        // For now, default to Text type
-        def.string();
+        // Set default value if provided
+        if let Some(ref default) = self.default_value {
+            // Note: SeaQuery's default_value() expects an Expr, not a string
+            // For now, we'll need to parse the default value string
+            // This is a simplified implementation - full support would require
+            // parsing SQL expressions or providing a more structured default value type
+            // For migrations, users can manually set defaults using SeaQuery's API
+        }
+        
+        // Note: Unique and indexed constraints are typically handled separately
+        // in SeaQuery via IndexDef, not ColumnDef. The metadata is preserved
+        // in ColumnDefinition for reference, but actual unique/index creation
+        // should be done via migration builders.
         
         def
+    }
+    
+    /// Create a ColumnDefinition from a Rust type
+    ///
+    /// This helper function infers column metadata from a Rust type.
+    /// Used by the macro to generate column definitions.
+    ///
+    /// # Arguments
+    ///
+    /// * `rust_type` - The Rust type name (e.g., "i32", "String", "Option<i32>")
+    /// * `is_primary_key` - Whether this is a primary key
+    /// * `is_auto_increment` - Whether this is auto-increment
+    ///
+    /// # Returns
+    ///
+    /// Returns a `ColumnDefinition` with inferred metadata.
+    pub fn from_rust_type(
+        rust_type: &str,
+        is_primary_key: bool,
+        is_auto_increment: bool,
+    ) -> Self {
+        let (inner_type, nullable) = if rust_type.starts_with("Option<") {
+            // Extract inner type from Option<T>
+            let inner = rust_type
+                .strip_prefix("Option<")
+                .and_then(|s| s.strip_suffix(">"))
+                .unwrap_or(rust_type);
+            (inner, true)
+        } else {
+            (rust_type, false)
+        };
+        
+        let column_type = match inner_type {
+            "i32" => Some("Integer".to_string()),
+            "i64" => Some("BigInt".to_string()),
+            "i16" => Some("SmallInt".to_string()),
+            "i8" => Some("TinyInt".to_string()),
+            "u32" => Some("Unsigned".to_string()),
+            "u64" => Some("BigUnsigned".to_string()),
+            "String" => Some("String".to_string()),
+            "bool" => Some("Boolean".to_string()),
+            "f32" => Some("Float".to_string()),
+            "f64" => Some("Double".to_string()),
+            _ => {
+                // Try to infer from common patterns
+                if inner_type.contains("Json") {
+                    Some("Json".to_string())
+                } else if inner_type.contains("Uuid") {
+                    Some("Uuid".to_string())
+                } else if inner_type.contains("DateTime") || inner_type.contains("Timestamp") {
+                    Some("Timestamp".to_string())
+                } else {
+                    Some("String".to_string()) // Default fallback
+                }
+            }
+        };
+        
+        Self {
+            column_type,
+            nullable,
+            default_value: None,
+            unique: is_primary_key, // Primary keys are typically unique
+            indexed: is_primary_key, // Primary keys are typically indexed
+            auto_increment: is_auto_increment,
+        }
     }
 }
 

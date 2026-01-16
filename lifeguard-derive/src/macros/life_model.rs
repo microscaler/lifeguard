@@ -87,6 +87,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut primary_key_types: Vec<&Type> = Vec::new(); // Track all primary key types for tuple ValueType
     let mut _primary_key_auto_increment = false; // Reserved for future PrimaryKeyTrait implementation
     let mut primary_key_to_column_mappings = Vec::new();
+    // Track column definitions for ColumnTrait::def()
+    let mut column_def_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
 
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
@@ -1095,6 +1097,11 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 }
             }
         }
+
+        // Note: ColumnTrait is implemented via blanket impl<T: IntoColumnRef> ColumnTrait for T {}
+        // The default def() method returns ColumnDefinition::default().
+        // To get actual column metadata, use ColumnDefinition::from_rust_type() directly
+        // or extend ColumnTrait in the future with a more specific implementation.
 
         // Create a type alias to ensure Column is fully resolved before DeriveEntity expands
         // This helps the compiler resolve Column during nested macro expansion
