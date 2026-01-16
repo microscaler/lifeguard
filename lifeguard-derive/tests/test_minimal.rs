@@ -3098,6 +3098,156 @@ mod active_model_trait_tests {
     // COMPREHENSIVE EDGE CASES FOR CRUD OPERATIONS
     // ============================================================================
 
+    // ============================================================================
+    // JSON SERIALIZATION TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_to_json() {
+        // Test that to_json() serializes Record to JSON
+        use serde_json::json;
+        
+        let mut record = UserRecord::new();
+        record.set_id(42);
+        record.set_name("John Doe".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        
+        // Verify JSON structure
+        assert!(json.is_object(), "JSON should be an object");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("id"), Some(&json!(42)));
+        assert_eq!(obj.get("name"), Some(&json!("John Doe")));
+        assert_eq!(obj.get("email"), Some(&json!("john@example.com")));
+    }
+
+    #[test]
+    fn test_active_model_from_json() {
+        // Test that from_json() deserializes JSON to Record
+        use serde_json::json;
+        
+        let json = json!({
+            "id": 42,
+            "name": "John Doe",
+            "email": "john@example.com"
+        });
+        
+        let record = UserRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify Record fields
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some());
+        match id_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int(Some(42))"),
+        }
+        
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John Doe"),
+            _ => panic!("Expected String(Some(\"John Doe\"))"),
+        }
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_some());
+        match email_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "john@example.com"),
+            _ => panic!("Expected String(Some(\"john@example.com\"))"),
+        }
+    }
+
+    #[test]
+    fn test_active_model_json_roundtrip() {
+        // Test roundtrip: Record -> JSON -> Record
+        use serde_json::json;
+        
+        let mut original = UserRecord::new();
+        original.set_id(100);
+        original.set_name("Roundtrip Test".to_string());
+        original.set_email("roundtrip@example.com".to_string());
+        
+        // Record -> JSON
+        let json = original.to_json().expect("to_json() should succeed");
+        
+        // JSON -> Record
+        let restored = UserRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify all fields match
+        let original_id = original.get(<Entity as LifeModelTrait>::Column::Id);
+        let restored_id = restored.get(<Entity as LifeModelTrait>::Column::Id);
+        assert_eq!(original_id, restored_id);
+        
+        let original_name = original.get(<Entity as LifeModelTrait>::Column::Name);
+        let restored_name = restored.get(<Entity as LifeModelTrait>::Column::Name);
+        assert_eq!(original_name, restored_name);
+        
+        let original_email = original.get(<Entity as LifeModelTrait>::Column::Email);
+        let restored_email = restored.get(<Entity as LifeModelTrait>::Column::Email);
+        assert_eq!(original_email, restored_email);
+    }
+
+    #[test]
+    fn test_active_model_from_json_invalid() {
+        // Test that from_json() returns error for invalid JSON
+        use serde_json::json;
+        
+        // Invalid JSON structure (missing required fields)
+        let json = json!({
+            "name": "Incomplete"
+            // Missing id and email
+        });
+        
+        let result = UserRecord::from_json(json);
+        assert!(result.is_err(), "from_json() should fail for invalid JSON");
+    }
+
+    #[test]
+    fn test_active_model_to_json_with_option_fields() {
+        // Test to_json() with Option<T> fields
+        use option_tests::*;
+        use serde_json::json;
+        
+        let mut record = UserWithOptionsRecord::new();
+        record.set_id(1);
+        record.set_name(Some("Test".to_string()));
+        record.set_age(Some(30));
+        record.set_active(Some(true));
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("id"), Some(&json!(1)));
+        assert_eq!(obj.get("name"), Some(&json!("Test")));
+        assert_eq!(obj.get("age"), Some(&json!(30)));
+        assert_eq!(obj.get("active"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn test_active_model_from_json_with_option_fields() {
+        // Test from_json() with Option<T> fields
+        use option_tests::*;
+        use serde_json::json;
+        
+        let json = json!({
+            "id": 1,
+            "name": "Test",
+            "age": 30,
+            "active": true
+        });
+        
+        let record = UserWithOptionsRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify fields
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Test"),
+            _ => panic!("Expected String(Some(\"Test\"))"),
+        }
+    }
+
     // INSERT Edge Cases
     // ============================================================================
 

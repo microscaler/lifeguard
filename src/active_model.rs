@@ -590,15 +590,17 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// let record = UserRecord::from_json(json)?;
     /// ```
-    fn from_json(json: JsonValue) -> Result<Self, ActiveModelError>
+    fn from_json(_json: JsonValue) -> Result<Self, ActiveModelError>
     where
         Self: Sized,
     {
-        // Default implementation: try to deserialize JSON into the Model type,
-        // then convert to Record. This requires the Model to implement Deserialize.
-        // Records can override this for more control.
+        // Default implementation: This is a placeholder that should be overridden
+        // by the macro-generated implementation in LifeRecord.
+        // The macro can generate an implementation that:
+        // 1. Deserializes JSON into Model (if Model implements Deserialize), then uses from_model()
+        // 2. Or directly parses JSON and uses set() to set Record fields
         Err(ActiveModelError::Other(
-            "from_json() not implemented - Model must implement Deserialize or Record must override this method".to_string()
+            "from_json() not implemented - LifeRecord macro should generate this method".to_string()
         ))
     }
 
@@ -631,11 +633,13 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// let json = record.to_json()?;
     /// ```
     fn to_json(&self) -> Result<JsonValue, ActiveModelError> {
-        // Default implementation: convert to Model first, then serialize.
-        // This requires the Model to implement Serialize.
-        // Records can override this for more control.
+        // Default implementation: This is a placeholder that should be overridden
+        // by the macro-generated implementation in LifeRecord.
+        // The macro can generate an implementation that:
+        // 1. Converts Record to Model using to_model(), then serializes (if Model implements Serialize)
+        // 2. Or directly iterates over columns and builds JSON from get() values
         Err(ActiveModelError::Other(
-            "to_json() not implemented - Model must implement Serialize or Record must override this method".to_string()
+            "to_json() not implemented - LifeRecord macro should generate this method".to_string()
         ))
     }
 }

@@ -2,51 +2,41 @@
 
 ## Overview
 
-This document outlines the implementation plan for `insert()`, `update()`, `save()`, and `delete()` methods in `ActiveModelTrait`.
+This document outlines the implementation plan and completed work for `insert()`, `update()`, `save()`, and `delete()` methods in `ActiveModelTrait`.
+
+**Status:** ✅ **COMPLETE** - All CRUD operations have been fully implemented and tested.
 
 ## Current State
 
 - ✅ `get()`, `set()`, `take()`, `reset()` are fully implemented
 - ✅ Type conversion for `set()` works for all types
 - ✅ `get()` and `take()` are optimized (no `to_model()` requirement)
-- ❌ `insert()`, `update()`, `save()`, `delete()` are placeholders
+- ✅ `insert()`, `update()`, `save()`, `delete()` are fully implemented
 
 ## Implementation Requirements
 
-### 1. Primary Key Tracking
+### 1. Primary Key Tracking ✅
 
 **Location:** `lifeguard-derive/src/macros/life_record.rs`
 
-**What's needed:**
-- Track which fields are primary keys during macro expansion
-- Track which primary keys are auto-increment
-- Store this information in a way that can be used in generated code
-
+**Status:** ✅ Completed  
 **Implementation:**
-```rust
-// In the field processing loop:
-let is_primary_key = attributes::has_attribute(field, "primary_key");
-let is_auto_increment = attributes::has_attribute(field, "primary_key") && 
-                        attributes::has_attribute(field, "auto_increment");
+- ✅ Track which fields are primary keys during macro expansion
+- ✅ Track which primary keys are auto-increment
+- ✅ Store in separate vectors (field names, column variants, auto-increment flags) for use in generated code
 
-// Store in vectors:
-let mut primary_key_fields: Vec<(Ident, Ident, bool)> = Vec::new(); // (field_name, column_variant, is_auto_increment)
-```
+**Solution:** Separate vectors for field names, column variants, and auto-increment flags (can't use tuples directly in `quote!` macro)
 
-**Challenges:**
-- Need to pass this information to the generated code
-- Can't use tuples directly in `quote!` macro
-- Solution: Generate separate vectors for field names, column variants, and auto-increment flags
-
-### 2. SeaQuery SQL Generation
+### 2. SeaQuery SQL Generation ✅
 
 **Location:** Generated code in `ActiveModelTrait` implementation
 
-**What's needed:**
-- Use `sea_query::Query::insert()` for INSERT
-- Use `sea_query::Query::update()` for UPDATE
-- Use `sea_query::Query::delete()` for DELETE
-- Build proper SQL with columns and values
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Use `sea_query::Query::insert()` for INSERT
+- ✅ Use `sea_query::Query::update()` for UPDATE
+- ✅ Use `sea_query::Query::delete()` for DELETE
+- ✅ Build proper SQL with columns and values
 
 **INSERT Pattern:**
 ```rust
@@ -114,18 +104,19 @@ query.and_where(
 let (sql, values) = query.build(PostgresQueryBuilder);
 ```
 
-**Challenges:**
-- Need to get table name from Entity
-- Need to convert Column enum to SeaQuery Iden
-- Need to handle composite primary keys
+**Solution:**
+- ✅ Get table name from Entity via `LifeEntityName` trait
+- ✅ Column enum implements `Iden` and `IdenStatic`, can be used directly in SeaQuery
+- ✅ Handle composite primary keys with multiple WHERE clauses
 
-### 3. Parameter Binding
+### 3. Parameter Binding ✅
 
-**Location:** Generated code in `ActiveModelTrait` implementation
+**Location:** `src/active_model.rs` - `with_converted_params()` helper function
 
-**What's needed:**
-- Convert SeaQuery `Value` enum to `may_postgres::types::ToSql` parameters
-- Reuse the pattern from `SelectQuery::all()` (lines 400-526 in `src/query.rs`)
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Convert SeaQuery `Value` enum to `may_postgres::types::ToSql` parameters
+- ✅ Reusable helper function extracted from `SelectQuery::all()` pattern
 
 **Pattern:**
 ```rust
@@ -162,18 +153,18 @@ for value in values.iter() {
 }
 ```
 
-**Challenges:**
-- This is a lot of code to generate in the macro
-- Solution: Extract to a helper function or macro that can be called from generated code
+**Solution:** ✅ Extracted to `with_converted_params()` helper function in `src/active_model.rs`
 
-### 4. Auto-Increment Handling
+### 4. Auto-Increment Handling ✅
 
 **Location:** Generated code in `insert()` method
 
-**What's needed:**
-- Skip auto-increment primary keys in INSERT if they're not set
-- Let the database generate the value
-- After insert, fetch the generated value (optional, can return constructed model)
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Skip auto-increment primary keys in INSERT if they're not set (using `get().is_none()` check)
+- ✅ Let the database generate the value
+- ✅ After insert, fetch the generated value using RETURNING clause
+- ✅ Return constructed model with generated PK value
 
 **Pattern:**
 ```rust
@@ -196,19 +187,20 @@ for (field_name, column_variant, is_auto_inc) in primary_key_fields {
 // ...
 ```
 
-**Challenges:**
-- Need to track which fields are auto-increment
-- Need to handle RETURNING clause for fetching generated IDs (optional)
+**Solution:**
+- ✅ Track which fields are auto-increment via macro-generated vectors
+- ✅ Handle RETURNING clause for fetching generated IDs (implemented)
 
-### 5. Error Handling
+### 5. Error Handling ✅
 
 **Location:** Generated code in all CRUD methods
 
-**What's needed:**
-- Convert `LifeError` to `ActiveModelError`
-- Handle missing primary keys
-- Handle missing required fields
-- Handle database errors
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Convert `LifeError` to `ActiveModelError`
+- ✅ Handle missing primary keys (returns `ActiveModelError::PrimaryKeyRequired`)
+- ✅ Handle database errors (returns `ActiveModelError::DatabaseError`)
+- ✅ Handle missing required fields (handled via `to_model()` which panics for unset required fields)
 
 **Pattern:**
 ```rust
@@ -219,71 +211,78 @@ executor.execute(&sql, &params).map_err(|e| {
 
 ## Implementation Steps
 
-### Step 1: Extract Parameter Binding Helper
+### Step 1: Extract Parameter Binding Helper ✅
 
-**File:** `src/active_model.rs` or new `src/query_helpers.rs`
+**File:** `src/active_model.rs`
 
-Create a helper function that converts SeaQuery Values to ToSql parameters:
-```rust
-pub fn convert_values_to_params(values: &[Value]) -> Result<Vec<&dyn ToSql>, ActiveModelError> {
-    // Implementation from SelectQuery::all() pattern
-}
-```
+**Status:** ✅ Completed  
+**Implementation:** `with_converted_params()` helper function converts SeaQuery Values to ToSql parameters
 
 **Benefits:**
-- Reusable across all CRUD operations
-- Reduces macro-generated code size
-- Easier to test and maintain
+- ✅ Reusable across all CRUD operations
+- ✅ Reduces macro-generated code size
+- ✅ Easier to test and maintain
 
-### Step 2: Track Primary Keys in Macro
+### Step 2: Track Primary Keys in Macro ✅
 
 **File:** `lifeguard-derive/src/macros/life_record.rs`
 
-- Add vectors to track primary key information
-- Generate code that uses this information
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Vectors track primary key information (field names, column variants, auto-increment flags)
+- ✅ Generated code uses this information for CRUD operations
 
-### Step 3: Implement `insert()`
-
-**File:** Generated code in `ActiveModelTrait` implementation
-
-- Build INSERT query with SeaQuery
-- Skip auto-increment primary keys if not set
-- Include all set fields
-- Convert values to parameters
-- Execute query
-- Return constructed model (or fetch from DB if needed)
-
-### Step 4: Implement `update()`
+### Step 3: Implement `insert()` ✅
 
 **File:** Generated code in `ActiveModelTrait` implementation
 
-- Check primary key is set
-- Build UPDATE query with SeaQuery
-- Only update dirty (set) fields
-- Add WHERE clause for primary keys
-- Convert values to parameters
-- Execute query
-- Return updated model
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Build INSERT query with SeaQuery
+- ✅ Skip auto-increment primary keys if not set
+- ✅ Include all set fields
+- ✅ Convert values to parameters using `with_converted_params()`
+- ✅ Execute query
+- ✅ Return constructed model with RETURNING clause for auto-increment PKs
 
-### Step 5: Implement `delete()`
-
-**File:** Generated code in `ActiveModelTrait` implementation
-
-- Check primary key is set
-- Build DELETE query with SeaQuery
-- Add WHERE clause for primary keys
-- Convert values to parameters
-- Execute query
-- Return `Ok(())`
-
-### Step 6: Implement `save()`
+### Step 4: Implement `update()` ✅
 
 **File:** Generated code in `ActiveModelTrait` implementation
 
-- Check if primary key is set
-- If set, try to find record (use `Entity::find().filter(...).one()`)
-- If found, call `update()`
-- If not found or not set, call `insert()`
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Check primary key is set (returns error if missing)
+- ✅ Build UPDATE query with SeaQuery
+- ✅ Only update dirty (set) fields
+- ✅ Add WHERE clause for primary keys
+- ✅ Convert values to parameters using `with_converted_params()`
+- ✅ Execute query
+- ✅ Return updated model
+
+### Step 5: Implement `delete()` ✅
+
+**File:** Generated code in `ActiveModelTrait` implementation
+
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Check primary key is set (returns error if missing)
+- ✅ Build DELETE query with SeaQuery
+- ✅ Add WHERE clause for primary keys
+- ✅ Convert values to parameters using `with_converted_params()`
+- ✅ Execute query
+- ✅ Return `Ok(())`
+
+### Step 6: Implement `save()` ✅
+
+**File:** Generated code in `ActiveModelTrait` implementation
+
+**Status:** ✅ Completed  
+**Implementation:**
+- ✅ Check if primary key is set
+- ✅ If set, try to update (check if record exists)
+- ✅ If update affects 0 rows (record not found), fall back to insert
+- ✅ If not set, call `insert()`
+- ✅ Returns inserted or updated model
 
 ## Testing Requirements
 
@@ -336,11 +335,27 @@ pub fn convert_values_to_params(values: &[Value]) -> Result<Vec<&dyn ToSql>, Act
 
 **Total:** Medium complexity, but well-defined patterns exist
 
-## Next Steps
+## Implementation Summary
 
-1. Create helper function for parameter binding
-2. Update macro to track primary keys
-3. Implement `insert()` first (simplest)
-4. Implement `update()` and `delete()`
-5. Implement `save()` last (depends on others)
-6. Add comprehensive tests
+**Status:** ✅ **ALL CRUD OPERATIONS COMPLETE**
+
+All implementation steps have been completed:
+1. ✅ Parameter binding helper (`with_converted_params()`)
+2. ✅ Primary key tracking in macro
+3. ✅ `insert()` implementation
+4. ✅ `update()` implementation
+5. ✅ `delete()` implementation
+6. ✅ `save()` implementation
+7. ✅ Comprehensive tests (unit and integration)
+
+**Current State:**
+- All CRUD operations are fully functional
+- Auto-increment primary key handling works correctly
+- RETURNING clause support for fetching generated IDs
+- Proper error handling for all edge cases
+- Comprehensive test coverage
+
+**Next Steps (Future Enhancements):**
+- `from_json()` and `to_json()` serialization methods
+- `ActiveModelBehavior` hooks for custom behavior
+- Performance optimizations if needed

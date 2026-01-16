@@ -612,6 +612,28 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 Ok(())
             }
+            
+            fn from_json(json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                // Deserialize JSON into Model, then convert to Record using from_model()
+                // This requires the Model to implement Deserialize (typically via #[derive(Deserialize)])
+                let model: #model_name = serde_json::from_value(json)
+                    .map_err(|e| lifeguard::ActiveModelError::Other(
+                        format!("Failed to deserialize JSON to Model: {}", e)
+                    ))?;
+                
+                // Convert Model to Record
+                Ok(Self::from_model(&model))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                // Convert Record to Model, then serialize to JSON
+                // This requires the Model to implement Serialize (typically via #[derive(Serialize)])
+                let model = self.to_model();
+                serde_json::to_value(&model)
+                    .map_err(|e| lifeguard::ActiveModelError::Other(
+                        format!("Failed to serialize Model to JSON: {}", e)
+                    ))
+            }
         }
     };
     

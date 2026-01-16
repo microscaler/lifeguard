@@ -178,8 +178,8 @@ This design simplifies the API while maintaining the same functionality.
 | `ActiveModel::get()` | `ActiveModelTrait::get()` | ✅ Implemented | Get field value as Option<Value> (optimized, no to_model() needed) |
 | `ActiveModel::take()` | `ActiveModelTrait::take()` | ✅ Implemented | Take field value (move) (optimized, no to_model() needed) |
 | `ActiveModel::into_active_value()` | ✅ Implemented | ✅ Complete | Convert to ActiveValue (default implementation in trait) |
-| `ActiveModel::from_json()` | ❌ Missing | 🟡 **Future** | Deserialize from JSON (JSON column support is ✅ core feature) |
-| `ActiveModel::to_json()` | ❌ Missing | 🟡 **Future** | Serialize to JSON (JSON column support is ✅ core feature) |
+| `ActiveModel::from_json()` | `ActiveModelTrait::from_json()` | ✅ Implemented | Deserialize from JSON (uses Model Deserialize, then from_model()) |
+| `ActiveModel::to_json()` | `ActiveModelTrait::to_json()` | ✅ Implemented | Serialize to JSON (uses to_model() then Model Serialize) |
 | `Model::into_active_model()` | `Model::to_record()` | ✅ Implemented | Convert Model to Record (different name) |
 | `Record::from_model()` | ✅ Implemented | Create Record from Model |
 | `Record::to_model()` | ✅ Implemented | Convert Record to Model |
@@ -283,7 +283,7 @@ This design simplifies the API while maintaining the same functionality.
 - `update()` - UPDATE operation ✅ (requires PK, updates only dirty fields)
 - `save()` - Insert or update based on PK presence ✅ (routes to insert/update)
 - `delete()` - DELETE operation ✅ (requires PK)
-- `from_json()`, `to_json()` serialization 🟡 (Future)
+- `from_json()`, `to_json()` serialization ✅ (Implemented - uses Model Serialize/Deserialize)
 - Integration with `ActiveModelBehavior` for custom hooks 🟡 (Future)
 
 **Note:** All CRUD operations use SeaQuery for SQL generation and proper parameter binding. `get()` and `take()` have been optimized to avoid the `to_model()` requirement, using direct type conversion from `Option<T>` to `Value`.
@@ -341,7 +341,6 @@ This design simplifies the API while maintaining the same functionality.
 
 **Future Enhancements:**
 - `FromJsonQueryResult` - JSON query result deserialization (🟡 Future)
-- `ActiveModel::from_json()`, `ActiveModel::to_json()` - ActiveModel JSON methods (🟡 Future)
 
 **Note:** JSON support is a core feature and is always enabled. All JSON functionality works out of the box without any feature flags or configuration.
 
@@ -363,10 +362,10 @@ This design simplifies the API while maintaining the same functionality.
 | **Core Structures** | 10 | 6 | 60% |
 | **Query Builder Methods** | 20 | 15 | 75% |
 | **Column Operations** | 15 | 15 | 100% |
-| **ActiveModel/Record Operations** | 12 | 5 | 42% |
+| **ActiveModel/Record Operations** | 12 | 7 | 58% |
 | **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 67 | **57%** |
+| **Overall** | 117 | 69 | **59%** |
 
 ---
 
