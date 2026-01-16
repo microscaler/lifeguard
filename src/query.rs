@@ -548,6 +548,122 @@ where
         self
     }
     
+    /// Add a JOIN clause (INNER JOIN)
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::InnerJoin, table, on);
+        self
+    }
+    
+    /// Add a LEFT JOIN clause
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.left_join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn left_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::LeftJoin, table, on);
+        self
+    }
+    
+    /// Add a RIGHT JOIN clause
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.right_join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn right_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::RightJoin, table, on);
+        self
+    }
+    
+    /// Add an INNER JOIN clause (alias for `join()`)
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.inner_join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn inner_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::InnerJoin, table, on);
+        self
+    }
+    
     /// Execute the query and return all results
     ///
     /// # Example

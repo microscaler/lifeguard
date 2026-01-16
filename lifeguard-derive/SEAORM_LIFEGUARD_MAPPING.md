@@ -118,10 +118,10 @@ This design simplifies the API while maintaining the same functionality.
 | `Select<E>::offset()` | `SelectQuery<E>::offset()` | ✅ Implemented | OFFSET clause |
 | `Select<E>::group_by()` | `SelectQuery<E>::group_by()` | ✅ Implemented | GROUP BY clause |
 | `Select<E>::having()` | `SelectQuery<E>::having()` | ✅ Implemented | HAVING clause |
-| `Select<E>::join()` | ❌ Missing | 🟡 **Future** | JOIN operations |
-| `Select<E>::left_join()` | ❌ Missing | 🟡 **Future** | LEFT JOIN |
-| `Select<E>::right_join()` | ❌ Missing | 🟡 **Future** | RIGHT JOIN |
-| `Select<E>::inner_join()` | ❌ Missing | 🟡 **Future** | INNER JOIN |
+| `Select<E>::join()` | `SelectQuery<E>::join()` | ✅ Implemented | JOIN operations (INNER JOIN) |
+| `Select<E>::left_join()` | `SelectQuery<E>::left_join()` | ✅ Implemented | LEFT JOIN |
+| `Select<E>::right_join()` | `SelectQuery<E>::right_join()` | ✅ Implemented | RIGHT JOIN |
+| `Select<E>::inner_join()` | `SelectQuery<E>::inner_join()` | ✅ Implemented | INNER JOIN (alias for join()) |
 | `Select<E>::all()` | `SelectQuery<E>::all()` | ✅ Implemented | Execute and return Vec<Model> |
 | `Select<E>::one()` | `SelectQuery<E>::one()` | ✅ Implemented | Execute and return Option<Model> |
 | `Select<E>::paginate()` | `SelectQuery<E>::paginate()` | ✅ Implemented | Returns Paginator |
@@ -307,11 +307,11 @@ This design simplifies the API while maintaining the same functionality.
 - Select subset of columns from queries
 
 #### Advanced Query Features
-**Status:** 🟡 Partial  
+**Status:** 🟢 Partial  
 **Current State:**
 - `group_by()`, `having()` - ✅ Implemented (GROUP BY and HAVING clauses)
+- `join()`, `left_join()`, `right_join()`, `inner_join()` - ✅ Implemented (JOIN operations)
 **Future State:**
-- `join()`, `left_join()`, `right_join()`, `inner_join()` - JOIN operations (🟡 Future)
 - Subqueries and CTEs (🟡 Future)
 - Window functions (🟡 Future)
 
@@ -360,12 +360,12 @@ This design simplifies the API while maintaining the same functionality.
 | **Core Traits** | 15 | 7 | 47% (Enhanced: PrimaryKeyArity with granular variants) |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
-| **Query Builder Methods** | 20 | 15 | 75% |
+| **Query Builder Methods** | 20 | 19 | 95% |
 | **Column Operations** | 15 | 15 | 100% |
 | **ActiveModel/Record Operations** | 12 | 7 | 58% |
 | **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 69 | **59%** |
+| **Overall** | 117 | 73 | **62%** |
 
 ---
 
