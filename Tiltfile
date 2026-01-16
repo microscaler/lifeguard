@@ -71,6 +71,19 @@ local_resource(
     allow_parallel=True,
 )
 
+# Build lifeguard-codegen (code generation CLI tool)
+# Only build if Cargo.toml exists (crate may not be created yet)
+local_resource(
+    'build-codegen',
+    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cargo build -p lifeguard-codegen; else echo "⚠️  lifeguard-codegen crate not found, skipping build"; fi',
+    deps=[
+        'lifeguard-codegen',
+    ],
+    resource_deps=[],  # No dependencies - standalone crate
+    labels=['build'],
+    allow_parallel=True,
+)
+
 # Build main lifeguard crate (depends on lifeguard-derive)
 local_resource(
     'build-lifeguard',
@@ -149,6 +162,20 @@ local_resource(
         'lifeguard-derive/Cargo.lock',
     ],
     resource_deps=['build-derive'],  # Wait for build to complete first
+    labels=['tests'],
+    allow_parallel=True,
+)
+
+# Run lifeguard-codegen tests (code generation CLI tests)
+# These tests verify the code generation tool works correctly
+# Only test if Cargo.toml exists (crate may not be created yet)
+local_resource(
+    'test-codegen',
+    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cd lifeguard-codegen && cargo test --no-fail-fast; else echo "⚠️  lifeguard-codegen crate not found, skipping tests"; fi',
+    deps=[
+        'lifeguard-codegen',
+    ],
+    resource_deps=['build-codegen'],  # Wait for build to complete first
     labels=['tests'],
     allow_parallel=True,
 )

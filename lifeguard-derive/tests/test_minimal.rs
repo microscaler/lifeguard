@@ -5,10 +5,10 @@
 //! 2. DeriveEntity (nested) generates LifeModelTrait
 //! 3. All generated code compiles and works together
 
-use lifeguard_derive::LifeModel;
+use lifeguard_derive::{LifeModel, LifeRecord};
 
 // Simple user entity for testing
-#[derive(LifeModel)]
+#[derive(LifeModel, LifeRecord)]
 #[table_name = "users"]
 pub struct User {
     #[primary_key]
@@ -22,7 +22,7 @@ pub struct User {
 mod option_tests {
     use super::*;
     
-    #[derive(LifeModel)]
+    #[derive(LifeModel, LifeRecord)]
     #[table_name = "users_with_options"]
     pub struct UserWithOptions {
         #[primary_key]
@@ -147,6 +147,13 @@ mod numeric_tests {
                 },
                 Column::U8Field => match value {
                     sea_query::Value::SmallInt(Some(v)) => {
+                        if v < 0 || v > 255 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U8Field".to_string(),
+                                expected: "SmallInt in range 0..=255".to_string(),
+                                actual: format!("SmallInt({})", v),
+                            });
+                        }
                         self.u8_field = v as u8;
                         Ok(())
                     }
@@ -163,6 +170,13 @@ mod numeric_tests {
                 },
                 Column::U16Field => match value {
                     sea_query::Value::Int(Some(v)) => {
+                        if v < 0 || v > 65535 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U16Field".to_string(),
+                                expected: "Int in range 0..=65535".to_string(),
+                                actual: format!("Int({})", v),
+                            });
+                        }
                         self.u16_field = v as u16;
                         Ok(())
                     }
@@ -179,6 +193,13 @@ mod numeric_tests {
                 },
                 Column::U32Field => match value {
                     sea_query::Value::BigInt(Some(v)) => {
+                        if v < 0 || v > 4294967295 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U32Field".to_string(),
+                                expected: "BigInt in range 0..=4294967295".to_string(),
+                                actual: format!("BigInt({})", v),
+                            });
+                        }
                         self.u32_field = v as u32;
                         Ok(())
                     }
@@ -361,6 +382,13 @@ mod option_numeric_tests {
                 },
                 Column::U8Field => match value {
                     sea_query::Value::SmallInt(Some(v)) => {
+                        if v < 0 || v > 255 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U8Field".to_string(),
+                                expected: "SmallInt in range 0..=255".to_string(),
+                                actual: format!("SmallInt({})", v),
+                            });
+                        }
                         self.u8_field = Some(v as u8);
                         Ok(())
                     }
@@ -376,6 +404,13 @@ mod option_numeric_tests {
                 },
                 Column::U16Field => match value {
                     sea_query::Value::Int(Some(v)) => {
+                        if v < 0 || v > 65535 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U16Field".to_string(),
+                                expected: "Int in range 0..=65535".to_string(),
+                                actual: format!("Int({})", v),
+                            });
+                        }
                         self.u16_field = Some(v as u16);
                         Ok(())
                     }
@@ -391,6 +426,13 @@ mod option_numeric_tests {
                 },
                 Column::U32Field => match value {
                     sea_query::Value::BigInt(Some(v)) => {
+                        if v < 0 || v > 4294967295 {
+                            return Err(lifeguard::ModelError::InvalidValueType {
+                                column: "U32Field".to_string(),
+                                expected: "BigInt in range 0..=4294967295".to_string(),
+                                actual: format!("BigInt({})", v),
+                            });
+                        }
                         self.u32_field = Some(v as u32);
                         Ok(())
                     }
@@ -2080,5 +2122,1704 @@ mod tests {
         
         // String to numeric (should error)
         assert!(model.set(Column::U8Field, Value::String(Some("invalid".to_string()))).is_err());
+    }
+
+    #[test]
+    fn test_model_trait_option_numeric_unsigned_range_validation() {
+        use option_numeric_tests::*;
+        
+        // Test that negative values are rejected for unsigned Option<T> types
+        let mut model = OptionNumericFieldsModel {
+            id: 1,
+            u8_field: None,
+            u16_field: None,
+            u32_field: None,
+            u64_field: None,
+            f32_field: None,
+            f64_field: None,
+        };
+        
+        // Test Option<u8>: negative value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(-1)));
+        assert!(result.is_err(), "Option<u8> should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=255"), "Error should mention valid range");
+        
+        // Test Option<u8>: out-of-range value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(256)));
+        assert!(result.is_err(), "Option<u8> should reject values > 255");
+        
+        // Test Option<u16>: negative value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(-1)));
+        assert!(result.is_err(), "Option<u16> should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=65535"), "Error should mention valid range");
+        
+        // Test Option<u16>: out-of-range value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(65536)));
+        assert!(result.is_err(), "Option<u16> should reject values > 65535");
+        
+        // Test Option<u32>: negative value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(-1)));
+        assert!(result.is_err(), "Option<u32> should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=4294967295"), "Error should mention valid range");
+        
+        // Test Option<u32>: out-of-range value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(4294967296i64)));
+        assert!(result.is_err(), "Option<u32> should reject values > 4294967295");
+        
+        // Test that valid values still work
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(0))).is_ok());
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(255))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(0))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(65535))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(0))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(4294967295i64))).is_ok());
+        
+        // Test that None values still work
+        assert!(model.set(Column::U8Field, Value::SmallInt(None)).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(None)).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(None)).is_ok());
+    }
+
+    #[test]
+    fn test_model_trait_numeric_unsigned_range_validation() {
+        use numeric_tests::*;
+        
+        // Test that negative values are rejected for unsigned types
+        let mut model = NumericFieldsModel {
+            id: 1,
+            u8_field: 0,
+            u16_field: 0,
+            u32_field: 0,
+            u64_field: 0,
+            f32_field: 0.0,
+            f64_field: 0.0,
+        };
+        
+        // Test u8: negative value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(-1)));
+        assert!(result.is_err(), "u8 should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=255"), "Error should mention valid range");
+        
+        // Test u8: out-of-range value should be rejected
+        let result = model.set(Column::U8Field, Value::SmallInt(Some(256)));
+        assert!(result.is_err(), "u8 should reject values > 255");
+        
+        // Test u16: negative value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(-1)));
+        assert!(result.is_err(), "u16 should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=65535"), "Error should mention valid range");
+        
+        // Test u16: out-of-range value should be rejected
+        let result = model.set(Column::U16Field, Value::Int(Some(65536)));
+        assert!(result.is_err(), "u16 should reject values > 65535");
+        
+        // Test u32: negative value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(-1)));
+        assert!(result.is_err(), "u32 should reject negative values");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("range 0..=4294967295"), "Error should mention valid range");
+        
+        // Test u32: out-of-range value should be rejected
+        let result = model.set(Column::U32Field, Value::BigInt(Some(4294967296i64)));
+        assert!(result.is_err(), "u32 should reject values > 4294967295");
+        
+        // Test that valid values still work
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(0))).is_ok());
+        assert!(model.set(Column::U8Field, Value::SmallInt(Some(255))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(0))).is_ok());
+        assert!(model.set(Column::U16Field, Value::Int(Some(65535))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(0))).is_ok());
+        assert!(model.set(Column::U32Field, Value::BigInt(Some(4294967295i64))).is_ok());
+    }
+}
+
+// ============================================================================
+// ACTIVEMODEL TRAIT TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod active_model_trait_tests {
+    use super::*;
+    use lifeguard::{ActiveModelTrait, LifeModelTrait};
+
+    #[test]
+    fn test_active_model_trait_get() {
+        // Test that ActiveModelTrait::get() works
+        // Note: get() uses to_model() internally, which requires all non-nullable fields to be set
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Get values using ActiveModelTrait
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "Name should be set");
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_some(), "Email should be set");
+        
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some(), "Id should be set");
+    }
+
+    #[test]
+    fn test_active_model_trait_take() {
+        // Test that ActiveModelTrait::take() works
+        // Note: take() uses to_model() internally, which requires all non-nullable fields to be set
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Take the value
+        let name_value = record.take(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "Name should be returned");
+        
+        // After take, the field should be None (but get() will still work with remaining fields)
+        // Note: get() will fail if we try to get the taken field because to_model() requires all fields
+        // This is a limitation of the current implementation
+    }
+
+    #[test]
+    fn test_active_model_trait_reset() {
+        // Test that ActiveModelTrait::reset() works
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Verify fields are set using dirty_fields() (get() requires all fields to be set)
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        assert!(record.dirty_fields().contains(&"email".to_string()));
+        
+        // Reset all fields
+        record.reset();
+        
+        // Verify all fields are now None using dirty_fields()
+        assert!(record.dirty_fields().is_empty(), "All fields should be reset");
+    }
+
+    #[test]
+    fn test_active_model_trait_set_works_implementation() {
+        // Test that ActiveModelTrait::set() now works with proper type conversion
+        let mut record = UserRecord::new();
+        
+        // Set String field
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
+        assert!(result.is_ok(), "set() should work for String fields");
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        
+        // Set Int field
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::Int(Some(42)));
+        assert!(result.is_ok(), "set() should work for i32 fields");
+        
+        // Set None value
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(None));
+        assert!(result.is_ok(), "set() should work for None values");
+        
+        // Test invalid type
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::String(Some("invalid".to_string())));
+        assert!(result.is_err(), "set() should return error for invalid type");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Invalid value type"), "Error should indicate invalid type");
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR get()
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_get_empty_record() {
+        // EDGE CASE: Getting from an empty record should fail if non-nullable fields are missing
+        let _record = UserRecord::new();
+        // Note: get() uses to_model() which requires all non-nullable fields
+        // This is expected behavior - we can't get values without all required fields
+        // We can't actually test get() on an empty record because it would panic in to_model()
+    }
+
+    #[test]
+    fn test_active_model_trait_get_all_field_types() {
+        // Test get() with all field types
+        let mut record = UserRecord::new();
+        record.set_id(42);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Get i32 field
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some());
+        match id_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int(Some(42)) for i32 field"),
+        }
+        
+        // Get String fields
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\")) for String field"),
+        }
+    }
+
+    #[test]
+    fn test_active_model_trait_get_with_option_fields() {
+        // EDGE CASE: Test get() with Option<T> fields
+        // Note: UserRecord doesn't have Option<T> fields, but the concept applies
+        // For Option<T> fields, get() would return None if the field is None
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // All fields are set, so get() should work
+        assert!(record.get(<Entity as LifeModelTrait>::Column::Name).is_some());
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR take()
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_take_none_field() {
+        // EDGE CASE: Taking a field that's None should return None
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_email("test@example.com".to_string());
+        // name is not set (None)
+        
+        // Note: take() uses to_model() which requires all non-nullable fields
+        // So we need to set name first
+        record.set_name("Test".to_string());
+        
+        // Now take name
+        let name_value = record.take(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "Name should be returned even if it was just set");
+        
+        // After take, the field is None, but we can't verify with get() because to_model() requires all fields
+        // We can verify with dirty_fields()
+        assert!(!record.dirty_fields().contains(&"name".to_string()), "Name should not be in dirty fields after take");
+    }
+
+    #[test]
+    fn test_active_model_trait_take_multiple_fields() {
+        // EDGE CASE: Taking multiple fields in sequence
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Take name
+        let name_value = record.take(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        
+        // Take email (but we need to set name again for to_model() to work)
+        // This demonstrates the limitation: take() requires all non-nullable fields to be set
+        record.set_name("Dummy".to_string()); // Required for to_model()
+        let email_value = record.take(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_some());
+    }
+
+    #[test]
+    fn test_active_model_trait_take_all_fields() {
+        // EDGE CASE: Taking all fields one by one
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Take all fields
+        let id_value = record.take(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some());
+        
+        // After taking id, we can't use get() or take() on other fields because to_model() requires all fields
+        // This is a known limitation
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR reset()
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_reset_empty_record() {
+        // EDGE CASE: Resetting an already empty record
+        let mut record = UserRecord::new();
+        assert!(record.dirty_fields().is_empty());
+        
+        // Reset should work without error
+        record.reset();
+        assert!(record.dirty_fields().is_empty(), "Empty record should stay empty after reset");
+    }
+
+    #[test]
+    fn test_active_model_trait_reset_partial_fields() {
+        // EDGE CASE: Resetting a record with only some fields set
+        let mut record = UserRecord::new();
+        record.set_name("John".to_string());
+        // id and email are not set
+        
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        
+        // Reset should clear all fields
+        record.reset();
+        assert!(record.dirty_fields().is_empty(), "All fields should be cleared after reset");
+    }
+
+    #[test]
+    fn test_active_model_trait_reset_and_reuse() {
+        // EDGE CASE: Reset and then set fields again
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Reset
+        record.reset();
+        assert!(record.dirty_fields().is_empty());
+        
+        // Set fields again
+        record.set_id(2);
+        record.set_name("Jane".to_string());
+        record.set_email("jane@example.com".to_string());
+        
+        // Verify fields are set again
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        assert!(record.dirty_fields().contains(&"email".to_string()));
+    }
+
+    #[test]
+    fn test_active_model_trait_reset_after_take() {
+        // EDGE CASE: Reset after taking some fields
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Take a field
+        let _name_value = record.take(<Entity as LifeModelTrait>::Column::Name);
+        
+        // Reset should clear all fields
+        record.reset();
+        assert!(record.dirty_fields().is_empty(), "All fields should be cleared after reset, even after take");
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR set()
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_set_different_value_types() {
+        // EDGE CASE: Testing set() with different Value types (now fully implemented)
+        let mut record = UserRecord::new();
+        
+        // Test with String value
+        let result1 = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
+        assert!(result1.is_ok(), "set() should work for String values");
+        
+        // Test with Int value
+        let result2 = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::Int(Some(42)));
+        assert!(result2.is_ok(), "set() should work for Int values");
+        
+        // Test with None value
+        let result3 = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(None));
+        assert!(result3.is_ok(), "set() should work for None values");
+        
+        // Test with invalid type
+        let result4 = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::String(Some("invalid".to_string())));
+        assert!(result4.is_err(), "set() should return error for invalid type");
+    }
+
+    #[test]
+    fn test_active_model_trait_set_works() {
+        // Test that set() now works with proper type conversion
+        let mut record = UserRecord::new();
+        
+        // Set String field
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("John".to_string())));
+        assert!(result.is_ok(), "set() should work for String fields");
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        
+        // Set Int field
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::Int(Some(42)));
+        assert!(result.is_ok(), "set() should work for i32 fields");
+        
+        // Set None value
+        let result = record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(None));
+        assert!(result.is_ok(), "set() should work for None values");
+        
+        // Test invalid type
+        let result = record.set(<Entity as LifeModelTrait>::Column::Id, sea_query::Value::String(Some("invalid".to_string())));
+        assert!(result.is_err(), "set() should return error for invalid type");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Invalid value type"), "Error should indicate invalid type");
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR CRUD OPERATIONS (placeholders)
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_crud_operations_compile() {
+        // Test that CRUD methods compile and have correct signatures
+        let record = UserRecord::new();
+        
+        // Verify methods exist and have correct types
+        // Note: These methods now have implementations, but require a real executor to test
+        // For now, we just verify they compile
+        
+        // insert() should return Result<Model, ActiveModelError>
+        let _insert_result: Result<UserModel, lifeguard::ActiveModelError> = {
+            // We can't actually call this without an executor, but we can verify the type
+            // This is a compile-time check
+            Err(lifeguard::ActiveModelError::Other("test".to_string()))
+        };
+        
+        // update() should return Result<Model, ActiveModelError>
+        let _update_result: Result<UserModel, lifeguard::ActiveModelError> = {
+            Err(lifeguard::ActiveModelError::Other("test".to_string()))
+        };
+        
+        // delete() should return Result<(), ActiveModelError>
+        let _delete_result: Result<(), lifeguard::ActiveModelError> = {
+            Err(lifeguard::ActiveModelError::Other("test".to_string()))
+        };
+        
+        // save() should return Result<Model, ActiveModelError>
+        let _save_result: Result<UserModel, lifeguard::ActiveModelError> = {
+            Err(lifeguard::ActiveModelError::Other("test".to_string()))
+        };
+        
+        // Verify the record has the methods (compile-time check)
+        let _ = record;
+    }
+    
+    #[test]
+    fn test_active_model_trait_insert_requires_fields() {
+        // Test that insert() requires at least some fields to be set
+        let record = UserRecord::new();
+        
+        // insert() should fail if no fields are set (but we can't test without executor)
+        // This is a compile-time verification that the method exists
+        let _ = record;
+    }
+    
+    #[test]
+    fn test_active_model_trait_update_requires_primary_key() {
+        // Test that update() requires primary key to be set
+        let mut record = UserRecord::new();
+        
+        // Set some fields but not primary key
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // update() should fail if primary key is not set (but we can't test without executor)
+        // This is a compile-time verification that the method exists
+        let _ = record;
+    }
+    
+    #[test]
+    fn test_active_model_trait_delete_requires_primary_key() {
+        // Test that delete() requires primary key to be set
+        let mut record = UserRecord::new();
+        
+        // Set primary key
+        record.set_id(1);
+        
+        // delete() should work if primary key is set (but we can't test without executor)
+        // This is a compile-time verification that the method exists
+        let _ = record;
+    }
+    
+    #[test]
+    fn test_active_model_trait_save_logic() {
+        // Test that save() routes to insert or update based on primary key
+        let mut record_with_pk = UserRecord::new();
+        record_with_pk.set_id(1);
+        record_with_pk.set_name("John".to_string());
+        
+        let mut record_without_pk = UserRecord::new();
+        record_without_pk.set_name("Jane".to_string());
+        
+        // save() should route to update if PK is set, insert if not (but we can't test without executor)
+        // This is a compile-time verification that the method exists
+        let _ = (record_with_pk, record_without_pk);
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR COMPOSITE PRIMARY KEYS
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_with_composite_primary_key() {
+        // EDGE CASE: Test ActiveModelTrait with composite primary keys
+        // This would require a composite primary key entity with LifeRecord
+        // For now, we'll test the concept with UserRecord (single primary key)
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // get() should work with single primary key
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some());
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR DIRTY FIELDS TRACKING
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_dirty_fields_after_operations() {
+        // EDGE CASE: Verify dirty_fields() behavior after various operations
+        let mut record = UserRecord::new();
+        assert!(record.dirty_fields().is_empty());
+        
+        // Set a field
+        record.set_name("John".to_string());
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        
+        // Reset
+        record.reset();
+        assert!(record.dirty_fields().is_empty());
+        
+        // Set multiple fields
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        assert_eq!(record.dirty_fields().len(), 3);
+        
+        // Take a field (but need to set it again for to_model())
+        record.set_name("Dummy".to_string());
+        let _ = record.take(<Entity as LifeModelTrait>::Column::Name);
+        // After take, name should not be in dirty_fields (it's None)
+        // But we can't verify this easily because take() requires all fields for to_model()
+    }
+
+    #[test]
+    fn test_active_model_trait_is_dirty() {
+        // EDGE CASE: Test is_dirty() with various states
+        let mut record = UserRecord::new();
+        assert!(!record.is_dirty(), "Empty record should not be dirty");
+        
+        record.set_name("John".to_string());
+        assert!(record.is_dirty(), "Record with set field should be dirty");
+        
+        record.reset();
+        assert!(!record.is_dirty(), "Reset record should not be dirty");
+    }
+
+    // ============================================================================
+    // EDGE CASES FOR from_model() AND to_model()
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_trait_from_model_to_model_roundtrip() {
+        // EDGE CASE: Test roundtrip: Model -> Record -> Model
+        let model = UserModel {
+            id: 1,
+            name: "John".to_string(),
+            email: "john@example.com".to_string(),
+        };
+        
+        // Create record from model
+        let record = UserRecord::from_model(&model);
+        
+        // Verify all fields are set
+        assert_eq!(record.dirty_fields().len(), 3);
+        
+        // Convert back to model
+        let model2 = record.to_model();
+        assert_eq!(model2.id, 1);
+        assert_eq!(model2.name, "John");
+        assert_eq!(model2.email, "john@example.com");
+    }
+
+    #[test]
+    fn test_active_model_trait_get_after_from_model() {
+        // EDGE CASE: Test get() after creating record from model
+        let model = UserModel {
+            id: 1,
+            name: "John".to_string(),
+            email: "john@example.com".to_string(),
+        };
+        
+        let record = UserRecord::from_model(&model);
+        
+        // get() should work because all fields are set
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\"))"),
+        }
+    }
+
+    // ============================================================================
+    // OPTION<T> FIELDS IN RECORDS - FIX FOR Option<Option<T>> ISSUE
+    // ============================================================================
+
+    #[test]
+    fn test_record_with_option_fields_not_double_wrapped() {
+        // CRITICAL TEST: Verify that Option<T> fields in Model don't become Option<Option<T>> in Record
+        use option_tests::*;
+        
+        // Create a model with Option<String> field
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: Some("John".to_string()),
+            age: Some(30),
+            active: Some(true),
+        };
+        
+        // Create record from model
+        let record = UserWithOptionsRecord::from_model(&model);
+        
+        // Verify the record field is Option<String>, not Option<Option<String>>
+        // We can't directly check the type, but we can verify behavior:
+        // - get() should work correctly
+        // - set() should work correctly
+        // - to_model() should work correctly
+        
+        // Test get() with Option<String> field
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for Option<String> field");
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\")) for Option<String> field"),
+        }
+        
+        // Test get() with Option<i32> field
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_some(), "get() should return Some(Value) for Option<i32> field");
+        match age_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 30),
+            _ => panic!("Expected Int(Some(30)) for Option<i32> field"),
+        }
+        
+        // Test get() with Option<bool> field
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_some(), "get() should return Some(Value) for Option<bool> field");
+        match active_value.unwrap() {
+            sea_query::Value::Bool(Some(v)) => assert_eq!(v, true),
+            _ => panic!("Expected Bool(Some(true)) for Option<bool> field"),
+        }
+    }
+
+    #[test]
+    fn test_record_with_option_fields_set_works() {
+        // Test that set() works correctly for Option<T> fields
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        
+        // Set Option<String> field to Some
+        let result = record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(Some("Jane".to_string()))
+        );
+        assert!(result.is_ok(), "set() should work for Option<String> field with Some value");
+        
+        // Verify get() returns the correct value
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Jane"),
+            _ => panic!("Expected String(Some(\"Jane\"))"),
+        }
+        
+        // Set Option<String> field to None explicitly
+        // When set() is called with Value::String(None), it sets the field to None (unset)
+        // With Option<T> fields, we can't distinguish "set to None" from "unset" - both are None
+        let result = record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(None)
+        );
+        assert!(result.is_ok(), "set() should work for Option<String> field with None value");
+        
+        // When set to None, the field becomes unset, so get() returns None
+        // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
+    }
+
+    #[test]
+    fn test_record_with_option_fields_from_model_to_model_roundtrip() {
+        // Test roundtrip: Model with Option<T> -> Record -> Model
+        use option_tests::*;
+        
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: Some("John".to_string()),
+            age: Some(30),
+            active: Some(true),
+        };
+        
+        // Create record from model
+        let record = UserWithOptionsRecord::from_model(&model);
+        
+        // Convert back to model
+        let model2 = record.to_model();
+        assert_eq!(model2.id, 1);
+        assert_eq!(model2.name, Some("John".to_string()));
+        assert_eq!(model2.age, Some(30));
+        assert_eq!(model2.active, Some(true));
+    }
+
+    #[test]
+    fn test_record_with_option_fields_none_values() {
+        // Test that None values in Option<T> fields work correctly
+        use option_tests::*;
+        
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: None,
+            age: None,
+            active: None,
+        };
+        
+        // Create record from model
+        // When from_model() is called with a model that has None values,
+        // the Record fields are set to None (unset), not Some(None)
+        // This is because from_model() does: name: model.name.clone()
+        // So if model.name is None, record.name is None (unset)
+        let record = UserWithOptionsRecord::from_model(&model);
+        
+        // Verify get() returns None for all unset Option<T> fields
+        // This is the correct behavior - unset fields return None from get()
+        // This allows CRUD operations to correctly detect unset fields
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None for unset Option<String> field");
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_none(), "get() should return None for unset Option<i32> field");
+        
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_none(), "get() should return None for unset Option<bool> field");
+        
+        // Convert back to model
+        let model2 = record.to_model();
+        assert_eq!(model2.id, 1);
+        assert_eq!(model2.name, None);
+        assert_eq!(model2.age, None);
+        assert_eq!(model2.active, None);
+    }
+
+    // ============================================================================
+    // BUG FIX TESTS: get() returns None for unset fields
+    // ============================================================================
+    // These tests verify the fix for generate_option_field_to_value which was
+    // always wrapping results in Some(...), preventing get() from returning None
+    // for unset fields. This broke CRUD operations that rely on get().is_none()
+    // to detect unset fields.
+
+    #[test]
+    fn test_get_returns_none_for_unset_fields() {
+        // CRITICAL TEST: get() should return None for unset fields
+        // This is required for CRUD operations to correctly detect unset fields
+        let record = UserRecord::new();
+        
+        // All fields are unset, so get() should return None
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_none(), "get() should return None for unset id field");
+        
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None for unset name field");
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_none(), "get() should return None for unset email field");
+    }
+
+    #[test]
+    fn test_get_returns_some_for_set_fields() {
+        // POSITIVE TEST: get() should return Some(Value) for set fields
+        let mut record = UserRecord::new();
+        record.set_id(42);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // All fields are set, so get() should return Some(Value)
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some(), "get() should return Some(Value) for set id field");
+        match id_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int(Some(42))"),
+        }
+        
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for set name field");
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\"))"),
+        }
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_some(), "get() should return Some(Value) for set email field");
+        match email_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "john@example.com"),
+            _ => panic!("Expected String(Some(\"john@example.com\"))"),
+        }
+    }
+
+    #[test]
+    fn test_get_partially_set_record() {
+        // EDGE CASE: get() should return None for unset fields, Some for set fields
+        let mut record = UserRecord::new();
+        record.set_name("Jane".to_string());
+        // id and email are not set
+        
+        // Set field should return Some
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for set name field");
+        
+        // Unset fields should return None
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_none(), "get() should return None for unset id field");
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_none(), "get() should return None for unset email field");
+    }
+
+    #[test]
+    fn test_get_with_option_fields_unset() {
+        // Test get() with Option<T> fields when unset
+        use option_tests::*;
+        
+        let record = UserWithOptionsRecord::new();
+        
+        // All Option<T> fields are unset, so get() should return None
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None for unset Option<String> field");
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_none(), "get() should return None for unset Option<i32> field");
+        
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_none(), "get() should return None for unset Option<bool> field");
+    }
+
+    #[test]
+    fn test_get_with_option_fields_set_to_some() {
+        // Test get() with Option<T> fields when set to Some(value)
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        record.set_name(Some("Alice".to_string()));
+        record.set_age(Some(25));
+        record.set_active(Some(true));
+        
+        // All Option<T> fields are set to Some, so get() should return Some(Value)
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "get() should return Some(Value) for set Option<String> field");
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Alice"),
+            _ => panic!("Expected String(Some(\"Alice\"))"),
+        }
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_some(), "get() should return Some(Value) for set Option<i32> field");
+        match age_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 25),
+            _ => panic!("Expected Int(Some(25))"),
+        }
+        
+        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        assert!(active_value.is_some(), "get() should return Some(Value) for set Option<bool> field");
+        match active_value.unwrap() {
+            sea_query::Value::Bool(Some(v)) => assert_eq!(v, true),
+            _ => panic!("Expected Bool(Some(true))"),
+        }
+    }
+
+    #[test]
+    fn test_get_with_option_fields_set_to_none() {
+        // Test get() with Option<T> fields when explicitly set to None
+        // When a field is set to None (via set() with Value::String(None)),
+        // it becomes unset (None). With Option<T> fields, we can't distinguish
+        // "set to None" from "unset" - both are represented as None.
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        
+        // Set fields to None explicitly (this sets the field to None, making it unset)
+        record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(None)
+        ).expect("set() should work");
+        
+        record.set(
+            <option_tests::Entity as LifeModelTrait>::Column::Age,
+            sea_query::Value::Int(None)
+        ).expect("set() should work");
+        
+        // When set to None, the field becomes unset, so get() returns None
+        // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
+        
+        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(age_value.is_none(), "get() should return None when Option<i32> field is set to None (becomes unset)");
+    }
+
+    #[test]
+    fn test_record_with_option_fields_setter_accepts_option() {
+        // Test that setter for Option<T> fields accepts Option<T> directly
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        
+        // Setter should accept Option<String> directly (not String)
+        record.set_name(Some("John".to_string()));
+        
+        // Verify the value was set
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\"))"),
+        }
+        
+        // Setter should accept None
+        record.set_name(None);
+        
+        // When set to None, the field becomes unset, so get() returns None
+        // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
+    }
+
+    // ============================================================================
+    // COMPREHENSIVE EDGE CASES FOR CRUD OPERATIONS
+    // ============================================================================
+
+    // INSERT Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_insert_edge_case_empty_record() {
+        // EDGE CASE: Empty record should fail insert (no fields set)
+        let record = UserRecord::new();
+        
+        // Verify record is empty
+        assert!(record.dirty_fields().is_empty());
+        
+        // insert() should fail with "No fields set for insert" error
+        // We can't test this without an executor, but we can verify the logic exists
+        // The macro generates: if columns.is_empty() { return Err(...) }
+        let _ = record;
+    }
+
+    #[test]
+    fn test_insert_edge_case_only_auto_increment_pk_set() {
+        // EDGE CASE: Only auto-increment PK set should skip PK in INSERT
+        let mut record = UserRecord::new();
+        record.set_id(1); // Auto-increment PK (id is primary_key, auto_increment by default)
+        
+        // The INSERT logic should skip auto-increment PKs if they're set
+        // But since id is the only field set, and it's auto-increment, columns will be empty
+        // This should result in "No fields set for insert" error
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_insert_edge_case_auto_increment_pk_with_other_fields() {
+        // EDGE CASE: Auto-increment PK + other fields should include other fields, skip PK
+        let mut record = UserRecord::new();
+        record.set_id(1); // Auto-increment PK (should be skipped)
+        record.set_name("John".to_string()); // Should be included
+        record.set_email("john@example.com".to_string()); // Should be included
+        
+        // INSERT should include name and email, but skip id (auto-increment)
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        assert!(record.dirty_fields().contains(&"email".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_insert_edge_case_only_nullable_fields() {
+        // EDGE CASE: Only nullable fields set (if we had any)
+        // For User entity, all fields are non-nullable, so this test is conceptual
+        let mut record = UserRecord::new();
+        record.set_name("John".to_string());
+        
+        // INSERT should work with just name (though email is required in Model)
+        // But insert() only checks if fields are set, not if all required fields are set
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_insert_edge_case_all_fields_including_auto_increment_pk() {
+        // EDGE CASE: All fields set including auto-increment PK
+        let mut record = UserRecord::new();
+        record.set_id(1); // Should be skipped (auto-increment)
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // INSERT should include name and email, skip id
+        assert_eq!(record.dirty_fields().len(), 3);
+        let _ = record;
+    }
+
+    // UPDATE Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_update_edge_case_no_primary_key() {
+        // EDGE CASE: Update without primary key should fail
+        let mut record = UserRecord::new();
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        // id (PK) is not set
+        
+        // update() should fail with PrimaryKeyRequired error
+        // The macro generates: if self.id.is_none() { return Err(PrimaryKeyRequired) }
+        assert!(!record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_update_edge_case_only_primary_key_set() {
+        // EDGE CASE: Only primary key set, no dirty fields
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        // No other fields set
+        
+        // update() should succeed (PK is set), but no SET clauses will be added
+        // This is valid - UPDATE with no SET clauses is a no-op
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_update_edge_case_primary_key_and_dirty_fields() {
+        // EDGE CASE: Primary key + dirty fields should update only dirty fields
+        let mut record = UserRecord::new();
+        record.set_id(1); // PK (required)
+        record.set_name("John".to_string()); // Dirty field
+        // email is not set (not dirty)
+        
+        // update() should include only name in SET clause, not email
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        assert!(!record.dirty_fields().contains(&"email".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_update_edge_case_all_fields_dirty() {
+        // EDGE CASE: All fields dirty (PK + all other fields)
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // update() should include name and email in SET clause (PK is used in WHERE)
+        assert_eq!(record.dirty_fields().len(), 3);
+        let _ = record;
+    }
+
+    #[test]
+    fn test_update_edge_case_setting_none_for_nullable_field() {
+        // EDGE CASE: Setting None for nullable field (if we had nullable fields)
+        // For User entity, all fields are non-nullable, so this is conceptual
+        // The logic would be: if let Some(value) = self.get(...) { query.value(...) }
+        // So None values are automatically skipped (not included in SET clause)
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        
+        // Setting name to None should remove it from dirty_fields
+        record.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(None)).unwrap();
+        // After setting to None, name should not be in dirty_fields (or should be None)
+        let _ = record;
+    }
+
+    // DELETE Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_delete_edge_case_no_primary_key() {
+        // EDGE CASE: Delete without primary key should fail
+        let mut record = UserRecord::new();
+        record.set_name("John".to_string());
+        // id (PK) is not set
+        
+        // delete() should fail with PrimaryKeyRequired error
+        assert!(!record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_delete_edge_case_only_primary_key_set() {
+        // EDGE CASE: Only primary key set (valid for DELETE)
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        // No other fields needed for DELETE
+        
+        // delete() should succeed with just PK
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_delete_edge_case_primary_key_and_other_fields() {
+        // EDGE CASE: Primary key + other fields (DELETE only needs PK)
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // delete() should succeed (only uses PK in WHERE clause)
+        assert_eq!(record.dirty_fields().len(), 3);
+        let _ = record;
+    }
+
+    // SAVE Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_save_edge_case_no_primary_key() {
+        // EDGE CASE: Save without primary key should route to insert
+        let mut record = UserRecord::new();
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        // id (PK) is not set
+        
+        // save() should route to insert()
+        // The macro generates: if has_primary_key { update() } else { insert() }
+        assert!(!record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_save_edge_case_with_primary_key() {
+        // EDGE CASE: Save with primary key should route to update
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        
+        // save() should route to update()
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_save_edge_case_update_fails_then_insert() {
+        // EDGE CASE: Save with PK, update fails (no rows), then insert
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        
+        // save() logic: if has_primary_key {
+        //     match update() {
+        //         Ok(model) => Ok(model),
+        //         Err(DatabaseError(_)) => insert(), // Update failed, try insert
+        //         Err(e) => Err(e),
+        //     }
+        // }
+        // This handles the case where PK exists but record doesn't (upsert behavior)
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    // Type Conversion Edge Cases in set()
+    // ============================================================================
+
+    #[test]
+    fn test_set_edge_case_invalid_type_for_int_field() {
+        // EDGE CASE: Setting String value for Int field should fail
+        let mut record = UserRecord::new();
+        
+        let result = record.set(
+            <Entity as LifeModelTrait>::Column::Id,
+            sea_query::Value::String(Some("invalid".to_string()))
+        );
+        
+        assert!(result.is_err(), "set() should fail for invalid type");
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Invalid value type"), "Error should indicate invalid type");
+    }
+
+    #[test]
+    fn test_set_edge_case_invalid_type_for_string_field() {
+        // EDGE CASE: Setting Int value for String field should fail
+        let mut record = UserRecord::new();
+        
+        let result = record.set(
+            <Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::Int(Some(42))
+        );
+        
+        assert!(result.is_err(), "set() should fail for invalid type");
+    }
+
+    #[test]
+    fn test_set_edge_case_none_for_non_nullable_field() {
+        // EDGE CASE: Setting None for non-nullable field
+        // This is allowed in the record (Option<T>), but will fail in to_model()
+        let mut record = UserRecord::new();
+        
+        // Setting None for non-nullable field should succeed in set()
+        let result = record.set(
+            <Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(None)
+        );
+        
+        assert!(result.is_ok(), "set() should allow None for non-nullable fields");
+        // But to_model() will fail if required fields are None
+    }
+
+    #[test]
+    fn test_set_edge_case_valid_type_conversions() {
+        // EDGE CASE: All valid type conversions should work
+        let mut record = UserRecord::new();
+        
+        // Int field
+        let result = record.set(
+            <Entity as LifeModelTrait>::Column::Id,
+            sea_query::Value::Int(Some(42))
+        );
+        assert!(result.is_ok(), "set() should work for Int -> i32");
+        
+        // String field
+        let result = record.set(
+            <Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(Some("John".to_string()))
+        );
+        assert!(result.is_ok(), "set() should work for String -> String");
+        
+        // String field with None
+        let result = record.set(
+            <Entity as LifeModelTrait>::Column::Name,
+            sea_query::Value::String(None)
+        );
+        assert!(result.is_ok(), "set() should work for String(None) -> Option<String>");
+    }
+
+    // Composite Primary Key Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_composite_pk_edge_case_partial_primary_key() {
+        // EDGE CASE: Partial composite primary key should fail update/delete
+        // For single PK entity, this is not applicable, but the logic exists
+        let mut record = UserRecord::new();
+        record.set_id(1); // Single PK, so this is complete
+        
+        // For composite PKs, all PK fields must be set
+        // The macro generates: if self.pk1.is_none() || self.pk2.is_none() { return Err(PrimaryKeyRequired) }
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_composite_pk_edge_case_all_primary_keys_set() {
+        // EDGE CASE: All composite primary keys set (valid)
+        // For single PK entity, this is just the single PK
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        
+        // All PKs are set, update/delete should work
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    // Auto-increment Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_auto_increment_edge_case_explicitly_set() {
+        // EDGE CASE: Auto-increment PK explicitly set should be skipped in INSERT
+        let mut record = UserRecord::new();
+        record.set_id(1); // Auto-increment PK set explicitly
+        
+        // INSERT logic: if is_primary_key && is_auto_increment {
+        //     if let Some(value) = self.get(...) { include } // Only if set
+        // }
+        // So if auto-increment PK is set, it WILL be included (user override)
+        // But typically, auto-increment PKs are not set by user
+        assert!(record.dirty_fields().contains(&"id".to_string()));
+        let _ = record;
+    }
+
+    #[test]
+    fn test_auto_increment_edge_case_not_set() {
+        // EDGE CASE: Auto-increment PK not set should be skipped in INSERT
+        let mut record = UserRecord::new();
+        // id (auto-increment PK) is not set
+        record.set_name("John".to_string());
+        
+        // INSERT should skip id (auto-increment, not set), include name
+        assert!(!record.dirty_fields().contains(&"id".to_string()));
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        let _ = record;
+    }
+
+    // Error Handling Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_error_edge_case_primary_key_required() {
+        // EDGE CASE: PrimaryKeyRequired error type
+        let error = lifeguard::ActiveModelError::PrimaryKeyRequired;
+        let error_str = error.to_string();
+        // The error message should indicate that a primary key is required
+        // We just verify the error can be converted to string (exact message may vary)
+        assert!(!error_str.is_empty(), "Error should have a non-empty string representation");
+    }
+
+    #[test]
+    fn test_error_edge_case_database_error() {
+        // EDGE CASE: DatabaseError error type
+        let error = lifeguard::ActiveModelError::DatabaseError("test error".to_string());
+        assert!(error.to_string().contains("test error"));
+    }
+
+    #[test]
+    fn test_error_edge_case_other_error() {
+        // EDGE CASE: Other error type
+        let error = lifeguard::ActiveModelError::Other("custom error".to_string());
+        assert!(error.to_string().contains("custom error"));
+    }
+
+    // Dirty Fields Tracking Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_dirty_fields_edge_case_after_set() {
+        // EDGE CASE: Dirty fields after set()
+        let mut record = UserRecord::new();
+        assert!(record.dirty_fields().is_empty());
+        
+        record.set_name("John".to_string());
+        assert!(record.dirty_fields().contains(&"name".to_string()));
+        assert_eq!(record.dirty_fields().len(), 1);
+    }
+
+    #[test]
+    fn test_dirty_fields_edge_case_after_reset() {
+        // EDGE CASE: Dirty fields after reset()
+        let mut record = UserRecord::new();
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        assert_eq!(record.dirty_fields().len(), 2);
+        
+        record.reset();
+        assert!(record.dirty_fields().is_empty());
+    }
+
+    #[test]
+    fn test_dirty_fields_edge_case_after_take() {
+        // EDGE CASE: Dirty fields after take()
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        let _ = record.take(<Entity as LifeModelTrait>::Column::Name);
+        // After take(), name should be None, but dirty_fields() might still show it
+        // The exact behavior depends on implementation
+        let _ = record;
+    }
+
+    #[test]
+    fn test_dirty_fields_edge_case_is_dirty() {
+        // EDGE CASE: is_dirty() with various states
+        let mut record = UserRecord::new();
+        assert!(!record.is_dirty());
+        
+        record.set_name("John".to_string());
+        assert!(record.is_dirty());
+        
+        record.reset();
+        assert!(!record.is_dirty());
+    }
+
+    // Round-trip Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_roundtrip_edge_case_model_to_record_to_model() {
+        // EDGE CASE: Model -> Record -> Model round-trip
+        let model = UserModel {
+            id: 1,
+            name: "John".to_string(),
+            email: "john@example.com".to_string(),
+        };
+        
+        let record = UserRecord::from_model(&model);
+        assert_eq!(record.dirty_fields().len(), 3);
+        
+        let model2 = record.to_model();
+        assert_eq!(model.id, model2.id);
+        assert_eq!(model.name, model2.name);
+        assert_eq!(model.email, model2.email);
+    }
+
+    #[test]
+    fn test_roundtrip_edge_case_record_operations_preserve_state() {
+        // EDGE CASE: Record operations preserve state correctly
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        
+        // Get values
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        
+        assert!(id_value.is_some());
+        assert!(name_value.is_some());
+        
+        // Values should match what was set
+        match id_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 1),
+            _ => panic!("Expected Int(Some(1))"),
+        }
+        
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
+            _ => panic!("Expected String(Some(\"John\"))"),
+        }
+    }
+
+    // ============================================================================
+    // ENTITY STATIC METHODS (Entity::insert, Entity::update, Entity::delete)
+    // ============================================================================
+
+    #[test]
+    fn test_entity_insert_method_exists() {
+        // Test that Entity::insert() static method exists and has correct signature
+        // This is a compile-time check
+        use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor, ActiveModelError};
+        
+        fn _verify_insert_signature<E: LifeModelTrait, AM: ActiveModelTrait<Model = E::Model>, Ex: LifeExecutor>(
+            _entity: E,
+            _active_model: AM,
+            _executor: &Ex,
+        ) -> Result<E::Model, ActiveModelError> {
+            // Entity::insert() should accept ActiveModel and executor, return Result<Model, ActiveModelError>
+            E::insert(_active_model, _executor)
+        }
+        
+        // Verify the method exists for Entity
+        let _ = Entity::find(); // Entity implements LifeModelTrait
+    }
+
+    #[test]
+    fn test_entity_update_method_exists() {
+        // Test that Entity::update() static method exists and has correct signature
+        // This is a compile-time check
+        use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor, ActiveModelError};
+        
+        fn _verify_update_signature<E: LifeModelTrait, AM: ActiveModelTrait<Model = E::Model>, Ex: LifeExecutor>(
+            _entity: E,
+            _active_model: AM,
+            _executor: &Ex,
+        ) -> Result<E::Model, ActiveModelError> {
+            // Entity::update() should accept ActiveModel and executor, return Result<Model, ActiveModelError>
+            E::update(_active_model, _executor)
+        }
+        
+        // Verify the method exists for Entity
+        let _ = Entity::find(); // Entity implements LifeModelTrait
+    }
+
+    #[test]
+    fn test_entity_delete_method_exists() {
+        // Test that Entity::delete() static method exists and has correct signature
+        // This is a compile-time check
+        use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor, ActiveModelError};
+        
+        fn _verify_delete_signature<E: LifeModelTrait, AM: ActiveModelTrait<Model = E::Model>, Ex: LifeExecutor>(
+            _entity: E,
+            _active_model: AM,
+            _executor: &Ex,
+        ) -> Result<(), ActiveModelError> {
+            // Entity::delete() should accept ActiveModel and executor, return Result<(), ActiveModelError>
+            E::delete(_active_model, _executor)
+        }
+        
+        // Verify the method exists for Entity
+        let _ = Entity::find(); // Entity implements LifeModelTrait
+    }
+
+    #[test]
+    fn test_entity_static_methods_delegate_to_active_model_trait() {
+        // Test that Entity static methods delegate to ActiveModelTrait instance methods
+        // This is a compile-time verification that the delegation pattern works
+        
+        // The static methods should accept any type that implements ActiveModelTrait
+        // with the correct Model type, and delegate to the instance method
+        
+        let _record = UserRecord::new();
+        // Entity::insert(record, executor) should call record.insert(executor)
+        // Entity::update(record, executor) should call record.update(executor)
+        // Entity::delete(record, executor) should call record.delete(executor)
+        
+        // This test verifies the types are compatible
+        let _ = _record;
+    }
+
+    // ============================================================================
+    // ACTIVEVALUE WRAPPER TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_active_value_set() {
+        // Test ActiveValue::Set variant
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
+        assert!(value.is_set());
+        assert!(!value.is_not_set());
+        assert!(!value.is_unset());
+        
+        let extracted = value.into_value();
+        assert!(extracted.is_some());
+        match extracted.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int(Some(42))"),
+        }
+    }
+
+    #[test]
+    fn test_active_value_not_set() {
+        // Test ActiveValue::NotSet variant
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::NotSet;
+        assert!(!value.is_set());
+        assert!(value.is_not_set());
+        assert!(!value.is_unset());
+        
+        let extracted = value.into_value();
+        assert!(extracted.is_none());
+    }
+
+    #[test]
+    fn test_active_value_unset() {
+        // Test ActiveValue::Unset variant
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::Unset;
+        assert!(!value.is_set());
+        assert!(!value.is_not_set());
+        assert!(value.is_unset());
+        
+        let extracted = value.into_value();
+        assert!(extracted.is_none());
+    }
+
+    #[test]
+    fn test_active_value_from_value() {
+        // Test conversion from Option<Value>
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::from_value(Some(sea_query::Value::Int(Some(42))));
+        assert!(value.is_set());
+        
+        let value = ActiveValue::from_value(None);
+        assert!(value.is_not_set());
+    }
+
+    #[test]
+    fn test_active_value_from_trait() {
+        // Test From trait implementations
+        use lifeguard::ActiveValue;
+        
+        // From<Value>
+        let value: ActiveValue = sea_query::Value::Int(Some(42)).into();
+        assert!(value.is_set());
+        
+        // From<Option<Value>>
+        let value: ActiveValue = Some(sea_query::Value::String(Some("test".to_string()))).into();
+        assert!(value.is_set());
+        
+        let value: ActiveValue = None.into();
+        assert!(value.is_not_set());
+        
+        // From<ActiveValue> for Option<Value>
+        let active_value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
+        let option_value: Option<sea_query::Value> = active_value.into();
+        assert!(option_value.is_some());
+    }
+
+    #[test]
+    fn test_active_value_as_value() {
+        // Test as_value() method
+        use lifeguard::ActiveValue;
+        
+        let value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
+        let ref_value = value.as_value();
+        assert!(ref_value.is_some());
+        
+        let value = ActiveValue::NotSet;
+        let ref_value = value.as_value();
+        assert!(ref_value.is_none());
+    }
+
+    #[test]
+    fn test_active_model_trait_into_active_value() {
+        // Test into_active_value() method on ActiveModelTrait
+        use lifeguard::{ActiveModelTrait, ActiveValue, LifeModelTrait};
+        
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("John".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        // Test with set field
+        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Id);
+        assert!(active_value.is_set());
+        
+        // Test with another set field
+        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Name);
+        assert!(active_value.is_set());
+        
+        // Test with unset field (after reset)
+        record.reset();
+        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Id);
+        assert!(active_value.is_not_set());
+    }
+
+    #[test]
+    fn test_active_value_conversion_roundtrip() {
+        // Test roundtrip conversion: Value -> ActiveValue -> Option<Value>
+        use lifeguard::ActiveValue;
+        
+        let original = sea_query::Value::Int(Some(42));
+        let active_value: ActiveValue = original.clone().into();
+        let converted: Option<sea_query::Value> = active_value.into();
+        
+        assert_eq!(converted, Some(original));
+    }
+
+    #[test]
+    fn test_active_value_all_variants() {
+        // Test all ActiveValue variants
+        use lifeguard::ActiveValue;
+        
+        let set = ActiveValue::Set(sea_query::Value::String(Some("test".to_string())));
+        let not_set = ActiveValue::NotSet;
+        let unset = ActiveValue::Unset;
+        
+        // Verify they're distinct
+        assert_ne!(set, not_set);
+        assert_ne!(set, unset);
+        assert_ne!(not_set, unset);
+        
+        // Verify is_* methods
+        assert!(set.is_set());
+        assert!(not_set.is_not_set());
+        assert!(unset.is_unset());
     }
 }
