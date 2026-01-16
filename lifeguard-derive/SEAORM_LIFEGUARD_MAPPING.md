@@ -116,8 +116,8 @@ This design simplifies the API while maintaining the same functionality.
 | `Select<E>::order_by()` | `SelectQuery<E>::order_by()` | ✅ Implemented | ORDER BY clause |
 | `Select<E>::limit()` | `SelectQuery<E>::limit()` | ✅ Implemented | LIMIT clause |
 | `Select<E>::offset()` | `SelectQuery<E>::offset()` | ✅ Implemented | OFFSET clause |
-| `Select<E>::group_by()` | ❌ Missing | 🔴 **Future** | GROUP BY clause |
-| `Select<E>::having()` | ❌ Missing | 🔴 **Future** | HAVING clause |
+| `Select<E>::group_by()` | `SelectQuery<E>::group_by()` | ✅ Implemented | GROUP BY clause |
+| `Select<E>::having()` | `SelectQuery<E>::having()` | ✅ Implemented | HAVING clause |
 | `Select<E>::join()` | ❌ Missing | 🟡 **Future** | JOIN operations |
 | `Select<E>::left_join()` | ❌ Missing | 🟡 **Future** | LEFT JOIN |
 | `Select<E>::right_join()` | ❌ Missing | 🟡 **Future** | RIGHT JOIN |
@@ -307,12 +307,13 @@ This design simplifies the API while maintaining the same functionality.
 - Select subset of columns from queries
 
 #### Advanced Query Features
-**Status:** 🟡 Future  
+**Status:** 🟡 Partial  
+**Current State:**
+- `group_by()`, `having()` - ✅ Implemented (GROUP BY and HAVING clauses)
 **Future State:**
-- `group_by()`, `having()` - GROUP BY and HAVING clauses
-- `join()`, `left_join()`, `right_join()`, `inner_join()` - JOIN operations
-- Subqueries and CTEs
-- Window functions
+- `join()`, `left_join()`, `right_join()`, `inner_join()` - JOIN operations (🟡 Future)
+- Subqueries and CTEs (🟡 Future)
+- Window functions (🟡 Future)
 
 ### Low Priority (Nice-to-Have)
 
@@ -360,12 +361,12 @@ This design simplifies the API while maintaining the same functionality.
 | **Core Traits** | 15 | 7 | 47% (Enhanced: PrimaryKeyArity with granular variants) |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
-| **Query Builder Methods** | 20 | 13 | 65% |
+| **Query Builder Methods** | 20 | 15 | 75% |
 | **Column Operations** | 15 | 15 | 100% |
 | **ActiveModel/Record Operations** | 12 | 5 | 42% |
 | **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 65 | **56%** |
+| **Overall** | 117 | 67 | **57%** |
 
 ---
 
