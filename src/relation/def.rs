@@ -284,12 +284,13 @@ where
     for (fk_col, pk_val) in rel_def.from_col.iter().zip(pk_values.iter()) {
         // Convert DynIden to string for column name
         let fk_col_str = fk_col.to_string();
-        let to_tbl_str = format!("{:?}", rel_def.to_tbl);
+        // The foreign key column exists in from_tbl, not to_tbl
+        let from_tbl_str = format!("{:?}", rel_def.from_tbl);
         
         // Create WHERE condition: table.column = value
         // Use Expr::col() for the column and Expr::val() for the value
         // For table-qualified columns, we'll use a custom expression for now
-        let col_expr = format!("{}.{}", to_tbl_str, fk_col_str);
+        let col_expr = format!("{}.{}", from_tbl_str, fk_col_str);
         let expr = Expr::cust(col_expr).eq(Expr::val(pk_val.clone()));
         condition = condition.add(expr);
     }

@@ -597,3 +597,56 @@ fn test_composite_key_identity_values_match() {
     assert_eq!(values.len(), 2, "Composite key should have 2 values");
     assert_eq!(values.len(), identity.arity(), "Values count should match Identity arity");
 }
+
+#[test]
+fn test_build_where_condition_uses_from_tbl() {
+    // Test that build_where_condition uses from_tbl (not to_tbl) for the foreign key column
+    // This verifies the fix for the bug where to_tbl was incorrectly used
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a user
+    let mut user_record = TestUserRecord::new();
+    user_record.set_name("Test User".to_string());
+    user_record.set_email("test@example.com".to_string());
+    let user = user_record.insert(&executor).expect("Failed to insert user");
+
+    // Create a post for this user
+    let mut post_record = TestPostRecord::new();
+    post_record.set_title("Test Post".to_string());
+    post_record.set_content("Content".to_string());
+    post_record.set_user_id(user.id);
+    let _post = post_record.insert(&executor).expect("Failed to insert post");
+
+    // Get the relation definition for Post -> User (BelongsTo)
+    let rel_def = TestPostEntity::to();
+    
+    // Verify the relation definition structure
+    // For BelongsTo: Post belongs to User
+    // - from_tbl should be "test_posts_related" (where user_id foreign key exists)
+    // - to_tbl should be "test_users_related" (the target table)
+    // - from_col should be "user_id" (foreign key in posts table)
+    // - to_col should be "id" (primary key in users table)
+    assert_eq!(rel_def.rel_type, RelationType::BelongsTo);
+    
+    // The key test: verify that find_related() works correctly
+    // This would fail with the bug because it would try to use users.user_id
+    // instead of posts.user_id, causing a SQL error
+    let posts = user.find_related::<TestPostEntity>()
+        .all(&executor)
+        .expect("Failed to query related posts - this would fail with the bug");
+    
+    // Should find the post we created
+    assert_eq!(posts.len(), 1, "Should find 1 post for the user");
+    assert_eq!(posts[0].user_id, user.id, "Post should belong to the user");
+    
+    // This test verifies that build_where_condition correctly uses from_tbl
+    // (test_posts_related) instead of to_tbl (test_users_related) when building
+    // the WHERE clause. The bug would have generated: users.user_id = 1
+    // which would fail because user_id doesn't exist in the users table.
+    // The fix generates: posts.user_id = 1, which is correct.
+}

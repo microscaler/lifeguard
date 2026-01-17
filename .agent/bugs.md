@@ -35,11 +35,24 @@ Use of moved variable `record_for_hooks` in `returning_extractors` code. The var
 
 ---
 
+### [BUG-2025-01-27-02](bugs/BUG-2025-01-27-02.md)
+
+**Date**: 2025-01-27  
+**Source**: Cursor verification  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `src/relation/def.rs:286-292`  
+**Impact**: `build_where_condition` uses `to_tbl` instead of `from_tbl` for foreign key column, causing SQL errors when querying related entities
+
+The `build_where_condition` function incorrectly uses `rel_def.to_tbl` when building WHERE clauses, but the foreign key column (`from_col`) exists in `rel_def.from_tbl`. For BelongsTo relationships, this generates incorrect SQL like `users.user_id = <pk>` instead of `posts.user_id = <pk>`, causing runtime SQL errors.
+
+---
+
 ## Bug Statistics
 
-- **Total Bugs**: 1
+- **Total Bugs**: 2
 - **Open**: 0
-- **Fixed**: 1
+- **Fixed**: 2
 - **Verified**: 0 (pending runtime tests)
 
 ## Status Legend

@@ -150,17 +150,62 @@ pub enum Relation {
 // let user_posts = post.find_related::<super::users::Entity>().all(executor)?;
 ```
 
+## Composite Key Support
+
+The macro now supports composite primary keys and composite foreign keys:
+
+```rust
+#[derive(DeriveRelation)]
+pub enum Relation {
+    #[lifeguard(
+        belongs_to = "super::tenants::Entity",
+        from = "Column::TenantId, Column::RegionId",
+        to = "super::tenants::Column::Id, super::tenants::Column::RegionId"
+    )]
+    Tenant,
+}
+```
+
+This generates a `RelationDef` with `Identity::Binary` (or `Ternary`/`Many` for 3+ columns):
+
+```rust
+impl Related<super::tenants::Entity> for Entity {
+    fn to() -> RelationDef {
+        RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_col: Identity::Binary(
+                Column::TenantId.as_str().into(),
+                Column::RegionId.as_str().into()
+            ),
+            to_col: Identity::Binary(
+                super::tenants::Column::Id.as_str().into(),
+                super::tenants::Column::RegionId.as_str().into()
+            ),
+            // ... other fields
+        }
+    }
+}
+```
+
+## RelationDef Structure
+
+The macro generates `RelationDef` which contains:
+- `rel_type`: `RelationType::HasMany`, `HasOne`, or `BelongsTo`
+- `from_tbl` / `to_tbl`: Table references
+- `from_col` / `to_col`: `Identity` enum (supports single and composite keys)
+- `is_owner`: Whether this entity owns the relationship
+- `skip_fk`: Whether to skip foreign key constraint generation
+- `on_condition`: Optional custom join condition
+- `condition_type`: `ConditionType::All` or `Any`
+
 ## Limitations
 
-1. **Composite Primary Keys**: Full support for composite primary keys in `find_related()` requires additional metadata and is a future enhancement.
+1. **Entity Type**: The macro assumes `Entity` is the entity type in the same module. For entities in different modules, use the full path (e.g., `super::users::Entity`).
 
-2. **RelationMetadata Usage**: The `RelationMetadata` trait is generated but not yet used in `find_related()` due to trait bound limitations. This will be enhanced in a future version.
-
-3. **Entity Type**: The macro assumes `Entity` is the entity type in the same module. For entities in different modules, use the full path (e.g., `super::users::Entity`).
+2. **Column Path Resolution**: When using just `Column::Name`, the macro uses `<Entity as LifeModelTrait>::Column`. For cross-module references, use the full path like `super::users::Column::Id`.
 
 ## Future Enhancements
 
-- Automatic join condition generation from metadata
-- Composite primary key support
-- Runtime use of RelationMetadata in find_related()
 - Support for has_many_through relationships
+- Automatic default column inference improvements
+- Enhanced error messages for invalid column references
