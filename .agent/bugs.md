@@ -91,11 +91,26 @@ When an entity has no primary key defined, `get_primary_key_identity()` returns 
 
 ---
 
+### [BUG-2025-01-27-06](bugs/BUG-2025-01-27-06.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/relation.rs:186-203`  
+**Impact**: `infer_foreign_key_column_name` incorrectly handles module-qualified entity paths like `"super::users::Entity"`, producing `"_id"` instead of `"user_id"`
+
+The `infer_foreign_key_column_name` function incorrectly handles module-qualified entity paths like `"super::users::Entity"`. When the last path segment is exactly `"Entity"` (common in module-based organization), the function strips the entire segment since `"Entity".ends_with("Entity")` is true, resulting in an empty string. This produces `"_id"` instead of the expected `"user_id"`. The function's docstring claims to handle this pattern by extracting the module name (e.g., `"users"`), but the implementation only correctly handled patterns like `"UserEntity"` or `"CommentEntity"`.
+
+**Fix**: Added special case to check if the last segment is exactly `"Entity"` and there are multiple segments, then use the second-to-last segment (e.g., `"users"` from `"super::users::Entity"`). This correctly extracts the module name while maintaining backward compatibility with existing patterns.
+
+---
+
 ## Bug Statistics
 
-- **Total Bugs**: 5
+- **Total Bugs**: 6
 - **Open**: 0
-- **Fixed**: 4
+- **Fixed**: 5
 - **Verified**: 1
 
 ## Status Legend

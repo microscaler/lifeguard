@@ -186,10 +186,15 @@ fn convert_pascal_to_snake_case(s: &str) -> String {
 fn infer_foreign_key_column_name(entity_path: &str) -> String {
     // Extract the entity name from the path
     // Path format: "super::users::Entity" or "CommentEntity" or "UserEntity"
-    let entity_name = if let Some(last_segment) = entity_path.split("::").last() {
-        // Remove "Entity" suffix if present (e.g., "CommentEntity" -> "Comment")
-        if last_segment.ends_with("Entity") {
-            &last_segment[..last_segment.len() - 6] // Remove "Entity"
+    let segments: Vec<&str> = entity_path.split("::").collect();
+    let entity_name = if let Some(&last_segment) = segments.last() {
+        // Special case: if the last segment is exactly "Entity" and there are multiple segments,
+        // use the second-to-last segment (e.g., "users" from "super::users::Entity")
+        if last_segment == "Entity" && segments.len() > 1 {
+            segments[segments.len() - 2]
+        } else if last_segment.ends_with("Entity") && last_segment != "Entity" {
+            // Remove "Entity" suffix if present (e.g., "CommentEntity" -> "Comment")
+            &last_segment[..last_segment.len() - 6]
         } else {
             last_segment
         }
@@ -197,8 +202,20 @@ fn infer_foreign_key_column_name(entity_path: &str) -> String {
         entity_path
     };
     
-    // Convert to snake_case and append "_id"
-    let snake_case = convert_pascal_to_snake_case(entity_name);
+    // Convert to snake_case and handle plural to singular
+    // If the entity_name is already in snake_case (e.g., "users"), convert plural to singular
+    let snake_case = if entity_name.contains('_') || entity_name.chars().all(|c| c.is_lowercase()) {
+        // Already snake_case - handle plural to singular conversion
+        // Simple heuristic: remove trailing "s" if present (e.g., "users" -> "user")
+        if entity_name.ends_with('s') && entity_name.len() > 1 {
+            entity_name[..entity_name.len() - 1].to_string()
+        } else {
+            entity_name.to_string()
+        }
+    } else {
+        // PascalCase - convert to snake_case (returns String)
+        convert_pascal_to_snake_case(entity_name)
+    };
     format!("{}_id", snake_case)
 }
 
