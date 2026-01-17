@@ -285,6 +285,15 @@ mod numeric_tests {
         fn get_primary_key_value(&self) -> sea_query::Value {
             sea_query::Value::Int(Some(self.id))
         }
+        
+        fn get_primary_key_identity(&self) -> lifeguard::Identity {
+            use sea_query::IdenStatic;
+            lifeguard::Identity::Unary(sea_query::DynIden::from(Column::Id.as_str()))
+        }
+        
+        fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+            vec![sea_query::Value::Int(Some(self.id))]
+        }
     }
 }
 
@@ -514,6 +523,15 @@ mod option_numeric_tests {
         fn get_primary_key_value(&self) -> sea_query::Value {
             sea_query::Value::Int(Some(self.id))
         }
+        
+        fn get_primary_key_identity(&self) -> lifeguard::Identity {
+            use sea_query::IdenStatic;
+            lifeguard::Identity::Unary(sea_query::DynIden::from(Column::Id.as_str()))
+        }
+        
+        fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+            vec![sea_query::Value::Int(Some(self.id))]
+        }
     }
 }
 
@@ -673,6 +691,15 @@ mod json_tests {
         
         fn get_primary_key_value(&self) -> sea_query::Value {
             sea_query::Value::Int(Some(self.id))
+        }
+        
+        fn get_primary_key_identity(&self) -> lifeguard::Identity {
+            use sea_query::IdenStatic;
+            lifeguard::Identity::Unary(sea_query::DynIden::from(Column::Id.as_str()))
+        }
+        
+        fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+            vec![sea_query::Value::Int(Some(self.id))]
         }
     }
 }
@@ -4989,3 +5016,4 @@ mod active_model_trait_tests {
         assert!(unset.is_unset());
     }
 }
+

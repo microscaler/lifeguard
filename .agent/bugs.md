@@ -35,12 +35,113 @@ Use of moved variable `record_for_hooks` in `returning_extractors` code. The var
 
 ---
 
+### [BUG-2025-01-27-02](bugs/BUG-2025-01-27-02.md)
+
+**Date**: 2025-01-27  
+**Source**: Cursor verification  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `src/relation/def.rs:286-292`  
+**Impact**: `build_where_condition` uses `to_tbl` instead of `from_tbl` for foreign key column, causing SQL errors when querying related entities
+
+The `build_where_condition` function incorrectly uses `rel_def.to_tbl` when building WHERE clauses, but the foreign key column (`from_col`) exists in `rel_def.from_tbl`. For BelongsTo relationships, this generates incorrect SQL like `users.user_id = <pk>` instead of `posts.user_id = <pk>`, causing runtime SQL errors.
+
+---
+
+### [BUG-2025-01-27-03](bugs/BUG-2025-01-27-03.md)
+
+**Date**: 2025-01-27  
+**Source**: Cursor verification  
+**Status**: `fixed`  
+**Severity**: `critical`  
+**Location**: `src/relation/def.rs:216-217`, `src/relation/def.rs:288`  
+**Impact**: Both `join_tbl_on_condition` and `build_where_condition` use `format!("{:?}", table_ref)` which produces invalid SQL with debug representation instead of actual table names
+
+Both `join_tbl_on_condition` and `build_where_condition` use `format!("{:?}", table_ref)` to convert `TableRef` to a string for SQL generation. The `{:?}` format specifier invokes Rust's `Debug` trait, which produces output like `Table(TableName(None, DynIden(...)), None)` rather than the actual table name (e.g., `"posts"`). This generates syntactically invalid SQL that cannot be executed against any database.
+
+---
+
+### [BUG-2025-01-27-04](bugs/BUG-2025-01-27-04.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `verified`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/relation.rs:358-396`  
+**Impact**: Default column inference in `DeriveRelation` macro generates incorrect column values when `from`/`to` attributes are not specified, causing incorrect JOIN and WHERE clauses
+
+The `DeriveRelation` macro generates incorrect column values when `from`/`to` attributes are not specified. For `belongs_to` relationships, `from_col` defaults to `Column::Id` (the primary key) but should be the foreign key column. For `has_many`/`has_one` relationships, `to_col` defaults to `"id"` but should be the foreign key in the related table. This produces incorrect SQL like `posts.id = users.id` instead of `posts.user_id = users.id`.
+
+**Verification**: Added comprehensive test `test_derive_relation_belongs_to_default_columns()` that verifies `belongs_to` relationships without `from`/`to` attributes correctly infer foreign key columns. All tests pass.
+
+---
+
+### [BUG-2025-01-27-05](bugs/BUG-2025-01-27-05.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/life_model.rs:863-932`  
+**Impact**: Inconsistent primary key identity and values for entities without primary keys causes `build_where_condition` to panic at runtime
+
+When an entity has no primary key defined, `get_primary_key_identity()` returns `Identity::Unary("")` (arity 1) while `get_primary_key_values()` returns `vec![]` (length 0). This inconsistency causes `build_where_condition` to panic at runtime with "Number of primary key values must match primary key arity" since the assertion `pk_values.len() == pk_identity.arity()` fails (0 != 1).
+
+**Fix**: Changed `get_primary_key_identity()` to return `Identity::Many(vec![])` (arity 0) instead of `Identity::Unary("")` (arity 1), ensuring consistency with `get_primary_key_values()` which returns `vec![]` (length 0).
+
+---
+
+### [BUG-2025-01-27-06](bugs/BUG-2025-01-27-06.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/relation.rs:186-203`  
+**Impact**: `infer_foreign_key_column_name` incorrectly handles module-qualified entity paths like `"super::users::Entity"`, producing `"_id"` instead of `"user_id"`
+
+The `infer_foreign_key_column_name` function incorrectly handles module-qualified entity paths like `"super::users::Entity"`. When the last path segment is exactly `"Entity"` (common in module-based organization), the function strips the entire segment since `"Entity".ends_with("Entity")` is true, resulting in an empty string. This produces `"_id"` instead of the expected `"user_id"`. The function's docstring claims to handle this pattern by extracting the module name (e.g., `"users"`), but the implementation only correctly handled patterns like `"UserEntity"` or `"CommentEntity"`.
+
+**Fix**: Added special case to check if the last segment is exactly `"Entity"` and there are multiple segments, then use the second-to-last segment (e.g., `"users"` from `"super::users::Entity"`). This correctly extracts the module name while maintaining backward compatibility with existing patterns.
+
+---
+
+### [BUG-2025-01-27-07](bugs/BUG-2025-01-27-07.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/relation.rs:301`  
+**Impact**: `parse_nested_meta` result is discarded with `let _`, silently ignoring parsing errors when malformed attribute values are provided
+
+The `parse_nested_meta` result is discarded with `let _`, silently ignoring parsing errors. If a relationship type parses successfully (e.g., `has_many = "Entity"`) but a subsequent `from` or `to` attribute has a malformed value (e.g., `from = 123` instead of `from = "Column::Id"`), the error is silently ignored and the relationship is generated using default column inference. The user receives no compile error but gets incorrect SQL generation because their column specification was silently dropped.
+
+**Fix**: Changed `let _ = attr.parse_nested_meta(...)` to check the result and propagate errors using `if let Err(err) = attr.parse_nested_meta(...) { return Some(err.to_compile_error()); }`. Added comprehensive UI tests using `trybuild` to verify malformed attributes cause compile errors.
+
+---
+
+### [BUG-2025-01-27-08](bugs/BUG-2025-01-27-08.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `src/relation.rs:412-432`  
+**Impact**: `find_related<R>` uses `R::to()` which gets R's relationship TO Self, when it should use Self's relationship TO R, causing incorrect SQL generation
+
+The `find_related<R>` method uses `R::to()` to get the relationship definition, but this gets R's relationship TO Self, when it should use Self's relationship TO R. When navigating from the "many" side to the "one" side (e.g., `post.find_related::<User>()` when User has_many Posts), the function uses the wrong column values from the model. This produces incorrect SQL like `users.id = post.id` instead of `users.id = post.user_id`, returning wrong or no results.
+
+**Fix**: Changed trait constraint from `R: Related<Self::Entity>` to `Self::Entity: Related<R>` and updated implementation to use `<Self::Entity as Related<R>>::to()` instead of `R::to()`. This ensures the correct relationship direction is used for both has_many and belongs_to relationships.
+
+---
+
 ## Bug Statistics
 
-- **Total Bugs**: 1
+- **Total Bugs**: 8
 - **Open**: 0
-- **Fixed**: 1
-- **Verified**: 0 (pending runtime tests)
+- **Fixed**: 7
+- **Verified**: 1
 
 ## Status Legend
 

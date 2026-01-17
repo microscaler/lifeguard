@@ -77,6 +77,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut column_variants = Vec::new();
     let mut primary_key_variants = Vec::new();
     let mut primary_key_variant_idents = Vec::new(); // Store (variant identifier, auto_increment) tuples for trait implementations
+    let mut primary_key_field_names = Vec::new(); // Store field names for value extraction
     let mut model_fields = Vec::new();
     let mut from_row_fields = Vec::new();
     let mut iden_impls = Vec::new();
@@ -120,6 +121,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 #column_variant,
             });
             primary_key_variant_idents.push((column_variant.clone(), is_auto_increment)); // Store (identifier, auto_increment) for trait implementations
+            primary_key_field_names.push(field_name.clone()); // Store field name for value extraction
             
             // Track primary key metadata for PrimaryKeyTrait
             if primary_key_type.is_none() {
@@ -857,6 +859,105 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 sea_query::Value::String(None)
             }
         });
+    
+    // Generate get_primary_key_identity() implementation
+    let pk_identity_impl = if primary_key_variant_idents.is_empty() {
+        // No primary key - return empty Identity with arity 0 to match get_primary_key_values()
+        // Using Many(vec![]) ensures arity() returns 0, matching the empty vec![] from get_primary_key_values()
+        quote! {
+            lifeguard::Identity::Many(vec![])
+        }
+    } else {
+        // Generate Identity based on number of primary keys
+        // Convert Column enum variants to DynIden using column name strings
+        match primary_key_variant_idents.len() {
+            1 => {
+                let col = &primary_key_variant_idents[0].0;
+                // Get column name from IdenStatic::as_str()
+                quote! {
+                    {
+                        use sea_query::IdenStatic;
+                        lifeguard::Identity::Unary(sea_query::DynIden::from(Column::#col.as_str()))
+                    }
+                }
+            }
+            2 => {
+                let col1 = &primary_key_variant_idents[0].0;
+                let col2 = &primary_key_variant_idents[1].0;
+                quote! {
+                    {
+                        use sea_query::IdenStatic;
+                        lifeguard::Identity::Binary(
+                            sea_query::DynIden::from(Column::#col1.as_str()),
+                            sea_query::DynIden::from(Column::#col2.as_str())
+                        )
+                    }
+                }
+            }
+            3 => {
+                let col1 = &primary_key_variant_idents[0].0;
+                let col2 = &primary_key_variant_idents[1].0;
+                let col3 = &primary_key_variant_idents[2].0;
+                quote! {
+                    {
+                        use sea_query::IdenStatic;
+                        lifeguard::Identity::Ternary(
+                            sea_query::DynIden::from(Column::#col1.as_str()),
+                            sea_query::DynIden::from(Column::#col2.as_str()),
+                            sea_query::DynIden::from(Column::#col3.as_str())
+                        )
+                    }
+                }
+            }
+            _n => {
+                // 4 or more keys - use Many variant
+                let cols: Vec<_> = primary_key_variant_idents.iter().map(|(col, _)| {
+                    quote! { sea_query::DynIden::from(Column::#col.as_str()) }
+                }).collect();
+                quote! {
+                    {
+                        use sea_query::IdenStatic;
+                        lifeguard::Identity::Many(vec![#(#cols),*])
+                    }
+                }
+            }
+        }
+    };
+    
+    // Generate get_primary_key_values() implementation
+    // Reuse the same conversion logic as get_primary_key_value() for consistency
+    let pk_values_impl = if primary_key_field_names.is_empty() {
+        // No primary key - return empty vector
+        quote! {
+            vec![]
+        }
+    } else {
+        // Generate code to extract all primary key values
+        // We need to match the field types and use the same conversion as get_primary_key_value()
+        // For now, use a simpler approach: collect all primary key values
+        let mut value_exprs = Vec::new();
+        for (idx, field_name) in primary_key_field_names.iter().enumerate() {
+            // Get the field type for this primary key
+            if idx < primary_key_types.len() {
+                let field_type = primary_key_types[idx];
+                // Use the same conversion logic as get_primary_key_value()
+                // Check if it's Option<T> and handle accordingly
+                if let Some(inner_type) = extract_option_inner_type(field_type) {
+                    // Option<T> - use the same conversion as get() method
+                    value_exprs.push(type_conversion::generate_option_field_to_value_with_default(field_name, inner_type));
+                } else {
+                    // Non-Option - use direct conversion
+                    value_exprs.push(type_conversion::generate_field_to_value(field_name, field_type));
+                }
+            } else {
+                // Fallback if types don't match (shouldn't happen)
+                value_exprs.push(quote! { sea_query::Value::String(None) });
+            }
+        }
+        quote! {
+            vec![#(#value_exprs),*]
+        }
+    };
 
     // Generate PrimaryKeyTrait and PrimaryKeyToColumn implementations (if primary key exists)
     let primary_key_trait_impls = if !primary_key_variant_idents.is_empty() && primary_key_type.is_some() {
@@ -1071,6 +1172,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
             fn get_primary_key_value(&self) -> sea_query::Value {
                 #pk_value_impl
+            }
+            
+            fn get_primary_key_identity(&self) -> lifeguard::Identity {
+                #pk_identity_impl
+            }
+            
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                #pk_values_impl
             }
         }
 

@@ -1,0 +1,11 @@
+error: expected string literal
+  --> tests/ui/compile_error_has_many_attribute.rs:10:28
+   |
+10 |     #[lifeguard(has_many = 789)]  // ERROR: should be a string like "super::posts::Entity"
+   |                            ^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_has_many_attribute.rs:12:2
+   |
+12 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_has_many_attribute.rs`

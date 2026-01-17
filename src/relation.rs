@@ -6,7 +6,12 @@
 //! - has_many: One-to-many relationship
 //! - has_many_through: Many-to-many relationship (via join table)
 
-use crate::query::{SelectQuery, LifeModelTrait};
+pub mod identity;
+pub mod def;
+pub use identity::{Identity, BorrowedIdentityIter, IntoIdentity};
+pub use def::{RelationDef, RelationType, join_tbl_on_condition, build_where_condition};
+
+use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
 use sea_query::{Expr, Iden};
 
 /// Trait for defining entity relationships
@@ -239,6 +244,201 @@ pub fn join_condition(
     Expr::cust(condition)
 }
 
+/// Trait for storing relationship metadata
+///
+/// This trait provides metadata about relationships, including foreign key columns.
+/// It's used by `find_related()` to build proper WHERE clauses.
+pub trait RelationMetadata<R>
+where
+    Self: LifeModelTrait,
+    R: LifeModelTrait,
+{
+    /// Get the foreign key column name in the related entity's table
+    ///
+    /// For has_many relationships: returns the foreign key column in the related entity
+    /// For belongs_to relationships: returns the foreign key column in the current entity
+    ///
+    /// Returns None if the foreign key should be inferred (default behavior)
+    fn foreign_key_column() -> Option<&'static str> {
+        None
+    }
+}
+
+/// Trait for finding related entities from a model instance
+///
+/// This trait enables querying related entities through relationships defined
+/// via `RelationTrait`. It provides a convenient API for finding related entities
+/// without manually constructing join queries.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{Related, LifeModelTrait, SelectQuery, LifeExecutor};
+/// use sea_query::Expr;
+///
+/// // Define entities
+/// struct User;
+/// struct Post;
+///
+/// impl LifeModelTrait for User {
+///     type Model = UserModel;
+///     type Column = UserColumn;
+/// }
+///
+/// impl LifeModelTrait for Post {
+///     type Model = PostModel;
+///     type Column = PostColumn;
+/// }
+///
+/// // Define relationship: Post belongs_to User
+/// impl Related<User> for Post {
+///     fn to() -> SelectQuery<User> {
+///         // This would typically use RelationTrait to build the query
+///         // For now, this is a placeholder that needs implementation
+///         todo!()
+///     }
+/// }
+///
+/// // Use it to find related entities
+/// # struct UserModel { id: i32 };
+/// # struct PostModel { id: i32, user_id: i32 };
+/// # let user: UserModel = UserModel { id: 1 };
+/// # let executor: &dyn LifeExecutor = todo!();
+/// // Find all posts for a user (if User has_many Posts relationship is defined)
+/// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+/// ```
+pub trait Related<R>
+where
+    Self: LifeModelTrait,
+    R: LifeModelTrait,
+{
+    /// Returns RelationDef with all relationship metadata
+    ///
+    /// This method returns a `RelationDef` struct containing all metadata about
+    /// the relationship between `Self` and `R`, including:
+    /// - Relationship type (HasOne, HasMany, BelongsTo)
+    /// - Source and target tables
+    /// - Foreign key and primary key columns (supports composite keys)
+    /// - Additional metadata (ownership, foreign key constraints, etc.)
+    ///
+    /// # Returns
+    ///
+    /// Returns a `RelationDef` containing all relationship metadata
+    ///
+    /// # Note
+    ///
+    /// This is a static method that returns relationship metadata. To filter by
+    /// a specific instance's primary key, use `find_related()` on a model instance
+    /// which will call this method and use `build_where_condition()` to apply the WHERE clause.
+    ///
+    /// # Breaking Change
+    ///
+    /// **⚠️ BREAKING CHANGE:** As of this version, `Related::to()` returns `RelationDef` instead of `SelectQuery<Self>`.
+    /// This is a breaking change but provides better design and supports composite keys.
+    fn to() -> RelationDef;
+}
+
+/// Extension trait for models to find related entities
+///
+/// This trait provides the `find_related()` method on model instances,
+/// allowing you to find related entities based on the current model's
+/// primary key value.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{FindRelated, Related, LifeModelTrait, ModelTrait, LifeExecutor};
+///
+/// // Assuming User has_many Posts relationship
+/// # struct UserModel { id: i32 };
+/// # struct PostModel { id: i32, user_id: i32 };
+/// # impl lifeguard::ModelTrait for UserModel {
+/// #     fn get_primary_key_value(&self) -> lifeguard::PrimaryKeyValue { todo!() }
+/// # }
+/// # let user: UserModel = UserModel { id: 1 };
+/// # let executor: &dyn LifeExecutor = todo!();
+/// // Find all posts for this user
+/// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+/// ```
+pub trait FindRelated: ModelTrait {
+    /// Find related entities of type `R`
+    ///
+    /// This method uses the `Related<R>` trait implementation to build a query
+    /// for related entities, then filters by the current model's primary key.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `R` - The related entity type. `Self::Entity` must implement `Related<R>`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery<R>` filtered by the current model's primary key
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{FindRelated, Related, LifeModelTrait, ModelTrait, LifeExecutor};
+    /// use sea_query::Expr;
+    ///
+    /// // Assuming User has_many Posts relationship
+    /// # struct UserModel { id: i32 };
+    /// # struct PostModel { id: i32, user_id: i32 };
+    /// # impl lifeguard::ModelTrait for UserModel {
+    /// #     type Entity = User;
+    /// #     fn get_primary_key_value(&self) -> sea_query::Value { todo!() }
+    /// #     fn get(&self, _col: <User as lifeguard::LifeModelTrait>::Column) -> sea_query::Value { todo!() }
+    /// #     fn set(&mut self, _col: <User as lifeguard::LifeModelTrait>::Column, _val: sea_query::Value) -> Result<(), lifeguard::ModelError> { todo!() }
+    /// #     fn get_primary_key_identity(&self) -> lifeguard::Identity { todo!() }
+    /// # }
+    /// # struct User;
+    /// # impl lifeguard::LifeModelTrait for User {
+    /// #     type Model = UserModel;
+    /// #     type Column = ();
+    /// # }
+    /// # let user: UserModel = UserModel { id: 1 };
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// // Find all posts for this user
+    /// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+    /// ```
+    fn find_related<R>(&self) -> SelectQuery<R>
+    where
+        R: LifeModelTrait,
+        Self::Entity: Related<R>;
+}
+
+// Import ModelTrait for the FindRelated implementation
+use crate::model::ModelTrait;
+
+impl<M> FindRelated for M
+where
+    M: ModelTrait,
+    M::Entity: LifeEntityName,
+{
+    fn find_related<R>(&self) -> SelectQuery<R>
+    where
+        R: LifeModelTrait,
+        Self::Entity: Related<R>,
+    {
+        // Get the relationship definition from Related trait
+        // Self::Entity: Related<R> means "Self::Entity is related to R"
+        // So Self::Entity::to() returns RelationDef for the relationship from Self::Entity to R
+        // This is the correct relationship direction for find_related()
+        let rel_def = <Self::Entity as Related<R>>::to();
+        
+        // Create a new query for the related entity
+        let mut query = SelectQuery::new();
+        
+        // Build WHERE condition from RelationDef and model primary key values
+        // This uses build_where_condition() which handles both single and composite keys
+        // Note: build_where_condition() currently has a placeholder implementation
+        // that will be fully functional after Phase 4 adds get_primary_key_identity()
+        let condition = build_where_condition(&rel_def, self);
+        query = query.filter(condition);
+        
+        query
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,5 +559,224 @@ mod tests {
         // EDGE CASE: Empty table/column names (should still compile, but invalid at runtime)
         let condition = join_condition("", "", "", "");
         let _ = condition;
+    }
+
+    #[test]
+    fn test_find_related_on_model_type() {
+        // Test that FindRelated can be implemented for Model types (not just Entity types)
+        // This verifies the fix for the bug where FindRelated required LifeModelTrait,
+        // which Models don't implement (only Entities do).
+        use crate::{LifeEntityName, LifeModelTrait, Related};
+        use crate::relation::def::{RelationDef, RelationType};
+        use crate::relation::identity::Identity;
+        use sea_query::{IdenStatic, TableRef, ConditionType};
+        
+        // Define test entities
+        #[derive(Default, Copy, Clone)]
+        struct UserEntity;
+        
+        #[derive(Default, Copy, Clone)]
+        struct PostEntity;
+        
+        impl sea_query::Iden for UserEntity {
+            fn unquoted(&self) -> &str { "users" }
+        }
+        
+        impl sea_query::Iden for PostEntity {
+            fn unquoted(&self) -> &str { "posts" }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum UserColumn {
+            Id,
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum PostColumn {
+            Id,
+            UserId,
+        }
+        
+        impl sea_query::Iden for UserColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    UserColumn::Id => "id",
+                }
+            }
+        }
+        
+        impl sea_query::Iden for PostColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    PostColumn::Id => "id",
+                    PostColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl IdenStatic for UserColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    UserColumn::Id => "id",
+                }
+            }
+        }
+        
+        impl IdenStatic for PostColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    PostColumn::Id => "id",
+                    PostColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl LifeEntityName for UserEntity {
+            fn table_name(&self) -> &'static str { "users" }
+        }
+        
+        impl LifeEntityName for PostEntity {
+            fn table_name(&self) -> &'static str { "posts" }
+        }
+        
+        impl LifeModelTrait for UserEntity {
+            type Model = UserModel;
+            type Column = UserColumn;
+        }
+        
+        impl LifeModelTrait for PostEntity {
+            type Model = PostModel;
+            type Column = PostColumn;
+        }
+        
+        // Define test models
+        #[derive(Clone, Debug)]
+        struct UserModel {
+            id: i32,
+        }
+        
+        #[derive(Clone, Debug)]
+        struct PostModel {
+            id: i32,
+            user_id: i32,
+        }
+        
+        impl ModelTrait for UserModel {
+            type Entity = UserEntity;
+            
+            fn get(&self, column: UserColumn) -> sea_query::Value {
+                match column {
+                    UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+                }
+            }
+            
+            fn set(&mut self, column: UserColumn, value: sea_query::Value) -> Result<(), crate::ModelError> {
+                match column {
+                    UserColumn::Id => {
+                        if let sea_query::Value::Int(Some(v)) = value {
+                            self.id = v;
+                            Ok(())
+                        } else {
+                            Err(crate::ModelError::InvalidValueType {
+                                column: "id".to_string(),
+                                expected: "Int(Some(_))".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    }
+                }
+            }
+            
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            
+            fn get_primary_key_identity(&self) -> Identity {
+                use sea_query::IdenStatic;
+                Identity::Unary(sea_query::DynIden::from(UserColumn::Id.as_str()))
+            }
+            
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![sea_query::Value::Int(Some(self.id))]
+            }
+        }
+        
+        impl ModelTrait for PostModel {
+            type Entity = PostEntity;
+            
+            fn get(&self, column: PostColumn) -> sea_query::Value {
+                match column {
+                    PostColumn::Id => sea_query::Value::Int(Some(self.id)),
+                    PostColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
+                }
+            }
+            
+            fn set(&mut self, column: PostColumn, value: sea_query::Value) -> Result<(), crate::ModelError> {
+                match column {
+                    PostColumn::Id => {
+                        if let sea_query::Value::Int(Some(v)) = value {
+                            self.id = v;
+                            Ok(())
+                        } else {
+                            Err(crate::ModelError::InvalidValueType {
+                                column: "id".to_string(),
+                                expected: "Int(Some(_))".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    }
+                    PostColumn::UserId => {
+                        if let sea_query::Value::Int(Some(v)) = value {
+                            self.user_id = v;
+                            Ok(())
+                        } else {
+                            Err(crate::ModelError::InvalidValueType {
+                                column: "user_id".to_string(),
+                                expected: "Int(Some(_))".to_string(),
+                                actual: format!("{:?}", value),
+                            })
+                        }
+                    }
+                }
+            }
+            
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            
+            fn get_primary_key_identity(&self) -> Identity {
+                use sea_query::IdenStatic;
+                Identity::Unary(sea_query::DynIden::from(PostColumn::Id.as_str()))
+            }
+            
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![sea_query::Value::Int(Some(self.id))]
+            }
+        }
+        
+        // Define relationship: User has_many Posts
+        impl Related<PostEntity> for UserEntity {
+            fn to() -> RelationDef {
+                use sea_query::{TableName, IntoIden};
+                RelationDef {
+                    rel_type: RelationType::HasMany,
+                    from_tbl: TableRef::Table(TableName(None, UserEntity::table_name(&UserEntity).into_iden()), None),
+                    to_tbl: TableRef::Table(TableName(None, PostEntity::table_name(&PostEntity).into_iden()), None),
+                    from_col: Identity::Unary(sea_query::DynIden::from(UserColumn::Id.as_str())),
+                    to_col: Identity::Unary(sea_query::DynIden::from(PostColumn::UserId.as_str())),
+                    is_owner: true,
+                    skip_fk: false,
+                    on_condition: None,
+                    condition_type: ConditionType::All,
+                }
+            }
+        }
+        
+        // Test that find_related() can be called on a Model instance
+        // This verifies that Models (which only implement ModelTrait, not LifeModelTrait)
+        // can use FindRelated trait
+        let user = UserModel { id: 1 };
+        let _query = user.find_related::<PostEntity>();
+        // Just verify it compiles - the actual query execution would require an executor
     }
 }
