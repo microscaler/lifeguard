@@ -60,7 +60,13 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 
 // Query builder - Epic 02 Story 03
 pub mod query;
-pub use query::{SelectQuery, SelectModel, FromRow, LifeEntityName, LifeModelTrait, ColumnTrait, ColumnDefinition, PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait};
+pub use query::{
+    SelectQuery, SelectModel, FromRow, LifeEntityName, LifeModelTrait,
+    ColumnTrait, ColumnDefinition,
+    PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
+};
+
+// query_old.rs has been removed - all code migrated to query/ modules
 
 // ActiveModel operations - Epic 02 Story 07
 pub mod active_model;
