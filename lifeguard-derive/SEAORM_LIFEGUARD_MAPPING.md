@@ -29,9 +29,10 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ✅ Implemented | ✅ Enhanced | Support for composite primary keys with granular variants (Single, Tuple2-Tuple5, Tuple6Plus) - Lifeguard enhancement beyond SeaORM |
 | `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support, automatic join condition generation pending |
-| `Related` | ❌ Missing | 🟡 **Future** | Related entity queries |
+| `Related` | ✅ Implemented | ✅ Complete | Related entity queries - Trait implemented, DeriveRelation macro generates implementations, returns RelationDef for composite key support |
+| `FindRelated` | ✅ Implemented | ✅ Complete | Extension trait for finding related entities from model instances - Fixed trait bounds, works correctly with Models |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
-| `PartialModelTrait` | ❌ Missing | 🟡 **Future** | Partial model queries (select subset of columns) |
+| `PartialModelTrait` | ✅ Implemented | 🟡 **Partial** | Partial model queries (select subset of columns) - Trait implemented, but column selection uses SELECT * fallback, DerivePartialModel macro missing |
 | `TryIntoModel` | ❌ Missing | 🟡 **Future** | Conversion utilities |
 
 ---
@@ -52,11 +53,11 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Separate derive (matches SeaORM pattern) |
-| `DeriveRelation` | ❌ Missing | 🟡 **Future** | Relation enum with RelationTrait |
+| `DeriveRelation` | ✅ Implemented | ✅ Complete | Relation enum with Related trait implementations - Full implementation with composite key support, default column inference, and compile-time error checking |
 | `DeriveRelatedEntity` | ❌ Missing | 🟡 **Future** | RelatedEntity enum |
 | `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation |
 | `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
-| `DerivePartialModel` | ❌ Missing | 🟡 **Future** | PartialModelTrait implementation |
+| `DerivePartialModel` | ❌ Missing | 🟡 **Future** | PartialModelTrait implementation (trait exists, macro needed for auto-generation) |
 | `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types |
 | `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum |
 | `DeriveIden` | ❌ Missing | 🟡 **Future** | Iden trait helper |
@@ -127,7 +128,7 @@ This design simplifies the API while maintaining the same functionality.
 | `Select<E>::paginate()` | `SelectQuery<E>::paginate()` | ✅ Implemented | Returns Paginator |
 | `Select<E>::paginate_and_count()` | `SelectQuery<E>::paginate_and_count()` | ✅ Implemented | Returns PaginatorWithCount |
 | `Select<E>::count()` | `SelectQuery<E>::count()` | ✅ Implemented | COUNT query |
-| `Model::find_related<R>()` | ❌ Missing | 🟡 **Future** | Find related entities |
+| `Model::find_related<R>()` | `FindRelated::find_related()` | ✅ Implemented | Find related entities (via FindRelated trait extension) |
 | `Model::find_linked<L>()` | ❌ Missing | 🟡 **Future** | Find linked entities |
 | `Entity::insert()` | ✅ Implemented | ✅ Complete | Insert ActiveModel (static convenience method) |
 | `Entity::update()` | ✅ Implemented | ✅ Complete | Update ActiveModel (static convenience method) |
@@ -238,7 +239,7 @@ This design simplifies the API while maintaining the same functionality.
 - `set(column, value)` - Set column value ✅
 - `get_primary_key_value()` - Get primary key value(s) ✅
 - `get_value_type(column)` - Get column's value type (🟡 Future)
-- `find_related<R>()` - Find related entities (🟡 Future)
+- `find_related<R>()` - ✅ Implemented (via FindRelated trait extension) - Fixed trait bounds, works correctly with Models
 - `find_linked<L>()` - Find linked entities (🟡 Future)
 
 #### ColumnTrait
@@ -296,21 +297,43 @@ This design simplifies the API while maintaining the same functionality.
 - `RelationTrait` - ✅ Implemented with functional query building (belongs_to, has_one, has_many, has_many_through methods accept foreign keys and join conditions)
 - `join_condition()` helper function - ✅ Implemented (creates join conditions from table/column names)
 - All relationship methods build actual queries with LEFT JOIN clauses
+**Current State:**
+- `Related` - ✅ Implemented (trait for defining relationships)
+- `FindRelated` - ✅ Implemented (extension trait providing `find_related()` method on models) - Fixed impossible trait bound, fully functional
+- `DeriveRelation` - ✅ Implemented (macro generates Related trait implementations from Relation enum)
+- `RelationMetadata` - ✅ Implemented (trait for storing relationship metadata, generated by DeriveRelation when from/to columns are provided)
+- `Identity` - ✅ Implemented (enum for single and composite column references: Unary, Binary, Ternary, Many)
+- `RelationDef` - ✅ Implemented (struct containing all relationship metadata including Identity for composite keys)
+- `get_primary_key_identity()` - ✅ Implemented (ModelTrait method returning Identity for single/composite keys)
+- `get_primary_key_values()` - ✅ Implemented (ModelTrait method returning Vec<Value> for all primary key values)
+**Implementation Status:**
+- ✅ Single key relationships fully supported
+- ✅ Composite key relationships fully supported (Binary, Ternary, Many variants)
+- ✅ `find_related()` uses `RelationDef` and `build_where_condition()` for both single and composite keys
+- ✅ `DeriveRelation` macro generates `RelationDef` with proper `Identity` construction
+- ✅ `LifeModel` macro generates `get_primary_key_identity()` and `get_primary_key_values()` for all key types
 **Future State:**
+- Enhanced error messages for invalid column references in DeriveRelation macro
+- Support for has_many_through relationships
 - Automatic join condition generation from foreign key metadata
-- `Related` - Related entity queries
 - `Linked` - Multi-hop relationship queries
-- `DeriveRelation` - Generate Relation enum
 - `DeriveRelatedEntity` - Generate RelatedEntity enum
 - Eager loading support
 - Lazy loading support
 
 #### Partial Models
-**Status:** 🟡 Future  
-**Future State:** Support for partial model queries:
-- `PartialModelTrait` - Trait for partial models
-- `DerivePartialModel` - Generate partial model structs
-- Select subset of columns from queries
+**Status:** 🟡 Partial  
+**Current State:**
+- `PartialModelTrait` - ✅ Implemented (trait for partial models with `selected_columns()` method)
+- `PartialModelBuilder` - ✅ Implemented (trait for building partial model queries)
+- `SelectPartialQuery` - ✅ Implemented (query builder for partial models)
+- `select_partial()` method - ✅ Implemented (on `SelectQuery<E>`)
+**Known Limitations:**
+- Column selection currently uses `SELECT *` as fallback (proper Expr-to-column conversion pending)
+- Column order must match between `selected_columns()` and `FromRow` implementation
+**Future State:**
+- `DerivePartialModel` - Generate partial model structs automatically
+- Proper column selection implementation (extract column names from Expr or change API)
 
 #### Advanced Query Features
 **Status:** 🟢 Partial  
@@ -363,8 +386,8 @@ This design simplifies the API while maintaining the same functionality.
 
 | Category | SeaORM | Lifeguard | Coverage |
 |----------|--------|-----------|----------|
-| **Core Traits** | 15 | 7 | 47% (Enhanced: PrimaryKeyArity with granular variants) |
-| **Derive Macros** | 21 | 7 | 33% |
+| **Core Traits** | 15 | 9 | 60% (Enhanced: PrimaryKeyArity with granular variants, PartialModelTrait and Related implemented) |
+| **Derive Macros** | 21 | 8 | 38% |
 | **Core Structures** | 10 | 6 | 60% |
 | **Query Builder Methods** | 20 | 19 | 95% |
 | **Column Operations** | 15 | 15 | 100% |
@@ -437,3 +460,94 @@ This design simplifies the API while maintaining the same functionality.
   - **PrimaryKeyArity Granularity:** Lifeguard provides granular arity variants (`Tuple2`, `Tuple3`, `Tuple4`, `Tuple5`, `Tuple6Plus`) for better type safety, going beyond SeaORM's simple `Single`/`Tuple` distinction. This enables compile-time verification of composite key sizes and more specific handling.
   - **ValueType Tuple Support:** Full tuple `ValueType` support for composite primary keys (e.g., `(i32, String)`) with proper `Option<T>` unwrapping.
 - **Future:** Incremental feature addition based on user needs
+
+---
+
+## 13. Implementation Notes
+
+### RelationMetadata Trait Bound Limitation
+
+**Issue:** The `RelationMetadata` trait is generated by `DeriveRelation` macro when `from`/`to` columns are specified, but it cannot be used in `find_related()` due to Rust's trait bound system.
+
+**Root Cause:**
+- `find_related()` is defined in the `FindRelated` trait with a specific signature: `fn find_related<R>() -> SelectQuery<R> where R: LifeModelTrait, Self::Entity: Related<R>` - Fixed to use correct relationship direction (Self::Entity -> R) and removed impossible LifeModelTrait bound on Self
+- To use `RelationMetadata`, we would need to add `R: RelationMetadata<Self::Entity>` to the trait bound
+- However, this would make `RelationMetadata` a **required** trait bound, breaking all existing code that doesn't implement it
+- Rust doesn't support "optional" trait bounds - you can't conditionally use a trait method based on whether it's implemented
+
+**Potential Solutions:**
+1. **Default Trait Implementation Pattern**: Make `RelationMetadata` always return `None` by default, and only override it when metadata is available. However, we still can't call it without the trait bound.
+
+2. **Associated Constants**: Use associated constants instead of trait methods to store metadata. This avoids trait bounds but requires different syntax:
+   ```rust
+   trait RelationMetadata<R> {
+       const FOREIGN_KEY_COLUMN: Option<&'static str> = None;
+   }
+   ```
+   This allows accessing `R::FOREIGN_KEY_COLUMN` without trait bounds, but constants can't be overridden per implementation.
+
+3. **Type-Level Metadata**: Use const generics or type-level programming to encode metadata at compile time. Complex and may not be worth it.
+
+4. **Separate Trait for Metadata**: Create a separate trait that's only required when metadata is needed, but this still requires trait bounds.
+
+5. **Runtime Metadata Lookup**: Store metadata in a static HashMap or similar structure, keyed by `TypeId`. Requires `std::any::TypeId` and has runtime overhead:
+   ```rust
+   static RELATION_METADATA: Lazy<HashMap<(TypeId, TypeId), &'static str>> = Lazy::new(|| {
+       // Populated by macro-generated code
+   });
+   ```
+
+**Recommended Approach:** Use **associated constants with a default implementation pattern** or a **static metadata registry**. The registry approach is more flexible and doesn't require trait bounds.
+
+### Composite Primary Key Support
+
+**Issue:** `find_related()` currently only supports single-column primary keys. Composite primary keys require matching multiple foreign key columns.
+
+**Root Cause:**
+- `get_primary_key_value()` only returns a single `Value`, not a tuple or collection
+- We can't enumerate `PrimaryKey` enum variants at runtime (Rust doesn't support enum variant iteration)
+- We need to know which foreign key columns correspond to which primary key columns
+- Even with `PrimaryKeyArityTrait`, we can't get individual primary key values without knowing the variants
+
+**Potential Solutions:**
+1. **Relationship Metadata**: Use `RelationMetadata` to specify all foreign key columns for composite keys. Still blocked by trait bound limitation above.
+
+2. **PrimaryKeyTrait Enhancement**: Add a method to get all primary key values as a collection:
+   ```rust
+   trait PrimaryKeyTrait {
+       fn get_all_values(&self) -> Vec<Value>; // For composite keys
+   }
+   ```
+   Requires changes to `ModelTrait` and macro generation to support this.
+
+3. **Type-Level Metadata**: Encode composite key structure at compile time using const generics or associated types. Very complex.
+
+4. **Helper Trait**: Create a `CompositeKeyMetadata` trait that provides foreign key column names for each primary key column:
+   ```rust
+   trait CompositeKeyMetadata<R> {
+       fn foreign_key_columns() -> Vec<&'static str>;
+   }
+   ```
+   Still requires trait bounds.
+
+5. **Macro-Generated Helper Functions**: Generate helper functions alongside the entity that return all primary key values:
+   ```rust
+   // Generated by macro
+   impl UserModel {
+       fn get_all_primary_key_values(&self) -> Vec<Value> {
+           vec![self.id.into(), self.tenant_id.into()]
+       }
+   }
+   ```
+   This requires changes to the macro but avoids trait bound issues.
+
+**Implemented Solution:** Enhanced `ModelTrait` with `get_primary_key_identity()` and `get_primary_key_values()` methods, and `RelationDef` pattern (replacing static registry) to handle composite keys:
+1. ✅ `ModelTrait` enhanced with `get_primary_key_identity()` returning `Identity` enum
+2. ✅ `ModelTrait` enhanced with `get_primary_key_values()` returning `Vec<Value>`
+3. ✅ `LifeModel` macro generates both methods for single and composite keys
+4. ✅ `RelationDef` struct contains `Identity` for both `from_col` and `to_col`
+5. ✅ `build_where_condition()` uses `get_primary_key_values()` to build WHERE clauses
+6. ✅ `DeriveRelation` macro generates `RelationDef` with proper `Identity` construction
+7. ✅ Comprehensive test coverage for all key types and edge cases
+
+**Design Document:** See [DESIGN_RELATION_METADATA_AND_COMPOSITE_KEYS.md](./DESIGN_RELATION_METADATA_AND_COMPOSITE_KEYS.md) for detailed implementation architecture, design decisions, and step-by-step guide.

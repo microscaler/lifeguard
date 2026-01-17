@@ -62,3 +62,32 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 pub fn derive_life_record(input: TokenStream) -> TokenStream {
     macros::derive_life_record(input)
 }
+
+/// Derive macro for `DeriveRelation` - generates Related trait implementations
+///
+/// This macro generates:
+/// - Related trait implementations for each relationship variant in the Relation enum
+/// - Query builders using SelectQuery for each relationship
+///
+/// # Example
+///
+/// ```ignore
+/// use lifeguard_derive::DeriveRelation;
+///
+/// // In your entity module, define the Relation enum:
+/// #[derive(DeriveRelation)]
+/// pub enum Relation {
+///     #[lifeguard(has_many = "super::posts::Entity")]
+///     Posts,
+///     #[lifeguard(belongs_to = "super::users::Entity")]
+///     User,
+/// }
+/// 
+/// // The macro generates Related trait implementations:
+/// // impl Related<super::posts::Entity> for Entity { ... }
+/// // impl Related<super::users::Entity> for Entity { ... }
+/// ```
+#[proc_macro_derive(DeriveRelation, attributes(lifeguard))]
+pub fn derive_relation(input: TokenStream) -> TokenStream {
+    macros::derive_relation(input)
+}

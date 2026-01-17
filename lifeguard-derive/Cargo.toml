@@ -20,3 +20,4 @@ lifeguard = { path = "..", version = "0.1.0" }
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
 serde = { version = "1.0", features = ["derive"] }  # Required for Serialize/Deserialize derives in generated Models
 serde_json = "1.0"  # For testing JSON fields
+trybuild = "1.0"

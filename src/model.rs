@@ -4,6 +4,7 @@
 //! and primary key values. Similar to SeaORM's `ModelTrait`.
 
 use crate::query::LifeModelTrait;
+use crate::relation::identity::Identity;
 use sea_query::Value;
 
 /// Trait for Model-level operations
@@ -89,7 +90,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     /// Get the primary key value(s) from the model
     ///
     /// For single-column primary keys, returns the value directly.
-    /// For composite primary keys, this would return a tuple (future enhancement).
+    /// For composite primary keys, this returns the first primary key value (backward compatible).
     ///
     /// # Returns
     ///
@@ -99,9 +100,63 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// - **No primary key:** Returns `Value::String(None)` if the entity has no primary key defined.
     ///   This is a design limitation - consider checking for primary key existence before calling.
-    /// - **Composite primary keys:** Currently only returns the first primary key value.
-    ///   Full composite key support is a future enhancement.
+    /// - **Composite primary keys:** Returns the first primary key value for backward compatibility.
+    ///   Use `get_primary_key_values()` to get all primary key values.
     fn get_primary_key_value(&self) -> Value;
+    
+    /// Get the primary key as Identity (supports composite keys)
+    ///
+    /// This method returns an `Identity` enum that represents the primary key column(s).
+    /// For single-column primary keys, returns `Identity::Unary`.
+    /// For composite primary keys, returns `Identity::Binary`, `Identity::Ternary`, or `Identity::Many`.
+    ///
+    /// # Returns
+    ///
+    /// An `Identity` enum representing the primary key column(s)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{ModelTrait, relation::identity::Identity};
+    ///
+    /// // For a single primary key:
+    /// let identity = model.get_primary_key_identity();
+    /// // Returns: Identity::Unary(Column::Id.into_iden())
+    ///
+    /// // For a composite primary key (id, tenant_id):
+    /// let identity = model.get_primary_key_identity();
+    /// // Returns: Identity::Binary(Column::Id.into_iden(), Column::TenantId.into_iden())
+    /// ```
+    fn get_primary_key_identity(&self) -> Identity;
+    
+    /// Get primary key values as Vec<Value> (helper for WHERE clauses)
+    ///
+    /// This method extracts all primary key values from the model as a vector.
+    /// It works with both single and composite primary keys.
+    ///
+    /// # Returns
+    ///
+    /// A vector of `Value`s corresponding to each primary key column
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::ModelTrait;
+    ///
+    /// // For a single primary key:
+    /// let values = model.get_primary_key_values();
+    /// // Returns: vec![Value::Int(Some(1))]
+    ///
+    /// // For a composite primary key (id, tenant_id):
+    /// let values = model.get_primary_key_values();
+    /// // Returns: vec![Value::Int(Some(1)), Value::Int(Some(10))]
+    /// ```
+    fn get_primary_key_values(&self) -> Vec<Value> {
+        // Default implementation: extract values from Identity
+        // The macro will override this for efficiency
+        let identity = self.get_primary_key_identity();
+        extract_values_from_identity(self, &identity)
+    }
 }
 
 /// Error type for ModelTrait operations
@@ -140,3 +195,264 @@ impl std::fmt::Display for ModelError {
 }
 
 impl std::error::Error for ModelError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{LifeModelTrait, LifeEntityName};
+    use sea_query::{Iden, IdenStatic, Value};
+
+    // Test entity and column for ModelTrait tests
+    #[derive(Copy, Clone, Debug)]
+    enum TestColumn {
+        Id,
+        TenantId,
+    }
+
+    impl Iden for TestColumn {
+        fn unquoted(&self) -> &str {
+            match self {
+                TestColumn::Id => "id",
+                TestColumn::TenantId => "tenant_id",
+            }
+        }
+    }
+
+    impl IdenStatic for TestColumn {
+        fn as_str(&self) -> &'static str {
+            match self {
+                TestColumn::Id => "id",
+                TestColumn::TenantId => "tenant_id",
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, Default)]
+    struct TestEntity;
+
+    impl LifeEntityName for TestEntity {
+        fn table_name(&self) -> &'static str {
+            "test_entities"
+        }
+    }
+
+    impl LifeModelTrait for TestEntity {
+        type Model = TestModel;
+        type Column = TestColumn;
+    }
+
+    #[derive(Clone, Debug)]
+    struct TestModel {
+        id: i32,
+        tenant_id: Option<i32>,
+    }
+
+    impl ModelTrait for TestModel {
+        type Entity = TestEntity;
+
+            fn get(&self, column: TestColumn) -> Value {
+            match column {
+                TestColumn::Id => Value::Int(Some(self.id)),
+                TestColumn::TenantId => Value::Int(self.tenant_id),
+            }
+        }
+
+        fn set(&mut self, column: TestColumn, value: Value) -> Result<(), ModelError> {
+            match column {
+                TestColumn::Id => {
+                    if let Value::Int(Some(v)) = value {
+                        self.id = v;
+                        Ok(())
+                    } else {
+                        Err(ModelError::InvalidValueType {
+                            column: "id".to_string(),
+                            expected: "Int(Some(_))".to_string(),
+                            actual: format!("{:?}", value),
+                        })
+                    }
+                }
+                TestColumn::TenantId => {
+                    if let Value::Int(v) = value {
+                        self.tenant_id = v;
+                        Ok(())
+                    } else {
+                        Err(ModelError::InvalidValueType {
+                            column: "tenant_id".to_string(),
+                            expected: "Int".to_string(),
+                            actual: format!("{:?}", value),
+                        })
+                    }
+                }
+            }
+        }
+
+        fn get_primary_key_value(&self) -> Value {
+            Value::Int(Some(self.id))
+        }
+
+        fn get_primary_key_identity(&self) -> Identity {
+            use sea_query::IdenStatic;
+            Identity::Unary(sea_query::DynIden::from(TestColumn::Id.as_str()))
+        }
+
+        fn get_primary_key_values(&self) -> Vec<Value> {
+            vec![Value::Int(Some(self.id))]
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct CompositeKeyModel {
+        id: i32,
+        tenant_id: i32,
+    }
+
+    impl ModelTrait for CompositeKeyModel {
+        type Entity = TestEntity;
+
+        fn get(&self, column: TestColumn) -> Value {
+            match column {
+                TestColumn::Id => Value::Int(Some(self.id)),
+                TestColumn::TenantId => Value::Int(Some(self.tenant_id)),
+            }
+        }
+
+        fn set(&mut self, _column: TestColumn, _value: Value) -> Result<(), ModelError> {
+            Ok(())
+        }
+
+        fn get_primary_key_value(&self) -> Value {
+            Value::Int(Some(self.id))
+        }
+
+        fn get_primary_key_identity(&self) -> Identity {
+            use sea_query::IdenStatic;
+            Identity::Binary(
+                sea_query::DynIden::from(TestColumn::Id.as_str()),
+                sea_query::DynIden::from(TestColumn::TenantId.as_str()),
+            )
+        }
+
+        fn get_primary_key_values(&self) -> Vec<Value> {
+            vec![Value::Int(Some(self.id)), Value::Int(Some(self.tenant_id))]
+        }
+    }
+
+    #[test]
+    fn test_get_primary_key_identity_single() {
+        let model = TestModel {
+            id: 42,
+            tenant_id: Some(10),
+        };
+
+        let identity = model.get_primary_key_identity();
+        assert_eq!(identity.arity(), 1);
+    }
+
+    #[test]
+    fn test_get_primary_key_identity_composite() {
+        let model = CompositeKeyModel {
+            id: 42,
+            tenant_id: 10,
+        };
+
+        let identity = model.get_primary_key_identity();
+        assert_eq!(identity.arity(), 2);
+    }
+
+    #[test]
+    fn test_get_primary_key_values_single() {
+        let model = TestModel {
+            id: 42,
+            tenant_id: Some(10),
+        };
+
+        let values = model.get_primary_key_values();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0], Value::Int(Some(42)));
+    }
+
+    #[test]
+    fn test_get_primary_key_values_composite() {
+        let model = CompositeKeyModel {
+            id: 42,
+            tenant_id: 10,
+        };
+
+        let values = model.get_primary_key_values();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], Value::Int(Some(42)));
+        assert_eq!(values[1], Value::Int(Some(10)));
+    }
+
+    #[test]
+    fn test_get_primary_key_values_matches_identity() {
+        // Edge case: Ensure values match identity arity
+        let model = CompositeKeyModel {
+            id: 42,
+            tenant_id: 10,
+        };
+
+        let identity = model.get_primary_key_identity();
+        let values = model.get_primary_key_values();
+
+        assert_eq!(values.len(), identity.arity());
+    }
+
+    #[test]
+    fn test_get_primary_key_identity_ternary() {
+        // Edge case: Test with Ternary identity (if we had a model with 3-part key)
+        // This would require a custom model implementation
+        let id_col: sea_query::DynIden = "id".into();
+        let tenant_col: sea_query::DynIden = "tenant_id".into();
+        let region_col: sea_query::DynIden = "region_id".into();
+        
+        let identity = Identity::Ternary(id_col, tenant_col, region_col);
+        assert_eq!(identity.arity(), 3);
+    }
+
+    #[test]
+    fn test_get_primary_key_identity_many() {
+        // Edge case: Test with Many identity (4+ columns)
+        let cols: Vec<sea_query::DynIden> = vec![
+            "id".into(),
+            "tenant_id".into(),
+            "region_id".into(),
+            "org_id".into(),
+        ];
+        
+        let identity = Identity::Many(cols);
+        assert_eq!(identity.arity(), 4);
+    }
+}
+
+/// Extract values from model based on Identity columns
+///
+/// This helper function extracts the actual `Value`s from a model based on
+/// the columns specified in the `Identity`. 
+///
+/// # Arguments
+///
+/// * `model` - The model instance
+/// * `_identity` - The identity (which columns to extract)
+///
+/// # Returns
+///
+/// A vector of `Value`s corresponding to the identity columns
+///
+/// # Note
+///
+/// This is a fallback implementation. The macro will generate more efficient
+/// implementations that directly access model fields. The macro-generated
+/// `get_primary_key_values()` will override the default implementation.
+fn extract_values_from_identity<M>(model: &M, _identity: &Identity) -> Vec<Value>
+where
+    M: ModelTrait,
+{
+    // This is a placeholder implementation that will be replaced by macro-generated code.
+    // The macro will generate code that directly accesses model fields based on the
+    // primary key columns, avoiding the need to convert Identity back to Column enum.
+    //
+    // For now, return a single value (backward compatible with single keys).
+    // The macro will override get_primary_key_values() to return all values for composite keys.
+    vec![model.get_primary_key_value()]
+}

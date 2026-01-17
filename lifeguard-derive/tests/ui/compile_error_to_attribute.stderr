@@ -1,0 +1,11 @@
+error: expected string literal
+  --> tests/ui/compile_error_to_attribute.rs:13:14
+   |
+13 |         to = 456  // ERROR: should be a string like "super::users::Column::Id"
+   |              ^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_to_attribute.rs:16:2
+   |
+16 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_to_attribute.rs`

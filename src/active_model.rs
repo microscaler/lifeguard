@@ -828,6 +828,14 @@ mod tests {
         fn get_primary_key_value(&self) -> sea_query::Value {
             sea_query::Value::Int(Some(1))
         }
+        fn get_primary_key_identity(&self) -> crate::Identity {
+            use crate::relation::identity::Identity;
+            use sea_query::IntoIden;
+            Identity::Unary(TestColumn::Id.into_iden())
+        }
+        fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+            vec![sea_query::Value::Int(Some(1))]
+        }
     }
     
     impl LifeModelTrait for TestEntity {
