@@ -61,6 +61,58 @@ pub fn is_vec_u8_type(ty: &Type) -> bool {
     false
 }
 
+/// Check if a type is `f32` (not Option<f32>)
+pub fn is_f32_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        if let Some(segment) = path.segments.last() {
+            return segment.ident == "f32";
+        }
+    }
+    false
+}
+
+/// Check if a type is `f64` (not Option<f64>)
+pub fn is_f64_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        if let Some(segment) = path.segments.last() {
+            return segment.ident == "f64";
+        }
+    }
+    false
+}
+
+/// Check if a type is `Option<f32>`
+pub fn is_option_f32_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        if let Some(segment) = path.segments.first() {
+            if segment.ident == "Option" {
+                if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(GenericArgument::Type(inner_type)) = args.args.first() {
+                        return is_f32_type(inner_type);
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a type is `Option<f64>`
+pub fn is_option_f64_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        if let Some(segment) = path.segments.first() {
+            if segment.ident == "Option" {
+                if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(GenericArgument::Type(inner_type)) = args.args.first() {
+                        return is_f64_type(inner_type);
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Generate code to convert a Rust field value to `sea_query::Value`
 ///
 /// This is used for Model-to-Value conversion (non-Option fields).

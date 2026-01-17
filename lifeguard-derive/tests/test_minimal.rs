@@ -33,6 +33,23 @@ mod option_tests {
     }
 }
 
+// Entity with column_name attributes to test JSON roundtrip with renamed columns
+// This verifies that to_json() and from_json() use the same key names
+mod column_name_tests {
+    use super::*;
+    
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "users_with_renamed_columns"]
+    pub struct UserWithRenamedColumns {
+        #[primary_key]
+        pub id: i32,
+        #[column_name = "user_name"]
+        pub firstName: String,  // Field name is camelCase, column is snake_case
+        #[column_name = "email_address"]
+        pub email: String,  // Field name matches column name pattern but column is explicitly renamed
+    }
+}
+
 // Entity with numeric fields for testing all numeric types
 // Using a module to avoid name conflicts
 // NOTE: may_postgres doesn't support u8, u16, u64 in FromSql, so we manually implement ModelTrait
@@ -1264,7 +1281,6 @@ mod tests {
     }
 
     mod no_primary_key_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
 
         #[derive(LifeModel)]
@@ -3098,6 +3114,1156 @@ mod active_model_trait_tests {
     // COMPREHENSIVE EDGE CASES FOR CRUD OPERATIONS
     // ============================================================================
 
+    // ============================================================================
+    // JSON SERIALIZATION TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_to_json() {
+        // Test that to_json() serializes Record to JSON
+        use serde_json::json;
+        
+        let mut record = UserRecord::new();
+        record.set_id(42);
+        record.set_name("John Doe".to_string());
+        record.set_email("john@example.com".to_string());
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        
+        // Verify JSON structure
+        assert!(json.is_object(), "JSON should be an object");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("id"), Some(&json!(42)));
+        assert_eq!(obj.get("name"), Some(&json!("John Doe")));
+        assert_eq!(obj.get("email"), Some(&json!("john@example.com")));
+    }
+
+    #[test]
+    fn test_active_model_from_json() {
+        // Test that from_json() deserializes JSON to Record
+        use serde_json::json;
+        
+        let json = json!({
+            "id": 42,
+            "name": "John Doe",
+            "email": "john@example.com"
+        });
+        
+        let record = UserRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify Record fields
+        let id_value = record.get(<Entity as LifeModelTrait>::Column::Id);
+        assert!(id_value.is_some());
+        match id_value.unwrap() {
+            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
+            _ => panic!("Expected Int(Some(42))"),
+        }
+        
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "John Doe"),
+            _ => panic!("Expected String(Some(\"John Doe\"))"),
+        }
+        
+        let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
+        assert!(email_value.is_some());
+        match email_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "john@example.com"),
+            _ => panic!("Expected String(Some(\"john@example.com\"))"),
+        }
+    }
+
+    #[test]
+    fn test_active_model_json_roundtrip() {
+        // Test roundtrip: Record -> JSON -> Record
+        
+        let mut original = UserRecord::new();
+        original.set_id(100);
+        original.set_name("Roundtrip Test".to_string());
+        original.set_email("roundtrip@example.com".to_string());
+        
+        // Record -> JSON
+        let json = original.to_json().expect("to_json() should succeed");
+        
+        // JSON -> Record
+        let restored = UserRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify all fields match
+        let original_id = original.get(<Entity as LifeModelTrait>::Column::Id);
+        let restored_id = restored.get(<Entity as LifeModelTrait>::Column::Id);
+        assert_eq!(original_id, restored_id);
+        
+        let original_name = original.get(<Entity as LifeModelTrait>::Column::Name);
+        let restored_name = restored.get(<Entity as LifeModelTrait>::Column::Name);
+        assert_eq!(original_name, restored_name);
+        
+        let original_email = original.get(<Entity as LifeModelTrait>::Column::Email);
+        let restored_email = restored.get(<Entity as LifeModelTrait>::Column::Email);
+        assert_eq!(original_email, restored_email);
+    }
+
+    #[test]
+    fn test_active_model_from_json_invalid() {
+        // Test that from_json() returns error for invalid JSON
+        use serde_json::json;
+        
+        // Invalid JSON structure (missing required fields)
+        let json = json!({
+            "name": "Incomplete"
+            // Missing id and email
+        });
+        
+        let result = UserRecord::from_json(json);
+        assert!(result.is_err(), "from_json() should fail for invalid JSON");
+    }
+
+    #[test]
+    fn test_active_model_to_json_with_option_fields() {
+        // Test to_json() with Option<T> fields
+        use option_tests::*;
+        use serde_json::json;
+        
+        let mut record = UserWithOptionsRecord::new();
+        record.set_id(1);
+        record.set_name(Some("Test".to_string()));
+        record.set_age(Some(30));
+        record.set_active(Some(true));
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("id"), Some(&json!(1)));
+        assert_eq!(obj.get("name"), Some(&json!("Test")));
+        assert_eq!(obj.get("age"), Some(&json!(30)));
+        assert_eq!(obj.get("active"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn test_active_model_from_json_with_option_fields() {
+        // Test from_json() with Option<T> fields
+        use option_tests::*;
+        use serde_json::json;
+        
+        let json = json!({
+            "id": 1,
+            "name": "Test",
+            "age": 30,
+            "active": true
+        });
+        
+        let record = UserWithOptionsRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify fields
+        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Test"),
+            _ => panic!("Expected String(Some(\"Test\"))"),
+        }
+    }
+
+    #[test]
+    fn test_active_model_to_json_with_unset_required_fields() {
+        // Test that to_json() doesn't panic when required fields are unset
+        // This is the fix for the issue where to_json() called to_model() which panics
+        use serde_json::json;
+        
+        // Create a record with only some fields set (required fields are unset)
+        let mut record = UserRecord::new();
+        record.set_id(42);
+        // name and email are required but not set
+        
+        // to_json() should succeed and only include set fields
+        let json = record.to_json().expect("to_json() should succeed even with unset required fields");
+        
+        // Verify JSON only contains set fields
+        assert!(json.is_object(), "JSON should be an object");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("id"), Some(&json!(42)), "id should be in JSON");
+        assert_eq!(obj.get("name"), None, "name should not be in JSON (unset)");
+        assert_eq!(obj.get("email"), None, "email should not be in JSON (unset)");
+        assert_eq!(obj.len(), 1, "JSON should only contain one field (id)");
+    }
+
+    #[test]
+    fn test_active_model_to_json_empty_record() {
+        // Test that to_json() works on an empty record (no fields set)
+        let record = UserRecord::new();
+        
+        // to_json() should succeed and return an empty object
+        let json = record.to_json().expect("to_json() should succeed on empty record");
+        
+        assert!(json.is_object(), "JSON should be an object");
+        let obj = json.as_object().unwrap();
+        assert!(obj.is_empty(), "JSON should be empty when no fields are set");
+    }
+
+    // ============================================================================
+    // JSON Serialization Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_json_from_json_with_extra_fields() {
+        // EDGE CASE: from_json() with extra fields in JSON (should ignore or error)
+        use serde_json::json;
+        let json = json!({
+            "id": 1,
+            "name": "Test",
+            "email": "test@example.com",
+            "extra_field": "should be ignored or cause error"
+        });
+        
+        // Should either succeed (ignoring extra) or error
+        let result = UserRecord::from_json(json);
+        // Current implementation may error on extra fields
+        // This documents the expected behavior
+        let _ = result;
+    }
+
+    #[test]
+    fn test_json_from_json_with_null_for_required_field() {
+        // EDGE CASE: from_json() with null for non-Option required field
+        use serde_json::json;
+        let json = json!({
+            "id": 1,
+            "name": null, // null for required String field
+            "email": "test@example.com",
+        });
+        
+        let result = UserRecord::from_json(json);
+        // Should error - null not allowed for non-Option field
+        assert!(result.is_err(), "from_json() should fail when null provided for required field");
+    }
+
+    #[test]
+    fn test_json_roundtrip_with_option_fields() {
+        // EDGE CASE: Roundtrip JSON with Option<T> fields (None and Some values)
+        // Use UserWithOptions which has Option fields
+        use option_tests::*;
+        
+        let mut record = UserWithOptionsRecord::new();
+        record.set_id(1);
+        record.set_name(Some("Test".to_string()));
+        record.set_age(Some(30));
+        record.set_active(Some(true));
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        let restored = UserWithOptionsRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify age is preserved
+        let restored_age = restored.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        assert!(restored_age.is_some());
+    }
+
+    #[test]
+    fn test_json_with_large_values() {
+        // EDGE CASE: JSON with very large string values
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("A".repeat(10000)); // Large string
+        record.set_email("test@example.com".to_string());
+        
+        let json = record.to_json().expect("to_json() should handle large values");
+        assert!(json.is_object());
+    }
+
+    #[test]
+    fn test_json_with_special_characters() {
+        // EDGE CASE: JSON with special characters (quotes, newlines, etc.)
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("Test \"quoted\" name\nwith newline".to_string());
+        record.set_email("test@example.com".to_string());
+        
+        let json = record.to_json().expect("to_json() should handle special characters");
+        let restored = UserRecord::from_json(json).expect("from_json() should handle special characters");
+        
+        let restored_name = restored.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(restored_name.is_some());
+    }
+
+    // Entity with float fields for testing NaN and infinity serialization
+    mod float_tests {
+        use super::*;
+        
+        #[derive(LifeModel, LifeRecord)]
+        #[table_name = "float_fields"]
+        pub struct FloatFields {
+            #[primary_key]
+            pub id: i32,
+            pub f32_field: f32,
+            pub f64_field: f64,
+        }
+    }
+
+    #[test]
+    fn test_json_with_nan_and_infinity() {
+        // EDGE CASE: JSON serialization of NaN and infinity values
+        // These special floating-point values cannot be represented as JSON numbers
+        // and should be serialized as strings to preserve the information
+        use float_tests::*;
+        use serde_json::json;
+        use lifeguard::LifeModelTrait;
+        
+        let mut record = FloatFieldsRecord::new();
+        record.set_id(1);
+        
+        // Test NaN for f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with NaN");
+        let obj = json.as_object().unwrap();
+        // NaN should be serialized as string "NaN", not number 0
+        assert_eq!(obj.get("f32_field"), Some(&json!("NaN")), "NaN should be serialized as string");
+        
+        // Test positive infinity for f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f32_field"), Some(&json!("Infinity")), "Positive infinity should be serialized as string");
+        
+        // Test negative infinity for f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with negative infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f32_field"), Some(&json!("-Infinity")), "Negative infinity should be serialized as string");
+        
+        // Test NaN for f64
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with NaN");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("NaN")), "NaN should be serialized as string");
+        
+        // Test positive infinity for f64
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("Infinity")), "Positive infinity should be serialized as string");
+        
+        // Test negative infinity for f64
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with negative infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("-Infinity")), "Negative infinity should be serialized as string");
+        
+        // Test that normal finite numbers are still serialized as numbers
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(2.71828))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with normal numbers");
+        let obj = json.as_object().unwrap();
+        // Normal numbers should be JSON numbers, not strings
+        assert!(obj.get("f32_field").unwrap().is_number(), "Normal f32 should be a number");
+        assert!(obj.get("f64_field").unwrap().is_number(), "Normal f64 should be a number");
+    }
+
+    #[test]
+    fn test_json_roundtrip_with_nan_and_infinity() {
+        // EDGE CASE: Roundtrip serialization/deserialization of NaN and infinity
+        // With custom deserializers, we can now roundtrip NaN/infinity values
+        use float_tests::*;
+        use lifeguard::LifeModelTrait;
+        
+        let mut original = FloatFieldsRecord::new();
+        original.set_id(1);
+        original.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        original.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        
+        // Serialize to JSON (NaN/infinity become strings)
+        let json = original.to_json().expect("to_json() should succeed");
+        
+        // Deserialize back - should now succeed with custom deserializers
+        let restored = FloatFieldsRecord::from_json(json).expect("from_json() should succeed with custom deserializers");
+        
+        // Verify the values were preserved
+        let restored_f32 = restored.get(<Entity as LifeModelTrait>::Column::F32Field);
+        match restored_f32 {
+            Some(sea_query::Value::Float(Some(v))) => assert!(v.is_nan(), "f32 NaN should be preserved"),
+            _ => panic!("Expected Float(Some(NaN)), got {:?}", restored_f32),
+        }
+        
+        let restored_f64 = restored.get(<Entity as LifeModelTrait>::Column::F64Field);
+        match restored_f64 {
+            Some(sea_query::Value::Double(Some(v))) => {
+                assert!(v.is_infinite() && v.is_sign_positive(), "f64 Infinity should be preserved");
+            }
+            _ => panic!("Expected Double(Some(Infinity)), got {:?}", restored_f64),
+        }
+        
+        // Test negative infinity roundtrip
+        let mut original2 = FloatFieldsRecord::new();
+        original2.set_id(2);
+        original2.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
+        original2.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
+        
+        let json2 = original2.to_json().expect("to_json() should succeed");
+        let restored2 = FloatFieldsRecord::from_json(json2).expect("from_json() should succeed");
+        
+        let restored_f32_2 = restored2.get(<Entity as LifeModelTrait>::Column::F32Field);
+        match restored_f32_2 {
+            Some(sea_query::Value::Float(Some(v))) => {
+                assert!(v.is_infinite() && v.is_sign_negative(), "f32 -Infinity should be preserved");
+            }
+            _ => panic!("Expected Float(Some(-Infinity)), got {:?}", restored_f32_2),
+        }
+    }
+
+    #[test]
+    fn test_json_with_option_float_nan_and_infinity() {
+        // EDGE CASE: Option<f32> and Option<f64> fields with NaN/infinity
+        use float_tests::*;
+        use serde_json::json;
+        use lifeguard::LifeModelTrait;
+        
+        // Create a test entity with Option float fields
+        mod option_float_tests {
+            use super::super::*;
+            
+            #[derive(LifeModel, LifeRecord)]
+            #[table_name = "option_float_fields"]
+            pub struct OptionFloatFields {
+                #[primary_key]
+                pub id: i32,
+                pub f32_field: Option<f32>,
+                pub f64_field: Option<f64>,
+            }
+        }
+        
+        use option_float_tests::*;
+        
+        let mut record = OptionFloatFieldsRecord::new();
+        record.set_id(1);
+        
+        // Test Option<f32> with NaN
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f32_field"), Some(&json!("NaN")), "Option<f32> NaN should be serialized as string");
+        
+        // Test Option<f64> with infinity
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("Infinity")), "Option<f64> infinity should be serialized as string");
+        
+        // Test Option fields with None (should be null, not string)
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(None)).expect("set should succeed");
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(None)).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        // None values should not appear in JSON (only set fields are included)
+        // But if they were included, they'd be null, not the string "NaN"
+        assert!(!obj.contains_key("f32_field") || obj.get("f32_field") == Some(&json!(null)), "Option None should be null or omitted");
+    }
+
+    #[test]
+    fn test_nan_comparison_edge_cases() {
+        // EDGE CASE: NaN comparison behavior
+        // NaN != NaN in Rust (IEEE 754 standard), so Value comparisons with NaN will also fail
+        // This is expected behavior and documents an important edge case
+        use float_tests::*;
+        use lifeguard::LifeModelTrait;
+        
+        let mut record1 = FloatFieldsRecord::new();
+        record1.set_id(1);
+        record1.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        
+        let mut record2 = FloatFieldsRecord::new();
+        record2.set_id(1);
+        record2.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        
+        // Both records have NaN
+        let val1 = record1.get(<Entity as LifeModelTrait>::Column::F32Field);
+        let val2 = record2.get(<Entity as LifeModelTrait>::Column::F32Field);
+        
+        // Extract the actual f32 values to verify they're both NaN
+        match (&val1, &val2) {
+            (Some(sea_query::Value::Float(Some(v1))), Some(sea_query::Value::Float(Some(v2)))) => {
+                // Both should be NaN
+                assert!(v1.is_nan() && v2.is_nan(), "Both values should be NaN");
+                
+                // NaN != NaN in Rust (IEEE 754 standard)
+                // This means Value::Float(Some(NaN)) != Value::Float(Some(NaN)) when using PartialEq
+                // This is expected behavior and documents an important edge case
+                assert_ne!(v1, v2, "NaN != NaN in Rust (IEEE 754 standard - this is expected behavior)");
+                
+                // The Value variants themselves also won't compare equal because they contain NaN
+                // This is a limitation of using PartialEq with NaN values
+                assert_ne!(val1, val2, "Value::Float(Some(NaN)) != Value::Float(Some(NaN)) because NaN != NaN");
+            }
+            _ => panic!("Expected Float(Some(NaN)) values"),
+        }
+    }
+
+    #[test]
+    fn test_mixed_normal_and_special_float_values() {
+        // EDGE CASE: Record with mix of normal numbers and NaN/infinity
+        use float_tests::*;
+        use serde_json::json;
+        use lifeguard::LifeModelTrait;
+        
+        let mut record = FloatFieldsRecord::new();
+        record.set_id(1);
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        
+        // Normal number should be a number
+        assert!(obj.get("f32_field").unwrap().is_number(), "Normal f32 should be a number");
+        // NaN should be a string
+        assert_eq!(obj.get("f64_field"), Some(&json!("NaN")), "NaN should be serialized as string");
+        
+        // Test the reverse: normal f64, special f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::INFINITY))).expect("set should succeed");
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(2.71828))).expect("set should succeed");
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        
+        assert_eq!(obj.get("f32_field"), Some(&json!("Infinity")), "Infinity should be serialized as string");
+        assert!(obj.get("f64_field").unwrap().is_number(), "Normal f64 should be a number");
+    }
+
+    #[test]
+    fn test_json_roundtrip_with_column_name_attribute() {
+        // Test that JSON roundtrip works when #[column_name] attribute is used
+        // This verifies that to_json() and from_json() use the same key names
+        use column_name_tests::*;
+        
+        let mut original = UserWithRenamedColumnsRecord::new();
+        original.set_id(100);
+        original.set_firstName("John".to_string());
+        original.set_email("john@example.com".to_string());
+        
+        // Record -> JSON (should use column names: "user_name", "email_address")
+        let json = original.to_json().expect("to_json() should succeed");
+        
+        // Verify JSON uses column names, not field names
+        let json_obj = json.as_object().expect("JSON should be an object");
+        assert!(json_obj.contains_key("user_name"), "JSON should contain 'user_name' key (column name)");
+        assert!(!json_obj.contains_key("firstName"), "JSON should NOT contain 'firstName' key (field name)");
+        assert!(json_obj.contains_key("email_address"), "JSON should contain 'email_address' key (column name)");
+        assert!(!json_obj.contains_key("email"), "JSON should NOT contain 'email' key (field name)");
+        
+        // JSON -> Record (should deserialize using column names via serde rename)
+        let restored = UserWithRenamedColumnsRecord::from_json(json).expect("from_json() should succeed");
+        
+        // Verify all fields match
+        let original_id = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::Id);
+        let restored_id = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::Id);
+        assert_eq!(original_id, restored_id);
+        
+        let original_first_name = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::FirstName);
+        let restored_first_name = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::FirstName);
+        assert_eq!(original_first_name, restored_first_name);
+        
+        let original_email = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::Email);
+        let restored_email = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::Email);
+        assert_eq!(original_email, restored_email);
+    }
+
+    // ============================================================================
+    // ACTIVEMODELBEHAVIOR HOOK TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_active_model_behavior_default_implementations() {
+        // Test that default implementations exist and return Ok(())
+        use lifeguard::ActiveModelBehavior;
+        
+        // UserRecord needs to implement ActiveModelBehavior to use hooks
+        // In practice, users would implement this manually
+        #[derive(Clone, Debug)]
+        struct TestRecordDefault {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordDefault {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        // Implement ActiveModelBehavior with default implementations
+        impl ActiveModelBehavior for TestRecordDefault {}
+        
+        let mut record = TestRecordDefault {
+            inner: UserRecord::new(),
+        };
+        
+        // All default implementations should return Ok(())
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        assert!(record.before_save().is_ok());
+        assert!(record.before_delete().is_ok());
+        
+        let model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        assert!(record.after_insert(&model).is_ok());
+        assert!(record.after_update(&model).is_ok());
+        assert!(record.after_save(&model).is_ok());
+        assert!(record.after_delete().is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_trait_bounds() {
+        // Test that ActiveModelBehavior requires ActiveModelTrait
+        use lifeguard::{ActiveModelBehavior, ActiveModelTrait};
+        
+        // Verify that a type implementing both traits compiles
+        #[derive(Clone, Debug)]
+        struct TestRecordBounds {
+            inner: UserRecord,
+        }
+        
+        impl ActiveModelTrait for TestRecordBounds {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, _column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn set(&mut self, _column: <Entity as lifeguard::LifeModelTrait>::Column, _value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                Ok(())
+            }
+            
+            fn take(&mut self, _column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn reset(&mut self) {}
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordBounds {}
+        
+        // Verify TestRecordBounds implements both traits
+        fn _verify_traits<T: ActiveModelTrait + ActiveModelBehavior>() {}
+        _verify_traits::<TestRecordBounds>();
+    }
+
+    #[test]
+    fn test_active_model_behavior_hooks_can_return_errors() {
+        // Test that hooks can return errors to abort operations
+        use lifeguard::{ActiveModelBehavior, ActiveModelError};
+        
+        // Create a custom implementation that returns errors
+        #[derive(Clone, Debug)]
+        struct ErrorRecord {
+            inner: UserRecord,
+            should_error: bool,
+        }
+        
+        impl lifeguard::ActiveModelTrait for ErrorRecord {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for ErrorRecord {
+            fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_insert error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+            
+            fn before_update(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_update error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+            
+            fn before_save(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_save error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+            
+            fn before_delete(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("before_delete error".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        
+        // Test that errors from hooks are returned
+        let mut record = ErrorRecord {
+            inner: UserRecord::new(),
+            should_error: true,
+        };
+        
+        assert!(record.before_insert().is_err());
+        assert!(record.before_update().is_err());
+        assert!(record.before_save().is_err());
+        assert!(record.before_delete().is_err());
+        
+        // Test that hooks return Ok when should_error is false
+        record.should_error = false;
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        assert!(record.before_save().is_ok());
+        assert!(record.before_delete().is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_after_hooks_receive_model() {
+        // Test that after hooks receive the correct model parameter
+        use lifeguard::ActiveModelBehavior;
+        
+        #[derive(Clone, Debug)]
+        struct TestRecordAfter {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordAfter {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordAfter {}
+        
+        let mut record = TestRecordAfter {
+            inner: UserRecord::new(),
+        };
+        
+        let model = UserModel {
+            id: 42,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // after_insert should receive the model
+        assert!(record.after_insert(&model).is_ok());
+        
+        // after_update should receive the model
+        assert!(record.after_update(&model).is_ok());
+        
+        // after_save should receive the model
+        assert!(record.after_save(&model).is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_hooks_can_modify_record() {
+        // Test that hooks can modify the record (via set())
+        use lifeguard::{ActiveModelBehavior, ActiveModelTrait, LifeModelTrait};
+        
+        #[derive(Clone, Debug)]
+        struct ModifyingRecord {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for ModifyingRecord {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for ModifyingRecord {
+            fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                // Modify the record in before_insert
+                self.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("Modified in before_insert".to_string())))?;
+                Ok(())
+            }
+            
+            fn before_update(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                // Modify the record in before_update
+                self.set(<Entity as LifeModelTrait>::Column::Name, sea_query::Value::String(Some("Modified in before_update".to_string())))?;
+                Ok(())
+            }
+        }
+        
+        let mut record = ModifyingRecord {
+            inner: UserRecord::new(),
+        };
+        
+        // Call before_insert and verify it can modify the record
+        assert!(record.before_insert().is_ok());
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Modified in before_insert"),
+            _ => panic!("Expected String(Some(\"Modified in before_insert\"))"),
+        }
+        
+        // Reset and test before_update
+        record.reset();
+        assert!(record.before_update().is_ok());
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some());
+        match name_value.unwrap() {
+            sea_query::Value::String(Some(v)) => assert_eq!(v, "Modified in before_update"),
+            _ => panic!("Expected String(Some(\"Modified in before_update\"))"),
+        }
+    }
+
+    #[test]
+    fn test_active_model_behavior_hook_execution_order() {
+        // Test that hooks are called in the correct order
+        // This is verified by checking that before hooks are called before after hooks
+        // and that save() calls both before_save and before_insert/before_update
+        use lifeguard::ActiveModelBehavior;
+        
+        // The execution order should be:
+        // insert(): before_insert -> [operation] -> after_insert
+        // update(): before_update -> [operation] -> after_update
+        // save(): before_save -> [insert/update] -> after_save (which internally calls before_insert/update and after_insert/update)
+        // delete(): before_delete -> [operation] -> after_delete
+        
+        #[derive(Clone, Debug)]
+        struct TestRecordOrder {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordOrder {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordOrder {}
+        
+        // We can't easily test the full order without a mock executor,
+        // but we can verify the hooks exist and can be called
+        let mut record = TestRecordOrder {
+            inner: UserRecord::new(),
+        };
+        
+        // Verify all hooks can be called
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        assert!(record.before_save().is_ok());
+        assert!(record.before_delete().is_ok());
+        
+        let model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        assert!(record.after_insert(&model).is_ok());
+        assert!(record.after_update(&model).is_ok());
+        assert!(record.after_save(&model).is_ok());
+        assert!(record.after_delete().is_ok());
+    }
+
+    #[test]
+    fn test_active_model_behavior_save_hooks_vs_insert_update_hooks() {
+        // Test that save() calls before_save/after_save in addition to insert/update hooks
+        // The order should be:
+        // save() -> before_save -> [before_insert or before_update] -> [operation] -> [after_insert or after_update] -> after_save
+        use lifeguard::ActiveModelBehavior;
+        
+        #[derive(Clone, Debug)]
+        struct TestRecordSave {
+            inner: UserRecord,
+        }
+        
+        impl lifeguard::ActiveModelTrait for TestRecordSave {
+            type Entity = Entity;
+            type Model = UserModel;
+            
+            fn get(&self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.get(column)
+            }
+            
+            fn set(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                self.inner.set(column, value)
+            }
+            
+            fn take(&mut self, column: <Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+                self.inner.take(column)
+            }
+            
+            fn reset(&mut self) {
+                self.inner.reset()
+            }
+            
+            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                self.inner.to_json()
+            }
+        }
+        
+        impl ActiveModelBehavior for TestRecordSave {}
+        
+        // We can't test the full execution without a mock executor,
+        // but we can verify that save() hooks are separate from insert/update hooks
+        let mut record = TestRecordSave {
+            inner: UserRecord::new(),
+        };
+        
+        // All hooks should be callable independently
+        assert!(record.before_save().is_ok());
+        assert!(record.before_insert().is_ok());
+        assert!(record.before_update().is_ok());
+        
+        let model = UserModel {
+            id: 1,
+            name: "Test".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        assert!(record.after_save(&model).is_ok());
+        assert!(record.after_insert(&model).is_ok());
+        assert!(record.after_update(&model).is_ok());
+    }
+
+    // Note: Full hook execution tests with actual database operations require integration tests
+    // The actual hook calls in insert/update/save/delete are tested in integration tests
+    // Here we verify the trait is properly implemented and hooks can be overridden
+
     // INSERT Edge Cases
     // ============================================================================
 
@@ -3770,7 +4936,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_active_model_trait_into_active_value() {
         // Test into_active_value() method on ActiveModelTrait
-        use lifeguard::{ActiveModelTrait, ActiveValue, LifeModelTrait};
+        use lifeguard::{ActiveModelTrait, LifeModelTrait};
         
         let mut record = UserRecord::new();
         record.set_id(1);

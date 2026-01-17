@@ -64,11 +64,23 @@ pub use query::{SelectQuery, SelectModel, FromRow, LifeEntityName, LifeModelTrai
 
 // ActiveModel operations - Epic 02 Story 07
 pub mod active_model;
-pub use active_model::{ActiveModelTrait, ActiveModelError, ActiveValue, with_converted_params};
+pub use active_model::{ActiveModelTrait, ActiveModelBehavior, ActiveModelError, ActiveValue, with_converted_params};
 
 // Model trait - Core Traits & Types
 pub mod model;
 pub use model::{ModelError, ModelTrait};
+
+// Relation trait - Epic 02 Story 08
+pub mod relation;
+pub use relation::{RelationTrait, RelationBuilder, join_condition};
+
+// Partial Model trait - Epic 02 Story 09
+pub mod partial_model;
+pub use partial_model::{PartialModelTrait, PartialModelBuilder, SelectPartialQuery};
+
+// JSON helpers - Custom deserializers for floating-point types
+pub mod json_helpers;
+pub use json_helpers::{deserialize_f32, deserialize_f64, deserialize_option_f32, deserialize_option_f64};
 
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{

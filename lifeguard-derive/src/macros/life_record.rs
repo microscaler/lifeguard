@@ -1,7 +1,7 @@
 //! LifeRecord derive macro implementation
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, GenericArgument, PathArguments, Type};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, GenericArgument, PathArguments, Type, LitStr};
 use quote::quote;
 
 use crate::attributes;
@@ -87,9 +87,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     
     // Generate CRUD operation code for each field
     let mut insert_column_checks = Vec::new(); // Check if field should be included in INSERT
-    let mut update_set_clauses = Vec::new(); // SET clauses for UPDATE
+    let mut update_set_clauses = Vec::new(); // SET clauses for UPDATE (uses self)
+    let mut update_set_clauses_from_hooks = Vec::new(); // SET clauses for UPDATE (uses record_for_hooks, includes before_update changes)
     let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
     let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
+    let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
     
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
@@ -102,10 +104,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // This is critical: conversion functions need the inner type (e.g., String), not Option<String>
         let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
         
-        // Extract column name (use column_name attribute or convert field name to PascalCase)
-        let column_name = attributes::extract_column_name(field)
-            .unwrap_or_else(|| utils::pascal_case(&field_name.to_string()));
-        let column_variant = Ident::new(&column_name, field_name.span());
+        // Extract column name for database (snake_case) and enum variant (PascalCase)
+        let db_column_name = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+        let column_variant_name = utils::pascal_case(&field_name.to_string());
+        let column_variant = Ident::new(&column_variant_name, field_name.span());
         
         // Check if field is primary key
         let is_primary_key = attributes::has_attribute(field, "primary_key");
@@ -242,10 +245,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         
         // Generate INSERT column/value collection
         // Skip auto-increment primary keys if not set
+        // NOTE: These checks use record_for_hooks.get() to include modifications made by before_insert() hook
         if is_primary_key && is_auto_increment {
             // Auto-increment PK: include only if set
             insert_column_checks.push(quote! {
-                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     values.push(value);
                 }
@@ -254,9 +258,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // Generate code to check if this PK needs RETURNING and extract if so
             // Database returns T (inner type), not Option<T>, so we use inner_type
             // Both Option<T> and T fields need to wrap the returned value in Some()
+            // NOTE: Check updated_record (not record_for_hooks) since record_for_hooks is moved to updated_record
+            // before this code is expanded. The check happens after the move at line 613.
             returning_extractors.push(quote! {
                 // Check if this auto-increment PK was not set and needs RETURNING
-                if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
+                if updated_record.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
                     // Extract returned value for #field_name (database returns T, wrap in Some())
                     let pk_value: #inner_type = row.get(returning_idx);
                     returning_idx += 1;
@@ -266,7 +272,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         } else if !is_primary_key {
             // Non-PK field: include if set
             insert_column_checks.push(quote! {
-                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     values.push(value);
                 }
@@ -274,7 +280,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         } else {
             // Non-auto-increment PK: include if set (required for composite keys)
             insert_column_checks.push(quote! {
-                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     values.push(value);
                 }
@@ -283,25 +289,110 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         
         // Generate UPDATE SET clause (skip primary keys)
         if !is_primary_key {
+            // SET clause using self (for backward compatibility, though not used in update() anymore)
             update_set_clauses.push(quote! {
                 if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
+                }
+            });
+            
+            // SET clause using record_for_hooks (includes before_update() changes)
+            update_set_clauses_from_hooks.push(quote! {
+                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
                 }
             });
         }
         
         // Generate DELETE WHERE clause (only for primary keys)
+        // CRITICAL: Use original PK values from self, NOT hook-modified values
+        // This prevents silent data corruption if before_delete() modifies the primary key
         if is_primary_key {
             delete_where_clauses.push(quote! {
-                if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     use lifeguard::ColumnTrait;
-                    let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.eq(pk_value);
+                    let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.eq(pk_value.clone());
                     query.and_where(expr);
                 } else {
                     return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
                 }
             });
         }
+        
+        // Generate to_json() field conversion code
+        // Only include fields that are set (get() returns Some)
+        // Convert sea_query::Value to serde_json::Value
+        // Use the database column name (snake_case) for JSON keys
+        let json_key = db_column_name.clone();
+        let json_key_lit = LitStr::new(&json_key, field_name.span());
+        to_json_field_conversions.push(quote! {
+            if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                // Convert sea_query::Value to serde_json::Value
+                let json_value = match value {
+                    sea_query::Value::TinyInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v as i64)),
+                    sea_query::Value::TinyInt(None) => serde_json::Value::Null,
+                    sea_query::Value::SmallInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v as i64)),
+                    sea_query::Value::SmallInt(None) => serde_json::Value::Null,
+                    sea_query::Value::Int(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v)),
+                    sea_query::Value::Int(None) => serde_json::Value::Null,
+                    sea_query::Value::BigInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v)),
+                    sea_query::Value::BigInt(None) => serde_json::Value::Null,
+                    sea_query::Value::BigUnsigned(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v)),
+                    sea_query::Value::BigUnsigned(None) => serde_json::Value::Null,
+                    sea_query::Value::Float(Some(v)) => {
+                        // f32 to JSON number (may lose precision, but JSON only supports f64)
+                        let v_f64 = v as f64;
+                        // Handle special floating-point values that can't be represented as JSON numbers
+                        if v_f64.is_nan() {
+                            serde_json::Value::String("NaN".to_string())
+                        } else if v_f64.is_infinite() {
+                            if v_f64.is_sign_negative() {
+                                serde_json::Value::String("-Infinity".to_string())
+                            } else {
+                                serde_json::Value::String("Infinity".to_string())
+                            }
+                        } else {
+                            // Valid finite number - convert to JSON number
+                            serde_json::Value::Number(serde_json::Number::from_f64(v_f64).unwrap_or_else(|| serde_json::Number::from(0)))
+                        }
+                    },
+                    sea_query::Value::Float(None) => serde_json::Value::Null,
+                    sea_query::Value::Double(Some(v)) => {
+                        // Handle special floating-point values that can't be represented as JSON numbers
+                        if v.is_nan() {
+                            serde_json::Value::String("NaN".to_string())
+                        } else if v.is_infinite() {
+                            if v.is_sign_negative() {
+                                serde_json::Value::String("-Infinity".to_string())
+                            } else {
+                                serde_json::Value::String("Infinity".to_string())
+                            }
+                        } else {
+                            // Valid finite number - convert to JSON number
+                            serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap_or_else(|| serde_json::Number::from(0)))
+                        }
+                    },
+                    sea_query::Value::Double(None) => serde_json::Value::Null,
+                    sea_query::Value::Bool(Some(v)) => serde_json::Value::Bool(v),
+                    sea_query::Value::Bool(None) => serde_json::Value::Null,
+                    sea_query::Value::String(Some(v)) => serde_json::Value::String(v),
+                    sea_query::Value::String(None) => serde_json::Value::Null,
+                    sea_query::Value::Bytes(Some(v)) => {
+                        // Convert bytes to JSON array of numbers
+                        serde_json::Value::Array(v.iter().map(|&b| serde_json::Value::Number(serde_json::Number::from(b))).collect())
+                    },
+                    sea_query::Value::Bytes(None) => serde_json::Value::Null,
+                    sea_query::Value::Json(Some(v)) => (*v).clone(),
+                    sea_query::Value::Json(None) => serde_json::Value::Null,
+                    _ => {
+                        // Unknown value type - convert to string representation
+                        // This handles any Value variants we haven't explicitly covered
+                        serde_json::Value::String(format!("{:?}", value))
+                    },
+                };
+                map.insert(#json_key_lit.to_string(), json_value);
+            }
+        });
     }
     
     // Generate primary key check code for save()
@@ -310,9 +401,42 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut save_pk_checks = Vec::new();
     for field_name in primary_key_field_names.iter() {
         save_pk_checks.push(quote! {
-            self.#field_name.is_some() &&
+            record_for_hooks.#field_name.is_some() &&
         });
     }
+    
+    // Generate save logic that handles both cases: entities with and without primary keys
+    let save_pk_logic = if has_primary_keys {
+        quote! {
+            {
+                // Check if primary key is set (using record_for_hooks)
+                let has_primary_key = #(#save_pk_checks)* true;
+                
+                if has_primary_key {
+                    // Try to update first. If record doesn't exist (RecordNotFound),
+                    // fall back to insert. This implements upsert behavior.
+                    match record_for_hooks.update(executor) {
+                        Ok(model) => Ok(model),
+                        Err(lifeguard::ActiveModelError::RecordNotFound) => {
+                            // Update affected zero rows - record doesn't exist, try insert
+                            record_for_hooks.insert(executor)
+                        },
+                        Err(e) => Err(e), // Propagate other errors (DatabaseError, etc.)
+                    }
+                } else {
+                    // No primary key set, do insert
+                    record_for_hooks.insert(executor)
+                }
+            }
+        }
+    } else {
+        quote! {
+            {
+                // Entity has no primary keys - always do insert
+                record_for_hooks.insert(executor)
+            }
+        }
+    };
     
     // Generate conditional code for methods that require primary keys
     let update_pk_check = if has_primary_keys {
@@ -337,34 +461,6 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             // Entity has no primary keys - delete is not supported
             return Err(lifeguard::ActiveModelError::Other("Cannot delete entity without primary key".to_string()));
-        }
-    };
-    
-    let save_pk_logic = if has_primary_keys {
-        quote! {
-            // Check if primary key is set
-            let has_primary_key = #(#save_pk_checks)* true;
-            
-            if has_primary_key {
-                // Try to update first. If record doesn't exist (RecordNotFound),
-                // fall back to insert. This implements upsert behavior.
-                match self.update(executor) {
-                    Ok(model) => Ok(model),
-                    Err(lifeguard::ActiveModelError::RecordNotFound) => {
-                        // Update affected zero rows - record doesn't exist, try insert
-                        self.insert(executor)
-                    },
-                    Err(e) => Err(e), // Propagate other errors (DatabaseError, etc.)
-                }
-            } else {
-                // No primary key set, do insert
-                self.insert(executor)
-            }
-        }
-    } else {
-        quote! {
-            // Entity has no primary keys - always do insert
-            self.insert(executor)
         }
     };
     
@@ -456,7 +552,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             
             fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 use sea_query::{Query, PostgresQueryBuilder};
-                use lifeguard::LifeEntityName;
+                use lifeguard::{LifeEntityName, ActiveModelBehavior};
+                
+                // Call before_insert hook
+                let mut record_for_hooks = self.clone();
+                record_for_hooks.before_insert()?;
                 
                 // Build INSERT statement
                 let mut query = Query::insert();
@@ -482,10 +582,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 // Check if we need RETURNING clause for auto-increment primary keys
                 // Track which auto-increment PKs were not set and need RETURNING
+                // NOTE: Check record_for_hooks to see if PK is still unset after before_insert() hook
                 let mut needs_returning = false;
                 let mut returning_cols = Vec::new();
                 #(
-                    if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants).is_none() && #primary_key_auto_increment {
+                    if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants).is_none() && #primary_key_auto_increment {
                         needs_returning = true;
                         returning_cols.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants);
                     }
@@ -509,7 +610,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
                 
                 // Create a mutable copy of self to update with returned PK values
-                let mut updated_record = self.clone();
+                // Use the record that went through before_insert hook
+                let mut updated_record = record_for_hooks;
                 
                 // Execute query and handle RETURNING if needed
                 if needs_returning {
@@ -533,15 +635,38 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     })?;
                 }
                 
-                // Return the model constructed from the updated record
-                Ok(updated_record.to_model())
+                // Construct the model from the updated record
+                let model = updated_record.to_model();
+                
+                // Call after_insert hook
+                updated_record.after_insert(&model)?;
+                
+                // Return the model
+                Ok(model)
             }
             
             fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 use sea_query::{Query, PostgresQueryBuilder, Expr};
-                use lifeguard::LifeEntityName;
+                use lifeguard::{LifeEntityName, ActiveModelBehavior};
+                use std::collections::HashMap;
                 
                 #update_pk_check
+                
+                // CRITICAL: Store original PK values BEFORE calling hooks
+                // This prevents silent data corruption if before_update() modifies the primary key
+                // The WHERE clause must use the original PK to target the correct record
+                let mut original_pk_values: HashMap<<#entity_name as lifeguard::LifeModelTrait>::Column, sea_query::Value> = HashMap::new();
+                #(
+                    if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                        original_pk_values.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants, pk_value);
+                    } else {
+                        return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                    }
+                )*
+                
+                // Call before_update hook
+                let mut record_for_hooks = self.clone();
+                record_for_hooks.before_update()?;
                 
                 // Build UPDATE statement
                 let mut query = Query::update();
@@ -549,10 +674,22 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 query.table(entity);
                 
                 // Add SET clauses for dirty fields (skip primary keys)
-                #(#update_set_clauses)*
+                // Use record_for_hooks to include any changes made in before_update()
+                // This ensures before_update() changes are included in the UPDATE query
+                #(#update_set_clauses_from_hooks)*
                 
-                // Add WHERE clause for primary keys
-                #(#delete_where_clauses)*
+                // Add WHERE clause for primary keys (use ORIGINAL PK values, not hook-modified)
+                // CRITICAL: Using original PK ensures we update the correct record even if
+                // before_update() hook modifies the primary key
+                #(
+                    if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                        use lifeguard::ColumnTrait;
+                        let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants.eq(pk_value.clone());
+                        query.and_where(expr);
+                    } else {
+                        return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                    }
+                )*
                 
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
@@ -573,26 +710,66 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     return Err(lifeguard::ActiveModelError::RecordNotFound);
                 }
                 
+                // Construct the model
+                let model = record_for_hooks.to_model();
+                
+                // Call after_update hook
+                record_for_hooks.after_update(&model)?;
+                
                 // Return the updated model
-                Ok(self.to_model())
+                Ok(model)
             }
             
             fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-                #save_pk_logic
+                use lifeguard::ActiveModelBehavior;
+                
+                // Call before_save hook
+                let mut record_for_hooks = self.clone();
+                record_for_hooks.before_save()?;
+                
+                // Execute save logic (insert or update) using record_for_hooks
+                // This handles both entities with and without primary keys correctly
+                // insert()/update() will clone record_for_hooks again and apply their own hooks,
+                // then return a model that includes all modifications (including auto-increment PKs from RETURNING)
+                let model = #save_pk_logic?;
+                
+                // Call after_save hook
+                record_for_hooks.after_save(&model)?;
+                
+                Ok(model)
             }
             
             fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
                 use sea_query::{Query, PostgresQueryBuilder, Expr};
-                use lifeguard::LifeEntityName;
+                use lifeguard::{LifeEntityName, ActiveModelBehavior};
+                use std::collections::HashMap;
                 
                 #delete_pk_check
+                
+                // CRITICAL: Store original PK values BEFORE calling hooks
+                // This prevents silent data corruption if before_delete() modifies the primary key
+                // The WHERE clause must use the original PK to target the correct record
+                let mut original_pk_values: HashMap<<#entity_name as lifeguard::LifeModelTrait>::Column, sea_query::Value> = HashMap::new();
+                #(
+                    if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                        original_pk_values.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants, pk_value);
+                    } else {
+                        return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                    }
+                )*
+                
+                // Call before_delete hook
+                let mut record_for_hooks = self.clone();
+                record_for_hooks.before_delete()?;
                 
                 // Build DELETE statement
                 let mut query = Query::delete();
                 let entity = #entity_name::default();
                 query.from_table(entity);
                 
-                // Add WHERE clause for primary keys
+                // Add WHERE clause for primary keys (use ORIGINAL PK values, not hook-modified)
+                // CRITICAL: Using original PK ensures we delete the correct record even if
+                // before_delete() hook modifies the primary key
                 #(#delete_where_clauses)*
                 
                 // Build SQL
@@ -610,9 +787,38 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     Ok(())
                 })?;
                 
+                // Call after_delete hook
+                record_for_hooks.after_delete()?;
+                
                 Ok(())
             }
+            
+            fn from_json(json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+                // Deserialize JSON into Model, then convert to Record using from_model()
+                // This requires the Model to implement Deserialize (typically via #[derive(Deserialize)])
+                let model: #model_name = serde_json::from_value(json)
+                    .map_err(|e| lifeguard::ActiveModelError::Other(
+                        format!("Failed to deserialize JSON to Model: {}", e)
+                    ))?;
+                
+                // Convert Model to Record
+                Ok(Self::from_model(&model))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+                // Build JSON object from set fields only (doesn't require to_model())
+                // This matches the documentation: "Only fields that are set... are included"
+                let mut map = serde_json::Map::new();
+                
+                #(#to_json_field_conversions)*
+                
+                Ok(serde_json::Value::Object(map))
+            }
         }
+        
+        // Implement ActiveModelBehavior with default (empty) implementations
+        // Users can override specific hooks as needed
+        impl lifeguard::ActiveModelBehavior for #record_name {}
     };
     
     TokenStream::from(expanded)

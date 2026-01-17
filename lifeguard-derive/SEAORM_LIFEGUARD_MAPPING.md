@@ -23,12 +23,12 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `ModelTrait` | ✅ Implemented | ✅ Complete | Model-level operations (get/set columns, get_primary_key_value) |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Converts database rows to Model structs |
 | `ActiveModelTrait` | ✅ Implemented | ✅ Complete | Mutable model operations (get, set, take, reset ✅; insert/update/save/delete ✅) |
-| `ActiveModelBehavior` | ❌ Missing | 🟡 **Future** | Custom behavior hooks for ActiveModel |
+| `ActiveModelBehavior` | ✅ Implemented | ✅ Complete | Custom behavior hooks for ActiveModel (8 lifecycle hooks) |
 | `ColumnTrait` | ✅ Implemented | ✅ Complete | Column-level operations (query builder methods ✅, metadata methods ✅ with default impls) |
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ✅ Implemented | ✅ Enhanced | Support for composite primary keys with granular variants (Single, Tuple2-Tuple5, Tuple6Plus) - Lifeguard enhancement beyond SeaORM |
-| `RelationTrait` | ❌ Missing | 🟡 **Future** | Entity relationships (belongs_to, has_one, has_many) |
+| `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support, automatic join condition generation pending |
 | `Related` | ❌ Missing | 🟡 **Future** | Related entity queries |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
 | `PartialModelTrait` | ❌ Missing | 🟡 **Future** | Partial model queries (select subset of columns) |
@@ -49,7 +49,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveColumn` | ❌ Not Needed | ✅ By Design | LifeModel generates Column enum + Iden/IdenStatic impls directly |
 | `DerivePrimaryKey` | ❌ Not Needed | ✅ By Design | LifeModel generates PrimaryKey enum directly |
 | `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel |
-| `DeriveActiveModelBehavior` | ❌ Missing | 🟡 **Future** | ActiveModelBehavior trait implementation |
+| `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Separate derive (matches SeaORM pattern) |
 | `DeriveRelation` | ❌ Missing | 🟡 **Future** | Relation enum with RelationTrait |
@@ -116,12 +116,12 @@ This design simplifies the API while maintaining the same functionality.
 | `Select<E>::order_by()` | `SelectQuery<E>::order_by()` | ✅ Implemented | ORDER BY clause |
 | `Select<E>::limit()` | `SelectQuery<E>::limit()` | ✅ Implemented | LIMIT clause |
 | `Select<E>::offset()` | `SelectQuery<E>::offset()` | ✅ Implemented | OFFSET clause |
-| `Select<E>::group_by()` | ❌ Missing | 🔴 **Future** | GROUP BY clause |
-| `Select<E>::having()` | ❌ Missing | 🔴 **Future** | HAVING clause |
-| `Select<E>::join()` | ❌ Missing | 🟡 **Future** | JOIN operations |
-| `Select<E>::left_join()` | ❌ Missing | 🟡 **Future** | LEFT JOIN |
-| `Select<E>::right_join()` | ❌ Missing | 🟡 **Future** | RIGHT JOIN |
-| `Select<E>::inner_join()` | ❌ Missing | 🟡 **Future** | INNER JOIN |
+| `Select<E>::group_by()` | `SelectQuery<E>::group_by()` | ✅ Implemented | GROUP BY clause |
+| `Select<E>::having()` | `SelectQuery<E>::having()` | ✅ Implemented | HAVING clause |
+| `Select<E>::join()` | `SelectQuery<E>::join()` | ✅ Implemented | JOIN operations (INNER JOIN) |
+| `Select<E>::left_join()` | `SelectQuery<E>::left_join()` | ✅ Implemented | LEFT JOIN |
+| `Select<E>::right_join()` | `SelectQuery<E>::right_join()` | ✅ Implemented | RIGHT JOIN |
+| `Select<E>::inner_join()` | `SelectQuery<E>::inner_join()` | ✅ Implemented | INNER JOIN (alias for join()) |
 | `Select<E>::all()` | `SelectQuery<E>::all()` | ✅ Implemented | Execute and return Vec<Model> |
 | `Select<E>::one()` | `SelectQuery<E>::one()` | ✅ Implemented | Execute and return Option<Model> |
 | `Select<E>::paginate()` | `SelectQuery<E>::paginate()` | ✅ Implemented | Returns Paginator |
@@ -178,8 +178,8 @@ This design simplifies the API while maintaining the same functionality.
 | `ActiveModel::get()` | `ActiveModelTrait::get()` | ✅ Implemented | Get field value as Option<Value> (optimized, no to_model() needed) |
 | `ActiveModel::take()` | `ActiveModelTrait::take()` | ✅ Implemented | Take field value (move) (optimized, no to_model() needed) |
 | `ActiveModel::into_active_value()` | ✅ Implemented | ✅ Complete | Convert to ActiveValue (default implementation in trait) |
-| `ActiveModel::from_json()` | ❌ Missing | 🟡 **Future** | Deserialize from JSON (JSON column support is ✅ core feature) |
-| `ActiveModel::to_json()` | ❌ Missing | 🟡 **Future** | Serialize to JSON (JSON column support is ✅ core feature) |
+| `ActiveModel::from_json()` | `ActiveModelTrait::from_json()` | ✅ Implemented | Deserialize from JSON (uses Model Deserialize, then from_model()) |
+| `ActiveModel::to_json()` | `ActiveModelTrait::to_json()` | ✅ Implemented | Serialize to JSON (iterates over set fields using get(), converts Value to JSON - no to_model() needed) |
 | `Model::into_active_model()` | `Model::to_record()` | ✅ Implemented | Convert Model to Record (different name) |
 | `Record::from_model()` | ✅ Implemented | Create Record from Model |
 | `Record::to_model()` | ✅ Implemented | Convert Record to Model |
@@ -283,21 +283,27 @@ This design simplifies the API while maintaining the same functionality.
 - `update()` - UPDATE operation ✅ (requires PK, updates only dirty fields)
 - `save()` - Insert or update based on PK presence ✅ (routes to insert/update)
 - `delete()` - DELETE operation ✅ (requires PK)
-- `from_json()`, `to_json()` serialization 🟡 (Future)
-- Integration with `ActiveModelBehavior` for custom hooks 🟡 (Future)
+- `from_json()`, `to_json()` serialization ✅ (Implemented - from_json() uses Model Deserialize, to_json() iterates set fields directly)
+- Integration with `ActiveModelBehavior` for custom hooks ✅ (Implemented - 8 lifecycle hooks with default implementations)
 
 **Note:** All CRUD operations use SeaQuery for SQL generation and proper parameter binding. `get()` and `take()` have been optimized to avoid the `to_model()` requirement, using direct type conversion from `Option<T>` to `Value`.
 
 ### Medium Priority (Relations & Advanced Features)
 
 #### Relations
-**Status:** 🟡 Future  
-**Future State:** Entity relationship support:
-- `RelationTrait` - Define relationships (belongs_to, has_one, has_many, has_many_through)
+**Status:** 🟡 Partial  
+**Current State:**
+- `RelationTrait` - ✅ Implemented with functional query building (belongs_to, has_one, has_many, has_many_through methods accept foreign keys and join conditions)
+- `join_condition()` helper function - ✅ Implemented (creates join conditions from table/column names)
+- All relationship methods build actual queries with LEFT JOIN clauses
+**Future State:**
+- Automatic join condition generation from foreign key metadata
 - `Related` - Related entity queries
 - `Linked` - Multi-hop relationship queries
 - `DeriveRelation` - Generate Relation enum
 - `DeriveRelatedEntity` - Generate RelatedEntity enum
+- Eager loading support
+- Lazy loading support
 
 #### Partial Models
 **Status:** 🟡 Future  
@@ -307,12 +313,13 @@ This design simplifies the API while maintaining the same functionality.
 - Select subset of columns from queries
 
 #### Advanced Query Features
-**Status:** 🟡 Future  
+**Status:** 🟢 Partial  
+**Current State:**
+- `group_by()`, `having()` - ✅ Implemented (GROUP BY and HAVING clauses)
+- `join()`, `left_join()`, `right_join()`, `inner_join()` - ✅ Implemented (JOIN operations)
 **Future State:**
-- `group_by()`, `having()` - GROUP BY and HAVING clauses
-- `join()`, `left_join()`, `right_join()`, `inner_join()` - JOIN operations
-- Subqueries and CTEs
-- Window functions
+- Subqueries and CTEs (🟡 Future)
+- Window functions (🟡 Future)
 
 ### Low Priority (Nice-to-Have)
 
@@ -340,7 +347,6 @@ This design simplifies the API while maintaining the same functionality.
 
 **Future Enhancements:**
 - `FromJsonQueryResult` - JSON query result deserialization (🟡 Future)
-- `ActiveModel::from_json()`, `ActiveModel::to_json()` - ActiveModel JSON methods (🟡 Future)
 
 **Note:** JSON support is a core feature and is always enabled. All JSON functionality works out of the box without any feature flags or configuration.
 
@@ -360,12 +366,12 @@ This design simplifies the API while maintaining the same functionality.
 | **Core Traits** | 15 | 7 | 47% (Enhanced: PrimaryKeyArity with granular variants) |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
-| **Query Builder Methods** | 20 | 13 | 65% |
+| **Query Builder Methods** | 20 | 19 | 95% |
 | **Column Operations** | 15 | 15 | 100% |
-| **ActiveModel/Record Operations** | 12 | 5 | 42% |
+| **ActiveModel/Record Operations** | 12 | 7 | 58% |
 | **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 65 | **56%** |
+| **Overall** | 117 | 74 | **63%** |
 
 ---
 
