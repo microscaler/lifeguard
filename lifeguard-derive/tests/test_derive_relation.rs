@@ -4,7 +4,8 @@
 //! Related trait implementations from Relation enum definitions.
 
 use lifeguard_derive::DeriveRelation;
-use lifeguard::{Related, SelectQuery, LifeModelTrait, LifeEntityName, RelationMetadata};
+use lifeguard::{Related, RelationDef, LifeModelTrait, LifeEntityName};
+use lifeguard::relation::RelationMetadata;
 
 // Test entities
 #[derive(Default, Copy, Clone)]
@@ -77,16 +78,68 @@ pub enum UserColumn {
     Id,
 }
 
+impl sea_query::Iden for UserColumn {
+    fn unquoted(&self) -> &str {
+        match self {
+            UserColumn::Id => "id",
+        }
+    }
+}
+
+impl sea_query::IdenStatic for UserColumn {
+    fn as_str(&self) -> &'static str {
+        match self {
+            UserColumn::Id => "id",
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum PostColumn {
     Id,
     UserId,
 }
 
+impl sea_query::Iden for PostColumn {
+    fn unquoted(&self) -> &str {
+        match self {
+            PostColumn::Id => "id",
+            PostColumn::UserId => "user_id",
+        }
+    }
+}
+
+impl sea_query::IdenStatic for PostColumn {
+    fn as_str(&self) -> &'static str {
+        match self {
+            PostColumn::Id => "id",
+            PostColumn::UserId => "user_id",
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum CommentColumn {
     Id,
     PostId,
+}
+
+impl sea_query::Iden for CommentColumn {
+    fn unquoted(&self) -> &str {
+        match self {
+            CommentColumn::Id => "id",
+            CommentColumn::PostId => "post_id",
+        }
+    }
+}
+
+impl sea_query::IdenStatic for CommentColumn {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CommentColumn::Id => "id",
+            CommentColumn::PostId => "post_id",
+        }
+    }
 }
 
 // Test Entity (assumed to be PostEntity for this test)
@@ -128,26 +181,28 @@ fn test_derive_relation_generates_related_impls() {
     // Test that Related trait implementations are generated
     // This is a compile-time test - if it compiles, the macro worked
     
-    // Test has_many relationship
-    let _query: SelectQuery<CommentEntity> = CommentEntity::to();
+    // Test has_many relationship: Entity -> CommentEntity
+    // The macro generates: impl Related<CommentEntity> for Entity
+    let _rel_def: RelationDef = <Entity as Related<CommentEntity>>::to();
     
-    // Test belongs_to relationship
-    let _query: SelectQuery<UserEntity> = UserEntity::to();
+    // Test belongs_to relationship: Entity -> UserEntity
+    // The macro generates: impl Related<UserEntity> for Entity
+    let _rel_def: RelationDef = <Entity as Related<UserEntity>>::to();
 }
 
 #[test]
 fn test_derive_relation_with_metadata() {
     // Test that RelationMetadata is generated when from/to columns are provided
-    // The belongs_to relationship should have RelationMetadata implementation
-    
-    // Check if RelationMetadata is implemented (compile-time check)
-    let fk_col = <CommentEntity as RelationMetadata<Entity>>::foreign_key_column();
-    // Should return None for has_many (no from/to specified)
-    assert_eq!(fk_col, None);
+    // The belongs_to relationship (User) should have RelationMetadata implementation
     
     // For belongs_to with from/to, RelationMetadata should be implemented
-    // But we can't easily test this without the actual generated code
-    // This test mainly verifies compilation
+    // The macro generates: impl RelationMetadata<Entity> for UserEntity
+    let fk_col = <UserEntity as RelationMetadata<Entity>>::foreign_key_column();
+    // Should return Some("user_id") since from = "Column::UserId" was specified
+    assert_eq!(fk_col, Some("user_id"));
+    
+    // For has_many (Comments) without from/to, RelationMetadata should not be implemented
+    // This is expected - the macro only generates RelationMetadata when from/to are provided
 }
 
 #[test]

@@ -136,9 +136,17 @@ fn process_relation_variant(
     }
     
     // Generate Related trait implementation if we have the required information
-    if let (Some(_rel_type), Some(target)) = (relationship_type, target_entity) {
+    if let (Some(rel_type_str), Some(target)) = (relationship_type.as_ref(), target_entity.as_ref()) {
+        // Capture relationship type before move
+        let rel_type = match rel_type_str.as_str() {
+            "has_many" => quote! { lifeguard::RelationType::HasMany },
+            "has_one" => quote! { lifeguard::RelationType::HasOne },
+            "belongs_to" => quote! { lifeguard::RelationType::BelongsTo },
+            _ => quote! { lifeguard::RelationType::HasMany }, // Default
+        };
+        
         // Parse target entity path (e.g., "super::posts::Entity")
-        let target_entity_path: syn::Path = syn::parse_str(&target)
+        let target_entity_path: syn::Path = syn::parse_str(target)
             .unwrap_or_else(|_| {
                 // If parsing fails, try to construct a path
                 let segments: Vec<&str> = target.split("::").collect();
@@ -166,7 +174,7 @@ fn process_relation_variant(
                 // Convert to snake_case for column name
                 let fk_name_lit = syn::LitStr::new(&fk_name, proc_macro2::Span::call_site());
                 quote! {
-                    impl lifeguard::RelationMetadata<Entity> for #target_entity_path {
+                    impl lifeguard::relation::RelationMetadata<Entity> for #target_entity_path {
                         fn foreign_key_column() -> Option<&'static str> {
                             Some(#fk_name_lit)
                         }
@@ -180,13 +188,74 @@ fn process_relation_variant(
             quote! {}
         };
         
-        // Generate Related trait implementation
+        // Generate Related trait implementation with RelationDef
         // Note: Entity is assumed to be in the same module as the Relation enum
+        // This is a simplified implementation - full Phase 6 will add proper Identity handling
+        
+        // Get table names - simplified for now (will be enhanced in Phase 6)
+        // We'll use the entity's table_name() method
+        // Note: Entity is assumed to be in the same module as the Relation enum (documented assumption)
+        let from_table_name = quote! {
+            {
+                let entity = Entity::default();
+                entity.table_name()
+            }
+        };
+        let to_table_name = quote! {
+            {
+                let entity = #target_entity_path::default();
+                entity.table_name()
+            }
+        };
+        
+        // Build Identity for from_col and to_col
+        // For now, use simplified approach - will be enhanced in Phase 6
+        let from_col_identity = if let Some(from_col) = from_column.as_ref() {
+            if let Some(col_name) = extract_column_name(from_col) {
+                let col_name_lit = syn::LitStr::new(&col_name, proc_macro2::Span::call_site());
+                quote! {
+                    lifeguard::Identity::Unary(#col_name_lit.into())
+                }
+            } else {
+                // Default: infer from relationship type
+                quote! {
+                    lifeguard::Identity::Unary("id".into())
+                }
+            }
+        } else {
+            // Default: infer from relationship type
+            quote! {
+                lifeguard::Identity::Unary("id".into())
+            }
+        };
+        
+        let to_col_identity = if let Some(_to_col) = to_column.as_ref() {
+            // Use the "to" column if specified
+            quote! {
+                lifeguard::Identity::Unary("id".into())
+            }
+        } else {
+            // Default: primary key column
+            quote! {
+                lifeguard::Identity::Unary("id".into())
+            }
+        };
+        
         Some(quote! {
             impl lifeguard::Related<#target_entity_path> for Entity {
-                fn to() -> lifeguard::SelectQuery<#target_entity_path> {
-                    // Return base query - find_related() will add WHERE clause using relationship metadata
-                    lifeguard::SelectQuery::new()
+                fn to() -> lifeguard::RelationDef {
+                    use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+                    lifeguard::RelationDef {
+                        rel_type: #rel_type,
+                        from_tbl: TableRef::Table(TableName(None, #from_table_name.into_iden()), None),
+                        to_tbl: TableRef::Table(TableName(None, #to_table_name.into_iden()), None),
+                        from_col: #from_col_identity,
+                        to_col: #to_col_identity,
+                        is_owner: true,
+                        skip_fk: false,
+                        on_condition: None,
+                        condition_type: ConditionType::All,
+                    }
                 }
             }
             #fk_col_impl
