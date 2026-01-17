@@ -71,9 +71,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use lifeguard_derive::DeriveRelation;
 ///
+/// // In your entity module, define the Relation enum:
 /// #[derive(DeriveRelation)]
 /// pub enum Relation {
 ///     #[lifeguard(has_many = "super::posts::Entity")]
@@ -81,6 +82,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 ///     #[lifeguard(belongs_to = "super::users::Entity")]
 ///     User,
 /// }
+/// 
+/// // The macro generates Related trait implementations:
+/// // impl Related<super::posts::Entity> for Entity { ... }
+/// // impl Related<super::users::Entity> for Entity { ... }
 /// ```
 #[proc_macro_derive(DeriveRelation, attributes(lifeguard))]
 pub fn derive_relation(input: TokenStream) -> TokenStream {

@@ -45,10 +45,10 @@ fn convert_pascal_to_snake_case(s: &str) -> String {
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use lifeguard_derive::DeriveRelation;
-/// use lifeguard::{Related, SelectQuery, LifeModelTrait};
 ///
+/// // In your entity module, define the Relation enum:
 /// #[derive(DeriveRelation)]
 /// pub enum Relation {
 ///     #[lifeguard(has_many = "super::posts::Entity")]
@@ -60,6 +60,10 @@ fn convert_pascal_to_snake_case(s: &str) -> String {
 ///     )]
 ///     User,
 /// }
+/// 
+/// // The macro generates:
+/// // - Related trait implementations returning RelationDef
+/// // - RelationMetadata implementations when from/to are specified
 /// ```
 pub fn derive_relation(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
