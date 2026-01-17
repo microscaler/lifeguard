@@ -340,11 +340,36 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     sea_query::Value::BigUnsigned(None) => serde_json::Value::Null,
                     sea_query::Value::Float(Some(v)) => {
                         // f32 to JSON number (may lose precision, but JSON only supports f64)
-                        serde_json::Value::Number(serde_json::Number::from_f64(v as f64).unwrap_or_else(|| serde_json::Number::from(0)))
+                        let v_f64 = v as f64;
+                        // Handle special floating-point values that can't be represented as JSON numbers
+                        if v_f64.is_nan() {
+                            serde_json::Value::String("NaN".to_string())
+                        } else if v_f64.is_infinite() {
+                            if v_f64.is_sign_negative() {
+                                serde_json::Value::String("-Infinity".to_string())
+                            } else {
+                                serde_json::Value::String("Infinity".to_string())
+                            }
+                        } else {
+                            // Valid finite number - convert to JSON number
+                            serde_json::Value::Number(serde_json::Number::from_f64(v_f64).unwrap_or_else(|| serde_json::Number::from(0)))
+                        }
                     },
                     sea_query::Value::Float(None) => serde_json::Value::Null,
                     sea_query::Value::Double(Some(v)) => {
-                        serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap_or_else(|| serde_json::Number::from(0)))
+                        // Handle special floating-point values that can't be represented as JSON numbers
+                        if v.is_nan() {
+                            serde_json::Value::String("NaN".to_string())
+                        } else if v.is_infinite() {
+                            if v.is_sign_negative() {
+                                serde_json::Value::String("-Infinity".to_string())
+                            } else {
+                                serde_json::Value::String("Infinity".to_string())
+                            }
+                        } else {
+                            // Valid finite number - convert to JSON number
+                            serde_json::Value::Number(serde_json::Number::from_f64(v).unwrap_or_else(|| serde_json::Number::from(0)))
+                        }
                     },
                     sea_query::Value::Double(None) => serde_json::Value::Null,
                     sea_query::Value::Bool(Some(v)) => serde_json::Value::Bool(v),

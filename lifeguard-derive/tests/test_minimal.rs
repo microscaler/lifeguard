@@ -3383,6 +3383,248 @@ mod active_model_trait_tests {
         assert!(restored_name.is_some());
     }
 
+    // Entity with float fields for testing NaN and infinity serialization
+    mod float_tests {
+        use super::*;
+        
+        #[derive(LifeModel, LifeRecord)]
+        #[table_name = "float_fields"]
+        pub struct FloatFields {
+            #[primary_key]
+            pub id: i32,
+            pub f32_field: f32,
+            pub f64_field: f64,
+        }
+    }
+
+    #[test]
+    fn test_json_with_nan_and_infinity() {
+        // EDGE CASE: JSON serialization of NaN and infinity values
+        // These special floating-point values cannot be represented as JSON numbers
+        // and should be serialized as strings to preserve the information
+        use float_tests::*;
+        use serde_json::json;
+        use lifeguard::LifeModelTrait;
+        
+        let mut record = FloatFieldsRecord::new();
+        record.set_id(1);
+        
+        // Test NaN for f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with NaN");
+        let obj = json.as_object().unwrap();
+        // NaN should be serialized as string "NaN", not number 0
+        assert_eq!(obj.get("f32_field"), Some(&json!("NaN")), "NaN should be serialized as string");
+        
+        // Test positive infinity for f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f32_field"), Some(&json!("Infinity")), "Positive infinity should be serialized as string");
+        
+        // Test negative infinity for f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with negative infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f32_field"), Some(&json!("-Infinity")), "Negative infinity should be serialized as string");
+        
+        // Test NaN for f64
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with NaN");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("NaN")), "NaN should be serialized as string");
+        
+        // Test positive infinity for f64
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("Infinity")), "Positive infinity should be serialized as string");
+        
+        // Test negative infinity for f64
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with negative infinity");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("-Infinity")), "Negative infinity should be serialized as string");
+        
+        // Test that normal finite numbers are still serialized as numbers
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(2.71828))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed with normal numbers");
+        let obj = json.as_object().unwrap();
+        // Normal numbers should be JSON numbers, not strings
+        assert!(obj.get("f32_field").unwrap().is_number(), "Normal f32 should be a number");
+        assert!(obj.get("f64_field").unwrap().is_number(), "Normal f64 should be a number");
+    }
+
+    #[test]
+    fn test_json_roundtrip_with_nan_and_infinity() {
+        // EDGE CASE: Roundtrip serialization/deserialization of NaN and infinity
+        // With custom deserializers, we can now roundtrip NaN/infinity values
+        use float_tests::*;
+        use lifeguard::LifeModelTrait;
+        
+        let mut original = FloatFieldsRecord::new();
+        original.set_id(1);
+        original.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        original.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        
+        // Serialize to JSON (NaN/infinity become strings)
+        let json = original.to_json().expect("to_json() should succeed");
+        
+        // Deserialize back - should now succeed with custom deserializers
+        let restored = FloatFieldsRecord::from_json(json).expect("from_json() should succeed with custom deserializers");
+        
+        // Verify the values were preserved
+        let restored_f32 = restored.get(<Entity as LifeModelTrait>::Column::F32Field);
+        match restored_f32 {
+            Some(sea_query::Value::Float(Some(v))) => assert!(v.is_nan(), "f32 NaN should be preserved"),
+            _ => panic!("Expected Float(Some(NaN)), got {:?}", restored_f32),
+        }
+        
+        let restored_f64 = restored.get(<Entity as LifeModelTrait>::Column::F64Field);
+        match restored_f64 {
+            Some(sea_query::Value::Double(Some(v))) => {
+                assert!(v.is_infinite() && v.is_sign_positive(), "f64 Infinity should be preserved");
+            }
+            _ => panic!("Expected Double(Some(Infinity)), got {:?}", restored_f64),
+        }
+        
+        // Test negative infinity roundtrip
+        let mut original2 = FloatFieldsRecord::new();
+        original2.set_id(2);
+        original2.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
+        original2.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
+        
+        let json2 = original2.to_json().expect("to_json() should succeed");
+        let restored2 = FloatFieldsRecord::from_json(json2).expect("from_json() should succeed");
+        
+        let restored_f32_2 = restored2.get(<Entity as LifeModelTrait>::Column::F32Field);
+        match restored_f32_2 {
+            Some(sea_query::Value::Float(Some(v))) => {
+                assert!(v.is_infinite() && v.is_sign_negative(), "f32 -Infinity should be preserved");
+            }
+            _ => panic!("Expected Float(Some(-Infinity)), got {:?}", restored_f32_2),
+        }
+    }
+
+    #[test]
+    fn test_json_with_option_float_nan_and_infinity() {
+        // EDGE CASE: Option<f32> and Option<f64> fields with NaN/infinity
+        use float_tests::*;
+        use serde_json::json;
+        use lifeguard::LifeModelTrait;
+        
+        // Create a test entity with Option float fields
+        mod option_float_tests {
+            use super::super::*;
+            
+            #[derive(LifeModel, LifeRecord)]
+            #[table_name = "option_float_fields"]
+            pub struct OptionFloatFields {
+                #[primary_key]
+                pub id: i32,
+                pub f32_field: Option<f32>,
+                pub f64_field: Option<f64>,
+            }
+        }
+        
+        use option_float_tests::*;
+        
+        let mut record = OptionFloatFieldsRecord::new();
+        record.set_id(1);
+        
+        // Test Option<f32> with NaN
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f32_field"), Some(&json!("NaN")), "Option<f32> NaN should be serialized as string");
+        
+        // Test Option<f64> with infinity
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("f64_field"), Some(&json!("Infinity")), "Option<f64> infinity should be serialized as string");
+        
+        // Test Option fields with None (should be null, not string)
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(None)).expect("set should succeed");
+        record.set(<option_float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(None)).expect("set should succeed");
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        // None values should not appear in JSON (only set fields are included)
+        // But if they were included, they'd be null, not the string "NaN"
+        assert!(!obj.contains_key("f32_field") || obj.get("f32_field") == Some(&json!(null)), "Option None should be null or omitted");
+    }
+
+    #[test]
+    fn test_nan_comparison_edge_cases() {
+        // EDGE CASE: NaN comparison behavior
+        // NaN != NaN in Rust (IEEE 754 standard), so Value comparisons with NaN will also fail
+        // This is expected behavior and documents an important edge case
+        use float_tests::*;
+        use lifeguard::LifeModelTrait;
+        
+        let mut record1 = FloatFieldsRecord::new();
+        record1.set_id(1);
+        record1.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        
+        let mut record2 = FloatFieldsRecord::new();
+        record2.set_id(1);
+        record2.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        
+        // Both records have NaN
+        let val1 = record1.get(<Entity as LifeModelTrait>::Column::F32Field);
+        let val2 = record2.get(<Entity as LifeModelTrait>::Column::F32Field);
+        
+        // Extract the actual f32 values to verify they're both NaN
+        match (&val1, &val2) {
+            (Some(sea_query::Value::Float(Some(v1))), Some(sea_query::Value::Float(Some(v2)))) => {
+                // Both should be NaN
+                assert!(v1.is_nan() && v2.is_nan(), "Both values should be NaN");
+                
+                // NaN != NaN in Rust (IEEE 754 standard)
+                // This means Value::Float(Some(NaN)) != Value::Float(Some(NaN)) when using PartialEq
+                // This is expected behavior and documents an important edge case
+                assert_ne!(v1, v2, "NaN != NaN in Rust (IEEE 754 standard - this is expected behavior)");
+                
+                // The Value variants themselves also won't compare equal because they contain NaN
+                // This is a limitation of using PartialEq with NaN values
+                assert_ne!(val1, val2, "Value::Float(Some(NaN)) != Value::Float(Some(NaN)) because NaN != NaN");
+            }
+            _ => panic!("Expected Float(Some(NaN)) values"),
+        }
+    }
+
+    #[test]
+    fn test_mixed_normal_and_special_float_values() {
+        // EDGE CASE: Record with mix of normal numbers and NaN/infinity
+        use float_tests::*;
+        use serde_json::json;
+        use lifeguard::LifeModelTrait;
+        
+        let mut record = FloatFieldsRecord::new();
+        record.set_id(1);
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        
+        // Normal number should be a number
+        assert!(obj.get("f32_field").unwrap().is_number(), "Normal f32 should be a number");
+        // NaN should be a string
+        assert_eq!(obj.get("f64_field"), Some(&json!("NaN")), "NaN should be serialized as string");
+        
+        // Test the reverse: normal f64, special f32
+        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::INFINITY))).expect("set should succeed");
+        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(2.71828))).expect("set should succeed");
+        
+        let json = record.to_json().expect("to_json() should succeed");
+        let obj = json.as_object().unwrap();
+        
+        assert_eq!(obj.get("f32_field"), Some(&json!("Infinity")), "Infinity should be serialized as string");
+        assert!(obj.get("f64_field").unwrap().is_number(), "Normal f64 should be a number");
+    }
+
     #[test]
     fn test_json_roundtrip_with_column_name_attribute() {
         // Test that JSON roundtrip works when #[column_name] attribute is used

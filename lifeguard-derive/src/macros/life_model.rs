@@ -169,9 +169,33 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
         // Generate Model field with serde rename attribute to match to_json() behavior
         // This ensures from_json() and to_json() use the same JSON key names (database column names)
+        // Also add custom deserializers for f32/f64 to handle NaN/infinity string representations
         let column_name_lit = syn::LitStr::new(&column_name, field_name.span());
+        
+        // Check if this is a float type that needs custom deserialization
+        let deserialize_attr = if type_conversion::is_f32_type(field_type) {
+            Some(quote! {
+                #[serde(deserialize_with = "lifeguard::deserialize_f32")]
+            })
+        } else if type_conversion::is_f64_type(field_type) {
+            Some(quote! {
+                #[serde(deserialize_with = "lifeguard::deserialize_f64")]
+            })
+        } else if type_conversion::is_option_f32_type(field_type) {
+            Some(quote! {
+                #[serde(deserialize_with = "lifeguard::deserialize_option_f32")]
+            })
+        } else if type_conversion::is_option_f64_type(field_type) {
+            Some(quote! {
+                #[serde(deserialize_with = "lifeguard::deserialize_option_f64")]
+            })
+        } else {
+            None
+        };
+        
         model_fields.push(quote! {
             #[serde(rename = #column_name_lit)]
+            #deserialize_attr
             pub #field_name: #field_type,
         });
 

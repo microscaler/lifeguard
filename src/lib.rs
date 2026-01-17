@@ -78,6 +78,10 @@ pub use relation::{RelationTrait, RelationBuilder, join_condition};
 pub mod partial_model;
 pub use partial_model::{PartialModelTrait, PartialModelBuilder, SelectPartialQuery};
 
+// JSON helpers - Custom deserializers for floating-point types
+pub mod json_helpers;
+pub use json_helpers::{deserialize_f32, deserialize_f64, deserialize_option_f32, deserialize_option_f64};
+
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{
     execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
