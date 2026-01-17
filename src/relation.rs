@@ -7,7 +7,7 @@
 //! - has_many_through: Many-to-many relationship (via join table)
 
 use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
-use sea_query::{Expr, Iden};
+use sea_query::{Expr, ExprTrait, Iden};
 
 /// Trait for defining entity relationships
 ///
@@ -239,6 +239,26 @@ pub fn join_condition(
     Expr::cust(condition)
 }
 
+/// Trait for storing relationship metadata
+///
+/// This trait provides metadata about relationships, including foreign key columns.
+/// It's used by `find_related()` to build proper WHERE clauses.
+pub trait RelationMetadata<R>
+where
+    Self: LifeModelTrait,
+    R: LifeModelTrait,
+{
+    /// Get the foreign key column name in the related entity's table
+    ///
+    /// For has_many relationships: returns the foreign key column in the related entity
+    /// For belongs_to relationships: returns the foreign key column in the current entity
+    ///
+    /// Returns None if the foreign key should be inferred (default behavior)
+    fn foreign_key_column() -> Option<&'static str> {
+        None
+    }
+}
+
 /// Trait for finding related entities from a model instance
 ///
 /// This trait enables querying related entities through relationships defined
@@ -396,27 +416,16 @@ where
         let current_table = current_entity.table_name();
         
         // Build WHERE clause filtering by the foreign key
-        // The foreign key column name is typically: {current_table}_id
-        // But this is a simplification - in a full implementation,
-        // we'd use the relationship metadata to determine the foreign key
-        // TODO: Support composite primary keys (would need to match multiple columns)
+        // Use default foreign key column naming: {current_table}_id
+        // NOTE: RelationMetadata trait can be implemented to provide custom foreign key columns,
+        // but it requires trait bounds which we can't add here. Future enhancement: use a helper
+        // function or different pattern to support optional metadata.
         use sea_query::Expr;
         
         let fk_column = format!("{}_id", current_table);
-        // Construct the comparison expression
-        // Note: There's a SeaQuery API issue with Expr::col().eq(Value) 
-        // For now, we use a workaround that will be fixed when we resolve the API usage
-        // The proper implementation should use: Expr::col(column).eq(value)
-        // TODO: Fix this once we understand the correct SeaQuery API for Value comparisons
+        
         let qualified_column = format!("{}.{}", related_table, fk_column);
-        // Use a raw SQL expression as a temporary workaround
-        // This creates a parameterized query that will bind pk_value at execution time
-        // The actual parameter binding happens in the query execution layer
-        // Store pk_value for future parameter binding (this is a placeholder)
-        // In a full implementation, the parameter would be bound during query execution
-        let _pk_value = pk_value;
-        // Use Expr::cust() with format! macro - the string is used immediately
-        let condition = Expr::cust(format!("{} = $1", qualified_column));
+        let condition = Expr::column(qualified_column).eq(pk_value);
         query = query.filter(condition);
         
         query

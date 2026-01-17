@@ -425,8 +425,31 @@ where
     /// # let query = UserModel::find();
     /// let filtered = query.filter(Expr::col("id").eq(1));
     /// ```
-    pub fn filter(mut self, condition: Expr) -> Self {
-        self.query.and_where(condition);
+    /// Add a filter condition
+    ///
+    /// Accepts any type that implements `IntoCondition`, including:
+    /// - `SimpleExpr` (from `Expr::column()`, `Expr::col()`, etc.)
+    /// - `Condition` (from `Condition::all()`, `Condition::any()`, etc.)
+    /// - `Expr` (automatically converted to `SimpleExpr` via `IntoCondition`)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::Expr;
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let filtered = query.filter(Expr::col("id").eq(1));
+    /// ```
+    pub fn filter<F>(mut self, condition: F) -> Self
+    where
+        F: sea_query::IntoCondition,
+    {
+        self.query.cond_where(condition.into_condition());
         self
     }
     
