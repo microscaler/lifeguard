@@ -48,11 +48,24 @@ The `build_where_condition` function incorrectly uses `rel_def.to_tbl` when buil
 
 ---
 
+### [BUG-2025-01-27-03](bugs/BUG-2025-01-27-03.md)
+
+**Date**: 2025-01-27  
+**Source**: Cursor verification  
+**Status**: `fixed`  
+**Severity**: `critical`  
+**Location**: `src/relation/def.rs:216-217`, `src/relation/def.rs:288`  
+**Impact**: Both `join_tbl_on_condition` and `build_where_condition` use `format!("{:?}", table_ref)` which produces invalid SQL with debug representation instead of actual table names
+
+Both `join_tbl_on_condition` and `build_where_condition` use `format!("{:?}", table_ref)` to convert `TableRef` to a string for SQL generation. The `{:?}` format specifier invokes Rust's `Debug` trait, which produces output like `Table(TableName(None, DynIden(...)), None)` rather than the actual table name (e.g., `"posts"`). This generates syntactically invalid SQL that cannot be executed against any database.
+
+---
+
 ## Bug Statistics
 
-- **Total Bugs**: 2
+- **Total Bugs**: 3
 - **Open**: 0
-- **Fixed**: 2
+- **Fixed**: 3
 - **Verified**: 0 (pending runtime tests)
 
 ## Status Legend

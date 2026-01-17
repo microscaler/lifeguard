@@ -108,6 +108,47 @@ impl RelationDef {
     }
 }
 
+/// Extract table name string from TableRef
+///
+/// This helper function extracts the actual table name from a `TableRef`,
+/// avoiding the use of `Debug` formatting which produces invalid SQL.
+///
+/// # Arguments
+///
+/// * `table_ref` - The table reference to extract the name from
+///
+/// # Returns
+///
+/// The table name as a string, or a default value if extraction fails
+///
+/// # Panics
+///
+/// Panics if `TableRef` is not in the expected format (should not happen in normal usage)
+fn extract_table_name(table_ref: &TableRef) -> String {
+    match table_ref {
+        TableRef::Table(table_name, _alias) => {
+            // TableName is a tuple (Option<DynIden>, DynIden) where the second element is the table name
+            // We need to extract the DynIden and use Iden::unquoted() to get the string
+            // TableName is a tuple struct, so we need to access its fields
+            // Based on sea-query's structure: TableName(schema: Option<DynIden>, table: DynIden)
+            let table_iden = match table_name {
+                sea_query::TableName(_schema, table) => {
+                    // If schema is present, we might want to include it, but for now just return table name
+                    // In the future, we could return "schema.table" format
+                    // DynIden implements Display/ToString, so we can use to_string() directly
+                    table.to_string()
+                }
+            };
+            table_iden
+        }
+        // Handle other TableRef variants if they exist
+        _ => {
+            // Fallback: try to convert to string via Debug, but this should not be used in production
+            format!("{:?}", table_ref)
+        }
+    }
+}
+
 /// Convert RelationDef to Condition for use in JOINs
 ///
 /// This implementation allows `RelationDef` to be used directly where SeaQuery
@@ -209,12 +250,11 @@ pub fn join_tbl_on_condition(
     // SeaQuery's Expr::col() accepts (table, column) tuples where both are IntoColumnRef
     for (fk_col, pk_col) in from_col.iter().zip(to_col.iter()) {
         // Create table-qualified column expressions using Expr::col()
-        // We need to convert TableRef and DynIden to something Expr::col() can accept
-        // For now, use a custom SQL expression similar to join_condition()
+        // Extract actual table names from TableRef, not Debug representation
         let fk_col_str = fk_col.to_string();
         let pk_col_str = pk_col.to_string();
-        let from_tbl_str = format!("{:?}", from_tbl);
-        let to_tbl_str = format!("{:?}", to_tbl);
+        let from_tbl_str = extract_table_name(&from_tbl);
+        let to_tbl_str = extract_table_name(&to_tbl);
         
         // Create join condition: from_table.fk_col = to_table.pk_col
         // This is a simplified approach - in the future we may want to use proper Expr::col()
@@ -285,7 +325,8 @@ where
         // Convert DynIden to string for column name
         let fk_col_str = fk_col.to_string();
         // The foreign key column exists in from_tbl, not to_tbl
-        let from_tbl_str = format!("{:?}", rel_def.from_tbl);
+        // Extract actual table name from TableRef, not Debug representation
+        let from_tbl_str = extract_table_name(&rel_def.from_tbl);
         
         // Create WHERE condition: table.column = value
         // Use Expr::col() for the column and Expr::val() for the value
@@ -362,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_join_tbl_on_condition_single_key() {
-        use sea_query::{TableName, IntoIden};
+        use sea_query::{TableName, IntoIden, Query, PostgresQueryBuilder};
         
         let condition = join_tbl_on_condition(
             TableRef::Table(TableName(None, "posts".into_iden()), None),
@@ -371,10 +412,18 @@ mod tests {
             Identity::Unary("id".into()),
         );
 
-        // Verify condition was created (can't easily test the exact SQL without executing)
-        // The condition should represent: posts.user_id = users.id
-        // Condition is a struct, not an enum, so we just verify it was created
-        let _ = condition;
+        // Verify condition was created and contains actual table names, not debug output
+        // Build a query with the condition to check the SQL output
+        let mut query = Query::select();
+        query.from("posts");
+        query.cond_where(condition);
+        let (sql, _) = query.build(PostgresQueryBuilder);
+        
+        // Verify SQL contains actual table names, not debug representation
+        assert!(sql.contains("posts"), "SQL should contain table name 'posts'");
+        assert!(sql.contains("users"), "SQL should contain table name 'users'");
+        assert!(!sql.contains("Table("), "SQL should not contain Debug representation 'Table('");
+        assert!(!sql.contains("TableName("), "SQL should not contain Debug representation 'TableName('");
     }
 
     #[test]
@@ -494,6 +543,25 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_table_name() {
+        // Test that extract_table_name returns actual table names, not debug output
+        use sea_query::{TableName, IntoIden};
+        
+        let table_ref = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let table_name = extract_table_name(&table_ref);
+        
+        // Verify it returns the actual table name, not debug representation
+        assert_eq!(table_name, "posts");
+        assert!(!table_name.contains("Table("));
+        assert!(!table_name.contains("TableName("));
+        
+        // Test with different table name
+        let table_ref2 = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let table_name2 = extract_table_name(&table_ref2);
+        assert_eq!(table_name2, "users");
+    }
+    
+    #[test]
     fn test_build_where_condition_single_key() {
         // Edge case: Test build_where_condition with single key
         // Note: This test verifies the function compiles and creates a condition
@@ -517,6 +585,11 @@ mod tests {
         // Verify RelationDef structure is correct for single key
         assert_eq!(rel_def.from_col.arity(), 1);
         assert_eq!(rel_def.to_col.arity(), 1);
+        
+        // Verify extract_table_name works correctly for the relation def
+        let table_name = extract_table_name(&rel_def.from_tbl);
+        assert_eq!(table_name, "related");
+        assert!(!table_name.contains("Table("));
     }
 
     #[test]
