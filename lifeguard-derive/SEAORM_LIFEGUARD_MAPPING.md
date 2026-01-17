@@ -29,7 +29,8 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ✅ Implemented | ✅ Enhanced | Support for composite primary keys with granular variants (Single, Tuple2-Tuple5, Tuple6Plus) - Lifeguard enhancement beyond SeaORM |
 | `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support, automatic join condition generation pending |
-| `Related` | ✅ Implemented | 🟡 **Partial** | Related entity queries - Trait implemented, DeriveRelation macro generates implementations |
+| `Related` | ✅ Implemented | ✅ Complete | Related entity queries - Trait implemented, DeriveRelation macro generates implementations, returns RelationDef for composite key support |
+| `FindRelated` | ✅ Implemented | ✅ Complete | Extension trait for finding related entities from model instances - Fixed trait bounds, works correctly with Models |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
 | `PartialModelTrait` | ✅ Implemented | 🟡 **Partial** | Partial model queries (select subset of columns) - Trait implemented, but column selection uses SELECT * fallback, DerivePartialModel macro missing |
 | `TryIntoModel` | ❌ Missing | 🟡 **Future** | Conversion utilities |
@@ -52,7 +53,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Separate derive (matches SeaORM pattern) |
-| `DeriveRelation` | ✅ Implemented | 🟡 **Partial** | Relation enum with Related trait implementations - Basic implementation complete, relationship metadata support pending |
+| `DeriveRelation` | ✅ Implemented | ✅ Complete | Relation enum with Related trait implementations - Full implementation with composite key support, default column inference, and compile-time error checking |
 | `DeriveRelatedEntity` | ❌ Missing | 🟡 **Future** | RelatedEntity enum |
 | `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation |
 | `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
