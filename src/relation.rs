@@ -12,7 +12,7 @@ pub use identity::{Identity, BorrowedIdentityIter, IntoIdentity};
 pub use def::{RelationDef, RelationType, join_tbl_on_condition, build_where_condition};
 
 use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
-use sea_query::{Expr, ExprTrait, Iden};
+use sea_query::{Expr, Iden};
 
 /// Trait for defining entity relationships
 ///
@@ -312,21 +312,30 @@ where
     Self: LifeModelTrait,
     R: LifeModelTrait,
 {
-    /// Get a query builder for related entities
+    /// Returns RelationDef with all relationship metadata
     ///
-    /// This method returns a `SelectQuery` that can be used to find entities
-    /// of type `Self` that are related to entities of type `R`.
+    /// This method returns a `RelationDef` struct containing all metadata about
+    /// the relationship between `Self` and `R`, including:
+    /// - Relationship type (HasOne, HasMany, BelongsTo)
+    /// - Source and target tables
+    /// - Foreign key and primary key columns (supports composite keys)
+    /// - Additional metadata (ownership, foreign key constraints, etc.)
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery<Self>` builder for the related entities
+    /// Returns a `RelationDef` containing all relationship metadata
     ///
     /// # Note
     ///
-    /// This is a static method that returns a query builder. To filter by
+    /// This is a static method that returns relationship metadata. To filter by
     /// a specific instance's primary key, use `find_related()` on a model instance
-    /// which will call this method and apply the appropriate WHERE clause.
-    fn to() -> SelectQuery<Self>;
+    /// which will call this method and use `build_where_condition()` to apply the WHERE clause.
+    ///
+    /// # Breaking Change
+    ///
+    /// **⚠️ BREAKING CHANGE:** As of this version, `Related::to()` returns `RelationDef` instead of `SelectQuery<Self>`.
+    /// This is a breaking change but provides better design and supports composite keys.
+    fn to() -> RelationDef;
 }
 
 /// Extension trait for models to find related entities
@@ -404,33 +413,19 @@ where
     where
         R: LifeModelTrait + Related<Self::Entity>,
     {
-        // Get the query builder from Related trait
+        // Get the relationship definition from Related trait
         // R: Related<Self::Entity> means "R is related to Self::Entity"
-        // So R::to() returns SelectQuery<R> for entities of type R related to Self::Entity
-        let mut query = R::to();
+        // So R::to() returns RelationDef for the relationship from R to Self::Entity
+        let rel_def = R::to();
         
-        // Get the current model's primary key value
-        let pk_value = self.get_primary_key_value();
+        // Create a new query for the related entity
+        let mut query = SelectQuery::new();
         
-        // Get the related entity's table name
-        let related_entity = R::default();
-        let related_table = related_entity.table_name();
-        
-        // Get the current entity's table name for the foreign key
-        let current_entity = <Self::Entity as Default>::default();
-        let current_table = current_entity.table_name();
-        
-        // Build WHERE clause filtering by the foreign key
-        // Use default foreign key column naming: {current_table}_id
-        // NOTE: RelationMetadata trait can be implemented to provide custom foreign key columns,
-        // but it requires trait bounds which we can't add here. Future enhancement: use a helper
-        // function or different pattern to support optional metadata.
-        use sea_query::Expr;
-        
-        let fk_column = format!("{}_id", current_table);
-        
-        let qualified_column = format!("{}.{}", related_table, fk_column);
-        let condition = Expr::column(qualified_column).eq(pk_value);
+        // Build WHERE condition from RelationDef and model primary key values
+        // This uses build_where_condition() which handles both single and composite keys
+        // Note: build_where_condition() currently has a placeholder implementation
+        // that will be fully functional after Phase 4 adds get_primary_key_identity()
+        let condition = build_where_condition(&rel_def, self);
         query = query.filter(condition);
         
         query

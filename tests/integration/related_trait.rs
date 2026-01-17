@@ -10,7 +10,10 @@
 use lifeguard::{
     ActiveModelTrait, FindRelated, LifeModelTrait, LifeExecutor, MayPostgresExecutor,
     Related, SelectQuery, test_helpers::TestDatabase, ModelTrait, LifeEntityName,
+    RelationDef, RelationType,
 };
+use lifeguard::relation::identity::Identity;
+use sea_query::{TableRef, TableName, ConditionType, IntoIden};
 use lifeguard_derive::{LifeModel, LifeRecord};
 use sea_query::{Expr, Iden, IdenStatic};
 
@@ -52,21 +55,36 @@ pub struct TestPost {
 // Post belongs_to User (many-to-one)
 // This means: Post has a foreign key user_id that references User.id
 impl Related<TestUserEntity> for TestPostEntity {
-    fn to() -> SelectQuery<TestUserEntity> {
-        // For belongs_to, we'd typically join User table
-        // But for now, we just return a base query
-        // The find_related() method will add the WHERE clause
-        SelectQuery::new()
+    fn to() -> RelationDef {
+        RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_tbl: TableRef::Table(TableName(None, "test_posts_related".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "test_users_related".into_iden()), None),
+            from_col: Identity::Unary("user_id".into()),
+            to_col: Identity::Unary("id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        }
     }
 }
 
 // User has_many Posts (one-to-many)
 // This means: User.id is referenced by Post.user_id
 impl Related<TestPostEntity> for TestUserEntity {
-    fn to() -> SelectQuery<TestPostEntity> {
-        // For has_many, we return a query for Posts
-        // The find_related() method will filter by user_id
-        SelectQuery::new()
+    fn to() -> RelationDef {
+        RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(TableName(None, "test_users_related".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "test_posts_related".into_iden()), None),
+            from_col: Identity::Unary("id".into()),
+            to_col: Identity::Unary("user_id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        }
     }
 }
 
@@ -115,13 +133,13 @@ fn cleanup_test_data(executor: &MayPostgresExecutor) -> Result<(), lifeguard::ex
 
 #[test]
 fn test_related_trait_to_method() {
-    // Test that Related::to() returns a SelectQuery
-    let query: SelectQuery<TestPostEntity> = TestPostEntity::to();
-    // Just verify it compiles and returns a query
-    let _ = query;
+    // Test that Related::to() returns a RelationDef
+    let rel_def: RelationDef = TestPostEntity::to();
+    // Just verify it compiles and returns a RelationDef
+    let _ = rel_def;
     
-    let query: SelectQuery<TestUserEntity> = TestUserEntity::to();
-    let _ = query;
+    let rel_def: RelationDef = TestUserEntity::to();
+    let _ = rel_def;
 }
 
 #[test]
@@ -352,6 +370,6 @@ fn test_find_related_with_nonexistent_user_id() {
 fn test_related_trait_compiles() {
     // Compile-time test: Verify that Related trait can be implemented
     // This test just ensures the trait is properly defined
-    let _query: SelectQuery<TestPostEntity> = TestPostEntity::to();
-    let _query: SelectQuery<TestUserEntity> = TestUserEntity::to();
+    let _rel_def: RelationDef = TestPostEntity::to();
+    let _rel_def: RelationDef = TestUserEntity::to();
 }
