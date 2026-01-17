@@ -304,13 +304,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
         
         // Generate DELETE WHERE clause (only for primary keys)
-        // Use record_for_hooks to include any changes made in before_delete()
-        // This ensures before_delete() changes are included in the DELETE query WHERE clause
+        // CRITICAL: Use original PK values from self, NOT hook-modified values
+        // This prevents silent data corruption if before_delete() modifies the primary key
         if is_primary_key {
             delete_where_clauses.push(quote! {
-                if let Some(pk_value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     use lifeguard::ColumnTrait;
-                    let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.eq(pk_value);
+                    let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.eq(pk_value.clone());
                     query.and_where(expr);
                 } else {
                     return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
@@ -647,8 +647,21 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 use sea_query::{Query, PostgresQueryBuilder, Expr};
                 use lifeguard::{LifeEntityName, ActiveModelBehavior};
+                use std::collections::HashMap;
                 
                 #update_pk_check
+                
+                // CRITICAL: Store original PK values BEFORE calling hooks
+                // This prevents silent data corruption if before_update() modifies the primary key
+                // The WHERE clause must use the original PK to target the correct record
+                let mut original_pk_values: HashMap<<#entity_name as lifeguard::LifeModelTrait>::Column, sea_query::Value> = HashMap::new();
+                #(
+                    if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                        original_pk_values.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants, pk_value);
+                    } else {
+                        return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                    }
+                )*
                 
                 // Call before_update hook
                 let mut record_for_hooks = self.clone();
@@ -664,12 +677,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // This ensures before_update() changes are included in the UPDATE query
                 #(#update_set_clauses_from_hooks)*
                 
-                // Add WHERE clause for primary keys (use record_for_hooks to get PK values)
-                // This ensures PK values from before_update are used
+                // Add WHERE clause for primary keys (use ORIGINAL PK values, not hook-modified)
+                // CRITICAL: Using original PK ensures we update the correct record even if
+                // before_update() hook modifies the primary key
                 #(
-                    if let Some(pk_value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                    if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
                         use lifeguard::ColumnTrait;
-                        let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants.eq(pk_value);
+                        let expr = <#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants.eq(pk_value.clone());
                         query.and_where(expr);
                     } else {
                         return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
@@ -727,8 +741,21 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
                 use sea_query::{Query, PostgresQueryBuilder, Expr};
                 use lifeguard::{LifeEntityName, ActiveModelBehavior};
+                use std::collections::HashMap;
                 
                 #delete_pk_check
+                
+                // CRITICAL: Store original PK values BEFORE calling hooks
+                // This prevents silent data corruption if before_delete() modifies the primary key
+                // The WHERE clause must use the original PK to target the correct record
+                let mut original_pk_values: HashMap<<#entity_name as lifeguard::LifeModelTrait>::Column, sea_query::Value> = HashMap::new();
+                #(
+                    if let Some(pk_value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                        original_pk_values.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants, pk_value);
+                    } else {
+                        return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
+                    }
+                )*
                 
                 // Call before_delete hook
                 let mut record_for_hooks = self.clone();
@@ -739,7 +766,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let entity = #entity_name::default();
                 query.from_table(entity);
                 
-                // Add WHERE clause for primary keys
+                // Add WHERE clause for primary keys (use ORIGINAL PK values, not hook-modified)
+                // CRITICAL: Using original PK ensures we delete the correct record even if
+                // before_delete() hook modifies the primary key
                 #(#delete_where_clauses)*
                 
                 // Build SQL
