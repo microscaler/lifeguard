@@ -61,11 +61,24 @@ Both `join_tbl_on_condition` and `build_where_condition` use `format!("{:?}", ta
 
 ---
 
+### [BUG-2025-01-27-04](bugs/BUG-2025-01-27-04.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/relation.rs:358-396`  
+**Impact**: Default column inference in `DeriveRelation` macro generates incorrect column values when `from`/`to` attributes are not specified, causing incorrect JOIN and WHERE clauses
+
+The `DeriveRelation` macro generates incorrect column values when `from`/`to` attributes are not specified. For `belongs_to` relationships, `from_col` defaults to `Column::Id` (the primary key) but should be the foreign key column. For `has_many`/`has_one` relationships, `to_col` defaults to `"id"` but should be the foreign key in the related table. This produces incorrect SQL like `posts.id = users.id` instead of `posts.user_id = users.id`.
+
+---
+
 ## Bug Statistics
 
-- **Total Bugs**: 3
+- **Total Bugs**: 4
 - **Open**: 0
-- **Fixed**: 3
+- **Fixed**: 4
 - **Verified**: 0 (pending runtime tests)
 
 ## Status Legend

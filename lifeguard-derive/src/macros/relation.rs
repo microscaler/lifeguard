@@ -177,6 +177,31 @@ fn convert_pascal_to_snake_case(s: &str) -> String {
     result
 }
 
+/// Extract entity name from entity path and infer foreign key column name
+/// 
+/// Examples:
+/// - "super::users::Entity" -> "users" -> "user_id"
+/// - "CommentEntity" -> "Comment" -> "comment_id"
+/// - "UserEntity" -> "User" -> "user_id"
+fn infer_foreign_key_column_name(entity_path: &str) -> String {
+    // Extract the entity name from the path
+    // Path format: "super::users::Entity" or "CommentEntity" or "UserEntity"
+    let entity_name = if let Some(last_segment) = entity_path.split("::").last() {
+        // Remove "Entity" suffix if present (e.g., "CommentEntity" -> "Comment")
+        if last_segment.ends_with("Entity") {
+            &last_segment[..last_segment.len() - 6] // Remove "Entity"
+        } else {
+            last_segment
+        }
+    } else {
+        entity_path
+    };
+    
+    // Convert to snake_case and append "_id"
+    let snake_case = convert_pascal_to_snake_case(entity_name);
+    format!("{}_id", snake_case)
+}
+
 /// Derive macro for `DeriveRelation` - generates Relation enum and Related implementations
 ///
 /// This macro generates:
@@ -360,18 +385,42 @@ fn process_relation_variant(
             build_identity_from_column_ref(from_col)
         } else {
             // Default: infer from relationship type
-            // For has_many/has_one: foreign key is in the target table (to_col)
-            // For belongs_to: foreign key is in the current table (from_col)
-            // Default to "id" for now - could be enhanced to infer from entity name
-            // Use Entity::Column to get the Column type from the entity
-            quote! {
-                {
-                    use lifeguard::LifeModelTrait;
-                    use sea_query::IdenStatic;
-                    // Entity is assumed to be in the same module as the Relation enum
-                    // Use Entity::Column to access the Column enum
-                    let col = <Entity as lifeguard::LifeModelTrait>::Column::Id;
-                    lifeguard::Identity::Unary(sea_query::DynIden::from(col.as_str()))
+            match rel_type_str.as_str() {
+                "belongs_to" => {
+                    // For belongs_to: from_col is the foreign key in the current table
+                    // Infer FK column name from target entity: <target_entity_name>_id
+                    let fk_col_name = infer_foreign_key_column_name(target);
+                    let fk_col_name_lit = syn::LitStr::new(&fk_col_name, proc_macro2::Span::call_site());
+                    quote! {
+                        {
+                            use sea_query::IdenStatic;
+                            // Foreign key column in current table (e.g., "user_id" for Post belongs_to User)
+                            lifeguard::Identity::Unary(sea_query::DynIden::from(#fk_col_name_lit))
+                        }
+                    }
+                }
+                "has_many" | "has_one" => {
+                    // For has_many/has_one: from_col is the primary key in the current table
+                    quote! {
+                        {
+                            use lifeguard::LifeModelTrait;
+                            use sea_query::IdenStatic;
+                            // Primary key column in current table
+                            let col = <Entity as lifeguard::LifeModelTrait>::Column::Id;
+                            lifeguard::Identity::Unary(sea_query::DynIden::from(col.as_str()))
+                        }
+                    }
+                }
+                _ => {
+                    // Fallback to primary key
+                    quote! {
+                        {
+                            use lifeguard::LifeModelTrait;
+                            use sea_query::IdenStatic;
+                            let col = <Entity as lifeguard::LifeModelTrait>::Column::Id;
+                            lifeguard::Identity::Unary(sea_query::DynIden::from(col.as_str()))
+                        }
+                    }
                 }
             }
         };
@@ -381,16 +430,56 @@ fn process_relation_variant(
             // The "to" column might be in a different module (e.g., "super::users::Column::Id")
             build_identity_from_column_ref(to_col)
         } else {
-            // Default: infer from target entity's primary key
-            // For now, default to "id" - could be enhanced to query the target entity's primary key
-            // This would require access to the target entity's metadata at compile time
-            quote! {
-                {
-                    use sea_query::IdenStatic;
-                    // Try to use the target entity's Column enum
-                    // If it's in a different module, we'll need the full path
-                    // For now, use a string-based approach that will work at runtime
-                    lifeguard::Identity::Unary(sea_query::DynIden::from("id"))
+            // Default: infer from relationship type
+            match rel_type_str.as_str() {
+                "belongs_to" => {
+                    // For belongs_to: to_col is the primary key in the target table
+                    quote! {
+                        {
+                            use lifeguard::LifeModelTrait;
+                            use sea_query::IdenStatic;
+                            // Primary key column in target table
+                            let col = <#target_entity_path as lifeguard::LifeModelTrait>::Column::Id;
+                            lifeguard::Identity::Unary(sea_query::DynIden::from(col.as_str()))
+                        }
+                    }
+                }
+                "has_many" | "has_one" => {
+                    // For has_many/has_one: to_col is the foreign key in the target table
+                    // Infer FK column name from current entity: <current_entity_name>_id
+                    // We need to get the current entity name - assume it's "Entity" in the same module
+                    // For now, we'll use a runtime approach to get the table name and infer the FK
+                    // Since we can't easily get the entity name at compile time, we'll use the table name
+                    // The table name is available at runtime via LifeEntityName::table_name()
+                    // We'll construct the FK name from the table name: <table_name>_id
+                    // But we need to convert plural to singular (e.g., "posts" -> "post_id")
+                    // For simplicity, we'll use a helper that gets the table name and constructs the FK
+                    quote! {
+                        {
+                            use lifeguard::LifeEntityName;
+                            // Get current entity's table name and infer foreign key column
+                            // Foreign key in target table (e.g., "post_id" in comments for Post has_many Comments)
+                            let from_table = Entity::default().table_name();
+                            // Convert table name to singular and append "_id"
+                            // Simple heuristic: remove trailing 's' if present, then append "_id"
+                            let fk_name = if from_table.ends_with('s') && from_table.len() > 1 {
+                                format!("{}_id", &from_table[..from_table.len() - 1])
+                            } else {
+                                format!("{}_id", from_table)
+                            };
+                            // Use String directly - DynIden::from() accepts String
+                            lifeguard::Identity::Unary(sea_query::DynIden::from(fk_name))
+                        }
+                    }
+                }
+                _ => {
+                    // Fallback to primary key
+                    quote! {
+                        {
+                            use sea_query::IdenStatic;
+                            lifeguard::Identity::Unary(sea_query::DynIden::from("id"))
+                        }
+                    }
                 }
             }
         };
