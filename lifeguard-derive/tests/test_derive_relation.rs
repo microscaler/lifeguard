@@ -361,19 +361,98 @@ impl sea_query::IdenStatic for AuthorColumn {
 
 pub struct AuthorModel;
 
+// Test module for belongs_to default column inference
+// This module creates a separate Entity that represents ArticleEntity
+// to test belongs_to without from/to attributes
+mod belongs_to_default_test {
+    use super::*;
+    
+    // Entity representing ArticleEntity for this test
+    #[derive(Default, Copy, Clone)]
+    pub struct Entity;
+    
+    impl sea_query::Iden for Entity {
+        fn unquoted(&self) -> &str {
+            "articles"
+        }
+    }
+    
+    impl LifeEntityName for Entity {
+        fn table_name(&self) -> &'static str {
+            "articles"
+        }
+    }
+    
+    impl LifeModelTrait for Entity {
+        type Model = ArticleModel;
+        type Column = ArticleColumn;
+    }
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum ArticleColumn {
+        Id,
+        AuthorId, // Foreign key to AuthorEntity
+    }
+    
+    impl sea_query::Iden for ArticleColumn {
+        fn unquoted(&self) -> &str {
+            match self {
+                ArticleColumn::Id => "id",
+                ArticleColumn::AuthorId => "author_id",
+            }
+        }
+    }
+    
+    impl sea_query::IdenStatic for ArticleColumn {
+        fn as_str(&self) -> &'static str {
+            match self {
+                ArticleColumn::Id => "id",
+                ArticleColumn::AuthorId => "author_id",
+            }
+        }
+    }
+    
+    pub struct ArticleModel;
+    
+    // Relation enum for testing belongs_to without from/to
+    #[derive(DeriveRelation)]
+    pub enum Relation {
+        // Test belongs_to without from/to - should infer author_id from AuthorEntity
+        #[lifeguard(belongs_to = "super::AuthorEntity")]
+        Author,
+    }
+}
+
 #[test]
 fn test_derive_relation_belongs_to_default_columns() {
+    use belongs_to_default_test::*;
+    
     // Test belongs_to relationship without from/to attributes
-    // The existing Relation::User has from/to specified, so it won't test defaults
-    // Instead, we'll verify the logic by checking that when from/to are NOT specified,
-    // the macro generates the correct default columns
+    // This verifies that the macro correctly infers:
+    // - from_col: foreign key column (author_id) in the current table (articles)
+    // - to_col: primary key column (id) in the target table (authors)
+    
+    let rel_def: RelationDef = <Entity as Related<AuthorEntity>>::to();
+    
+    // Verify arity
+    assert_eq!(rel_def.from_col.arity(), 1);
+    assert_eq!(rel_def.to_col.arity(), 1);
     
     // For belongs_to without from/to:
-    // - from_col should be the foreign key (e.g., "user_id" for Post belongs_to User)
-    // - to_col should be the primary key (e.g., "id" in User table)
+    // - from_col should be the foreign key (author_id) in articles table
+    // - to_col should be the primary key (id) in authors table
     
-    // Since we can't easily test this without modifying the Relation enum,
-    // we'll test the FK name inference logic directly
+    // Verify that from_col is NOT "id" (it should be the foreign key "author_id")
+    let from_col_name = rel_def.from_col.iter().next().unwrap().to_string();
+    assert_ne!(from_col_name, "id", "from_col should be foreign key (author_id), not primary key (id)");
+    // The foreign key should be "author_id" (inferred from AuthorEntity)
+    assert_eq!(from_col_name, "author_id", "from_col should be author_id for Article belongs_to Author");
+    
+    // Verify that to_col is the primary key (id) in the target table
+    let to_col_name = rel_def.to_col.iter().next().unwrap().to_string();
+    assert_eq!(to_col_name, "id", "to_col should be primary key (id) in AuthorEntity for belongs_to");
+    
+    // Also test the FK name inference logic directly for completeness
     fn infer_fk_name(entity_path: &str) -> String {
         let entity_name = if let Some(last_segment) = entity_path.split("::").last() {
             if last_segment.ends_with("Entity") {
@@ -400,6 +479,4 @@ fn test_derive_relation_belongs_to_default_columns() {
     assert_eq!(infer_fk_name("AuthorEntity"), "author_id");
     assert_eq!(infer_fk_name("UserEntity"), "user_id");
     assert_eq!(infer_fk_name("CommentEntity"), "comment_id");
-    // Note: For full paths like "super::users::Entity", the macro would use table_name() at runtime
-    // This test only verifies the entity name extraction logic
 }

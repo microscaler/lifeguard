@@ -862,9 +862,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     
     // Generate get_primary_key_identity() implementation
     let pk_identity_impl = if primary_key_variant_idents.is_empty() {
-        // No primary key - return empty Identity (shouldn't happen, but handle gracefully)
+        // No primary key - return empty Identity with arity 0 to match get_primary_key_values()
+        // Using Many(vec![]) ensures arity() returns 0, matching the empty vec![] from get_primary_key_values()
         quote! {
-            lifeguard::Identity::Unary(sea_query::DynIden::from(""))
+            lifeguard::Identity::Many(vec![])
         }
     } else {
         // Generate Identity based on number of primary keys

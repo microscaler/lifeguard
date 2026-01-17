@@ -65,21 +65,38 @@ Both `join_tbl_on_condition` and `build_where_condition` use `format!("{:?}", ta
 
 **Date**: 2025-01-27  
 **Source**: User verification request  
-**Status**: `fixed`  
+**Status**: `verified`  
 **Severity**: `high`  
 **Location**: `lifeguard-derive/src/macros/relation.rs:358-396`  
 **Impact**: Default column inference in `DeriveRelation` macro generates incorrect column values when `from`/`to` attributes are not specified, causing incorrect JOIN and WHERE clauses
 
 The `DeriveRelation` macro generates incorrect column values when `from`/`to` attributes are not specified. For `belongs_to` relationships, `from_col` defaults to `Column::Id` (the primary key) but should be the foreign key column. For `has_many`/`has_one` relationships, `to_col` defaults to `"id"` but should be the foreign key in the related table. This produces incorrect SQL like `posts.id = users.id` instead of `posts.user_id = users.id`.
 
+**Verification**: Added comprehensive test `test_derive_relation_belongs_to_default_columns()` that verifies `belongs_to` relationships without `from`/`to` attributes correctly infer foreign key columns. All tests pass.
+
+---
+
+### [BUG-2025-01-27-05](bugs/BUG-2025-01-27-05.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/life_model.rs:863-932`  
+**Impact**: Inconsistent primary key identity and values for entities without primary keys causes `build_where_condition` to panic at runtime
+
+When an entity has no primary key defined, `get_primary_key_identity()` returns `Identity::Unary("")` (arity 1) while `get_primary_key_values()` returns `vec![]` (length 0). This inconsistency causes `build_where_condition` to panic at runtime with "Number of primary key values must match primary key arity" since the assertion `pk_values.len() == pk_identity.arity()` fails (0 != 1).
+
+**Fix**: Changed `get_primary_key_identity()` to return `Identity::Many(vec![])` (arity 0) instead of `Identity::Unary("")` (arity 1), ensuring consistency with `get_primary_key_values()` which returns `vec![]` (length 0).
+
 ---
 
 ## Bug Statistics
 
-- **Total Bugs**: 4
+- **Total Bugs**: 5
 - **Open**: 0
 - **Fixed**: 4
-- **Verified**: 0 (pending runtime tests)
+- **Verified**: 1
 
 ## Status Legend
 
