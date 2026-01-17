@@ -258,10 +258,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // Generate code to check if this PK needs RETURNING and extract if so
             // Database returns T (inner type), not Option<T>, so we use inner_type
             // Both Option<T> and T fields need to wrap the returned value in Some()
-            // NOTE: Check record_for_hooks to see if PK is still unset after before_insert() hook
+            // NOTE: Check updated_record (not record_for_hooks) since record_for_hooks is moved to updated_record
+            // before this code is expanded. The check happens after the move at line 613.
             returning_extractors.push(quote! {
                 // Check if this auto-increment PK was not set and needs RETURNING
-                if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
+                if updated_record.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
                     // Extract returned value for #field_name (database returns T, wrap in Some())
                     let pk_value: #inner_type = row.get(returning_idx);
                     returning_idx += 1;
