@@ -650,3 +650,49 @@ fn test_build_where_condition_uses_from_tbl() {
     // which would fail because user_id doesn't exist in the users table.
     // The fix generates: posts.user_id = 1, which is correct.
 }
+
+#[test]
+fn test_find_related_belongs_to_relationship() {
+    // Test belongs_to relationship: Post belongs_to User
+    // This verifies the fix for the bug where find_related() used R::to() instead of Self::Entity::to()
+    // When calling post.find_related::<User>(), it should use Post -> User (belongs_to) relationship
+    // not User -> Post (has_many) relationship
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a user
+    let mut user_record = TestUserRecord::new();
+    user_record.set_name("Test User".to_string());
+    user_record.set_email("test@example.com".to_string());
+    let user = user_record.insert(&executor).expect("Failed to insert user");
+
+    // Create a post for this user
+    let mut post_record = TestPostRecord::new();
+    post_record.set_title("Test Post".to_string());
+    post_record.set_content("Content".to_string());
+    post_record.set_user_id(user.id);
+    let post = post_record.insert(&executor).expect("Failed to insert post");
+
+    // Find the user related to this post using find_related()
+    // This should use Post -> User (belongs_to) relationship
+    // The WHERE clause should be: users.id = post.user_id (not users.id = post.id)
+    let users = post.find_related::<TestUserEntity>()
+        .all(&executor)
+        .expect("Failed to query related user");
+
+    // Should return exactly 1 user (the user who owns this post)
+    assert_eq!(users.len(), 1, "Should find 1 user for the post");
+    assert_eq!(users[0].id, user.id, "User should match the post's user_id");
+    assert_eq!(users[0].id, post.user_id, "User ID should match post's user_id foreign key");
+    
+    // This test verifies that find_related() correctly uses Self::Entity::to() instead of R::to()
+    // When calling post.find_related::<User>(), it uses TestPostEntity::to() which returns
+    // Post -> User (belongs_to) with from_col = "user_id" and to_col = "id"
+    // The WHERE clause generated is: users.id = post.user_id (correct)
+    // The bug would have used User::to() which returns User -> Post (has_many) with
+    // from_col = "id" and to_col = "user_id", generating: users.id = post.id (wrong!)
+}

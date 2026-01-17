@@ -368,7 +368,7 @@ pub trait FindRelated: ModelTrait + LifeModelTrait {
     ///
     /// # Type Parameters
     ///
-    /// * `R` - The related entity type that implements `Related<Self::Entity>`
+    /// * `R` - The related entity type. `Self::Entity` must implement `Related<R>`.
     ///
     /// # Returns
     ///
@@ -398,7 +398,8 @@ pub trait FindRelated: ModelTrait + LifeModelTrait {
     /// ```
     fn find_related<R>(&self) -> SelectQuery<R>
     where
-        R: LifeModelTrait + Related<Self::Entity>;
+        R: LifeModelTrait,
+        Self::Entity: Related<R>;
 }
 
 // Import ModelTrait for the FindRelated implementation
@@ -411,12 +412,14 @@ where
 {
     fn find_related<R>(&self) -> SelectQuery<R>
     where
-        R: LifeModelTrait + Related<Self::Entity>,
+        R: LifeModelTrait,
+        Self::Entity: Related<R>,
     {
         // Get the relationship definition from Related trait
-        // R: Related<Self::Entity> means "R is related to Self::Entity"
-        // So R::to() returns RelationDef for the relationship from R to Self::Entity
-        let rel_def = R::to();
+        // Self::Entity: Related<R> means "Self::Entity is related to R"
+        // So Self::Entity::to() returns RelationDef for the relationship from Self::Entity to R
+        // This is the correct relationship direction for find_related()
+        let rel_def = <Self::Entity as Related<R>>::to();
         
         // Create a new query for the related entity
         let mut query = SelectQuery::new();

@@ -121,11 +121,26 @@ The `parse_nested_meta` result is discarded with `let _`, silently ignoring pars
 
 ---
 
+### [BUG-2025-01-27-08](bugs/BUG-2025-01-27-08.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `src/relation.rs:412-432`  
+**Impact**: `find_related<R>` uses `R::to()` which gets R's relationship TO Self, when it should use Self's relationship TO R, causing incorrect SQL generation
+
+The `find_related<R>` method uses `R::to()` to get the relationship definition, but this gets R's relationship TO Self, when it should use Self's relationship TO R. When navigating from the "many" side to the "one" side (e.g., `post.find_related::<User>()` when User has_many Posts), the function uses the wrong column values from the model. This produces incorrect SQL like `users.id = post.id` instead of `users.id = post.user_id`, returning wrong or no results.
+
+**Fix**: Changed trait constraint from `R: Related<Self::Entity>` to `Self::Entity: Related<R>` and updated implementation to use `<Self::Entity as Related<R>>::to()` instead of `R::to()`. This ensures the correct relationship direction is used for both has_many and belongs_to relationships.
+
+---
+
 ## Bug Statistics
 
-- **Total Bugs**: 7
+- **Total Bugs**: 8
 - **Open**: 0
-- **Fixed**: 6
+- **Fixed**: 7
 - **Verified**: 1
 
 ## Status Legend
