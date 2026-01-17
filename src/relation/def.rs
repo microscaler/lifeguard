@@ -262,23 +262,23 @@ where
     let mut condition = Condition::all();
 
     // Get primary key values from model
-    // TODO: Phase 4 - get_primary_key_identity() will be added to ModelTrait
-    // For now, use a placeholder that will be implemented in Phase 4
-    // let pk_identity = model.get_primary_key_identity();
-    // let pk_values = extract_primary_key_values(model, &pk_identity);
-    
-    // Temporary: Use get_primary_key_value() for single keys only
-    // This will be replaced in Phase 4 with proper composite key support
-    let pk_value = model.get_primary_key_value();
-    let pk_values = vec![pk_value];
+    // Phase 4: Now using get_primary_key_values() which supports composite keys
+    let pk_identity = model.get_primary_key_identity();
+    let pk_values = model.get_primary_key_values();
 
-    // TODO: Phase 4 - Check arity once get_primary_key_identity() is implemented
-    // For now, assume single key (arity 1)
-    // assert_eq!(
-    //     rel_def.from_col.arity(),
-    //     pk_identity.arity(),
-    //     "Foreign key columns and primary key must have matching arity"
-    // );
+    // Ensure arities match
+    assert_eq!(
+        rel_def.from_col.arity(),
+        pk_identity.arity(),
+        "Foreign key columns and primary key must have matching arity"
+    );
+    
+    // Ensure we have the right number of values
+    assert_eq!(
+        pk_values.len(),
+        pk_identity.arity(),
+        "Number of primary key values must match primary key arity"
+    );
 
     // Match foreign key columns to primary key values
     for (fk_col, pk_val) in rel_def.from_col.iter().zip(pk_values.iter()) {
