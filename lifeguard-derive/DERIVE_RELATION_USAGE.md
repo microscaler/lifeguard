@@ -21,8 +21,18 @@ pub enum Relation {
 This generates:
 ```rust
 impl Related<super::posts::Entity> for Entity {
-    fn to() -> SelectQuery<super::posts::Entity> {
-        SelectQuery::new()
+    fn to() -> RelationDef {
+        RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(Entity::table_name().into()),
+            to_tbl: TableRef::Table(super::posts::Entity::table_name().into()),
+            from_col: Identity::Unary("id".into()),
+            to_col: Identity::Unary("user_id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        }
     }
 }
 ```
@@ -44,8 +54,18 @@ pub enum Relation {
 This generates:
 ```rust
 impl Related<super::users::Entity> for Entity {
-    fn to() -> SelectQuery<super::users::Entity> {
-        SelectQuery::new()
+    fn to() -> RelationDef {
+        RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_tbl: TableRef::Table(Entity::table_name().into()),
+            to_tbl: TableRef::Table(super::users::Entity::table_name().into()),
+            from_col: Identity::Unary(Column::UserId.as_str().into()),
+            to_col: Identity::Unary(super::users::Column::Id.as_str().into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        }
     }
 }
 

@@ -373,3 +373,227 @@ fn test_related_trait_compiles() {
     let _rel_def: RelationDef = TestPostEntity::to();
     let _rel_def: RelationDef = TestUserEntity::to();
 }
+
+// ============================================================================
+// Composite Key Tests
+// ============================================================================
+
+#[derive(LifeModel, LifeRecord)]
+#[table_name = "test_tenants_composite"]
+pub struct TestTenant {
+    #[primary_key]
+    pub id: i32,
+    #[primary_key]
+    pub region_id: i32,
+    pub name: String,
+}
+
+#[derive(LifeModel, LifeRecord)]
+#[table_name = "test_resources_composite"]
+pub struct TestResource {
+    #[primary_key]
+    #[auto_increment]
+    pub id: i32,
+    pub name: String,
+    pub tenant_id: i32,
+    pub region_id: i32,
+}
+
+// Resource belongs_to Tenant (composite key relationship)
+impl Related<TestTenantEntity> for TestResourceEntity {
+    fn to() -> RelationDef {
+        RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_tbl: TableRef::Table(TableName(None, "test_resources_composite".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "test_tenants_composite".into_iden()), None),
+            from_col: Identity::Binary("tenant_id".into(), "region_id".into()),
+            to_col: Identity::Binary("id".into(), "region_id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        }
+    }
+}
+
+// Tenant has_many Resources (composite key relationship)
+impl Related<TestResourceEntity> for TestTenantEntity {
+    fn to() -> RelationDef {
+        RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(TableName(None, "test_tenants_composite".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "test_resources_composite".into_iden()), None),
+            from_col: Identity::Binary("id".into(), "region_id".into()),
+            to_col: Identity::Binary("tenant_id".into(), "region_id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        }
+    }
+}
+
+fn setup_composite_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    // Create tenants table with composite primary key
+    executor.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS test_tenants_composite (
+            id INTEGER NOT NULL,
+            region_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            PRIMARY KEY (id, region_id)
+        )
+        "#,
+        &[],
+    )?;
+
+    // Create resources table with composite foreign key
+    executor.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS test_resources_composite (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            tenant_id INTEGER NOT NULL,
+            region_id INTEGER NOT NULL,
+            FOREIGN KEY (tenant_id, region_id) REFERENCES test_tenants_composite(id, region_id)
+        )
+        "#,
+        &[],
+    )?;
+
+    Ok(())
+}
+
+fn cleanup_composite_test_data(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute("DELETE FROM test_resources_composite", &[])?;
+    executor.execute("DELETE FROM test_tenants_composite", &[])?;
+    Ok(())
+}
+
+#[test]
+fn test_composite_key_related_trait() {
+    // Test that Related trait works with composite keys
+    let rel_def: RelationDef = TestResourceEntity::to();
+    assert_eq!(rel_def.from_col.arity(), 2);
+    assert_eq!(rel_def.to_col.arity(), 2);
+    
+    let rel_def: RelationDef = TestTenantEntity::to();
+    assert_eq!(rel_def.from_col.arity(), 2);
+    assert_eq!(rel_def.to_col.arity(), 2);
+}
+
+#[test]
+fn test_find_related_composite_key() {
+    // Test find_related() with composite primary keys
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_composite_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_composite_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a tenant with composite key
+    let mut tenant_record = TestTenantRecord::new();
+    tenant_record.set_id(1);
+    tenant_record.set_region_id(10);
+    tenant_record.set_name("Test Tenant".to_string());
+    let tenant = tenant_record.insert(&executor).expect("Failed to insert tenant");
+
+    // Create resources for this tenant
+    let mut resource1_record = TestResourceRecord::new();
+    resource1_record.set_name("Resource 1".to_string());
+    resource1_record.set_tenant_id(tenant.id);
+    resource1_record.set_region_id(tenant.region_id);
+    let _resource1 = resource1_record.insert(&executor).expect("Failed to insert resource1");
+
+    let mut resource2_record = TestResourceRecord::new();
+    resource2_record.set_name("Resource 2".to_string());
+    resource2_record.set_tenant_id(tenant.id);
+    resource2_record.set_region_id(tenant.region_id);
+    let _resource2 = resource2_record.insert(&executor).expect("Failed to insert resource2");
+
+    // Create a tenant in a different region
+    let mut tenant2_record = TestTenantRecord::new();
+    tenant2_record.set_id(1); // Same ID but different region
+    tenant2_record.set_region_id(20);
+    tenant2_record.set_name("Other Tenant".to_string());
+    let tenant2 = tenant2_record.insert(&executor).expect("Failed to insert tenant2");
+
+    // Create a resource for tenant2
+    let mut resource3_record = TestResourceRecord::new();
+    resource3_record.set_name("Other Resource".to_string());
+    resource3_record.set_tenant_id(tenant2.id);
+    resource3_record.set_region_id(tenant2.region_id);
+    let _resource3 = resource3_record.insert(&executor).expect("Failed to insert resource3");
+
+    // Find resources for the first tenant (should find 2 resources)
+    let resources = tenant.find_related::<TestResourceEntity>()
+        .all(&executor)
+        .expect("Failed to query related resources");
+
+    assert_eq!(resources.len(), 2, "Should find 2 resources for the tenant");
+    
+    // Verify the resources belong to the correct tenant
+    for resource in &resources {
+        assert_eq!(resource.tenant_id, tenant.id, "Resource should belong to the tenant");
+        assert_eq!(resource.region_id, tenant.region_id, "Resource should be in the same region");
+    }
+
+    // Verify resource names
+    let names: Vec<&str> = resources.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Resource 1"), "Should contain resource 1");
+    assert!(names.contains(&"Resource 2"), "Should contain resource 2");
+    assert!(!names.contains(&"Other Resource"), "Should not contain other tenant's resource");
+}
+
+#[test]
+fn test_find_related_composite_key_empty() {
+    // Test find_related() with composite keys when no related entities exist
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_composite_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_composite_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a tenant with no resources
+    let mut tenant_record = TestTenantRecord::new();
+    tenant_record.set_id(1);
+    tenant_record.set_region_id(10);
+    tenant_record.set_name("Lonely Tenant".to_string());
+    let tenant = tenant_record.insert(&executor).expect("Failed to insert tenant");
+
+    // Find related resources (should be empty)
+    let resources = tenant.find_related::<TestResourceEntity>()
+        .all(&executor)
+        .expect("Failed to query related resources");
+
+    assert_eq!(resources.len(), 0, "Should find no resources for tenant with no resources");
+}
+
+#[test]
+fn test_composite_key_identity_values_match() {
+    // Edge case: Verify that composite key Identity and values match
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_composite_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_composite_test_data(&executor).expect("Failed to cleanup");
+
+    // Create a tenant
+    let mut tenant_record = TestTenantRecord::new();
+    tenant_record.set_id(42);
+    tenant_record.set_region_id(100);
+    tenant_record.set_name("Test Tenant".to_string());
+    let tenant = tenant_record.insert(&executor).expect("Failed to insert tenant");
+
+    // Verify get_primary_key_identity() returns Binary Identity
+    let identity = tenant.get_primary_key_identity();
+    assert_eq!(identity.arity(), 2, "Composite key should have arity 2");
+
+    // Verify get_primary_key_values() returns 2 values
+    let values = tenant.get_primary_key_values();
+    assert_eq!(values.len(), 2, "Composite key should have 2 values");
+    assert_eq!(values.len(), identity.arity(), "Values count should match Identity arity");
+}
