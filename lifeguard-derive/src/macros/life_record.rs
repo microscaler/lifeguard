@@ -693,15 +693,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // then return a model that includes all modifications (including auto-increment PKs from RETURNING)
                 let model = #save_pk_logic?;
                 
-                // CRITICAL FIX: Convert the returned model back to a record so after_save() receives
-                // a record that matches the model. This ensures consistency with after_insert()/after_update()
-                // which receive records that match their returned models.
-                // Without this, after_save() would receive record_for_hooks which only has before_save()
-                // modifications, missing before_insert()/before_update() modifications and auto-increment PKs.
-                let record_for_after_save = Self::from_model(&model);
-                
-                // Call after_save hook with record that matches the returned model
-                record_for_after_save.after_save(&model)?;
+                // Call after_save hook
+                record_for_hooks.after_save(&model)?;
                 
                 Ok(model)
             }

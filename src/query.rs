@@ -835,6 +835,7 @@ where
     M: FromRow,
 {
     /// Create a new SelectModel from a SelectQuery
+    #[allow(dead_code)]
     pub(crate) fn new(query: SelectQuery<E>) -> Self {
         Self {
             query,

@@ -85,7 +85,7 @@ impl ColumnDefinition {
     /// // column_def is configured as integer, not null, auto-increment
     /// ```
     pub fn to_column_def<T: Iden>(&self, column_name: T) -> sea_query::ColumnDef {
-        use sea_query::{ColumnDef, ColumnType};
+        use sea_query::ColumnDef;
         
         let mut def = ColumnDef::new(column_name);
         
@@ -164,7 +164,7 @@ impl ColumnDefinition {
         }
         
         // Set default value if provided
-        if let Some(ref default) = self.default_value {
+        if let Some(ref _default) = self.default_value {
             // Note: SeaQuery's default_value() expects an Expr, not a string
             // For now, we'll need to parse the default value string
             // This is a simplified implementation - full support would require
