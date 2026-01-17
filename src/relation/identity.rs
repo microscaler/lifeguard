@@ -279,4 +279,98 @@ mod tests {
         // identity3 fully contains identity1 (has both id and tenant_id)
         assert!(identity3.fully_contains(&identity1));
     }
+
+    #[test]
+    fn test_identity_many_large() {
+        // Edge case: Many variant with 5+ columns
+        let cols: Vec<DynIden> = (0..6).map(|i| format!("col_{}", i).into()).collect();
+        let identity = Identity::Many(cols.clone());
+        
+        assert_eq!(identity.arity(), 6);
+        let collected: Vec<&DynIden> = identity.iter().collect();
+        assert_eq!(collected.len(), 6);
+    }
+
+    #[test]
+    fn test_identity_many_empty() {
+        // Edge case: Empty Many variant (shouldn't happen in practice, but test for safety)
+        let identity = Identity::Many(vec![]);
+        assert_eq!(identity.arity(), 0);
+        let collected: Vec<&DynIden> = identity.iter().collect();
+        assert_eq!(collected.len(), 0);
+    }
+
+    #[test]
+    fn test_identity_many_duplicate_columns() {
+        // Edge case: Many variant with duplicate columns
+        let id_col: DynIden = "id".into();
+        let identity = Identity::Many(vec![id_col.clone(), id_col.clone(), id_col.clone()]);
+        
+        assert_eq!(identity.arity(), 3);
+        assert!(identity.contains(&id_col));
+        // All three should be the same column
+        let collected: Vec<&DynIden> = identity.iter().collect();
+        assert_eq!(collected.len(), 3);
+        assert_eq!(collected[0], &id_col);
+        assert_eq!(collected[1], &id_col);
+        assert_eq!(collected[2], &id_col);
+    }
+
+    #[test]
+    fn test_identity_iter_multiple_iterations() {
+        // Edge case: Iterator can be used multiple times
+        let id_col: DynIden = "id".into();
+        let tenant_col: DynIden = "tenant_id".into();
+        let identity = Identity::Binary(id_col.clone(), tenant_col.clone());
+        
+        let iter1: Vec<&DynIden> = identity.iter().collect();
+        let iter2: Vec<&DynIden> = identity.iter().collect();
+        
+        assert_eq!(iter1.len(), 2);
+        assert_eq!(iter2.len(), 2);
+        assert_eq!(iter1, iter2);
+    }
+
+    #[test]
+    fn test_identity_contains_unary() {
+        // Edge case: Contains check on Unary
+        let id_col: DynIden = "id".into();
+        let other_col: DynIden = "other".into();
+        let identity = Identity::Unary(id_col.clone());
+        
+        assert!(identity.contains(&id_col));
+        assert!(!identity.contains(&other_col));
+    }
+
+    #[test]
+    fn test_identity_fully_contains_self() {
+        // Edge case: Identity fully contains itself
+        let id_col: DynIden = "id".into();
+        let tenant_col: DynIden = "tenant_id".into();
+        let identity = Identity::Binary(id_col.clone(), tenant_col.clone());
+        
+        assert!(identity.fully_contains(&identity));
+    }
+
+    #[test]
+    fn test_identity_fully_contains_many() {
+        // Edge case: Many variant fully contains smaller identities
+        let id_col: DynIden = "id".into();
+        let tenant_col: DynIden = "tenant_id".into();
+        let region_col: DynIden = "region_id".into();
+        let extra_col: DynIden = "extra".into();
+        
+        let many_identity = Identity::Many(vec![
+            id_col.clone(),
+            tenant_col.clone(),
+            region_col.clone(),
+            extra_col.clone(),
+        ]);
+        let binary_identity = Identity::Binary(id_col.clone(), tenant_col.clone());
+        let unary_identity = Identity::Unary(id_col.clone());
+        
+        assert!(many_identity.fully_contains(&binary_identity));
+        assert!(many_identity.fully_contains(&unary_identity));
+        assert!(!binary_identity.fully_contains(&many_identity));
+    }
 }

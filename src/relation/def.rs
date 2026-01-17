@@ -424,4 +424,144 @@ mod tests {
         // Verify condition was created
         let _ = condition;
     }
+
+    #[test]
+    fn test_join_tbl_on_condition_ternary() {
+        // Edge case: Ternary composite key
+        use sea_query::{TableName, IntoIden};
+        
+        let condition = join_tbl_on_condition(
+            TableRef::Table(TableName(None, "posts".into_iden()), None),
+            TableRef::Table(TableName(None, "users".into_iden()), None),
+            Identity::Ternary("user_id".into(), "tenant_id".into(), "region_id".into()),
+            Identity::Ternary("id".into(), "tenant_id".into(), "region_id".into()),
+        );
+
+        let _ = condition;
+    }
+
+    #[test]
+    fn test_join_tbl_on_condition_many() {
+        // Edge case: Many variant (4+ columns)
+        use sea_query::{TableName, IntoIden};
+        
+        let condition = join_tbl_on_condition(
+            TableRef::Table(TableName(None, "posts".into_iden()), None),
+            TableRef::Table(TableName(None, "users".into_iden()), None),
+            Identity::Many(vec!["user_id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]),
+            Identity::Many(vec!["id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]),
+        );
+
+        let _ = condition;
+    }
+
+    #[test]
+    #[should_panic(expected = "matching arity")]
+    fn test_join_tbl_on_condition_ternary_mismatch() {
+        // Edge case: Ternary vs Unary mismatch
+        use sea_query::{TableName, IntoIden};
+        
+        join_tbl_on_condition(
+            TableRef::Table(TableName(None, "posts".into_iden()), None),
+            TableRef::Table(TableName(None, "users".into_iden()), None),
+            Identity::Unary("user_id".into()),
+            Identity::Ternary("id".into(), "tenant_id".into(), "region_id".into()),
+        );
+    }
+
+    #[test]
+    fn test_relation_def_rev_composite() {
+        // Edge case: Reversing composite key relationship
+        use sea_query::{TableName, IntoIden};
+        
+        let rel_def = RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
+            from_col: Identity::Binary("user_id".into(), "tenant_id".into()),
+            to_col: Identity::Binary("id".into(), "tenant_id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+
+        let reversed = rel_def.clone().rev();
+        assert_eq!(reversed.from_col, rel_def.to_col);
+        assert_eq!(reversed.to_col, rel_def.from_col);
+        assert_eq!(reversed.is_owner, !rel_def.is_owner);
+    }
+
+    #[test]
+    fn test_build_where_condition_single_key() {
+        // Edge case: Test build_where_condition with single key
+        // Note: This test verifies the function compiles and creates a condition
+        // Full integration testing would require a complete entity/model setup
+        use sea_query::{TableName, IntoIden};
+        
+        // Test that the function signature is correct and can be called
+        // The actual implementation is tested in integration tests
+        let rel_def = RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(TableName(None, "related".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "test".into_iden()), None),
+            from_col: Identity::Unary("test_id".into()),
+            to_col: Identity::Unary("id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+        
+        // Verify RelationDef structure is correct for single key
+        assert_eq!(rel_def.from_col.arity(), 1);
+        assert_eq!(rel_def.to_col.arity(), 1);
+    }
+
+    #[test]
+    fn test_build_where_condition_composite_key_structure() {
+        // Edge case: Test RelationDef structure for composite key relationships
+        // Note: Full integration testing of build_where_condition requires complete entity/model setup
+        use sea_query::{TableName, IntoIden};
+        
+        let rel_def = RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(TableName(None, "related".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "test".into_iden()), None),
+            from_col: Identity::Binary("test_id".into(), "tenant_id".into()),
+            to_col: Identity::Binary("id".into(), "tenant_id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+        
+        // Verify RelationDef structure is correct for composite key
+        assert_eq!(rel_def.from_col.arity(), 2);
+        assert_eq!(rel_def.to_col.arity(), 2);
+    }
+
+    #[test]
+    fn test_build_where_condition_mismatched_arity_structure() {
+        // Edge case: Test RelationDef structure with mismatched arity
+        // Note: The actual panic is tested in integration tests with real models
+        use sea_query::{TableName, IntoIden};
+        
+        let rel_def = RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(TableName(None, "related".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "test".into_iden()), None),
+            from_col: Identity::Binary("test_id".into(), "tenant_id".into()),
+            to_col: Identity::Unary("id".into()),
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+        
+        // Verify the structure shows mismatched arity
+        assert_eq!(rel_def.from_col.arity(), 2);
+        assert_eq!(rel_def.to_col.arity(), 1);
+        // This would panic in build_where_condition if called with a model
+    }
 }

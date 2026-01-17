@@ -24,6 +24,146 @@ fn extract_column_name(column_ref: &str) -> Option<String> {
     }
 }
 
+/// Parse a column reference string and extract the column path and variant name
+/// 
+/// Examples:
+/// - "Column::UserId" -> (None, "UserId")
+/// - "super::users::Column::Id" -> (Some("super::users"), "Id")
+/// - "Column::UserId, Column::TenantId" -> (None, ["UserId", "TenantId"]) for composite keys
+fn parse_column_reference(column_ref: &str) -> (Option<String>, Vec<String>) {
+    // Check if this is a composite key (multiple columns separated by comma)
+    let columns: Vec<&str> = column_ref.split(',').map(|s| s.trim()).collect();
+    
+    let mut column_variants = Vec::new();
+    let mut path_prefix: Option<String> = None;
+    
+    for col_ref in columns {
+        let parts: Vec<&str> = col_ref.split("::").collect();
+        if let Some(last_segment) = parts.last() {
+            column_variants.push(last_segment.to_string());
+        }
+        
+        // Extract path prefix (everything before the last "Column::" part)
+        if parts.len() >= 2 {
+            // Find the index of "Column" in the path
+            if let Some(col_idx) = parts.iter().position(|&p| p == "Column") {
+                if col_idx > 0 {
+                    let prefix = parts[..col_idx].join("::");
+                    if path_prefix.is_none() {
+                        path_prefix = Some(prefix);
+                    }
+                }
+            }
+        }
+    }
+    
+    (path_prefix, column_variants)
+}
+
+/// Build Identity from column reference string(s)
+/// 
+/// Supports:
+/// - Single column: "Column::UserId" -> Identity::Unary
+/// - Composite keys: "Column::UserId, Column::TenantId" -> Identity::Binary
+/// - Path-qualified: "super::users::Column::Id" -> Identity::Unary
+/// 
+/// Note: When the path is just "Column", it refers to the current entity's Column type.
+/// The macro uses `<Entity as LifeModelTrait>::Column` to access it.
+fn build_identity_from_column_ref(column_ref: &str) -> TokenStream2 {
+    let (path_prefix, column_variants) = parse_column_reference(column_ref);
+    
+    // Build the column path (e.g., "Column" or "super::users::Column")
+    // If no prefix, assume it's the current entity's Column type
+    
+    let column_path_expr = if let Some(prefix) = path_prefix {
+        // Full path like "super::users::Column"
+        let prefix_segments: Vec<&str> = prefix.split("::").collect();
+        let mut path_tokens = quote! {};
+        for segment in prefix_segments {
+            let seg_ident = syn::Ident::new(segment, proc_macro2::Span::call_site());
+            path_tokens = quote! { #path_tokens::#seg_ident };
+        }
+        quote! { #path_tokens::Column }
+    } else {
+        // No prefix - use Entity's Column type
+        quote! { <Entity as lifeguard::LifeModelTrait>::Column }
+    };
+    
+    match column_variants.len() {
+        1 => {
+            let col_variant = &column_variants[0];
+            let col_ident = syn::Ident::new(col_variant, proc_macro2::Span::call_site());
+            quote! {
+                {
+                    use lifeguard::LifeModelTrait;
+                    use sea_query::IdenStatic;
+                    let col = #column_path_expr::#col_ident;
+                    lifeguard::Identity::Unary(sea_query::DynIden::from(col.as_str()))
+                }
+            }
+        }
+        2 => {
+            let col1_variant = &column_variants[0];
+            let col2_variant = &column_variants[1];
+            let col1_ident = syn::Ident::new(col1_variant, proc_macro2::Span::call_site());
+            let col2_ident = syn::Ident::new(col2_variant, proc_macro2::Span::call_site());
+            quote! {
+                {
+                    use lifeguard::LifeModelTrait;
+                    use sea_query::IdenStatic;
+                    let col1 = #column_path_expr::#col1_ident;
+                    let col2 = #column_path_expr::#col2_ident;
+                    lifeguard::Identity::Binary(
+                        sea_query::DynIden::from(col1.as_str()),
+                        sea_query::DynIden::from(col2.as_str())
+                    )
+                }
+            }
+        }
+        3 => {
+            let col1_variant = &column_variants[0];
+            let col2_variant = &column_variants[1];
+            let col3_variant = &column_variants[2];
+            let col1_ident = syn::Ident::new(col1_variant, proc_macro2::Span::call_site());
+            let col2_ident = syn::Ident::new(col2_variant, proc_macro2::Span::call_site());
+            let col3_ident = syn::Ident::new(col3_variant, proc_macro2::Span::call_site());
+            quote! {
+                {
+                    use lifeguard::LifeModelTrait;
+                    use sea_query::IdenStatic;
+                    let col1 = #column_path_expr::#col1_ident;
+                    let col2 = #column_path_expr::#col2_ident;
+                    let col3 = #column_path_expr::#col3_ident;
+                    lifeguard::Identity::Ternary(
+                        sea_query::DynIden::from(col1.as_str()),
+                        sea_query::DynIden::from(col2.as_str()),
+                        sea_query::DynIden::from(col3.as_str())
+                    )
+                }
+            }
+        }
+        _n => {
+            // 4 or more columns - use Many variant
+            let cols: Vec<_> = column_variants.iter().map(|col_variant| {
+                let col_ident = syn::Ident::new(col_variant, proc_macro2::Span::call_site());
+                quote! {
+                    {
+                        let col = #column_path_expr::#col_ident;
+                        sea_query::DynIden::from(col.as_str())
+                    }
+                }
+            }).collect();
+            quote! {
+                {
+                    use lifeguard::LifeModelTrait;
+                    use sea_query::IdenStatic;
+                    lifeguard::Identity::Many(vec![#(#cols),*])
+                }
+            }
+        }
+    }
+}
+
 /// Convert PascalCase to snake_case
 /// Example: "UserId" -> "user_id", "OwnerId" -> "owner_id"
 fn convert_pascal_to_snake_case(s: &str) -> String {
@@ -196,52 +336,62 @@ fn process_relation_variant(
         // Note: Entity is assumed to be in the same module as the Relation enum
         // This is a simplified implementation - full Phase 6 will add proper Identity handling
         
-        // Get table names - simplified for now (will be enhanced in Phase 6)
-        // We'll use the entity's table_name() method
+        // Get table names using entity's table_name() method
         // Note: Entity is assumed to be in the same module as the Relation enum (documented assumption)
         let from_table_name = quote! {
             {
+                use lifeguard::LifeEntityName;
                 let entity = Entity::default();
                 entity.table_name()
             }
         };
         let to_table_name = quote! {
             {
+                use lifeguard::LifeEntityName;
                 let entity = #target_entity_path::default();
                 entity.table_name()
             }
         };
         
         // Build Identity for from_col and to_col
-        // For now, use simplified approach - will be enhanced in Phase 6
+        // Phase 6: Enhanced to support composite keys and proper column references
         let from_col_identity = if let Some(from_col) = from_column.as_ref() {
-            if let Some(col_name) = extract_column_name(from_col) {
-                let col_name_lit = syn::LitStr::new(&col_name, proc_macro2::Span::call_site());
-                quote! {
-                    lifeguard::Identity::Unary(#col_name_lit.into())
-                }
-            } else {
-                // Default: infer from relationship type
-                quote! {
-                    lifeguard::Identity::Unary("id".into())
-                }
-            }
+            // Parse the column reference and build Identity
+            build_identity_from_column_ref(from_col)
         } else {
             // Default: infer from relationship type
+            // For has_many/has_one: foreign key is in the target table (to_col)
+            // For belongs_to: foreign key is in the current table (from_col)
+            // Default to "id" for now - could be enhanced to infer from entity name
+            // Use Entity::Column to get the Column type from the entity
             quote! {
-                lifeguard::Identity::Unary("id".into())
+                {
+                    use lifeguard::LifeModelTrait;
+                    use sea_query::IdenStatic;
+                    // Entity is assumed to be in the same module as the Relation enum
+                    // Use Entity::Column to access the Column enum
+                    let col = <Entity as lifeguard::LifeModelTrait>::Column::Id;
+                    lifeguard::Identity::Unary(sea_query::DynIden::from(col.as_str()))
+                }
             }
         };
         
-        let to_col_identity = if let Some(_to_col) = to_column.as_ref() {
-            // Use the "to" column if specified
-            quote! {
-                lifeguard::Identity::Unary("id".into())
-            }
+        let to_col_identity = if let Some(to_col) = to_column.as_ref() {
+            // Parse the column reference and build Identity
+            // The "to" column might be in a different module (e.g., "super::users::Column::Id")
+            build_identity_from_column_ref(to_col)
         } else {
-            // Default: primary key column
+            // Default: infer from target entity's primary key
+            // For now, default to "id" - could be enhanced to query the target entity's primary key
+            // This would require access to the target entity's metadata at compile time
             quote! {
-                lifeguard::Identity::Unary("id".into())
+                {
+                    use sea_query::IdenStatic;
+                    // Try to use the target entity's Column enum
+                    // If it's in a different module, we'll need the full path
+                    // For now, use a string-based approach that will work at runtime
+                    lifeguard::Identity::Unary(sea_query::DynIden::from("id"))
+                }
             }
         };
         
