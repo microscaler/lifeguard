@@ -537,3 +537,5 @@ This design simplifies the API while maintaining the same functionality.
 1. Macro changes to generate `get_all_primary_key_values()` for composite keys
 2. Static metadata registry for foreign key column mappings
 3. Updates to `find_related()` to handle multiple WHERE conditions for composite keys
+
+**Design Document:** See [DESIGN_RELATION_METADATA_AND_COMPOSITE_KEYS.md](./DESIGN_RELATION_METADATA_AND_COMPOSITE_KEYS.md) for detailed implementation plan, architecture, and step-by-step guide.
