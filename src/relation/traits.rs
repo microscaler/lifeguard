@@ -1,17 +1,11 @@
-//! Relation trait for entity relationships - Epic 02 Story 08
+//! Core traits for entity relationships.
 //!
-//! Provides support for defining and querying entity relationships:
-//! - belongs_to: Many-to-one relationship
-//! - has_one: One-to-one relationship
-//! - has_many: One-to-many relationship
-//! - has_many_through: Many-to-many relationship (via join table)
-
-pub mod identity;
-pub mod def;
-pub use identity::{Identity, BorrowedIdentityIter, IntoIdentity};
-pub use def::{RelationDef, RelationType, join_tbl_on_condition, build_where_condition};
+//! This module provides traits for defining and querying entity relationships,
+//! including RelationTrait, Related, FindRelated, and helper traits.
 
 use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
+use crate::model::ModelTrait;
+use crate::relation::def::{RelationDef, build_where_condition};
 use sea_query::{Expr, Iden};
 
 /// Trait for defining entity relationships
@@ -196,54 +190,6 @@ pub trait RelationBuilder {
     fn on(self, condition: Expr) -> Self;
 }
 
-/// Helper function to create a join condition for relationships
-///
-/// This creates an expression that joins two tables based on foreign key
-/// relationships. The function creates a table-qualified column comparison
-/// expression.
-///
-/// # Arguments
-///
-/// * `from_table` - The source table name
-/// * `from_column` - The foreign key column in the source table
-/// * `to_table` - The target table name
-/// * `to_column` - The referenced column in the target table (usually primary key)
-///
-/// # Returns
-///
-/// Returns an `Expr` representing the join condition: `from_table.from_column = to_table.to_column`
-///
-/// # Example
-///
-/// ```no_run
-/// use lifeguard::join_condition;
-/// use sea_query::Expr;
-///
-/// // Create a join condition: posts.user_id = users.id
-/// let condition = join_condition("posts", "user_id", "users", "id");
-///
-/// // Or construct manually for more control:
-/// let condition = Expr::col(("posts", "user_id"))
-///     .equals(Expr::col(("users", "id")));
-/// ```
-pub fn join_condition(
-    from_table: &str,
-    from_column: &str,
-    to_table: &str,
-    to_column: &str,
-) -> Expr {
-    // Create table-qualified column references and compare them
-    // SeaQuery doesn't have a direct .equals() method for column-to-column comparisons,
-    // so we use a custom SQL expression
-    // Note: This creates a raw SQL string, so table/column names should be validated
-    // to prevent SQL injection if user input is involved
-    let condition = format!(
-        "{}.{} = {}.{}",
-        from_table, from_column, to_table, to_column
-    );
-    Expr::cust(condition)
-}
-
 /// Trait for storing relationship metadata
 ///
 /// This trait provides metadata about relationships, including foreign key columns.
@@ -406,9 +352,7 @@ pub trait FindRelated: ModelTrait {
         Self::Entity: Related<R>;
 }
 
-// Import ModelTrait for the FindRelated implementation
-use crate::model::ModelTrait;
-
+// Implement FindRelated for all ModelTrait types
 impl<M> FindRelated for M
 where
     M: ModelTrait,
@@ -442,22 +386,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_join_condition() {
-        // Test that join_condition returns an Expr
-        let condition = join_condition("posts", "user_id", "users", "id");
-        // Verify the condition is created (we can't easily test the SQL generation
-        // without a full query builder, but we can verify it compiles)
-        let _ = condition;
-    }
+    use crate::relation::def::{RelationDef, RelationType};
+    use crate::relation::identity::Identity;
+    use sea_query::{IdenStatic, TableRef, ConditionType};
 
     #[test]
     fn test_relation_trait_methods_exist() {
         // Test that RelationTrait methods exist and can be called
         // This is a compile-time check that the trait is properly defined
         use crate::{LifeEntityName, LifeModelTrait};
-        use sea_query::IdenStatic;
         
         #[derive(Default, Copy, Clone)]
         struct TestEntity;
@@ -508,15 +445,10 @@ mod tests {
         let _query4 = entity.has_many_through(TestEntity, TestEntity, join_cond.clone(), join_cond);
     }
 
-    // ============================================================================
-    // Edge Cases
-    // ============================================================================
-
     #[test]
     fn test_relation_belongs_to_with_empty_join_condition() {
         // EDGE CASE: belongs_to with empty/invalid join condition
         use crate::{LifeEntityName, LifeModelTrait};
-        use sea_query::IdenStatic;
         
         #[derive(Default, Copy, Clone)]
         struct TestEntity;
@@ -548,28 +480,12 @@ mod tests {
     }
 
     #[test]
-    fn test_join_condition_with_special_characters() {
-        // EDGE CASE: Table/column names with special characters
-        let condition = join_condition("user_profiles", "user_id", "users", "id");
-        let _ = condition;
-    }
-
-    #[test]
-    fn test_join_condition_empty_strings() {
-        // EDGE CASE: Empty table/column names (should still compile, but invalid at runtime)
-        let condition = join_condition("", "", "", "");
-        let _ = condition;
-    }
-
-    #[test]
     fn test_find_related_on_model_type() {
         // Test that FindRelated can be implemented for Model types (not just Entity types)
         // This verifies the fix for the bug where FindRelated required LifeModelTrait,
         // which Models don't implement (only Entities do).
-        use crate::{LifeEntityName, LifeModelTrait, Related};
-        use crate::relation::def::{RelationDef, RelationType};
-        use crate::relation::identity::Identity;
-        use sea_query::{IdenStatic, TableRef, ConditionType};
+        use crate::{LifeEntityName, LifeModelTrait};
+        use sea_query::{IntoIden, TableName};
         
         // Define test entities
         #[derive(Default, Copy, Clone)]
@@ -692,7 +608,6 @@ mod tests {
             }
             
             fn get_primary_key_identity(&self) -> Identity {
-                use sea_query::IdenStatic;
                 Identity::Unary(sea_query::DynIden::from(UserColumn::Id.as_str()))
             }
             
@@ -745,7 +660,6 @@ mod tests {
             }
             
             fn get_primary_key_identity(&self) -> Identity {
-                use sea_query::IdenStatic;
                 Identity::Unary(sea_query::DynIden::from(PostColumn::Id.as_str()))
             }
             
@@ -757,7 +671,6 @@ mod tests {
         // Define relationship: User has_many Posts
         impl Related<PostEntity> for UserEntity {
             fn to() -> RelationDef {
-                use sea_query::{TableName, IntoIden};
                 RelationDef {
                     rel_type: RelationType::HasMany,
                     from_tbl: TableRef::Table(TableName(None, UserEntity::table_name(&UserEntity).into_iden()), None),
