@@ -72,7 +72,7 @@ pub use model::{ModelError, ModelTrait};
 
 // Relation trait - Epic 02 Story 08
 pub mod relation;
-pub use relation::{RelationTrait, RelationBuilder, join_condition, Related, FindRelated};
+pub use relation::{RelationTrait, RelationBuilder, join_condition, Related, FindRelated, Identity, BorrowedIdentityIter, IntoIdentity};
 
 // Partial Model trait - Epic 02 Story 09
 pub mod partial_model;

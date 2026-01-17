@@ -6,6 +6,9 @@
 //! - has_many: One-to-many relationship
 //! - has_many_through: Many-to-many relationship (via join table)
 
+pub mod identity;
+pub use identity::{Identity, BorrowedIdentityIter, IntoIdentity};
+
 use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
 use sea_query::{Expr, ExprTrait, Iden};
 
