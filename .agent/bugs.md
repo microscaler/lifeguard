@@ -106,11 +106,26 @@ The `infer_foreign_key_column_name` function incorrectly handles module-qualifie
 
 ---
 
+### [BUG-2025-01-27-07](bugs/BUG-2025-01-27-07.md)
+
+**Date**: 2025-01-27  
+**Source**: User verification request  
+**Status**: `fixed`  
+**Severity**: `high`  
+**Location**: `lifeguard-derive/src/macros/relation.rs:301`  
+**Impact**: `parse_nested_meta` result is discarded with `let _`, silently ignoring parsing errors when malformed attribute values are provided
+
+The `parse_nested_meta` result is discarded with `let _`, silently ignoring parsing errors. If a relationship type parses successfully (e.g., `has_many = "Entity"`) but a subsequent `from` or `to` attribute has a malformed value (e.g., `from = 123` instead of `from = "Column::Id"`), the error is silently ignored and the relationship is generated using default column inference. The user receives no compile error but gets incorrect SQL generation because their column specification was silently dropped.
+
+**Fix**: Changed `let _ = attr.parse_nested_meta(...)` to check the result and propagate errors using `if let Err(err) = attr.parse_nested_meta(...) { return Some(err.to_compile_error()); }`. Added comprehensive UI tests using `trybuild` to verify malformed attributes cause compile errors.
+
+---
+
 ## Bug Statistics
 
-- **Total Bugs**: 6
+- **Total Bugs**: 7
 - **Open**: 0
-- **Fixed**: 5
+- **Fixed**: 6
 - **Verified**: 1
 
 ## Status Legend

@@ -298,7 +298,8 @@ fn process_relation_variant(
         if attr.path().is_ident("lifeguard") {
             // Parse nested attributes like #[lifeguard(has_many = "...")]
             // Use parse_nested_meta for syn 2.0
-            let _ = attr.parse_nested_meta(|meta| {
+            // Check result and propagate errors instead of silently ignoring them
+            if let Err(err) = attr.parse_nested_meta(|meta| {
                 // Check for key-value pairs like has_many = "..."
                 if meta.path.is_ident("has_many") || meta.path.is_ident("has_one") || meta.path.is_ident("belongs_to") {
                     let key = meta.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
@@ -317,7 +318,10 @@ fn process_relation_variant(
                 } else {
                     Ok(())
                 }
-            });
+            }) {
+                // Return compile error if parsing fails
+                return Some(err.to_compile_error());
+            }
         }
     }
     
