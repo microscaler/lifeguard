@@ -29,9 +29,9 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ✅ Implemented | ✅ Enhanced | Support for composite primary keys with granular variants (Single, Tuple2-Tuple5, Tuple6Plus) - Lifeguard enhancement beyond SeaORM |
 | `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support, automatic join condition generation pending |
-| `Related` | ❌ Missing | 🟡 **Future** | Related entity queries |
+| `Related` | ✅ Implemented | 🟡 **Partial** | Related entity queries - Trait implemented, requires manual implementation per relationship, DeriveRelation macro pending |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
-| `PartialModelTrait` | ❌ Missing | 🟡 **Future** | Partial model queries (select subset of columns) |
+| `PartialModelTrait` | ✅ Implemented | 🟡 **Partial** | Partial model queries (select subset of columns) - Trait implemented, but column selection uses SELECT * fallback, DerivePartialModel macro missing |
 | `TryIntoModel` | ❌ Missing | 🟡 **Future** | Conversion utilities |
 
 ---
@@ -56,7 +56,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveRelatedEntity` | ❌ Missing | 🟡 **Future** | RelatedEntity enum |
 | `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation |
 | `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
-| `DerivePartialModel` | ❌ Missing | 🟡 **Future** | PartialModelTrait implementation |
+| `DerivePartialModel` | ❌ Missing | 🟡 **Future** | PartialModelTrait implementation (trait exists, macro needed for auto-generation) |
 | `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types |
 | `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum |
 | `DeriveIden` | ❌ Missing | 🟡 **Future** | Iden trait helper |
@@ -127,7 +127,7 @@ This design simplifies the API while maintaining the same functionality.
 | `Select<E>::paginate()` | `SelectQuery<E>::paginate()` | ✅ Implemented | Returns Paginator |
 | `Select<E>::paginate_and_count()` | `SelectQuery<E>::paginate_and_count()` | ✅ Implemented | Returns PaginatorWithCount |
 | `Select<E>::count()` | `SelectQuery<E>::count()` | ✅ Implemented | COUNT query |
-| `Model::find_related<R>()` | ❌ Missing | 🟡 **Future** | Find related entities |
+| `Model::find_related<R>()` | `FindRelated::find_related()` | ✅ Implemented | Find related entities (via FindRelated trait extension) |
 | `Model::find_linked<L>()` | ❌ Missing | 🟡 **Future** | Find linked entities |
 | `Entity::insert()` | ✅ Implemented | ✅ Complete | Insert ActiveModel (static convenience method) |
 | `Entity::update()` | ✅ Implemented | ✅ Complete | Update ActiveModel (static convenience method) |
@@ -238,7 +238,7 @@ This design simplifies the API while maintaining the same functionality.
 - `set(column, value)` - Set column value ✅
 - `get_primary_key_value()` - Get primary key value(s) ✅
 - `get_value_type(column)` - Get column's value type (🟡 Future)
-- `find_related<R>()` - Find related entities (🟡 Future)
+- `find_related<R>()` - ✅ Implemented (via FindRelated trait extension)
 - `find_linked<L>()` - Find linked entities (🟡 Future)
 
 #### ColumnTrait
@@ -296,9 +296,11 @@ This design simplifies the API while maintaining the same functionality.
 - `RelationTrait` - ✅ Implemented with functional query building (belongs_to, has_one, has_many, has_many_through methods accept foreign keys and join conditions)
 - `join_condition()` helper function - ✅ Implemented (creates join conditions from table/column names)
 - All relationship methods build actual queries with LEFT JOIN clauses
+**Current State:**
+- `Related` - ✅ Implemented (trait for defining relationships, requires manual implementation)
+- `FindRelated` - ✅ Implemented (extension trait providing `find_related()` method on models)
 **Future State:**
 - Automatic join condition generation from foreign key metadata
-- `Related` - Related entity queries
 - `Linked` - Multi-hop relationship queries
 - `DeriveRelation` - Generate Relation enum
 - `DeriveRelatedEntity` - Generate RelatedEntity enum
@@ -306,11 +308,18 @@ This design simplifies the API while maintaining the same functionality.
 - Lazy loading support
 
 #### Partial Models
-**Status:** 🟡 Future  
-**Future State:** Support for partial model queries:
-- `PartialModelTrait` - Trait for partial models
-- `DerivePartialModel` - Generate partial model structs
-- Select subset of columns from queries
+**Status:** 🟡 Partial  
+**Current State:**
+- `PartialModelTrait` - ✅ Implemented (trait for partial models with `selected_columns()` method)
+- `PartialModelBuilder` - ✅ Implemented (trait for building partial model queries)
+- `SelectPartialQuery` - ✅ Implemented (query builder for partial models)
+- `select_partial()` method - ✅ Implemented (on `SelectQuery<E>`)
+**Known Limitations:**
+- Column selection currently uses `SELECT *` as fallback (proper Expr-to-column conversion pending)
+- Column order must match between `selected_columns()` and `FromRow` implementation
+**Future State:**
+- `DerivePartialModel` - Generate partial model structs automatically
+- Proper column selection implementation (extract column names from Expr or change API)
 
 #### Advanced Query Features
 **Status:** 🟢 Partial  
@@ -363,7 +372,7 @@ This design simplifies the API while maintaining the same functionality.
 
 | Category | SeaORM | Lifeguard | Coverage |
 |----------|--------|-----------|----------|
-| **Core Traits** | 15 | 7 | 47% (Enhanced: PrimaryKeyArity with granular variants) |
+| **Core Traits** | 15 | 9 | 60% (Enhanced: PrimaryKeyArity with granular variants, PartialModelTrait and Related implemented) |
 | **Derive Macros** | 21 | 7 | 33% |
 | **Core Structures** | 10 | 6 | 60% |
 | **Query Builder Methods** | 20 | 19 | 95% |

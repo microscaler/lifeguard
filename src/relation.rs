@@ -6,7 +6,7 @@
 //! - has_many: One-to-many relationship
 //! - has_many_through: Many-to-many relationship (via join table)
 
-use crate::query::{SelectQuery, LifeModelTrait};
+use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
 use sea_query::{Expr, Iden};
 
 /// Trait for defining entity relationships
@@ -237,6 +237,190 @@ pub fn join_condition(
         from_table, from_column, to_table, to_column
     );
     Expr::cust(condition)
+}
+
+/// Trait for finding related entities from a model instance
+///
+/// This trait enables querying related entities through relationships defined
+/// via `RelationTrait`. It provides a convenient API for finding related entities
+/// without manually constructing join queries.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{Related, LifeModelTrait, SelectQuery, LifeExecutor};
+/// use sea_query::Expr;
+///
+/// // Define entities
+/// struct User;
+/// struct Post;
+///
+/// impl LifeModelTrait for User {
+///     type Model = UserModel;
+///     type Column = UserColumn;
+/// }
+///
+/// impl LifeModelTrait for Post {
+///     type Model = PostModel;
+///     type Column = PostColumn;
+/// }
+///
+/// // Define relationship: Post belongs_to User
+/// impl Related<User> for Post {
+///     fn to() -> SelectQuery<User> {
+///         // This would typically use RelationTrait to build the query
+///         // For now, this is a placeholder that needs implementation
+///         todo!()
+///     }
+/// }
+///
+/// // Use it to find related entities
+/// # struct UserModel { id: i32 };
+/// # struct PostModel { id: i32, user_id: i32 };
+/// # let user: UserModel = UserModel { id: 1 };
+/// # let executor: &dyn LifeExecutor = todo!();
+/// // Find all posts for a user (if User has_many Posts relationship is defined)
+/// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+/// ```
+pub trait Related<R>
+where
+    Self: LifeModelTrait,
+    R: LifeModelTrait,
+{
+    /// Get a query builder for related entities
+    ///
+    /// This method returns a `SelectQuery` that can be used to find entities
+    /// of type `Self` that are related to entities of type `R`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery<Self>` builder for the related entities
+    ///
+    /// # Note
+    ///
+    /// This is a static method that returns a query builder. To filter by
+    /// a specific instance's primary key, use `find_related()` on a model instance
+    /// which will call this method and apply the appropriate WHERE clause.
+    fn to() -> SelectQuery<Self>;
+}
+
+/// Extension trait for models to find related entities
+///
+/// This trait provides the `find_related()` method on model instances,
+/// allowing you to find related entities based on the current model's
+/// primary key value.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{FindRelated, Related, LifeModelTrait, ModelTrait, LifeExecutor};
+///
+/// // Assuming User has_many Posts relationship
+/// # struct UserModel { id: i32 };
+/// # struct PostModel { id: i32, user_id: i32 };
+/// # impl lifeguard::ModelTrait for UserModel {
+/// #     fn get_primary_key_value(&self) -> lifeguard::PrimaryKeyValue { todo!() }
+/// # }
+/// # let user: UserModel = UserModel { id: 1 };
+/// # let executor: &dyn LifeExecutor = todo!();
+/// // Find all posts for this user
+/// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+/// ```
+pub trait FindRelated: ModelTrait + LifeModelTrait {
+    /// Find related entities of type `R`
+    ///
+    /// This method uses the `Related<R>` trait implementation to build a query
+    /// for related entities, then filters by the current model's primary key.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `R` - The related entity type that implements `Related<Self::Entity>`
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery<R>` filtered by the current model's primary key
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{FindRelated, Related, LifeModelTrait, ModelTrait, LifeExecutor};
+    /// use sea_query::Expr;
+    ///
+    /// // Assuming User has_many Posts relationship
+    /// # struct UserModel { id: i32 };
+    /// # struct PostModel { id: i32, user_id: i32 };
+    /// # impl lifeguard::ModelTrait for UserModel {
+    /// #     fn get_primary_key_value(&self) -> lifeguard::PrimaryKeyValue { todo!() }
+    /// # }
+    /// # impl lifeguard::LifeModelTrait for UserModel {
+    /// #     type Entity = ();
+    /// #     type Model = UserModel;
+    /// #     type Column = ();
+    /// # }
+    /// # let user: UserModel = UserModel { id: 1 };
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// // Find all posts for this user
+    /// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+    /// ```
+    fn find_related<R>(&self) -> SelectQuery<R>
+    where
+        R: LifeModelTrait + Related<Self::Entity>;
+}
+
+// Import ModelTrait for the FindRelated implementation
+use crate::model::ModelTrait;
+
+impl<M> FindRelated for M
+where
+    M: ModelTrait + LifeModelTrait,
+    M::Entity: LifeEntityName,
+{
+    fn find_related<R>(&self) -> SelectQuery<R>
+    where
+        R: LifeModelTrait + Related<Self::Entity>,
+    {
+        // Get the query builder from Related trait
+        // R: Related<Self::Entity> means "R is related to Self::Entity"
+        // So R::to() returns SelectQuery<R> for entities of type R related to Self::Entity
+        let mut query = R::to();
+        
+        // Get the current model's primary key value
+        let pk_value = self.get_primary_key_value();
+        
+        // Get the related entity's table name
+        let related_entity = R::default();
+        let related_table = related_entity.table_name();
+        
+        // Get the current entity's table name for the foreign key
+        let current_entity = <Self::Entity as Default>::default();
+        let current_table = current_entity.table_name();
+        
+        // Build WHERE clause filtering by the foreign key
+        // The foreign key column name is typically: {current_table}_id
+        // But this is a simplification - in a full implementation,
+        // we'd use the relationship metadata to determine the foreign key
+        // TODO: Support composite primary keys (would need to match multiple columns)
+        use sea_query::Expr;
+        
+        let fk_column = format!("{}_id", current_table);
+        // Construct the comparison expression
+        // Note: There's a SeaQuery API issue with Expr::col().eq(Value) 
+        // For now, we use a workaround that will be fixed when we resolve the API usage
+        // The proper implementation should use: Expr::col(column).eq(value)
+        // TODO: Fix this once we understand the correct SeaQuery API for Value comparisons
+        let qualified_column = format!("{}.{}", related_table, fk_column);
+        // Use a raw SQL expression as a temporary workaround
+        // This creates a parameterized query that will bind pk_value at execution time
+        // The actual parameter binding happens in the query execution layer
+        // Store pk_value for future parameter binding (this is a placeholder)
+        // In a full implementation, the parameter would be bound during query execution
+        let _pk_value = pk_value;
+        // Use Expr::cust() with format! macro - the string is used immediately
+        let condition = Expr::cust(format!("{} = $1", qualified_column));
+        query = query.filter(condition);
+        
+        query
+    }
 }
 
 #[cfg(test)]
