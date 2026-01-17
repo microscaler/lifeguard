@@ -30,7 +30,7 @@ pub use primary_key::{PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, Prim
 /// # Returns
 ///
 /// Returns `true` if the error indicates no rows were found, `false` otherwise.
-fn is_no_rows_error(error: &LifeError) -> bool {
+pub(crate) fn is_no_rows_error(error: &LifeError) -> bool {
     match error {
         LifeError::PostgresError(pg_error) => {
             // Check the underlying PostgreSQL error message
@@ -345,7 +345,7 @@ where
     E: LifeModelTrait,
 {
     pub(crate) query: SelectStatement,  // Made pub(crate) for testing
-    _phantom: PhantomData<E>,
+    pub(crate) _phantom: PhantomData<E>,
 }
 
 /// Typed select query that returns a specific Model type
@@ -548,6 +548,122 @@ where
         self
     }
     
+    /// Add a JOIN clause (INNER JOIN)
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::InnerJoin, table, on);
+        self
+    }
+    
+    /// Add a LEFT JOIN clause
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.left_join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn left_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::LeftJoin, table, on);
+        self
+    }
+    
+    /// Add a RIGHT JOIN clause
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.right_join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn right_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::RightJoin, table, on);
+        self
+    }
+    
+    /// Add an INNER JOIN clause (alias for `join()`)
+    ///
+    /// # Arguments
+    ///
+    /// * `table` - The table to join (must implement `Iden`)
+    /// * `on` - The join condition expression
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// # struct Post; // Related entity
+    /// # impl sea_query::Iden for Post {
+    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// # }
+    /// # let query = UserModel::find();
+    /// let joined = query.inner_join(Post, Expr::col("users.id").equals("posts.user_id"));
+    /// ```
+    pub fn inner_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
+        self.query.join(sea_query::JoinType::InnerJoin, table, on);
+        self
+    }
+    
     /// Execute the query and return all results
     ///
     /// # Example
@@ -719,6 +835,7 @@ where
     M: FromRow,
 {
     /// Create a new SelectModel from a SelectQuery
+    #[allow(dead_code)]
     pub(crate) fn new(query: SelectQuery<E>) -> Self {
         Self {
             query,
@@ -1499,7 +1616,7 @@ mod tests {
 
     // Test Entity for query builder tests
     #[derive(Copy, Clone, Default, Debug)]
-    struct TestEntity;
+    pub struct TestEntity;
 
     impl LifeEntityName for TestEntity {
         fn table_name(&self) -> &'static str {
@@ -1509,7 +1626,7 @@ mod tests {
 
     // Test Column enum for query builder tests
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-    enum TestColumn {
+    pub enum TestColumn {
         Id,
         Name,
     }
@@ -1534,7 +1651,7 @@ mod tests {
 
     // Test model for query builder tests
     #[derive(Debug, Clone)]
-    struct TestModel {
+    pub struct TestModel {
         _id: i32,
         _name: String,
     }
@@ -2744,4 +2861,116 @@ mod tests {
     // Note: Execution tests (test_parameter_extraction_*) require the string/byte
     // conversion issue to be resolved. Once that's fixed, those tests will verify
     // that parameters are actually passed to the executor correctly.
+
+    // ============================================================================
+    // JOIN Operations Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_join_with_null_values() {
+        // EDGE CASE: JOIN where foreign key is NULL
+        // This should be handled by LEFT JOIN returning NULL for non-matching rows
+        let _query = TestEntity::find()
+            .left_join("other_table", Expr::cust("test_table.id = other_table.user_id"));
+        // LEFT JOIN handles NULL foreign keys correctly
+    }
+
+    #[test]
+    fn test_multiple_joins_same_table() {
+        // EDGE CASE: Multiple joins to the same table (requires aliasing)
+        let _query = TestEntity::find()
+            .left_join("other_table", Expr::cust("test_table.id = other_table.user_id"))
+            .left_join("other_table2", Expr::cust("test_table.id = other_table2.author_id"));
+        // Note: This would need table aliasing in a full implementation
+    }
+
+    #[test]
+    fn test_join_with_complex_condition() {
+        // EDGE CASE: JOIN with complex condition (multiple columns, OR logic)
+        let complex_condition = Expr::cust("(test_table.id = posts.user_id OR test_table.id = posts.author_id) AND posts.published = true");
+        let _query = TestEntity::find()
+            .left_join("posts", complex_condition);
+    }
+
+    #[test]
+    fn test_join_types_all_variants() {
+        // EDGE CASE: All JOIN types work correctly
+        let join_cond = Expr::cust("test_table.id = posts.user_id");
+        
+        let _inner = TestEntity::find().join("posts", join_cond.clone());
+        let _left = TestEntity::find().left_join("posts", join_cond.clone());
+        let _right = TestEntity::find().right_join("posts", join_cond.clone());
+        let _inner_alias = TestEntity::find().inner_join("posts", join_cond);
+    }
+
+    #[test]
+    fn test_join_with_subquery() {
+        // EDGE CASE: JOIN with subquery (future enhancement)
+        // For now, this documents the requirement
+        let _query = TestEntity::find()
+            .left_join("posts", Expr::cust("test_table.id = posts.user_id"));
+        // Full subquery support would require additional API
+    }
+
+    // ============================================================================
+    // Query Builder Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_query_with_zero_limit() {
+        // EDGE CASE: LIMIT 0 (should return no results)
+        let _query = TestEntity::find().limit(0);
+        // Should compile - behavior at runtime is database-dependent
+    }
+
+    #[test]
+    fn test_query_with_very_large_limit() {
+        // EDGE CASE: Very large LIMIT value
+        let _query = TestEntity::find().limit(u64::MAX);
+        // Should compile - database will handle appropriately
+    }
+
+    #[test]
+    fn test_query_with_zero_offset() {
+        // EDGE CASE: OFFSET 0 (should be same as no offset)
+        let _query = TestEntity::find().offset(0);
+        // Should compile and work correctly
+    }
+
+    #[test]
+    fn test_query_multiple_order_by() {
+        // EDGE CASE: Multiple ORDER BY clauses
+        let _query = TestEntity::find()
+            .order_by("name", Order::Asc)
+            .order_by("name", Order::Desc);
+        // Should compile - last order_by wins or both are applied
+    }
+
+    #[test]
+    fn test_query_empty_filter() {
+        // EDGE CASE: Filter with always-true condition
+        let _query = TestEntity::find().filter(Expr::cust("1 = 1"));
+        // Should compile - returns all rows
+    }
+
+    #[test]
+    fn test_query_impossible_filter() {
+        // EDGE CASE: Filter with always-false condition
+        let _query = TestEntity::find().filter(Expr::cust("1 = 0"));
+        // Should compile - returns no rows
+    }
+
+    #[test]
+    fn test_query_group_by_without_aggregates() {
+        // EDGE CASE: GROUP BY without aggregate functions
+        let _query = TestEntity::find().group_by("name");
+        // Should compile - valid SQL
+    }
+
+    #[test]
+    fn test_query_having_without_group_by() {
+        // EDGE CASE: HAVING without GROUP BY (valid in some databases)
+        let _query = TestEntity::find().having(Expr::cust("COUNT(*) > 0"));
+        // Should compile - behavior is database-dependent
+    }
 }

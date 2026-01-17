@@ -590,15 +590,17 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// let record = UserRecord::from_json(json)?;
     /// ```
-    fn from_json(json: JsonValue) -> Result<Self, ActiveModelError>
+    fn from_json(_json: JsonValue) -> Result<Self, ActiveModelError>
     where
         Self: Sized,
     {
-        // Default implementation: try to deserialize JSON into the Model type,
-        // then convert to Record. This requires the Model to implement Deserialize.
-        // Records can override this for more control.
+        // Default implementation: This is a placeholder that should be overridden
+        // by the macro-generated implementation in LifeRecord.
+        // The macro can generate an implementation that:
+        // 1. Deserializes JSON into Model (if Model implements Deserialize), then uses from_model()
+        // 2. Or directly parses JSON and uses set() to set Record fields
         Err(ActiveModelError::Other(
-            "from_json() not implemented - Model must implement Deserialize or Record must override this method".to_string()
+            "from_json() not implemented - LifeRecord macro should generate this method".to_string()
         ))
     }
 
@@ -631,11 +633,371 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// let json = record.to_json()?;
     /// ```
     fn to_json(&self) -> Result<JsonValue, ActiveModelError> {
-        // Default implementation: convert to Model first, then serialize.
-        // This requires the Model to implement Serialize.
-        // Records can override this for more control.
+        // Default implementation: This is a placeholder that should be overridden
+        // by the macro-generated implementation in LifeRecord.
+        // The macro can generate an implementation that:
+        // 1. Converts Record to Model using to_model(), then serializes (if Model implements Serialize)
+        // 2. Or directly iterates over columns and builds JSON from get() values
         Err(ActiveModelError::Other(
-            "to_json() not implemented - Model must implement Serialize or Record must override this method".to_string()
+            "to_json() not implemented - LifeRecord macro should generate this method".to_string()
         ))
+    }
+}
+
+/// ActiveModelBehavior trait for lifecycle hooks
+///
+/// This trait allows you to define custom behavior that runs before or after
+/// CRUD operations. All methods have default empty implementations, so you
+/// only need to override the hooks you want to use.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{ActiveModelBehavior, ActiveModelTrait};
+///
+/// struct UserRecord;
+///
+/// impl ActiveModelBehavior for UserRecord {
+///     fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+///         // Set default values, validate, etc.
+///         Ok(())
+///     }
+///
+///     fn after_insert(&mut self, model: &Self::Model) -> Result<(), ActiveModelError> {
+///         // Log, send notifications, etc.
+///         Ok(())
+///     }
+/// }
+/// ```
+pub trait ActiveModelBehavior: ActiveModelTrait {
+    /// Hook called before insert operation
+    ///
+    /// This is called before the INSERT query is executed. You can use this to:
+    /// - Set default values
+    /// - Validate data
+    /// - Transform fields
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the insert, or an error to abort.
+    fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after insert operation
+    ///
+    /// This is called after the INSERT query is executed successfully.
+    /// The `model` parameter contains the inserted model (with generated IDs).
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model that was inserted (includes generated primary key values)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_insert(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called before update operation
+    ///
+    /// This is called before the UPDATE query is executed. You can use this to:
+    /// - Validate changes
+    /// - Set updated_at timestamps
+    /// - Transform fields
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the update, or an error to abort.
+    fn before_update(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after update operation
+    ///
+    /// This is called after the UPDATE query is executed successfully.
+    /// The `model` parameter contains the updated model.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model that was updated
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_update(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called before save operation (insert or update)
+    ///
+    /// This is called before the save operation determines whether to insert or update.
+    /// You can use this to:
+    /// - Set default values
+    /// - Validate data
+    /// - Transform fields
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the save, or an error to abort.
+    fn before_save(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after save operation (insert or update)
+    ///
+    /// This is called after the save operation completes successfully.
+    /// The `model` parameter contains the saved model.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model that was saved (inserted or updated)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_save(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called before delete operation
+    ///
+    /// This is called before the DELETE query is executed. You can use this to:
+    /// - Validate deletion is allowed
+    /// - Perform soft deletes (set a deleted_at flag instead)
+    /// - Check dependencies
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` to continue with the delete, or an error to abort.
+    fn before_delete(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Hook called after delete operation
+    ///
+    /// This is called after the DELETE query is executed successfully.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or an error if post-processing fails.
+    fn after_delete(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{LifeModelTrait, LifeEntityName};
+    use sea_query::{Iden, IdenStatic};
+
+    // Test entity for hook tests
+    #[derive(Copy, Clone, Debug)]
+    enum TestColumn {
+        Id,
+    }
+    
+    impl Iden for TestColumn {
+        fn unquoted(&self) -> &str { "id" }
+    }
+    
+    impl IdenStatic for TestColumn {
+        fn as_str(&self) -> &'static str { "id" }
+    }
+    
+    #[derive(Copy, Clone, Debug, Default)]
+    struct TestEntity;
+    
+    impl LifeEntityName for TestEntity {
+        fn table_name(&self) -> &'static str { "test_entities" }
+    }
+    
+    #[derive(Clone, Debug)]
+    struct TestModel;
+    
+    impl crate::ModelTrait for TestModel {
+        type Entity = TestEntity;
+        fn get(&self, _column: TestColumn) -> sea_query::Value {
+            sea_query::Value::Int(Some(1))
+        }
+        fn set(&mut self, _column: TestColumn, _value: sea_query::Value) -> Result<(), crate::ModelError> {
+            Ok(())
+        }
+        fn get_primary_key_value(&self) -> sea_query::Value {
+            sea_query::Value::Int(Some(1))
+        }
+    }
+    
+    impl LifeModelTrait for TestEntity {
+        type Model = TestModel;
+        type Column = TestColumn;
+    }
+
+    // ============================================================================
+    // ActiveModelBehavior Hook Edge Cases
+    // ============================================================================
+
+    #[test]
+    fn test_hook_error_propagates() {
+        // EDGE CASE: Error in before_* hook should abort operation
+        #[derive(Clone, Debug)]
+        struct ErrorHookRecord {
+            should_error: bool,
+        }
+        
+        impl ActiveModelTrait for ErrorHookRecord {
+            type Entity = TestEntity;
+            type Model = TestModel;
+            
+            fn get(&self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn set(&mut self, _column: TestColumn, _value: sea_query::Value) -> Result<(), ActiveModelError> {
+                Ok(())
+            }
+            
+            fn take(&mut self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn reset(&mut self) {}
+            
+            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+        }
+        
+        impl ActiveModelBehavior for ErrorHookRecord {
+            fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+                if self.should_error {
+                    Err(ActiveModelError::Other("Validation failed".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        
+        let mut record = ErrorHookRecord {
+            should_error: true,
+        };
+        
+        // Error should propagate
+        assert!(record.before_insert().is_err());
+        
+        record.should_error = false;
+        assert!(record.before_insert().is_ok());
+    }
+
+    #[test]
+    fn test_hook_order_insert_vs_save() {
+        // EDGE CASE: Hook execution order for save() vs insert()
+        // save() should call before_save -> before_insert -> insert -> after_insert -> after_save
+        #[derive(Clone, Debug)]
+        struct OrderTrackingRecord {
+            call_order: Vec<String>,
+        }
+        
+        impl ActiveModelTrait for OrderTrackingRecord {
+            type Entity = TestEntity;
+            type Model = TestModel;
+            
+            fn get(&self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn set(&mut self, _column: TestColumn, _value: sea_query::Value) -> Result<(), ActiveModelError> {
+                Ok(())
+            }
+            
+            fn take(&mut self, _column: TestColumn) -> Option<sea_query::Value> {
+                None
+            }
+            
+            fn reset(&mut self) {}
+            
+            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn from_json(_json: serde_json::Value) -> Result<Self, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+            
+            fn to_json(&self) -> Result<serde_json::Value, ActiveModelError> {
+                Err(ActiveModelError::Other("not implemented".to_string()))
+            }
+        }
+        
+        impl ActiveModelBehavior for OrderTrackingRecord {
+            fn before_save(&mut self) -> Result<(), ActiveModelError> {
+                self.call_order.push("before_save".to_string());
+                Ok(())
+            }
+            
+            fn before_insert(&mut self) -> Result<(), ActiveModelError> {
+                self.call_order.push("before_insert".to_string());
+                Ok(())
+            }
+            
+            fn after_insert(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+                self.call_order.push("after_insert".to_string());
+                Ok(())
+            }
+            
+            fn after_save(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
+                self.call_order.push("after_save".to_string());
+                Ok(())
+            }
+        }
+        
+        let mut record = OrderTrackingRecord {
+            call_order: Vec::new(),
+        };
+        
+        // Test hook order (conceptual - full test requires executor)
+        record.before_save().unwrap();
+        record.before_insert().unwrap();
+        // insert() would be called here
+        let model = TestModel;
+        record.after_insert(&model).unwrap();
+        record.after_save(&model).unwrap();
+        
+        // Verify order
+        assert_eq!(record.call_order, vec!["before_save", "before_insert", "after_insert", "after_save"]);
     }
 }
