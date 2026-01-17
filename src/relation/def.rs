@@ -6,7 +6,6 @@
 
 use crate::relation::identity::Identity;
 use crate::model::ModelTrait;
-use crate::query::LifeModelTrait;
 use sea_query::{Condition, ConditionType, DynIden, Expr, ExprTrait, TableRef};
 use std::sync::Arc;
 
@@ -297,7 +296,7 @@ pub fn build_where_condition<M>(
     model: &M,
 ) -> Condition
 where
-    M: ModelTrait + LifeModelTrait,
+    M: ModelTrait,
 {
     let mut condition = Condition::all();
 
