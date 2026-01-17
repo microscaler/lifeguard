@@ -7,7 +7,9 @@
 //! - has_many_through: Many-to-many relationship (via join table)
 
 pub mod identity;
+pub mod def;
 pub use identity::{Identity, BorrowedIdentityIter, IntoIdentity};
+pub use def::{RelationDef, RelationType, join_tbl_on_condition, build_where_condition};
 
 use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
 use sea_query::{Expr, ExprTrait, Iden};
