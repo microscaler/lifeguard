@@ -331,9 +331,12 @@ This design simplifies the API while maintaining the same functionality.
 - `DerivePartialModel` - ✅ Implemented (macro generates PartialModelTrait and FromRow implementations)
 **Known Limitations:**
 - `select_partial()` replaces the entire query, which means WHERE/ORDER BY/etc. clauses from before `select_partial()` are lost. Users should call `select_partial()` early in the query chain, before adding filters/ordering.
+  - **Root Cause:** sea-query's `SelectStatement` doesn't expose clause getters or column replacement methods
+  - **Tracking:** See `SEAQUERY_IMPROVEMENTS_AUDIT.md` for details and potential contributions
 - Column order must match between `selected_columns()` and `FromRow` implementation (enforced by macro)
 **Future Enhancements:**
 - Preserve existing query clauses (WHERE, ORDER BY, etc.) when calling `select_partial()`
+  - **Blocked by:** sea-query API limitations (see `SEAQUERY_IMPROVEMENTS_AUDIT.md`)
 
 #### Advanced Query Features
 **Status:** 🟢 Partial  

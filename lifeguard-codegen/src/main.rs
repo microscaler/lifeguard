@@ -159,18 +159,21 @@ fn generate_partial_model_code(
         
         // Handle unsigned integer types (convert to signed first)
         // Note: row.get() returns the value directly (not Result), but we use try_get for error handling
-        let get_expr = if field.ty.starts_with("u8") || field.ty.starts_with("u16") || 
-                          field.ty.starts_with("u32") || field.ty.starts_with("u64") {
-            let signed_type = match field.ty.as_str() {
-                "u8" => "i16",
-                "u16" => "i32",
-                "u32" | "u64" => "i64",
-                _ => "i32",
-            };
-            format!("            {}: {{\n                let val: {} = row.try_get::<&str, {}>(\"{}\")?;\n                val as {}\n            }},", 
-                    field.name, signed_type, signed_type, column_name, field.ty)
-        } else {
-            format!("            {}: row.try_get::<&str, {}>(\"{}\")?,", field.name, field.ty, column_name)
+        // Use exact matching (like the macro does) to avoid matching types like "u128", "u8x4", etc.
+        let get_expr = match field.ty.as_str() {
+            "u8" | "u16" | "u32" | "u64" => {
+                let signed_type = match field.ty.as_str() {
+                    "u8" => "i16",
+                    "u16" => "i32",
+                    "u32" | "u64" => "i64",
+                    _ => unreachable!(), // This should never happen due to outer match
+                };
+                format!("            {}: {{\n                let val: {} = row.try_get::<&str, {}>(\"{}\")?;\n                val as {}\n            }},", 
+                        field.name, signed_type, signed_type, column_name, field.ty)
+            }
+            _ => {
+                format!("            {}: row.try_get::<&str, {}>(\"{}\")?,", field.name, field.ty, column_name)
+            }
         };
         
         code.push_str(&get_expr);
@@ -194,4 +197,105 @@ fn to_snake_case(s: &str) -> String {
         result.push(c.to_lowercase().next().unwrap());
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that exact unsigned integer types (u8, u16, u32, u64) generate conversion code
+    #[test]
+    fn test_unsigned_integer_exact_matches() {
+        let fields = vec![
+            FieldDef { name: "id".to_string(), ty: "u8".to_string(), column_name: None },
+            FieldDef { name: "count".to_string(), ty: "u16".to_string(), column_name: None },
+            FieldDef { name: "size".to_string(), ty: "u32".to_string(), column_name: None },
+            FieldDef { name: "offset".to_string(), ty: "u64".to_string(), column_name: None },
+        ];
+        
+        let code = generate_partial_model_code("TestModel", "crate::TestEntity", &fields);
+        
+        // Verify u8 generates conversion code (i16 -> u8)
+        assert!(code.contains("let val: i16 = row.try_get::<&str, i16>"));
+        assert!(code.contains("val as u8"));
+        
+        // Verify u16 generates conversion code (i32 -> u16)
+        assert!(code.contains("let val: i32 = row.try_get::<&str, i32>"));
+        assert!(code.contains("val as u16"));
+        
+        // Verify u32 generates conversion code (i64 -> u32)
+        assert!(code.contains("let val: i64 = row.try_get::<&str, i64>"));
+        assert!(code.contains("val as u32"));
+        
+        // Verify u64 generates conversion code (i64 -> u64)
+        assert!(code.contains("val as u64"));
+    }
+
+    /// Test that types starting with "u" but not exact matches are NOT treated as unsigned
+    #[test]
+    fn test_unsigned_integer_edge_cases_not_matched() {
+        let fields = vec![
+            FieldDef { name: "id".to_string(), ty: "u128".to_string(), column_name: None },
+            FieldDef { name: "data".to_string(), ty: "u8x4".to_string(), column_name: None },
+            FieldDef { name: "custom".to_string(), ty: "u8CustomType".to_string(), column_name: None },
+        ];
+        
+        let code = generate_partial_model_code("TestModel", "crate::TestEntity", &fields);
+        
+        // These should NOT generate conversion code - should use direct type
+        // Verify u128 uses direct type (no conversion)
+        assert!(code.contains("row.try_get::<&str, u128>"));
+        assert!(!code.contains("let val: i64 = row.try_get::<&str, i64>(\"id\")?;\n                val as u128"));
+        
+        // Verify u8x4 uses direct type (no conversion)
+        assert!(code.contains("row.try_get::<&str, u8x4>"));
+        assert!(!code.contains("let val: i16 = row.try_get::<&str, i16>(\"data\")?;\n                val as u8x4"));
+        
+        // Verify u8CustomType uses direct type (no conversion)
+        assert!(code.contains("row.try_get::<&str, u8CustomType>"));
+        assert!(!code.contains("let val: i16 = row.try_get::<&str, i16>(\"custom\")?;\n                val as u8CustomType"));
+    }
+
+    /// Test that regular types (signed integers, strings, etc.) use direct type
+    #[test]
+    fn test_regular_types_use_direct() {
+        let fields = vec![
+            FieldDef { name: "id".to_string(), ty: "i32".to_string(), column_name: None },
+            FieldDef { name: "name".to_string(), ty: "String".to_string(), column_name: None },
+            FieldDef { name: "count".to_string(), ty: "i64".to_string(), column_name: None },
+        ];
+        
+        let code = generate_partial_model_code("TestModel", "crate::TestEntity", &fields);
+        
+        // All should use direct type (no conversion)
+        assert!(code.contains("row.try_get::<&str, i32>"));
+        assert!(code.contains("row.try_get::<&str, String>"));
+        assert!(code.contains("row.try_get::<&str, i64>"));
+        
+        // Should NOT contain any conversion code
+        assert!(!code.contains("let val:"));
+        assert!(!code.contains("val as"));
+    }
+
+    /// Test mixed types (some unsigned, some not)
+    #[test]
+    fn test_mixed_types() {
+        let fields = vec![
+            FieldDef { name: "id".to_string(), ty: "u8".to_string(), column_name: None },
+            FieldDef { name: "name".to_string(), ty: "String".to_string(), column_name: None },
+            FieldDef { name: "count".to_string(), ty: "u128".to_string(), column_name: None },
+        ];
+        
+        let code = generate_partial_model_code("TestModel", "crate::TestEntity", &fields);
+        
+        // u8 should have conversion
+        assert!(code.contains("let val: i16 = row.try_get::<&str, i16>(\"id\")?;\n                val as u8"));
+        
+        // String should be direct
+        assert!(code.contains("row.try_get::<&str, String>(\"name\")?"));
+        
+        // u128 should be direct (not matched as unsigned)
+        assert!(code.contains("row.try_get::<&str, u128>(\"count\")?"));
+        assert!(!code.contains("let val: i64 = row.try_get::<&str, i64>(\"count\")?;\n                val as u128"));
+    }
 }

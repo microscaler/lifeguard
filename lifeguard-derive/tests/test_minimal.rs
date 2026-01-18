@@ -1280,7 +1280,7 @@ mod tests {
     mod option_composite_pk_entity {
         use super::*;
         use lifeguard_derive::LifeModel;
-        use lifeguard::PrimaryKeyTrait;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn};
 
         #[derive(LifeModel)]
         #[table_name = "test_option_composite_pk"]
@@ -1291,10 +1291,39 @@ mod tests {
             pub code: Option<String>,
             pub name: String,
         }
+
+        #[test]
         fn test_option_composite_primary_key_value_type() {
             // EDGE CASE: Composite key with Option types - Option should be unwrapped in ValueType tuple
             // ValueType should be (i32, String), not (Option<i32>, Option<String>)
             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, "test".to_string());
+        }
+
+        #[test]
+        fn test_option_composite_primary_key_arity() {
+            // Verify PrimaryKeyArityTrait is implemented and returns Tuple2 for 2-column composite keys
+            // Even though the fields are Option<T>, the arity should still be Tuple2
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple2, "2-column composite primary key with Option types should return Tuple2 arity");
+        }
+
+        #[test]
+        fn test_option_composite_primary_key_to_column() {
+            // Verify to_column conversion works for Option-based composite keys
+            let pk1 = PrimaryKey::Id;
+            let pk2 = PrimaryKey::Code;
+            assert_eq!(pk1.to_column(), Column::Id);
+            assert_eq!(pk2.to_column(), Column::Code);
+        }
+
+        #[test]
+        fn test_option_composite_primary_key_auto_increment() {
+            // Verify auto_increment returns false for Option-based primary keys
+            // (no #[auto_increment] attributes are present)
+            let pk1 = PrimaryKey::Id;
+            let pk2 = PrimaryKey::Code;
+            assert_eq!(pk1.auto_increment(), false, "Primary key without #[auto_increment] should return false");
+            assert_eq!(pk2.auto_increment(), false, "Primary key without #[auto_increment] should return false");
         }
     }
 
