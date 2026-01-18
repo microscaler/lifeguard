@@ -3400,7 +3400,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_json_with_nan_and_infinity() {
         // EDGE CASE: JSON serialization of NaN and infinity values
-        use super::float_tests::*;
+        ;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
         
@@ -3458,7 +3458,7 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_nan_and_infinity() {
         // EDGE CASE: Roundtrip serialization/deserialization of NaN and infinity
         // With custom deserializers, we can now roundtrip NaN/infinity values
-        use super::float_tests::*;
+        ;
         use lifeguard::LifeModelTrait;
         
         let mut original = FloatFieldsRecord::new();
@@ -3508,7 +3508,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_json_with_option_float_nan_and_infinity() {
         // EDGE CASE: Option<f32> and Option<f64> fields with NaN/infinity
-        use super::float_tests::*;
+        ;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
         
@@ -3558,7 +3558,7 @@ mod active_model_trait_tests {
         // EDGE CASE: NaN comparison behavior
         // NaN != NaN in Rust (IEEE 754 standard), so Value comparisons with NaN will also fail
         // This is expected behavior and documents an important edge case
-        use super::float_tests::*;
+        ;
         use lifeguard::LifeModelTrait;
         
         let mut record1 = FloatFieldsRecord::new();
@@ -3595,7 +3595,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_mixed_normal_and_special_float_values() {
         // EDGE CASE: Record with mix of normal numbers and NaN/infinity
-        use super::float_tests::*;
+        ;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
         
