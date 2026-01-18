@@ -36,12 +36,12 @@
 //! - Silent error handling problems
 //!
 //! **Correct Pattern:**
-//! ```rust
+//! ```rust,ignore
 //! let (map_from, convert) = extract_field_attributes(field)?;  // ✅ Single pass
 //! ```
 //!
 //! **Anti-Pattern (DO NOT USE):**
-//! ```rust
+//! ```rust,ignore
 //! let map_from = extract_field_attribute(field, "map_from")?;  // ❌ First call
 //! let convert = extract_field_attribute(field, "convert")?;    // ❌ Second call - BREAKS!
 //! ```
@@ -336,7 +336,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
 /// 
 /// ## Example
 /// 
-/// ```rust
+/// ```rust,ignore
 /// struct MyStruct {
 ///     #[lifeguard(convert = "my_function")]  // ✅ Works - single pass extracts this
 ///     name: String,
@@ -349,7 +349,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
 /// 
 /// ## Anti-Pattern (DO NOT DO THIS)
 /// 
-/// ```rust
+/// ```rust,ignore
 /// // ❌ WRONG: Don't call parse_nested_meta multiple times
 /// let map_from = extract_field_attribute(field, "map_from")?;  // First call
 /// let convert = extract_field_attribute(field, "convert")?;    // Second call - BAD!

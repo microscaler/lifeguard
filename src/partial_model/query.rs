@@ -8,7 +8,7 @@ use crate::query::{LifeModelTrait, SelectQuery};
 use crate::query::value_conversion::with_converted_params;
 use crate::query::error_handling::is_no_rows_error;
 use crate::executor::{LifeExecutor, LifeError};
-use sea_query::{Expr, PostgresQueryBuilder};
+use sea_query::PostgresQueryBuilder;
 
 /// Query builder for partial model queries
 ///
