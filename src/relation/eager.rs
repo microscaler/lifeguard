@@ -269,7 +269,10 @@ where
     let mut query = SelectQuery::<R>::new();
     
     let pk_identity = entities[0].get_primary_key_identity();
-    let fk_arity = rel_def.from_col.arity();
+    // For has_many relationships, to_col is the foreign key in the target table
+    // For belongs_to relationships, to_col is the primary key in the target table
+    // In both cases, we need to match the target table's column (to_col) with the source PK
+    let fk_arity = rel_def.to_col.arity();
     
     // Ensure arities match
     assert_eq!(
@@ -287,8 +290,10 @@ where
             .collect();
         
         if !pk_values.is_empty() {
-            // Get the foreign key column name
-            let fk_col = rel_def.from_col.iter().next().unwrap();
+            // Get the foreign key column name from the target table (to_col)
+            // For has_many: this is the FK column in the related entity (e.g., posts.user_id)
+            // For belongs_to: this is the PK column in the related entity (e.g., users.id)
+            let fk_col = rel_def.to_col.iter().next().unwrap();
             let fk_col_str = fk_col.to_string();
             
             // Create DynIden from owned String - this ensures DynIden owns the data
@@ -309,12 +314,14 @@ where
             let mut and_condition = Condition::all();
             
             // Match each foreign key column to its corresponding primary key value
-            for (fk_col, pk_val) in rel_def.from_col.iter().zip(pk_vals.iter()) {
-                let from_tbl_str = extract_table_name(&rel_def.from_tbl);
+            // Use to_col (target table's column) instead of from_col (source table's column)
+            for (fk_col, pk_val) in rel_def.to_col.iter().zip(pk_vals.iter()) {
+                // Use to_tbl (target table) since we're querying the related entities
+                let to_tbl_str = extract_table_name(&rel_def.to_tbl);
                 let fk_col_str = fk_col.to_string();
                 // Use Expr::col() with tuple (table, column) to get a SimpleExpr that has eq() method
                 // Clone strings to ensure they live long enough
-                let table_name = from_tbl_str.clone();
+                let table_name = to_tbl_str.clone();
                 let col_name = fk_col_str.clone();
                 // Use same pattern as build_where_condition - Expr::cust() for table-qualified columns
                 // Create a full SQL expression string: "table.column = value"
@@ -348,11 +355,14 @@ where
     // by matching the foreign key value(s) to parent primary key value(s)
     'outer: for related in related_entities {
         // Extract foreign key value(s) from the related entity using get_by_column_name()
+        // For has_many: extract from to_col (e.g., posts.user_id)
+        // For belongs_to: extract from to_col (e.g., users.id) - but this case is less common in eager loading
         let mut fk_values = Vec::new();
         let mut fk_key = String::new();
         
         // Extract FK values for each column in the foreign key identity
-        for fk_col in rel_def.from_col.iter() {
+        // Use to_col (target table's column) since we're extracting from the related entities
+        for fk_col in rel_def.to_col.iter() {
             let fk_col_str = fk_col.to_string();
             if let Some(fk_value) = related.get_by_column_name(&fk_col_str) {
                 fk_values.push(fk_value.clone());
@@ -1864,7 +1874,8 @@ mod tests {
         ];
         
         // This is the fixed code path: use Expr::col().is_in() instead of Expr::cust()
-        let fk_col = rel_def.from_col.iter().next().unwrap();
+        // Use to_col (target table's FK column) instead of from_col (source table's PK column)
+        let fk_col = rel_def.to_col.iter().next().unwrap();
         let fk_col_str = fk_col.to_string();
         let fk_col_iden = sea_query::DynIden::from(fk_col_str);
         
