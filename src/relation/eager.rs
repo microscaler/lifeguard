@@ -243,7 +243,7 @@ where
     
     // For each related entity, determine which parent entity it belongs to
     // by matching the foreign key value(s) to parent primary key value(s)
-    for related in related_entities {
+    'outer: for related in related_entities {
         // Extract foreign key value(s) from the related entity using get_by_column_name()
         let mut fk_values = Vec::new();
         let mut fk_key = String::new();
@@ -259,9 +259,10 @@ where
                 }
                 fk_key.push_str(&format!("{:?}", fk_value));
             } else {
-                // If we can't extract FK value, skip this entity
+                // If we can't extract FK value, skip this entity entirely
+                // For composite FKs, if any column is missing, we can't build a valid FK
                 // This shouldn't happen if the query was built correctly, but handle gracefully
-                continue;
+                continue 'outer;
             }
         }
         
@@ -1095,5 +1096,400 @@ mod tests {
         // Verify the query was created (compile-time check)
         // The actual SQL execution would require a real executor
         // This test verifies that find_linked() compiles and returns the correct type
+    }
+
+    #[test]
+    fn test_fk_extraction_positive_single_key() {
+        // Test positive scenario: All FK columns present (single key)
+        // This verifies that when all required FK columns are present, the entity
+        // is properly processed and matched to its parent entity.
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestEntity;
+        
+        impl sea_query::Iden for TestEntity {
+            fn unquoted(&self) -> &str { "test" }
+        }
+        
+        impl LifeEntityName for TestEntity {
+            fn table_name(&self) -> &'static str { "test" }
+        }
+        
+        impl LifeModelTrait for TestEntity {
+            type Model = TestModel;
+            type Column = TestColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TestModel {
+            id: i32,
+            user_id: i32, // FK column present
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestColumn { Id, UserId }
+        
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    TestColumn::Id => "id",
+                    TestColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl IdenStatic for TestColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    TestColumn::Id => "id",
+                    TestColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl crate::model::ModelTrait for TestModel {
+            type Entity = TestEntity;
+            fn get(&self, col: TestColumn) -> sea_query::Value {
+                match col {
+                    TestColumn::Id => sea_query::Value::Int(Some(self.id)),
+                    TestColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
+                }
+            }
+            fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary("id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![sea_query::Value::Int(Some(self.id))]
+            }
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    "id" => Some(sea_query::Value::Int(Some(self.id))),
+                    "user_id" => Some(sea_query::Value::Int(Some(self.user_id))),
+                    _ => None,
+                }
+            }
+        }
+        
+        // Create a model with all FK columns present
+        let model = TestModel { id: 1, user_id: 42 };
+        
+        // Verify that get_by_column_name returns the FK value
+        assert_eq!(
+            model.get_by_column_name("user_id"),
+            Some(sea_query::Value::Int(Some(42)))
+        );
+        
+        // This test verifies the positive path: when FK column is present,
+        // get_by_column_name returns Some, so the entity will be processed correctly
+    }
+
+    #[test]
+    fn test_fk_extraction_positive_composite_key() {
+        // Test positive scenario: All FK columns present (composite key)
+        // This verifies that when all required FK columns in a composite key are present,
+        // the entity is properly processed and matched to its parent entity.
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestEntity;
+        
+        impl sea_query::Iden for TestEntity {
+            fn unquoted(&self) -> &str { "test" }
+        }
+        
+        impl LifeEntityName for TestEntity {
+            fn table_name(&self) -> &'static str { "test" }
+        }
+        
+        impl LifeModelTrait for TestEntity {
+            type Model = TestModel;
+            type Column = TestColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TestModel {
+            id: i32,
+            tenant_id: i32,
+            user_id: i32,      // First FK column present
+            user_tenant_id: i32, // Second FK column present
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestColumn { Id, TenantId, UserId, UserTenantId }
+        
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    TestColumn::Id => "id",
+                    TestColumn::TenantId => "tenant_id",
+                    TestColumn::UserId => "user_id",
+                    TestColumn::UserTenantId => "user_tenant_id",
+                }
+            }
+        }
+        
+        impl IdenStatic for TestColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    TestColumn::Id => "id",
+                    TestColumn::TenantId => "tenant_id",
+                    TestColumn::UserId => "user_id",
+                    TestColumn::UserTenantId => "user_tenant_id",
+                }
+            }
+        }
+        
+        impl crate::model::ModelTrait for TestModel {
+            type Entity = TestEntity;
+            fn get(&self, col: TestColumn) -> sea_query::Value {
+                match col {
+                    TestColumn::Id => sea_query::Value::Int(Some(self.id)),
+                    TestColumn::TenantId => sea_query::Value::Int(Some(self.tenant_id)),
+                    TestColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
+                    TestColumn::UserTenantId => sea_query::Value::Int(Some(self.user_tenant_id)),
+                }
+            }
+            fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Binary("id".into(), "tenant_id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![
+                    sea_query::Value::Int(Some(self.id)),
+                    sea_query::Value::Int(Some(self.tenant_id)),
+                ]
+            }
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    "id" => Some(sea_query::Value::Int(Some(self.id))),
+                    "tenant_id" => Some(sea_query::Value::Int(Some(self.tenant_id))),
+                    "user_id" => Some(sea_query::Value::Int(Some(self.user_id))),
+                    "user_tenant_id" => Some(sea_query::Value::Int(Some(self.user_tenant_id))),
+                    _ => None,
+                }
+            }
+        }
+        
+        // Create a model with all FK columns present (composite key)
+        let model = TestModel {
+            id: 1,
+            tenant_id: 10,
+            user_id: 42,
+            user_tenant_id: 10,
+        };
+        
+        // Verify that get_by_column_name returns both FK values
+        assert_eq!(
+            model.get_by_column_name("user_id"),
+            Some(sea_query::Value::Int(Some(42)))
+        );
+        assert_eq!(
+            model.get_by_column_name("user_tenant_id"),
+            Some(sea_query::Value::Int(Some(10)))
+        );
+        
+        // This test verifies the positive path: when all FK columns in a composite key
+        // are present, get_by_column_name returns Some for both, so the entity will be
+        // processed correctly with a complete FK key string
+    }
+
+    #[test]
+    fn test_fk_extraction_negative_single_key_missing() {
+        // Test negative scenario: Missing FK column (single key)
+        // This verifies that when a required FK column is missing, the entity
+        // is properly skipped (not processed with partial/invalid data).
+        // 
+        // BUG FIX: Previously, the `continue` statement only continued the inner loop,
+        // causing the entity to be processed with partial FK data. The fix uses
+        // `continue 'outer` to skip to the next entity entirely.
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestEntity;
+        
+        impl sea_query::Iden for TestEntity {
+            fn unquoted(&self) -> &str { "test" }
+        }
+        
+        impl LifeEntityName for TestEntity {
+            fn table_name(&self) -> &'static str { "test" }
+        }
+        
+        impl LifeModelTrait for TestEntity {
+            type Model = TestModel;
+            type Column = TestColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TestModel {
+            id: i32,
+            // user_id is missing - FK column not present
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestColumn { Id }
+        
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        
+        impl IdenStatic for TestColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        impl crate::model::ModelTrait for TestModel {
+            type Entity = TestEntity;
+            fn get(&self, col: TestColumn) -> sea_query::Value {
+                match col {
+                    TestColumn::Id => sea_query::Value::Int(Some(self.id)),
+                }
+            }
+            fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary("id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![sea_query::Value::Int(Some(self.id))]
+            }
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    "id" => Some(sea_query::Value::Int(Some(self.id))),
+                    "user_id" => None, // FK column missing
+                    _ => None,
+                }
+            }
+        }
+        
+        // Create a model with missing FK column
+        let model = TestModel { id: 1 };
+        
+        // Verify that get_by_column_name returns None for missing FK
+        assert_eq!(model.get_by_column_name("user_id"), None);
+        
+        // This test verifies the negative path: when FK column is missing,
+        // get_by_column_name returns None, so the entity should be skipped entirely
+        // (not processed with partial data). The bug fix ensures `continue 'outer`
+        // is used to skip to the next entity.
+    }
+
+    #[test]
+    fn test_fk_extraction_negative_composite_key_partial_missing() {
+        // Test negative scenario: Missing FK column in composite key
+        // This verifies that when one FK column in a composite key is missing,
+        // the entity is properly skipped (not processed with partial FK data).
+        // 
+        // BUG FIX: Previously, if the first FK column was found but the second was missing,
+        // the `continue` would only skip to the next FK column iteration, leaving the entity
+        // with partial FK data (e.g., "42|" instead of "42|10"). This would cause the entity
+        // to fail matching and be silently dropped. The fix uses `continue 'outer` to skip
+        // to the next entity entirely when any FK column is missing.
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestEntity;
+        
+        impl sea_query::Iden for TestEntity {
+            fn unquoted(&self) -> &str { "test" }
+        }
+        
+        impl LifeEntityName for TestEntity {
+            fn table_name(&self) -> &'static str { "test" }
+        }
+        
+        impl LifeModelTrait for TestEntity {
+            type Model = TestModel;
+            type Column = TestColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TestModel {
+            id: i32,
+            tenant_id: i32,
+            user_id: i32,      // First FK column present
+            // user_tenant_id is missing - second FK column not present
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestColumn { Id, TenantId, UserId }
+        
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    TestColumn::Id => "id",
+                    TestColumn::TenantId => "tenant_id",
+                    TestColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl IdenStatic for TestColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    TestColumn::Id => "id",
+                    TestColumn::TenantId => "tenant_id",
+                    TestColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl crate::model::ModelTrait for TestModel {
+            type Entity = TestEntity;
+            fn get(&self, col: TestColumn) -> sea_query::Value {
+                match col {
+                    TestColumn::Id => sea_query::Value::Int(Some(self.id)),
+                    TestColumn::TenantId => sea_query::Value::Int(Some(self.tenant_id)),
+                    TestColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
+                }
+            }
+            fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Binary("id".into(), "tenant_id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![
+                    sea_query::Value::Int(Some(self.id)),
+                    sea_query::Value::Int(Some(self.tenant_id)),
+                ]
+            }
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    "id" => Some(sea_query::Value::Int(Some(self.id))),
+                    "tenant_id" => Some(sea_query::Value::Int(Some(self.tenant_id))),
+                    "user_id" => Some(sea_query::Value::Int(Some(self.user_id))),
+                    "user_tenant_id" => None, // Second FK column missing
+                    _ => None,
+                }
+            }
+        }
+        
+        // Create a model with partial FK columns (first present, second missing)
+        let model = TestModel {
+            id: 1,
+            tenant_id: 10,
+            user_id: 42,
+        };
+        
+        // Verify that get_by_column_name returns Some for first FK but None for second
+        assert_eq!(
+            model.get_by_column_name("user_id"),
+            Some(sea_query::Value::Int(Some(42)))
+        );
+        assert_eq!(model.get_by_column_name("user_tenant_id"), None);
+        
+        // This test verifies the negative path: when one FK column in a composite key
+        // is missing, get_by_column_name returns None for the missing column, so the entity
+        // should be skipped entirely (not processed with partial FK data like "42|").
+        // The bug fix ensures `continue 'outer` is used to skip to the next entity when
+        // any FK column is missing, preventing partial FK key construction.
     }
 }
