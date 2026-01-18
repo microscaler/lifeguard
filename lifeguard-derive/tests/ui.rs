@@ -104,3 +104,9 @@ fn compile_error_duplicate_related_impl_different_columns() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_duplicate_related_impl_different_columns.rs");
 }
+
+#[test]
+fn compile_error_try_into_model_missing_model() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_try_into_model_missing_model.rs");
+}

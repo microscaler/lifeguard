@@ -1,0 +1,11 @@
+error: DeriveTryIntoModel requires #[lifeguard(model = "path::to::Model")] attribute. No #[lifeguard] attribute found.
+  --> $DIR/compile_error_try_into_model_missing_model.rs:10:8
+   |
+10 | struct CreateUserRequest {
+   |        ^^^^^^^^^^^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> $DIR/compile_error_try_into_model_missing_model.rs:13:2
+   |
+13 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_try_into_model_missing_model.rs`
