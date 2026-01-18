@@ -1,0 +1,5 @@
+error: Entity path has leading colons. Found empty segment at start in #[lifeguard(entity = "::UserEntity")]. Use a valid path like "foo::Entity" or "Entity".
+ --> tests/ui/compile_error_partial_model_leading_colons.rs:6:1
+  |
+6 | #[derive(DerivePartialModel)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

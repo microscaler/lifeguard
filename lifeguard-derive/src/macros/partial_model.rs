@@ -204,6 +204,15 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
             }
             
             if let Some(entity_path_str) = entity_path_str {
+                // Validate that the entity path is not empty
+                if entity_path_str.trim().is_empty() {
+                    return Err(syn::Error::new_spanned(
+                        &input.ident,
+                        "Entity path cannot be empty. Use #[lifeguard(entity = \"path::to::Entity\")] with a valid path.",
+                    )
+                    .to_compile_error());
+                }
+                
                 // Parse the entity path string
                 // Try parsing as a path first, then fall back to manual construction
                 let entity_path: syn::Path = if let Ok(path) = syn::parse_str::<syn::Path>(&entity_path_str) {
@@ -212,11 +221,39 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                     // If parsing fails, construct a path manually
                     // Handle both simple identifiers (e.g., "UserEntity") and paths (e.g., "users::Entity")
                     let segments: Vec<&str> = entity_path_str.split("::").collect();
+                    
+                    // Validate segments: check for empty segments that would cause syn::Ident::new to panic
+                    // Empty segments can occur with:
+                    // - Empty string: ""
+                    // - Leading colons: "::foo"
+                    // - Trailing colons: "foo::"
+                    // - Consecutive colons: "foo::::bar"
+                    for (idx, segment) in segments.iter().enumerate() {
+                        if segment.is_empty() {
+                            let error_msg = if segments.len() == 1 {
+                                format!("Entity path cannot be empty. Found empty string in #[lifeguard(entity = \"{}\")].", entity_path_str)
+                            } else if idx == 0 {
+                                format!("Entity path has leading colons. Found empty segment at start in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str)
+                            } else if idx == segments.len() - 1 {
+                                format!("Entity path has trailing colons. Found empty segment at end in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str)
+                            } else {
+                                format!("Entity path has consecutive colons. Found empty segment at position {} in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", idx + 1, entity_path_str)
+                            };
+                            
+                            return Err(syn::Error::new_spanned(
+                                &input.ident,
+                                error_msg,
+                            )
+                            .to_compile_error());
+                        }
+                    }
+                    
                     let mut path = syn::Path {
                         leading_colon: None,
                         segments: syn::punctuated::Punctuated::new(),
                     };
                     for segment in segments {
+                        // At this point, we've validated that segment is not empty
                         path.segments.push(syn::PathSegment {
                             ident: syn::Ident::new(segment, proc_macro2::Span::call_site()),
                             arguments: syn::PathArguments::None,

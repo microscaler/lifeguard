@@ -298,6 +298,159 @@ row.try_get::<&str, #field_type>(#column_name_str)?
 
 ---
 
+### DerivePartialModel Macro: Panic on Invalid Entity Path Segments
+
+**Date:** 2025-01-27  
+**Status:** ✅ **FIXED**  
+**Priority:** High  
+**Severity:** Bug - Macro expansion panic with unhelpful error message
+
+#### Issue
+
+When `syn::parse_str::<syn::Path>()` fails for the entity path attribute, the fallback code splits the string by `"::"` and creates identifiers from each segment. If the entity path is empty (`""`), has trailing/leading colons (`"foo::"`, `"::bar"`), or contains consecutive colons (`"foo::::bar"`), the split produces empty string segments. Calling `syn::Ident::new("")` with an empty string panics, crashing the macro expansion with an unhelpful error instead of returning a proper compile-time error message.
+
+**File:** `lifeguard-derive/src/macros/partial_model.rs:213-224`
+
+**Before (Buggy Code):**
+```rust
+let segments: Vec<&str> = entity_path_str.split("::").collect();
+let mut path = syn::Path {
+    leading_colon: None,
+    segments: syn::punctuated::Punctuated::new(),
+};
+for segment in segments {
+    path.segments.push(syn::PathSegment {
+        ident: syn::Ident::new(segment, proc_macro2::Span::call_site()),  // ❌ Panics if segment is ""
+        arguments: syn::PathArguments::None,
+    });
+}
+```
+
+**Problem:**
+- Empty string `""` → `[""]` → `syn::Ident::new("")` panics
+- Leading colons `"::foo"` → `["", "foo"]` → `syn::Ident::new("")` panics
+- Trailing colons `"foo::"` → `["foo", ""]` → `syn::Ident::new("")` panics
+- Consecutive colons `"foo::::bar"` → `["foo", "", "", "bar"]` → `syn::Ident::new("")` panics
+- Panic provides no helpful error message to the user
+- Macro expansion crashes instead of reporting a compile error
+
+#### Root Cause
+
+The fallback path construction code didn't validate path segments before attempting to create `syn::Ident` instances. The `syn::Ident::new()` function panics when given an empty string, which can occur when splitting malformed entity paths.
+
+#### Fix
+
+**File:** `lifeguard-derive/src/macros/partial_model.rs:206-261`
+
+**After (Fixed Code):**
+```rust
+if let Some(entity_path_str) = entity_path_str {
+    // Validate that the entity path is not empty
+    if entity_path_str.trim().is_empty() {
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "Entity path cannot be empty. Use #[lifeguard(entity = \"path::to::Entity\")] with a valid path.",
+        )
+        .to_compile_error());
+    }
+    
+    // ... parse path ...
+    
+    // Validate segments: check for empty segments that would cause syn::Ident::new to panic
+    for (idx, segment) in segments.iter().enumerate() {
+        if segment.is_empty() {
+            let error_msg = if segments.len() == 1 {
+                format!("Entity path cannot be empty. Found empty string in #[lifeguard(entity = \"{}\")].", entity_path_str)
+            } else if idx == 0 {
+                format!("Entity path has leading colons. Found empty segment at start in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str)
+            } else if idx == segments.len() - 1 {
+                format!("Entity path has trailing colons. Found empty segment at end in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str)
+            } else {
+                format!("Entity path has consecutive colons. Found empty segment at position {} in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", idx + 1, entity_path_str)
+            };
+            
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                error_msg,
+            )
+            .to_compile_error());
+        }
+    }
+    
+    // At this point, we've validated that segment is not empty
+    for segment in segments {
+        path.segments.push(syn::PathSegment {
+            ident: syn::Ident::new(segment, proc_macro2::Span::call_site()),
+            arguments: syn::PathArguments::None,
+        });
+    }
+}
+```
+
+**Changes:**
+1. ✅ Added validation for empty entity path strings
+2. ✅ Added validation loop to check all path segments before creating identifiers
+3. ✅ Generate helpful error messages for each type of malformed path:
+   - Empty string: Clear message about empty path
+   - Leading colons: Message with example of valid path
+   - Trailing colons: Message with example of valid path
+   - Consecutive colons: Message indicating position of error
+4. ✅ Return compile errors instead of panicking
+5. ✅ Only create `syn::Ident` instances after validation passes
+
+#### Tests Added
+
+**File:** `lifeguard-derive/tests/ui.rs`
+
+**Negative Test Cases (should fail to compile):**
+1. ✅ `compile_error_partial_model_empty_entity` - Verifies empty string `""` produces compile error
+2. ✅ `compile_error_partial_model_leading_colons` - Verifies `"::foo"` produces compile error
+3. ✅ `compile_error_partial_model_trailing_colons` - Verifies `"foo::"` produces compile error
+4. ✅ `compile_error_partial_model_consecutive_colons` - Verifies `"foo::::bar"` produces compile error
+
+**Positive Test Cases (should compile successfully):**
+1. ✅ `compile_pass_partial_model_valid_paths` - Verifies valid paths work:
+   - Simple identifier: `"UserEntity"`
+   - Qualified path: `"users::Entity"`
+   - Fully qualified path: `"crate::users::Entity"`
+   - Super path: `"super::UserEntity"`
+   - Multi-segment path: `"crate::models::users::Entity"`
+
+**Test Files:**
+- `lifeguard-derive/tests/ui/compile_error_partial_model_empty_entity.rs`
+- `lifeguard-derive/tests/ui/compile_error_partial_model_leading_colons.rs`
+- `lifeguard-derive/tests/ui/compile_error_partial_model_trailing_colons.rs`
+- `lifeguard-derive/tests/ui/compile_error_partial_model_consecutive_colons.rs`
+- `lifeguard-derive/tests/ui/compile_pass_partial_model_valid_paths.rs`
+
+**Test Results:**
+- All negative test cases produce helpful compile errors (no panics)
+- All positive test cases compile successfully
+- Error messages are clear and actionable
+
+#### Impact
+
+- **Before Fix:** 
+  - Invalid entity paths caused macro expansion to panic
+  - No helpful error messages for users
+  - Panic messages were cryptic and unhelpful
+  - Users couldn't understand what went wrong
+
+- **After Fix:**
+  - Invalid entity paths produce clear compile errors
+  - Error messages explain the problem and suggest fixes
+  - Macro expansion fails gracefully with helpful diagnostics
+  - Users can easily understand and fix their code
+
+#### Related Files
+
+- `lifeguard-derive/src/macros/partial_model.rs:206-261` - Fixed validation logic
+- `lifeguard-derive/tests/ui.rs` - Added test cases
+- `lifeguard-derive/tests/ui/compile_error_partial_model_*.rs` - Negative test cases
+- `lifeguard-derive/tests/ui/compile_pass_partial_model_valid_paths.rs` - Positive test cases
+
+---
+
 ## Open Bugs
 
 *No open bugs at this time.*
