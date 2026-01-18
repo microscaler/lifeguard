@@ -205,22 +205,25 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
             
             if let Some(entity_path_str) = entity_path_str {
                 // Parse the entity path string
-                let entity_path: syn::Path = syn::parse_str(&entity_path_str)
-                    .unwrap_or_else(|_| {
-                        // If parsing fails, try to construct a path
-                        let segments: Vec<&str> = entity_path_str.split("::").collect();
-                        let mut path = syn::Path {
-                            leading_colon: None,
-                            segments: syn::punctuated::Punctuated::new(),
-                        };
-                        for segment in segments {
-                            path.segments.push(syn::PathSegment {
-                                ident: syn::Ident::new(segment, proc_macro2::Span::call_site()),
-                                arguments: syn::PathArguments::None,
-                            });
-                        }
-                        path
-                    });
+                // Try parsing as a path first, then fall back to manual construction
+                let entity_path: syn::Path = if let Ok(path) = syn::parse_str::<syn::Path>(&entity_path_str) {
+                    path
+                } else {
+                    // If parsing fails, construct a path manually
+                    // Handle both simple identifiers (e.g., "UserEntity") and paths (e.g., "users::Entity")
+                    let segments: Vec<&str> = entity_path_str.split("::").collect();
+                    let mut path = syn::Path {
+                        leading_colon: None,
+                        segments: syn::punctuated::Punctuated::new(),
+                    };
+                    for segment in segments {
+                        path.segments.push(syn::PathSegment {
+                            ident: syn::Ident::new(segment, proc_macro2::Span::call_site()),
+                            arguments: syn::PathArguments::None,
+                        });
+                    }
+                    path
+                };
                 return Ok(Some(quote! { #entity_path }));
             }
         }

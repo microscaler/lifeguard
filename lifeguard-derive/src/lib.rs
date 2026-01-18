@@ -2,7 +2,7 @@
 //!
 //! This crate provides derive macros for `LifeModel` and `LifeRecord`.
 
-mod attributes;
+mod attributes; // Public for testing
 mod macros;
 mod type_conversion;
 mod utils;
