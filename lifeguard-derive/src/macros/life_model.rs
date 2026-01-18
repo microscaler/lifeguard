@@ -847,11 +847,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         });
 
         // Generate ColumnTrait::def() match arm
-        // Convert field type to string representation for ColumnDefinition
-        let rust_type_str = quote! { #field_type }.to_string();
-        
         // Determine nullability from Option<T> or #[nullable] attribute
-        let is_nullable = col_attrs.is_nullable || rust_type_str.contains("Option<");
+        // Use extract_option_inner_type to properly detect Option<T> types
+        let is_nullable = col_attrs.is_nullable || extract_option_inner_type(field_type).is_some();
         
         // Build ColumnDefinition struct literal
         let column_type_expr = col_attrs.column_type.as_ref().map(|ct| {
