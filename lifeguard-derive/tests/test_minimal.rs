@@ -2321,6 +2321,7 @@ mod active_model_trait_tests {
         
         // Get values using ActiveModelTrait
         let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
+        assert!(name_value.is_some(), "Name should be set");
         let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
         assert!(email_value.is_some(), "Email should be set");
         

@@ -11,6 +11,7 @@ use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
 use crate::utils;
+use crate::attributes;
 
 /// Generate PartialModelTrait and FromRow implementations for a partial model struct
 pub fn derive_partial_model(input: TokenStream) -> TokenStream {
@@ -71,13 +72,8 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
         let field_type = &field.ty;
         
         // Get column name from attribute or use snake_case of field name
-        let column_name = field
-            .attrs
-            .iter()
-            .find(|attr| attr.path().is_ident("column_name"))
-            .and_then(|attr| {
-                attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value())
-            })
+        // Use the same extract_column_name() function as LifeModel macro for consistency
+        let column_name = attributes::extract_column_name(field)
             .unwrap_or_else(|| {
                 // Convert field name to snake_case
                 let name = field_name.to_string();

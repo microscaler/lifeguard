@@ -451,6 +451,143 @@ if let Some(entity_path_str) = entity_path_str {
 
 ---
 
+---
+
+### DerivePartialModel Macro: Incorrect column_name Attribute Parsing
+
+**Date:** 2025-01-27  
+**Status:** ✅ **FIXED**  
+**Priority:** High  
+**Severity:** Bug - Silent failure, inconsistent with codebase
+
+#### Issue
+
+The `DerivePartialModel` macro parsed the `#[column_name]` attribute using `parse_args()` which expects `#[column_name("value")]` syntax with parentheses. However, the rest of the codebase (`LifeModel` macro, `attributes::extract_column_name()`) uses `#[column_name = "value"]` syntax with equals sign. When users wrote `#[column_name = "value"]` (the standard syntax), `parse_args()` failed silently due to `.ok()`, and the code fell back to the snake_case of the field name, effectively ignoring the user's custom column name without any error.
+
+**File:** `lifeguard-derive/src/macros/partial_model.rs:73-85`
+
+**Before (Buggy Code):**
+```rust
+// Get column name from attribute or use snake_case of field name
+let column_name = field
+    .attrs
+    .iter()
+    .find(|attr| attr.path().is_ident("column_name"))
+    .and_then(|attr| {
+        attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value())  // ❌ Expects #[column_name("value")]
+    })
+    .unwrap_or_else(|| {
+        // Convert field name to snake_case
+        let name = field_name.to_string();
+        utils::snake_case(&name)
+    });
+```
+
+**Problem:**
+- `parse_args()` expects `#[column_name("value")]` syntax (parentheses)
+- Standard syntax used everywhere else is `#[column_name = "value"]` (equals sign)
+- When users used the standard syntax, `parse_args()` failed silently
+- Code fell back to snake_case of field name, ignoring the custom column name
+- No error message to indicate the attribute was ignored
+- Inconsistent behavior with `LifeModel` macro and `extract_column_name()`
+
+**LifeModel Macro (Correct Pattern):**
+```rust
+let column_name = attributes::extract_column_name(field)
+    .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+```
+
+**extract_column_name() (Correct Implementation):**
+```rust
+pub fn extract_column_name(field: &Field) -> Option<String> {
+    for attr in &field.attrs {
+        if attr.path().is_ident("column_name") {
+            if let Ok(meta) = attr.meta.require_name_value() {  // ✅ Uses require_name_value() for = syntax
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    return Some(s.value());
+                }
+            }
+        }
+    }
+    None
+}
+```
+
+#### Root Cause
+
+The `DerivePartialModel` macro was implemented with its own attribute parsing logic using `parse_args()`, which expects a different syntax than the standard `require_name_value()` approach used throughout the rest of the codebase. This created an inconsistency where the standard syntax silently failed.
+
+#### Fix
+
+**File:** `lifeguard-derive/src/macros/partial_model.rs:74-81`
+
+**After (Fixed Code):**
+```rust
+// Get column name from attribute or use snake_case of field name
+// Use the same extract_column_name() function as LifeModel macro for consistency
+let column_name = attributes::extract_column_name(field)
+    .unwrap_or_else(|| {
+        // Convert field name to snake_case
+        let name = field_name.to_string();
+        utils::snake_case(&name)
+    });
+```
+
+**Changes:**
+1. ✅ Replaced custom `parse_args()` logic with `attributes::extract_column_name()`
+2. ✅ Now uses the same parsing function as `LifeModel` macro for consistency
+3. ✅ Correctly parses `#[column_name = "value"]` syntax (standard syntax)
+4. ✅ Added import for `crate::attributes` module
+
+#### Tests Added
+
+**File:** `lifeguard-derive/tests/test_partial_model_column_name_equals.rs`
+
+1. ✅ `test_column_name_equals_syntax` - Verifies `#[column_name = "value"]` syntax works correctly
+2. ✅ `test_column_name_default_snake_case` - Verifies default behavior (no attribute) still works
+3. ✅ `test_column_name_camel_case_conversion` - Verifies camelCase field names convert to snake_case
+
+**File:** `lifeguard-derive/tests/ui/compile_pass_partial_model_column_name_equals.rs`
+
+1. ✅ `compile_pass_partial_model_column_name_equals` - Verifies the macro compiles successfully with equals sign syntax
+
+**Test Results:**
+```
+running 3 tests
+test test_column_name_camel_case_conversion ... ok
+test test_column_name_default_snake_case ... ok
+test test_column_name_equals_syntax ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured
+```
+
+#### Impact
+
+- **Before Fix:**
+  - `#[column_name = "value"]` syntax silently failed
+  - Custom column names were ignored without error
+  - Inconsistent behavior with `LifeModel` macro
+  - Users had to use non-standard `#[column_name("value")]` syntax
+
+- **After Fix:**
+  - `#[column_name = "value"]` syntax works correctly
+  - Consistent behavior with `LifeModel` macro and `extract_column_name()`
+  - Standard syntax used throughout codebase now works everywhere
+  - Better maintainability (single source of truth for attribute parsing)
+
+#### Related Files
+
+- `lifeguard-derive/src/macros/partial_model.rs:74-81` - Fixed to use `extract_column_name()`
+- `lifeguard-derive/src/attributes.rs:23-37` - Reference: `extract_column_name()` implementation
+- `lifeguard-derive/src/macros/life_model.rs:99` - Reference: Uses `extract_column_name()` correctly
+- `lifeguard-derive/tests/test_partial_model_column_name_equals.rs` - New test file
+- `lifeguard-derive/tests/ui/compile_pass_partial_model_column_name_equals.rs` - UI test
+
+---
+
 ## Open Bugs
 
 *No open bugs at this time.*
