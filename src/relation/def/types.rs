@@ -12,4 +12,6 @@ pub enum RelationType {
     HasMany,
     /// Many-to-one relationship (belongs_to)
     BelongsTo,
+    /// Many-to-many relationship through a join table
+    HasManyThrough,
 }

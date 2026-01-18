@@ -13,7 +13,7 @@ pub use types::RelationType;
 #[doc(inline)]
 pub use struct_def::RelationDef;
 #[doc(inline)]
-pub use condition::{join_tbl_on_condition, build_where_condition};
+pub use condition::{join_tbl_on_condition, join_tbl_on_expr, build_where_condition, extract_table_name};
 
 #[cfg(test)]
 mod tests {
@@ -29,6 +29,9 @@ mod tests {
             to_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
             from_col: Identity::Unary("user_id".into()),
             to_col: Identity::Unary("id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
             is_owner: true,
             skip_fk: false,
             on_condition: None,
@@ -51,6 +54,9 @@ mod tests {
             to_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
             from_col: Identity::Binary("user_id".into(), "tenant_id".into()),
             to_col: Identity::Binary("id".into(), "tenant_id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
             is_owner: true,
             skip_fk: false,
             on_condition: None,

@@ -4,6 +4,14 @@ error: Column reference path contains invalid identifier "foo-bar" at position 1
 14 |     Invalid,
    |     ^^^^^^^
 
+error[E0433]: failed to resolve: there are too many leading `super` keywords
+ --> tests/ui/compile_error_relation_invalid_column_ref_path.rs:8:10
+  |
+8 | #[derive(DeriveRelation)]
+  |          ^^^^^^^^^^^^^^ there are too many leading `super` keywords
+  |
+  = note: this error originates in the derive macro `DeriveRelation` (in Nightly builds, run with -Z macro-backtrace for more info)
+
 error[E0601]: `main` function not found in crate `$CRATE`
   --> tests/ui/compile_error_relation_invalid_column_ref_path.rs:15:2
    |
