@@ -338,7 +338,8 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     // Track which target entity paths we've already generated Related impls for
     // This prevents duplicate Related impls when multiple relations target the same entity
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
-    let mut seen_related_impl_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Key: target entity path, Value: (from_col, to_col, variant_name) for error reporting
+    let mut seen_related_impls: std::collections::HashMap<String, (Option<String>, Option<String>, syn::Ident)> = std::collections::HashMap::new();
     
     // Helper function to create a unique string key from a syn::Path
     // This allows us to compare paths for equality
@@ -357,7 +358,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     };
     
     for variant in variants {
-        if let Some((related_impl, target_entity_path, variant_name)) = process_relation_variant(variant, enum_name) {
+        if let Some((related_impl, target_entity_path, variant_name, from_col, to_col)) = process_relation_variant(variant, enum_name) {
             // Check if this is a dummy path (used for error cases)
             // We check if the path is just "Entity" without any module prefix
             // This is a heuristic - if the path segments are just ["Entity"], it's likely a dummy
@@ -370,12 +371,53 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 // Only generate one Related impl per unique target entity path to avoid conflicts
                 // when multiple relations target the same entity (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
                 let target_path_key = path_to_key(&target_entity_path);
-                if !seen_related_impl_paths.contains(&target_path_key) {
-                    seen_related_impl_paths.insert(target_path_key);
-                    related_impls.push(related_impl);
+                
+                // Check if we've already seen this target entity path
+                if let Some((existing_from, existing_to, existing_variant)) = seen_related_impls.get(&target_path_key) {
+                    // Check if the column configuration is different
+                    let from_col_str = from_col.as_ref().map(|s| s.as_str()).unwrap_or("default");
+                    let to_col_str = to_col.as_ref().map(|s| s.as_str()).unwrap_or("default");
+                    let existing_from_str = existing_from.as_ref().map(|s| s.as_str()).unwrap_or("default");
+                    let existing_to_str = existing_to.as_ref().map(|s| s.as_str()).unwrap_or("default");
+                    
+                    if from_col_str != existing_from_str || to_col_str != existing_to_str {
+                        // Different column configuration - emit compile error
+                        let error_msg = format!(
+                            "Multiple relations target the same entity `{}` with different column configurations.\n\
+                            \n\
+                            First relation `{}` uses:\n\
+                            - from: {}\n\
+                            - to: {}\n\
+                            \n\
+                            Second relation `{}` uses:\n\
+                            - from: {}\n\
+                            - to: {}\n\
+                            \n\
+                            Rust doesn't allow multiple `impl Related<{}> for Entity` implementations.\n\
+                            The macro would silently discard the second configuration, leading to incorrect queries.\n\
+                            \n\
+                            Solution: Use different target entities, or ensure all relations to the same entity use identical column configurations.",
+                            target_path_key,
+                            existing_variant,
+                            existing_from_str,
+                            existing_to_str,
+                            variant_name,
+                            from_col_str,
+                            to_col_str,
+                            target_path_key
+                        );
+                        let error = syn::Error::new_spanned(
+                            &variant.ident,
+                            error_msg,
+                        );
+                        related_impls.push(error.to_compile_error());
+                        continue;
+                    }
+                    // Same column configuration - skip this Related impl (already generated)
                 } else {
-                    // Skip this Related impl - we've already generated one for this target entity
-                    // This prevents "conflicting implementations of trait `Related`" errors
+                    // First time seeing this target entity path - record it and add the impl
+                    seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone()));
+                    related_impls.push(related_impl);
                 }
             } else {
                 // Always emit error cases (dummy paths)
@@ -457,10 +499,12 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
 /// - Related trait implementation TokenStream
 /// - Target entity path for RelatedEntity enum generation
 /// - Variant name for RelatedEntity enum generation
+/// - From column configuration (for conflict detection)
+/// - To column configuration (for conflict detection)
 fn process_relation_variant(
     variant: &Variant,
     _enum_name: &syn::Ident,
-) -> Option<(TokenStream2, syn::Path, syn::Ident)> {
+) -> Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>)> {
     let _variant_name = &variant.ident;
     
     // Parse attributes to find relationship type and target entity
@@ -505,6 +549,8 @@ fn process_relation_variant(
                     err.to_compile_error(),
                     syn::parse_str("Entity").unwrap(), // Dummy path - won't be used for RelatedEntity
                     variant.ident.clone(),
+                    None, // from_col
+                    None, // to_col
                 ));
             }
         }
@@ -522,6 +568,8 @@ fn process_relation_variant(
                 .to_compile_error(),
                 syn::parse_str("Entity").unwrap(), // Dummy path for error case
                 variant.ident.clone(),
+                None, // from_col
+                None, // to_col
             ));
         }
         
@@ -591,14 +639,14 @@ fn process_relation_variant(
         // Parse target entity path (e.g., "super::posts::Entity")
         let target_entity_path: syn::Path = match parse_entity_path(target, "entity path") {
             Ok(path) => path,
-            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone())),
+            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None)),
         };
         
         // Parse through entity path for has_many_through relationships
         let (through_entity_path, through_table_name) = if let Some(through) = through_entity.as_ref() {
             let through_path: syn::Path = match parse_entity_path(through, "through entity path") {
                 Ok(path) => path,
-                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone())),
+                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None)),
             };
             let through_table = quote! {
                 {
@@ -664,7 +712,7 @@ fn process_relation_variant(
             // Parse the column reference and build Identity
             match build_identity_from_column_ref(from_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone())),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone())),
             }
         } else {
             // Default: infer from relationship type
@@ -713,7 +761,7 @@ fn process_relation_variant(
             // The "to" column might be in a different module (e.g., "super::users::Column::Id")
             match build_identity_from_column_ref(to_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone())),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone())),
             }
         } else {
             // Default: infer from relationship type
@@ -857,7 +905,7 @@ fn process_relation_variant(
             #fk_col_impl
         };
         
-        Some((related_impl, target_entity_path.clone(), variant_name))
+        Some((related_impl, target_entity_path.clone(), variant_name, from_column.clone(), to_column.clone()))
     } else {
         None
     }

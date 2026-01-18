@@ -98,3 +98,9 @@ fn compile_error_relation_invalid_column_ref_path() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_relation_invalid_column_ref_path.rs");
 }
+
+#[test]
+fn compile_error_duplicate_related_impl_different_columns() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_duplicate_related_impl_different_columns.rs");
+}

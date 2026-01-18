@@ -54,6 +54,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2025-01-27-13: DerivePartialModel Macro Missing Validation for Invalid Identifiers in Entity Path](bugs/BUG-2025-01-27-13.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Macro expansion panic
 
+- [BUG-2025-01-27-14: DeriveRelation Macro Silently Discards Different Column Configurations for Same Entity](bugs/BUG-2025-01-27-14.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Silent failure leading to incorrect queries
+
 ### 2024-12-19
 
 - [BUG-2024-12-19-01: Codegen Tool Incorrect Unsigned Integer Type Detection](bugs/BUG-2024-12-19-01.md)  
