@@ -335,6 +335,10 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
     // We use a helper function to create a unique key from the path
     let mut seen_target_entity_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Track which target entity paths we've already generated Related impls for
+    // This prevents duplicate Related impls when multiple relations target the same entity
+    // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
+    let mut seen_related_impl_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
     
     // Helper function to create a unique string key from a syn::Path
     // This allows us to compare paths for equality
@@ -354,13 +358,29 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     
     for variant in variants {
         if let Some((related_impl, target_entity_path, variant_name)) = process_relation_variant(variant, enum_name) {
-            related_impls.push(related_impl.clone());
-            
             // Check if this is a dummy path (used for error cases)
             // We check if the path is just "Entity" without any module prefix
             // This is a heuristic - if the path segments are just ["Entity"], it's likely a dummy
             let is_dummy_path = target_entity_path.segments.len() == 1 
                 && target_entity_path.segments[0].ident == "Entity";
+            
+            // Only deduplicate Related impls if this is not a dummy path (error case)
+            // Error cases should always be emitted to show the compile error
+            if !is_dummy_path {
+                // Only generate one Related impl per unique target entity path to avoid conflicts
+                // when multiple relations target the same entity (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
+                let target_path_key = path_to_key(&target_entity_path);
+                if !seen_related_impl_paths.contains(&target_path_key) {
+                    seen_related_impl_paths.insert(target_path_key);
+                    related_impls.push(related_impl);
+                } else {
+                    // Skip this Related impl - we've already generated one for this target entity
+                    // This prevents "conflicting implementations of trait `Related`" errors
+                }
+            } else {
+                // Always emit error cases (dummy paths)
+                related_impls.push(related_impl);
+            }
             
             // Only generate RelatedEntity if this is not a dummy path (error case)
             if !is_dummy_path {

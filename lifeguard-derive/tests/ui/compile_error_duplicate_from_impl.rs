@@ -1,20 +1,19 @@
-//! Test that verifies duplicate From impls are prevented
+//! Test that verifies duplicate Related and From impls are prevented
 //!
 //! This test demonstrates a scenario where multiple relations target the same entity.
-//! Without the fix, this would generate duplicate `From<PostModel> for RelatedEntity` impls,
-//! causing a compile error: "conflicting implementations of trait `From`".
+//! Without the fix, this would generate:
+//! - Duplicate `impl Related<PostEntity> for Entity` trait implementations
+//! - Duplicate `From<PostModel> for RelatedEntity` impls
 //!
-//! With the fix, only one From impl is generated per unique target entity path,
+//! Both of these would cause compile errors:
+//! - "conflicting implementations of trait `Related`"
+//! - "conflicting implementations of trait `From`"
+//!
+//! With the fix, only one Related impl and one From impl are generated per unique target entity path,
 //! so this should compile successfully.
 //!
-//! Note: This test uses a scenario where we can have multiple relations to the same entity
-//! but in a way that doesn't conflict with Related impls (e.g., different relation types
-//! or different contexts). However, in practice, having two has_many relations to the same
-//! entity from the same source would also create conflicting Related impls, which is a
-//! separate Rust trait coherence issue.
-//!
-//! The fix ensures that even if such a scenario were possible, duplicate From impls
-//! would not be generated.
+//! This test verifies that the macro correctly deduplicates both Related and From impls
+//! when multiple relations target the same entity (e.g., CreatedPosts and EditedPosts both pointing to PostEntity).
 
 use lifeguard_derive::DeriveRelation;
 
@@ -95,11 +94,12 @@ impl sea_query::IdenStatic for PostColumn {
 }
 
 // This Relation enum has two variants targeting the same entity (PostEntity)
-// Without the fix, this would generate two `From<PostModel> for RelatedEntity` impls,
-// causing a compile error. With the fix, only one From impl is generated.
+// Without the fix, this would generate:
+// - Two `impl Related<PostEntity> for Entity` impls (causing "conflicting implementations" error)
+// - Two `From<PostModel> for RelatedEntity` impls (causing "conflicting implementations" error)
 //
-// Note: This will also generate two Related impls which may conflict,
-// but that's a separate issue. The From impl deduplication is what we're testing.
+// With the fix, only one Related impl and one From impl are generated per unique target entity path,
+// so this compiles successfully.
 #[derive(DeriveRelation)]
 pub enum Relation {
     #[lifeguard(has_many = "PostEntity")]
@@ -108,5 +108,5 @@ pub enum Relation {
     EditedPosts,
 }
 
-// If the fix works, this should compile without "conflicting implementations of trait `From`" error
-// The RelatedEntity enum should have both variants, but only one From impl
+// If the fix works, this should compile without "conflicting implementations" errors
+// The RelatedEntity enum should have both variants, but only one Related impl and one From impl
