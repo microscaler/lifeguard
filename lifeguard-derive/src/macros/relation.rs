@@ -360,10 +360,18 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     for variant in variants {
         if let Some((related_impl, target_entity_path, variant_name, from_col, to_col)) = process_relation_variant(variant, enum_name) {
             // Check if this is a dummy path (used for error cases)
-            // We check if the path is just "Entity" without any module prefix
-            // This is a heuristic - if the path segments are just ["Entity"], it's likely a dummy
+            // Error cases are identified by:
+            // 1. Path is just "Entity" without any module prefix
+            // 2. Both from_col and to_col are None (error cases always return None for both)
+            // This distinguishes error cases from valid self-referential relationships,
+            // which would have at least one column specified (or use defaults, but the
+            // tuple values would still be None if not user-specified, so we need to be careful)
+            // However, if the path is "Entity" AND both are None, it's almost certainly an error case
+            // because valid self-referential relationships would typically specify columns explicitly
             let is_dummy_path = target_entity_path.segments.len() == 1 
-                && target_entity_path.segments[0].ident == "Entity";
+                && target_entity_path.segments[0].ident == "Entity"
+                && from_col.is_none()
+                && to_col.is_none();
             
             // Only deduplicate Related impls if this is not a dummy path (error case)
             // Error cases should always be emitted to show the compile error

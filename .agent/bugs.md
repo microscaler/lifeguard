@@ -83,6 +83,11 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2024-12-19-08: DerivePartialModel Macro Expansion Errors (E0284)](bugs/BUG-2024-12-19-08.md)  
   **Status:** ✅ RESOLVED | **Priority:** High | **Severity:** Macro expansion failures
 
+### 2025-01-27 (continued)
+
+- [BUG-2025-01-27-15: is_dummy_path Heuristic Incorrectly Flags Valid Self-Referential Relationships](bugs/BUG-2025-01-27-15.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Missing RelatedEntity enum variants
+
 ### 2026-01-18
 
 - [BUG-2026-01-18-01: FindRelated Trait Requires Impossible LifeModelTrait Bound on Models](bugs/BUG-2026-01-18-01.md)  

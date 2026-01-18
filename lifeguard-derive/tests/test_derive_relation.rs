@@ -811,3 +811,102 @@ fn test_derive_relation_module_qualified_path() {
 // 1. The code change in derive_relation() that tracks seen_target_entity_paths
 // 2. The fact that existing tests continue to pass
 // 3. Manual verification that the generated code only has one From impl per target entity
+
+// Test module for self-referential relationships (e.g., Category -> Category for parent/child)
+mod self_referential_test {
+    use lifeguard_derive::DeriveRelation;
+    use lifeguard::{LifeEntityName, LifeModelTrait};
+    
+    // Entity representing CategoryEntity for this test
+    #[derive(Default, Copy, Clone)]
+    pub struct Entity;
+    
+    impl sea_query::Iden for Entity {
+        fn unquoted(&self) -> &str {
+            "categories"
+        }
+    }
+    
+    impl LifeEntityName for Entity {
+        fn table_name(&self) -> &'static str {
+            "categories"
+        }
+    }
+    
+    impl LifeModelTrait for Entity {
+        type Model = CategoryModel;
+        type Column = CategoryColumn;
+    }
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum CategoryColumn {
+        Id,
+        ParentId, // Foreign key to parent category
+    }
+    
+    impl sea_query::Iden for CategoryColumn {
+        fn unquoted(&self) -> &str {
+            match self {
+                CategoryColumn::Id => "id",
+                CategoryColumn::ParentId => "parent_id",
+            }
+        }
+    }
+    
+    impl sea_query::IdenStatic for CategoryColumn {
+        fn as_str(&self) -> &'static str {
+            match self {
+                CategoryColumn::Id => "id",
+                CategoryColumn::ParentId => "parent_id",
+            }
+        }
+    }
+    
+    #[derive(Debug, Clone)]
+    pub struct CategoryModel;
+    
+    // Relation enum for testing self-referential relationships
+    // The target entity is "Entity" (the same entity), which should NOT be
+    // treated as a dummy path (error case). The RelatedEntity enum variant should be generated.
+    #[derive(DeriveRelation)]
+    pub enum Relation {
+        // Self-referential belongs_to relationship (category belongs to parent category)
+        #[lifeguard(
+            belongs_to = "Entity",
+            from = "CategoryColumn::ParentId",
+            to = "CategoryColumn::Id"
+        )]
+        Parent,
+    }
+}
+
+#[test]
+fn test_derive_relation_self_referential() {
+    use self_referential_test::*;
+    
+    // Test self-referential relationship where target entity is "Entity" (the same entity)
+    // This verifies that the macro correctly generates RelatedEntity enum variants
+    // for self-referential relationships, even though the target path is "Entity"
+    // (which was previously incorrectly flagged as a dummy path for error cases)
+    
+    // Test belongs_to self-referential relationship
+    let parent_rel_def: RelationDef = <Entity as Related<Entity>>::to();
+    
+    // Verify arity
+    assert_eq!(parent_rel_def.from_col.arity(), 1);
+    assert_eq!(parent_rel_def.to_col.arity(), 1);
+    
+    // Verify that from_col is the foreign key (parent_id)
+    let from_col_name = parent_rel_def.from_col.iter().next().unwrap().to_string();
+    assert_eq!(from_col_name, "parent_id", "from_col should be parent_id for Category belongs_to Category");
+    
+    // Verify that to_col is the primary key (id)
+    let to_col_name = parent_rel_def.to_col.iter().next().unwrap().to_string();
+    assert_eq!(to_col_name, "id", "to_col should be primary key (id) for Category belongs_to Category");
+    
+    // The RelatedEntity enum should have the Parent variant
+    // This is verified by the fact that the code compiles successfully
+    // If the bug existed, the RelatedEntity variant would not be generated
+    // because the target path "Entity" would be incorrectly flagged as a dummy path
+    // and we would get compilation errors when trying to use it
+}
