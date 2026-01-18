@@ -28,10 +28,10 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `PrimaryKeyTrait` | ✅ Implemented | ✅ Complete | Primary key operations (ValueType ✅, auto_increment() ✅) |
 | `PrimaryKeyToColumn` | ✅ Implemented | ✅ Complete | Mapping between PrimaryKey and Column (to_column() ✅) |
 | `PrimaryKeyArity` | ✅ Implemented | ✅ Enhanced | Support for composite primary keys with granular variants (Single, Tuple2-Tuple5, Tuple6Plus) - Lifeguard enhancement beyond SeaORM |
-| `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support, automatic join condition generation pending |
+| `RelationTrait` | ✅ Implemented | ✅ **Complete** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support and automatic join condition generation |
 | `Related` | ✅ Implemented | ✅ Complete | Related entity queries - Trait implemented, DeriveRelation macro generates implementations, returns RelationDef for composite key support |
 | `FindRelated` | ✅ Implemented | ✅ Complete | Extension trait for finding related entities from model instances - Fixed trait bounds, works correctly with Models |
-| `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
+| `Linked` | ✅ Implemented | ✅ **Complete** | Multi-hop relationship queries - Linked<I, T> trait and FindLinked extension trait implemented |
 | `PartialModelTrait` | ✅ Implemented | ✅ **Complete** | Partial model queries (select subset of columns) - Trait implemented, column selection working, DerivePartialModel macro implemented |
 | `TryIntoModel` | ❌ Missing | 🟡 **Future** | Conversion utilities |
 
@@ -53,8 +53,8 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Separate derive (matches SeaORM pattern) |
-| `DeriveRelation` | ✅ Implemented | ✅ Complete | Relation enum with Related trait implementations - Full implementation with composite key support, default column inference, and compile-time error checking |
-| `DeriveRelatedEntity` | ❌ Missing | 🟡 **Future** | RelatedEntity enum |
+| `DeriveRelation` | ✅ Implemented | ✅ Complete | Relation enum with Related trait implementations - Full implementation with composite key support, default column inference, compile-time error checking, and duplicate impl deduplication (prevents conflicting Related/From impls when multiple relations target same entity) |
+| `DeriveRelatedEntity` | ✅ Implemented | ✅ **Complete** | RelatedEntity enum - Generated automatically by DeriveRelation macro |
 | `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation |
 | `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
 | `DerivePartialModel` | ✅ Implemented | ✅ **Complete** | PartialModelTrait and FromRow implementation - Generates selected_columns() and FromRow from struct fields with column_name attribute support |
@@ -240,7 +240,7 @@ This design simplifies the API while maintaining the same functionality.
 - `get_primary_key_value()` - Get primary key value(s) ✅
 - `get_value_type(column)` - Get column's value type (🟡 Future)
 - `find_related<R>()` - ✅ Implemented (via FindRelated trait extension) - Fixed trait bounds, works correctly with Models
-- `find_linked<L>()` - Find linked entities (🟡 Future)
+- `find_linked<I, T>()` - Find linked entities ✅ (Implemented via FindLinked trait extension)
 
 #### ColumnTrait
 **Status:** ✅ Implemented  
@@ -292,7 +292,7 @@ This design simplifies the API while maintaining the same functionality.
 ### Medium Priority (Relations & Advanced Features)
 
 #### Relations
-**Status:** 🟡 Partial  
+**Status:** ✅ Complete  
 **Current State:**
 - `RelationTrait` - ✅ Implemented with functional query building (belongs_to, has_one, has_many, has_many_through methods accept foreign keys and join conditions)
 - `join_condition()` helper function - ✅ Implemented (creates join conditions from table/column names)
@@ -300,7 +300,7 @@ This design simplifies the API while maintaining the same functionality.
 **Current State:**
 - `Related` - ✅ Implemented (trait for defining relationships)
 - `FindRelated` - ✅ Implemented (extension trait providing `find_related()` method on models) - Fixed impossible trait bound, fully functional
-- `DeriveRelation` - ✅ Implemented (macro generates Related trait implementations from Relation enum)
+- `DeriveRelation` - ✅ Implemented (macro generates Related trait implementations from Relation enum, with duplicate impl deduplication to prevent trait coherence violations when multiple relations target the same entity)
 - `RelationMetadata` - ✅ Implemented (trait for storing relationship metadata, generated by DeriveRelation when from/to columns are provided)
 - `Identity` - ✅ Implemented (enum for single and composite column references: Unary, Binary, Ternary, Many)
 - `RelationDef` - ✅ Implemented (struct containing all relationship metadata including Identity for composite keys)
@@ -311,15 +311,16 @@ This design simplifies the API while maintaining the same functionality.
 - ✅ Composite key relationships fully supported (Binary, Ternary, Many variants)
 - ✅ `find_related()` uses `RelationDef` and `build_where_condition()` for both single and composite keys
 - ✅ `DeriveRelation` macro generates `RelationDef` with proper `Identity` construction
+- ✅ `DeriveRelation` macro deduplicates Related and From impls when multiple relations target the same entity (prevents trait coherence violations)
 - ✅ `LifeModel` macro generates `get_primary_key_identity()` and `get_primary_key_values()` for all key types
 **Future State:**
-- Enhanced error messages for invalid column references in DeriveRelation macro
-- Support for has_many_through relationships
-- Automatic join condition generation from foreign key metadata
-- `Linked` - Multi-hop relationship queries
-- `DeriveRelatedEntity` - Generate RelatedEntity enum
-- Eager loading support
-- Lazy loading support
+- Enhanced error messages for invalid column references in DeriveRelation macro ✅ (Completed - comprehensive validation added)
+- Support for has_many_through relationships ✅ (Completed - DeriveRelation macro supports has_many_through with through attribute)
+- Automatic join condition generation from foreign key metadata ✅ (Completed - RelationDef::join_on_expr() and convenience methods)
+- `Linked` - Multi-hop relationship queries ✅ (Completed - Linked<I, T> trait and FindLinked extension trait)
+- `DeriveRelatedEntity` - Generate RelatedEntity enum ✅ (Completed - automatically generated by DeriveRelation macro)
+- Eager loading support ✅ (Completed - load_related() function with selectinload strategy, FK extraction, and grouping)
+- Lazy loading support ✅ (Completed - LazyLoader struct with on-demand query execution)
 
 #### Partial Models
 **Status:** ✅ Complete  
@@ -389,15 +390,15 @@ This design simplifies the API while maintaining the same functionality.
 
 | Category | SeaORM | Lifeguard | Coverage |
 |----------|--------|-----------|----------|
-| **Core Traits** | 15 | 9 | 60% (Enhanced: PrimaryKeyArity with granular variants, PartialModelTrait and Related implemented) |
-| **Derive Macros** | 21 | 8 | 38% |
+| **Core Traits** | 15 | 10 | 67% (Enhanced: PrimaryKeyArity with granular variants, PartialModelTrait, Related, Linked, FindLinked implemented) |
+| **Derive Macros** | 21 | 9 | 43% (Added: DeriveRelatedEntity) |
 | **Core Structures** | 10 | 6 | 60% |
 | **Query Builder Methods** | 20 | 19 | 95% |
 | **Column Operations** | 15 | 15 | 100% |
 | **ActiveModel/Record Operations** | 12 | 7 | 58% |
 | **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 74 | **63%** |
+| **Overall** | 117 | 78 | **67%** |
 
 ---
 
@@ -421,7 +422,7 @@ This design simplifies the API while maintaining the same functionality.
 
 ### 5. **Relations**
 - **SeaORM:** Full relationship system with `RelationTrait`, `Related`, `Linked`
-- **Lifeguard:** No relationship support yet
+- **Lifeguard:** ✅ Complete relationship system with `RelationTrait`, `Related`, `FindRelated`, `Linked`, `FindLinked`, eager loading, lazy loading, and `DeriveRelatedEntity`
 
 ---
 
