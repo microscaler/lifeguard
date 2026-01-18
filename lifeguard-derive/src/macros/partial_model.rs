@@ -130,13 +130,13 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
                 
                 quote! {
                     {
-                        let val: #signed_type = row.get(#column_name_str)?;
+                        let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
                         val as #field_type
                     }
                 }
             } else {
                 quote! {
-                    row.get(#column_name_str)?
+                    row.try_get::<&str, #field_type>(#column_name_str)?
                 }
             }
         };
