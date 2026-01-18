@@ -74,7 +74,7 @@ pub use active_model::{ActiveModelTrait, ActiveModelBehavior, ActiveModelError, 
 
 // Model trait - Core Traits & Types
 pub mod model;
-pub use model::{ModelError, ModelTrait};
+pub use model::{ModelError, ModelTrait, TryIntoModel};
 
 // Relation trait - Epic 02 Story 08
 pub mod relation;
