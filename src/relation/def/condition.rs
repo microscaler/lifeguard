@@ -1,111 +1,12 @@
-//! RelationDef struct for storing relationship metadata
+//! Condition building utilities for relations.
 //!
-//! This module provides the `RelationDef` struct which contains all metadata about
-//! entity relationships. It can be converted to SeaQuery `Condition` for use in
-//! JOINs and WHERE clauses.
+//! This module provides functions for building SQL conditions from relation definitions,
+//! including join conditions and WHERE clauses.
 
+use crate::relation::def::struct_def::RelationDef;
 use crate::relation::identity::Identity;
 use crate::model::ModelTrait;
-use sea_query::{Condition, ConditionType, DynIden, Expr, ExprTrait, TableRef};
-use std::sync::Arc;
-
-/// Type of relationship between entities
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RelationType {
-    /// One-to-one relationship
-    HasOne,
-    /// One-to-many relationship
-    HasMany,
-    /// Many-to-one relationship (belongs_to)
-    BelongsTo,
-}
-
-/// Defines a relationship between two entities
-///
-/// This struct contains all metadata about a relationship, including:
-/// - Relationship type (HasOne, HasMany, BelongsTo)
-/// - Source and target tables
-/// - Foreign key and primary key columns (supports composite keys via `Identity`)
-/// - Additional metadata (ownership, foreign key constraints, etc.)
-///
-/// # Example
-///
-/// ```no_run
-/// use lifeguard::relation::def::{RelationDef, RelationType};
-/// use lifeguard::relation::identity::Identity;
-/// use sea_query::{TableRef, ConditionType};
-///
-/// // Create a belongs_to relationship: Post -> User
-/// let rel_def = RelationDef {
-///     rel_type: RelationType::BelongsTo,
-///     from_tbl: TableRef::Table("posts".into()),
-///     to_tbl: TableRef::Table("users".into()),
-///     from_col: Identity::Unary("user_id".into()),
-///     to_col: Identity::Unary("id".into()),
-///     is_owner: true,
-///     skip_fk: false,
-///     on_condition: None,
-///     condition_type: ConditionType::All,
-/// };
-/// ```
-#[derive(Clone)]
-pub struct RelationDef {
-    /// Type of relationship
-    pub rel_type: RelationType,
-    /// Source table reference
-    pub from_tbl: TableRef,
-    /// Target table reference
-    pub to_tbl: TableRef,
-    /// Foreign key column(s) in source table
-    pub from_col: Identity,
-    /// Primary key column(s) in target table
-    pub to_col: Identity,
-    /// Whether this entity owns the relationship
-    pub is_owner: bool,
-    /// Skip foreign key constraint generation
-    pub skip_fk: bool,
-    /// Optional custom join condition
-    pub on_condition: Option<Arc<dyn Fn(DynIden, DynIden) -> Condition + Send + Sync>>,
-    /// Condition type (All/Any)
-    pub condition_type: ConditionType,
-}
-
-impl std::fmt::Debug for RelationDef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RelationDef")
-            .field("rel_type", &self.rel_type)
-            .field("from_tbl", &self.from_tbl)
-            .field("to_tbl", &self.to_tbl)
-            .field("from_col", &self.from_col)
-            .field("to_col", &self.to_col)
-            .field("is_owner", &self.is_owner)
-            .field("skip_fk", &self.skip_fk)
-            .field("on_condition", &if self.on_condition.is_some() { "Some" } else { "None" })
-            .field("condition_type", &self.condition_type)
-            .finish()
-    }
-}
-
-impl RelationDef {
-    /// Reverse this relation (swap from and to)
-    ///
-    /// This is useful for reversing a relationship direction.
-    /// For example, if you have Post -> User (belongs_to),
-    /// reversing gives User -> Post (has_many).
-    pub fn rev(self) -> Self {
-        Self {
-            rel_type: self.rel_type,
-            from_tbl: self.to_tbl,
-            to_tbl: self.from_tbl,
-            from_col: self.to_col,
-            to_col: self.from_col,
-            is_owner: !self.is_owner,
-            skip_fk: self.skip_fk,
-            on_condition: self.on_condition,
-            condition_type: self.condition_type,
-        }
-    }
-}
+use sea_query::{Condition, ConditionType, Expr, ExprTrait, TableRef};
 
 /// Extract table name string from TableRef
 ///
@@ -123,7 +24,7 @@ impl RelationDef {
 /// # Panics
 ///
 /// Panics if `TableRef` is not in the expected format (should not happen in normal usage)
-fn extract_table_name(table_ref: &TableRef) -> String {
+pub(crate) fn extract_table_name(table_ref: &TableRef) -> String {
     match table_ref {
         TableRef::Table(table_name, _alias) => {
             // TableName is a tuple (Option<DynIden>, DynIden) where the second element is the table name
@@ -217,7 +118,7 @@ impl From<RelationDef> for Condition {
 /// # Example
 ///
 /// ```no_run
-/// use lifeguard::relation::def::join_tbl_on_condition;
+/// use lifeguard::relation::def::condition::join_tbl_on_condition;
 /// use lifeguard::relation::identity::Identity;
 /// use sea_query::{TableRef, Condition};
 ///
@@ -338,67 +239,10 @@ where
     condition
 }
 
-/// Extract primary key values from model based on Identity columns
-///
-/// This helper function extracts the actual `Value`s from a model based on
-/// the columns specified in the `Identity`. It requires `ModelTrait` to have
-/// a method to get values by column.
-///
-/// # Arguments
-///
-/// * `model` - The model instance
-/// * `pk_identity` - The primary key identity (which columns to extract)
-///
-/// # Returns
-///
-/// A vector of `Value`s corresponding to the primary key columns
-///
-/// # Note
-///
-/// This is a temporary implementation. The macro will generate more efficient
-/// implementations that directly access model fields.
-// TODO: Phase 4 - This will be implemented once get_primary_key_values() is added to ModelTrait
-// fn extract_primary_key_values<M>(model: &M, _pk_identity: &Identity) -> Vec<Value>
-// where
-//     M: ModelTrait,
-// {
-//     // For now, we'll use get_primary_key_values() which the macro will generate
-//     // This is a placeholder - the actual implementation will be generated by the macro
-//     // to directly access model fields for efficiency
-//     model.get_primary_key_values()
-// }
-
-// Note: TableRef extraction is handled inline using format! macro
-// This is a temporary solution until we have proper TableRef -> string conversion
-// In the future, we may want to add a helper trait or method for this
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::relation::identity::Identity;
-
-    #[test]
-    fn test_relation_def_rev() {
-        use sea_query::{TableName, IntoIden};
-        
-        let rel_def = RelationDef {
-            rel_type: RelationType::BelongsTo,
-            from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
-            to_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
-            from_col: Identity::Unary("user_id".into()),
-            to_col: Identity::Unary("id".into()),
-            is_owner: true,
-            skip_fk: false,
-            on_condition: None,
-            condition_type: ConditionType::All,
-        };
-
-        let reversed = rel_def.clone().rev();
-        // Can't easily compare TableRef, so just verify the method doesn't panic
-        assert_eq!(reversed.from_col, rel_def.to_col);
-        assert_eq!(reversed.to_col, rel_def.from_col);
-        assert_eq!(reversed.is_owner, !rel_def.is_owner);
-    }
 
     #[test]
     fn test_join_tbl_on_condition_single_key() {
@@ -455,6 +299,7 @@ mod tests {
 
     #[test]
     fn test_relation_def_into_condition() {
+        use crate::relation::def::{RelationDef, RelationType};
         use sea_query::{TableName, IntoIden};
         
         let rel_def = RelationDef {
@@ -519,29 +364,6 @@ mod tests {
     }
 
     #[test]
-    fn test_relation_def_rev_composite() {
-        // Edge case: Reversing composite key relationship
-        use sea_query::{TableName, IntoIden};
-        
-        let rel_def = RelationDef {
-            rel_type: RelationType::BelongsTo,
-            from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
-            to_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
-            from_col: Identity::Binary("user_id".into(), "tenant_id".into()),
-            to_col: Identity::Binary("id".into(), "tenant_id".into()),
-            is_owner: true,
-            skip_fk: false,
-            on_condition: None,
-            condition_type: ConditionType::All,
-        };
-
-        let reversed = rel_def.clone().rev();
-        assert_eq!(reversed.from_col, rel_def.to_col);
-        assert_eq!(reversed.to_col, rel_def.from_col);
-        assert_eq!(reversed.is_owner, !rel_def.is_owner);
-    }
-
-    #[test]
     fn test_extract_table_name() {
         // Test that extract_table_name returns actual table names, not debug output
         use sea_query::{TableName, IntoIden};
@@ -565,6 +387,7 @@ mod tests {
         // Edge case: Test build_where_condition with single key
         // Note: This test verifies the function compiles and creates a condition
         // Full integration testing would require a complete entity/model setup
+        use crate::relation::def::{RelationDef, RelationType};
         use sea_query::{TableName, IntoIden};
         
         // Test that the function signature is correct and can be called
@@ -595,6 +418,7 @@ mod tests {
     fn test_build_where_condition_composite_key_structure() {
         // Edge case: Test RelationDef structure for composite key relationships
         // Note: Full integration testing of build_where_condition requires complete entity/model setup
+        use crate::relation::def::{RelationDef, RelationType};
         use sea_query::{TableName, IntoIden};
         
         let rel_def = RelationDef {
@@ -618,6 +442,7 @@ mod tests {
     fn test_build_where_condition_mismatched_arity_structure() {
         // Edge case: Test RelationDef structure with mismatched arity
         // Note: The actual panic is tested in integration tests with real models
+        use crate::relation::def::{RelationDef, RelationType};
         use sea_query::{TableName, IntoIden};
         
         let rel_def = RelationDef {
