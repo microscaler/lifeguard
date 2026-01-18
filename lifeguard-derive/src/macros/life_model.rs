@@ -83,6 +83,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut iden_impls = Vec::new();
     let mut model_get_match_arms = Vec::new();
     let mut model_set_match_arms = Vec::new();
+    let mut get_by_column_name_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut primary_key_value_expr: Option<proc_macro2::TokenStream> = None;
     // Track primary key metadata for PrimaryKeyTrait
     let mut primary_key_type: Option<&Type> = None; // Keep for backward compatibility (first key only)
@@ -236,6 +237,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
         model_get_match_arms.push(quote! {
             Column::#column_variant => #field_value_to_value,
+        });
+        
+        // Generate get_by_column_name match arm
+        // Note: column_name_lit is already defined above (line 180)
+        get_by_column_name_match_arms.push(quote! {
+            #column_name_lit => Some(self.get(Column::#column_variant)),
         });
 
         // Generate ModelTrait::set() match arm
@@ -1253,6 +1260,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             
             fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
                 #pk_values_impl
+            }
+            
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    #(#get_by_column_name_match_arms)*
+                    _ => None,
+                }
             }
         }
 

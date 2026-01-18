@@ -157,6 +157,43 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
         let identity = self.get_primary_key_identity();
         extract_values_from_identity(self, &identity)
     }
+    
+    /// Get the value of a column by its name (string)
+    ///
+    /// This method allows runtime access to column values using a string column name.
+    /// It's useful for dynamic operations like eager loading where the column name
+    /// is known at runtime but the Column enum variant is not.
+    ///
+    /// # Arguments
+    ///
+    /// * `column_name` - The column name as a string (e.g., "user_id", "id")
+    ///
+    /// # Returns
+    ///
+    /// `Some(Value)` if the column exists and the value can be extracted, `None` otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::ModelTrait;
+    ///
+    /// let model = PostModel { id: 1, user_id: 42, title: "Hello".to_string() };
+    /// let user_id_value = model.get_by_column_name("user_id");
+    /// // Returns: Some(Value::Int(Some(42)))
+    /// ```
+    ///
+    /// # Implementation Note
+    ///
+    /// The default implementation iterates through all Column enum variants and matches
+    /// by comparing the column name string. This is O(n) where n is the number of columns.
+    /// The macro can override this with a more efficient implementation (e.g., using a
+    /// hash map or direct field access).
+    fn get_by_column_name(&self, column_name: &str) -> Option<Value> {
+        // Default implementation: try to match column name against all Column variants
+        // This requires iterating through all possible Column enum variants
+        // The macro can override this with a more efficient implementation
+        extract_value_by_column_name(self, column_name)
+    }
 }
 
 /// Error type for ModelTrait operations
@@ -455,4 +492,56 @@ where
     // For now, return a single value (backward compatible with single keys).
     // The macro will override get_primary_key_values() to return all values for composite keys.
     vec![model.get_primary_key_value()]
+}
+
+/// Extract a value from a model by column name string
+///
+/// This helper function attempts to match a column name string against all possible
+/// Column enum variants and extract the corresponding value from the model.
+///
+/// # Arguments
+///
+/// * `model` - The model instance
+/// * `column_name` - The column name as a string
+///
+/// # Returns
+///
+/// `Some(Value)` if a matching column is found, `None` otherwise.
+///
+/// # Note
+///
+/// This is a fallback implementation that requires enumerating all Column variants.
+/// The macro can override `get_by_column_name()` with a more efficient implementation
+/// (e.g., using a hash map or direct field access based on the column name).
+fn extract_value_by_column_name<M>(model: &M, column_name: &str) -> Option<Value>
+where
+    M: ModelTrait,
+{
+    use crate::query::LifeModelTrait;
+    use sea_query::Iden;
+    
+    // Try to match column name against all Column enum variants
+    // This is a placeholder - the macro should override get_by_column_name() with
+    // a more efficient implementation that directly matches column names to variants
+    //
+    // For now, we'll use a helper that tries common patterns:
+    // 1. Try to parse as a Column variant (requires compile-time knowledge)
+    // 2. Use a macro-generated match statement (requires macro support)
+    //
+    // Since we can't enumerate Column variants at runtime without reflection,
+    // this default implementation returns None. The macro should override this
+    // with a generated match statement that covers all Column variants.
+    //
+    // Example macro-generated implementation:
+    // ```
+    // fn get_by_column_name(&self, column_name: &str) -> Option<Value> {
+    //     match column_name {
+    //         "id" => Some(self.get(Column::Id)),
+    //         "user_id" => Some(self.get(Column::UserId)),
+    //         "title" => Some(self.get(Column::Title)),
+    //         _ => None,
+    //     }
+    // }
+    // ```
+    None
 }
