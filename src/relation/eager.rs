@@ -35,8 +35,116 @@ use crate::model::ModelTrait;
 use crate::query::{SelectQuery, LifeModelTrait};
 use crate::relation::traits::Related;
 use crate::relation::def::extract_table_name;
-use sea_query::{Expr, Condition};
+use sea_query::{Expr, Condition, Value};
 use std::collections::HashMap;
+
+/// Convert a `sea_query::Value` to a SQL string representation
+///
+/// This function converts a `Value` enum to a properly formatted SQL string
+/// that can be embedded in SQL queries. It handles all value types including
+/// nulls, numbers, strings, booleans, and other types.
+///
+/// # Arguments
+///
+/// * `value` - The `Value` to convert to SQL string
+///
+/// # Returns
+///
+/// A string representation suitable for embedding in SQL queries.
+/// Strings are properly quoted and escaped, nulls are represented as NULL,
+/// and numbers are formatted without quotes.
+///
+/// # Example
+///
+/// ```
+/// use sea_query::Value;
+/// use lifeguard::relation::eager::value_to_sql_string;
+///
+/// assert_eq!(value_to_sql_string(&Value::Int(Some(42))), "42");
+/// assert_eq!(value_to_sql_string(&Value::String(Some("hello".to_string()))), "'hello'");
+/// assert_eq!(value_to_sql_string(&Value::Bool(Some(true))), "true");
+/// assert_eq!(value_to_sql_string(&Value::Int(None)), "NULL");
+/// ```
+fn value_to_sql_string(value: &Value) -> String {
+    match value {
+        // Null values
+        Value::Bool(None)
+        | Value::TinyInt(None)
+        | Value::SmallInt(None)
+        | Value::Int(None)
+        | Value::BigInt(None)
+        | Value::TinyUnsigned(None)
+        | Value::SmallUnsigned(None)
+        | Value::Unsigned(None)
+        | Value::BigUnsigned(None)
+        | Value::Float(None)
+        | Value::Double(None)
+        | Value::String(None)
+        | Value::Bytes(None)
+        | Value::Json(None) => "NULL".to_string(),
+        
+        // Boolean values
+        Value::Bool(Some(b)) => {
+            if *b {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
+        
+        // Integer values (no quotes needed)
+        Value::TinyInt(Some(i)) => i.to_string(),
+        Value::SmallInt(Some(i)) => i.to_string(),
+        Value::Int(Some(i)) => i.to_string(),
+        Value::BigInt(Some(i)) => i.to_string(),
+        Value::TinyUnsigned(Some(u)) => u.to_string(),
+        Value::SmallUnsigned(Some(u)) => u.to_string(),
+        Value::Unsigned(Some(u)) => u.to_string(),
+        Value::BigUnsigned(Some(u)) => u.to_string(),
+        
+        // Floating point values (no quotes needed)
+        Value::Float(Some(f)) => f.to_string(),
+        Value::Double(Some(d)) => d.to_string(),
+        
+        // String values (need quotes and escaping)
+        Value::String(Some(s)) => {
+            // Escape single quotes by doubling them (SQL standard)
+            let escaped = s.replace('\'', "''");
+            format!("'{}'", escaped)
+        }
+        
+        // Binary values (convert to hex or base64 - using hex for PostgreSQL)
+        Value::Bytes(Some(b)) => {
+            // PostgreSQL hex format: '\x...'
+            let hex: String = b.iter().map(|byte| format!("{:02x}", byte)).collect();
+            format!("'\\x{}'", hex)
+        }
+        
+        // JSON values (convert to string and quote)
+        Value::Json(Some(j)) => {
+            // Serialize JSON to string and escape
+            // Note: This assumes serde_json::Value, but we can't import it here
+            // For now, use Debug representation and escape it
+            let json_str = format!("{:?}", j);
+            let escaped = json_str.replace('\'', "''");
+            format!("'{}'", escaped)
+        }
+        
+        // Char values (single character, should be quoted)
+        Value::Char(Some(c)) => {
+            // Escape single quotes by doubling them (SQL standard)
+            if *c == '\'' {
+                "''''".to_string() // Two single quotes escaped
+            } else {
+                format!("'{}'", c).to_string()
+            }
+        }
+        Value::Char(None) => "NULL".to_string(),
+        
+        // Date/Time types (if supported in future)
+        // For now, these would need to be handled when added to sea_query::Value
+    }
+}
 
 /// Load related entities for a collection of main entities
 ///
@@ -218,7 +326,8 @@ where
                 // Create a full SQL expression string: "table.column = value"
                 // Note: This embeds the value in SQL, which is not ideal but works for now
                 // TODO: Use proper parameterized queries when sea_query API supports it
-                let col_expr = format!("{}.{} = {:?}", table_name, col_name, pk_val);
+                let sql_value = value_to_sql_string(pk_val);
+                let col_expr = format!("{}.{} = {}", table_name, col_name, sql_value);
                 let expr = Expr::cust(col_expr);
                 // Expr implements Into<Condition>, so we can add it directly
                 and_condition = and_condition.add(expr);
@@ -292,6 +401,175 @@ mod tests {
     use crate::relation::identity::Identity;
     use crate::{LifeEntityName, LifeModelTrait};
     use sea_query::{TableName, IntoIden, ConditionType, IdenStatic, TableRef};
+
+    #[test]
+    fn test_value_to_sql_string_integers() {
+        // Test integer value conversion
+        assert_eq!(value_to_sql_string(&Value::Int(Some(42))), "42");
+        assert_eq!(value_to_sql_string(&Value::Int(Some(-10))), "-10");
+        assert_eq!(value_to_sql_string(&Value::BigInt(Some(1234567890))), "1234567890");
+        assert_eq!(value_to_sql_string(&Value::SmallInt(Some(5))), "5");
+        assert_eq!(value_to_sql_string(&Value::TinyInt(Some(1))), "1");
+    }
+
+    #[test]
+    fn test_value_to_sql_string_unsigned_integers() {
+        // Test unsigned integer value conversion
+        assert_eq!(value_to_sql_string(&Value::Unsigned(Some(100))), "100");
+        assert_eq!(value_to_sql_string(&Value::BigUnsigned(Some(999999))), "999999");
+        assert_eq!(value_to_sql_string(&Value::TinyUnsigned(Some(255))), "255");
+        assert_eq!(value_to_sql_string(&Value::SmallUnsigned(Some(65535))), "65535");
+    }
+
+    #[test]
+    fn test_value_to_sql_string_floats() {
+        // Test floating point value conversion
+        assert_eq!(value_to_sql_string(&Value::Float(Some(3.14))), "3.14");
+        assert_eq!(value_to_sql_string(&Value::Double(Some(2.71828))), "2.71828");
+        assert_eq!(value_to_sql_string(&Value::Float(Some(-0.5))), "-0.5");
+    }
+
+    #[test]
+    fn test_value_to_sql_string_strings() {
+        // Test string value conversion (should be quoted and escaped)
+        assert_eq!(value_to_sql_string(&Value::String(Some("hello".to_string()))), "'hello'");
+        assert_eq!(value_to_sql_string(&Value::String(Some("world".to_string()))), "'world'");
+        // Test string with single quotes (should be escaped)
+        assert_eq!(value_to_sql_string(&Value::String(Some("it's".to_string()))), "'it''s'");
+        assert_eq!(value_to_sql_string(&Value::String(Some("don't".to_string()))), "'don''t'");
+    }
+
+    #[test]
+    fn test_value_to_sql_string_booleans() {
+        // Test boolean value conversion
+        assert_eq!(value_to_sql_string(&Value::Bool(Some(true))), "true");
+        assert_eq!(value_to_sql_string(&Value::Bool(Some(false))), "false");
+    }
+
+    #[test]
+    fn test_value_to_sql_string_nulls() {
+        // Test null value conversion
+        assert_eq!(value_to_sql_string(&Value::Int(None)), "NULL");
+        assert_eq!(value_to_sql_string(&Value::String(None)), "NULL");
+        assert_eq!(value_to_sql_string(&Value::Bool(None)), "NULL");
+        assert_eq!(value_to_sql_string(&Value::BigInt(None)), "NULL");
+        assert_eq!(value_to_sql_string(&Value::Float(None)), "NULL");
+    }
+
+    #[test]
+    fn test_value_to_sql_string_bytes() {
+        // Test binary value conversion (should be hex format)
+        let bytes = vec![0x48, 0x65, 0x6c, 0x6c, 0x6f]; // "Hello" in ASCII
+        let result = value_to_sql_string(&Value::Bytes(Some(bytes)));
+        assert!(result.starts_with("'\\x"), "Bytes should start with '\\x");
+        assert!(result.ends_with("'"), "Bytes should end with '");
+        // Verify hex content (48656c6c6f = "Hello")
+        assert!(result.contains("48656c6c6f") || result.contains("48656C6C6F"));
+    }
+
+    #[test]
+    fn test_composite_key_condition_building() {
+        // Test that composite key conditions use proper SQL value formatting
+        // This test verifies that the fix at line 221 works correctly
+        // by ensuring values are formatted as SQL strings, not Debug output
+        
+        use sea_query::{Query, PostgresQueryBuilder, Expr};
+        
+        // Create a composite key condition similar to what load_related does
+        let table_name = "posts";
+        let col_name = "user_id";
+        let pk_val = Value::Int(Some(42));
+        
+        // Use the helper function (same as in the fixed code)
+        let sql_value = value_to_sql_string(&pk_val);
+        let col_expr = format!("{}.{} = {}", table_name, col_name, sql_value);
+        let expr = Expr::cust(col_expr);
+        
+        // Build a query with this condition to verify SQL output
+        let mut query = Query::select();
+        query.from("posts");
+        query.cond_where(expr);
+        let (sql, _) = query.build(PostgresQueryBuilder);
+        
+        // Verify SQL contains proper value format (not Debug output)
+        assert!(sql.contains("42"), "SQL should contain '42' as the value");
+        assert!(!sql.contains("Int(Some(42))"), "SQL should NOT contain Debug output 'Int(Some(42))'");
+        assert!(!sql.contains("Some(42)"), "SQL should NOT contain Debug output 'Some(42)'");
+    }
+
+    #[test]
+    fn test_composite_key_condition_building_multiple_values() {
+        // Test composite key with multiple values (simulating the OR condition building)
+        use sea_query::{Query, PostgresQueryBuilder, Expr, Condition};
+        
+        let table_name = "posts";
+        let mut or_condition = Condition::any();
+        
+        // Simulate two composite key combinations
+        let pk_combinations = vec![
+            vec![Value::Int(Some(1)), Value::Int(Some(10))],
+            vec![Value::Int(Some(2)), Value::Int(Some(20))],
+        ];
+        
+        for pk_vals in pk_combinations.iter() {
+            let mut and_condition = Condition::all();
+            
+            // Simulate the loop in load_related for composite keys
+            let col_names = vec!["user_id", "tenant_id"];
+            for (col_name, pk_val) in col_names.iter().zip(pk_vals.iter()) {
+                let sql_value = value_to_sql_string(pk_val);
+                let col_expr = format!("{}.{} = {}", table_name, col_name, sql_value);
+                let expr = Expr::cust(col_expr);
+                and_condition = and_condition.add(expr);
+            }
+            
+            or_condition = or_condition.add(and_condition);
+        }
+        
+        // Build query to verify SQL output
+        let mut query = Query::select();
+        query.from("posts");
+        query.cond_where(or_condition);
+        let (sql, _) = query.build(PostgresQueryBuilder);
+        
+        // Verify SQL contains proper value formats
+        assert!(sql.contains("1"), "SQL should contain '1'");
+        assert!(sql.contains("10"), "SQL should contain '10'");
+        assert!(sql.contains("2"), "SQL should contain '2'");
+        assert!(sql.contains("20"), "SQL should contain '20'");
+        
+        // Verify SQL does NOT contain Debug output
+        assert!(!sql.contains("Int(Some"), "SQL should NOT contain Debug output 'Int(Some'");
+        assert!(!sql.contains("Some("), "SQL should NOT contain Debug output 'Some('");
+    }
+
+    #[test]
+    fn test_composite_key_condition_building_with_strings() {
+        // Test composite key with string values (should be properly quoted)
+        use sea_query::{Query, PostgresQueryBuilder, Expr, Condition};
+        
+        let table_name = "posts";
+        let mut and_condition = Condition::all();
+        
+        // Simulate composite key with string value
+        let col_name = "user_id";
+        let pk_val = Value::String(Some("user123".to_string()));
+        
+        let sql_value = value_to_sql_string(&pk_val);
+        let col_expr = format!("{}.{} = {}", table_name, col_name, sql_value);
+        let expr = Expr::cust(col_expr);
+        and_condition = and_condition.add(expr);
+        
+        // Build query to verify SQL output
+        let mut query = Query::select();
+        query.from("posts");
+        query.cond_where(and_condition);
+        let (sql, _) = query.build(PostgresQueryBuilder);
+        
+        // Verify SQL contains properly quoted string
+        assert!(sql.contains("'user123'"), "SQL should contain quoted string 'user123'");
+        assert!(!sql.contains("String(Some"), "SQL should NOT contain Debug output 'String(Some'");
+    }
 
     #[test]
     fn test_load_related_empty_entities() {
