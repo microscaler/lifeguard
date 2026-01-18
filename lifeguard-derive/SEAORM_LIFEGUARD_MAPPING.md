@@ -292,7 +292,7 @@ This design simplifies the API while maintaining the same functionality.
 ### Medium Priority (Relations & Advanced Features)
 
 #### Relations
-**Status:** 🟡 Partial  
+**Status:** ✅ Complete  
 **Current State:**
 - `RelationTrait` - ✅ Implemented with functional query building (belongs_to, has_one, has_many, has_many_through methods accept foreign keys and join conditions)
 - `join_condition()` helper function - ✅ Implemented (creates join conditions from table/column names)
@@ -389,15 +389,15 @@ This design simplifies the API while maintaining the same functionality.
 
 | Category | SeaORM | Lifeguard | Coverage |
 |----------|--------|-----------|----------|
-| **Core Traits** | 15 | 9 | 60% (Enhanced: PrimaryKeyArity with granular variants, PartialModelTrait and Related implemented) |
-| **Derive Macros** | 21 | 8 | 38% |
+| **Core Traits** | 15 | 10 | 67% (Enhanced: PrimaryKeyArity with granular variants, PartialModelTrait, Related, Linked, FindLinked implemented) |
+| **Derive Macros** | 21 | 9 | 43% (Added: DeriveRelatedEntity) |
 | **Core Structures** | 10 | 6 | 60% |
 | **Query Builder Methods** | 20 | 19 | 95% |
 | **Column Operations** | 15 | 15 | 100% |
 | **ActiveModel/Record Operations** | 12 | 7 | 58% |
 | **Value Types** | 6 | 2 | 33% |
 | **Attributes** | 18 | 6 | 33% |
-| **Overall** | 117 | 74 | **63%** |
+| **Overall** | 117 | 78 | **67%** |
 
 ---
 
