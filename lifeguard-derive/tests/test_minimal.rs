@@ -1778,7 +1778,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_numeric_get() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test getting all numeric types from non-Option fields
         let model = NumericFieldsModel {
@@ -1836,7 +1836,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_set() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test setting all numeric types to non-Option fields
         let mut model = NumericFieldsModel {
@@ -1882,7 +1882,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_set_null_error() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test that setting None value to non-Option numeric fields returns error
         let mut model = NumericFieldsModel {
@@ -1906,7 +1906,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_set_type_mismatch() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test type mismatches for numeric fields
         let mut model = NumericFieldsModel {
@@ -1939,7 +1939,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_option_numeric_get_none() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test getting None values from Option<T> numeric fields
         let model = OptionNumericFieldsModel {
@@ -1986,7 +1986,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_get_some() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test getting Some values from Option<T> numeric fields
         let model = OptionNumericFieldsModel {
@@ -2038,7 +2038,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_set_none() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test setting None values to Option<T> numeric fields
         let mut model = OptionNumericFieldsModel {
@@ -2073,7 +2073,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_set_some() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test setting Some values to Option<T> numeric fields
         let mut model = OptionNumericFieldsModel {
@@ -2113,7 +2113,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_set_type_mismatch() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test type mismatches for Option<T> numeric fields
         let mut model = OptionNumericFieldsModel {
@@ -2144,7 +2144,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_unsigned_range_validation() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test that negative values are rejected for unsigned Option<T> types
         let mut model = OptionNumericFieldsModel {
@@ -2203,7 +2203,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_unsigned_range_validation() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test that negative values are rejected for unsigned types
         let mut model = NumericFieldsModel {
@@ -3400,7 +3400,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_json_with_nan_and_infinity() {
         // EDGE CASE: JSON serialization of NaN and infinity values
-        use float_tests::*;
+        use super::float_tests::*;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
         
@@ -3458,7 +3458,7 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_nan_and_infinity() {
         // EDGE CASE: Roundtrip serialization/deserialization of NaN and infinity
         // With custom deserializers, we can now roundtrip NaN/infinity values
-        use float_tests::*;
+        use super::float_tests::*;
         use lifeguard::LifeModelTrait;
         
         let mut original = FloatFieldsRecord::new();
@@ -3508,7 +3508,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_json_with_option_float_nan_and_infinity() {
         // EDGE CASE: Option<f32> and Option<f64> fields with NaN/infinity
-        use float_tests::*;
+        use super::float_tests::*;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
         
@@ -3558,7 +3558,7 @@ mod active_model_trait_tests {
         // EDGE CASE: NaN comparison behavior
         // NaN != NaN in Rust (IEEE 754 standard), so Value comparisons with NaN will also fail
         // This is expected behavior and documents an important edge case
-        use float_tests::*;
+        use super::float_tests::*;
         use lifeguard::LifeModelTrait;
         
         let mut record1 = FloatFieldsRecord::new();
@@ -3595,7 +3595,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_mixed_normal_and_special_float_values() {
         // EDGE CASE: Record with mix of normal numbers and NaN/infinity
-        use float_tests::*;
+        use super::float_tests::*;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
         
@@ -3627,7 +3627,7 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_column_name_attribute() {
         // Test that JSON roundtrip works when #[column_name] attribute is used
         // This verifies that to_json() and from_json() use the same key names
-        use column_name_tests::*;
+        use super::column_name_tests::*;
         
         let mut original = UserWithRenamedColumnsRecord::new();
         original.set_id(100);
