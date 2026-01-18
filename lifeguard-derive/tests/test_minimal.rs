@@ -1081,6 +1081,8 @@ mod tests {
         #[table_name = "test_tuple3_composite_pk"]
         pub struct Tuple3CompositePrimaryKeyEntity {
             #[primary_key]
+            pub id1: i32,
+            #[primary_key]
             pub id2: i32,
             #[primary_key]
             pub id3: i32,
@@ -1103,6 +1105,8 @@ mod tests {
         #[derive(LifeModel)]
         #[table_name = "test_tuple4_composite_pk"]
         pub struct Tuple4CompositePrimaryKeyEntity {
+            #[primary_key]
+            pub id1: i32,
             #[primary_key]
             pub id2: i32,
             #[primary_key]
@@ -1130,6 +1134,8 @@ mod tests {
         pub struct Tuple5CompositePrimaryKeyEntity {
             #[primary_key]
             pub id1: i32,
+            #[primary_key]
+            pub id2: i32,
             #[primary_key]
             pub id3: i32,
             #[primary_key]
