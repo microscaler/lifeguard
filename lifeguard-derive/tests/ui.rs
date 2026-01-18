@@ -110,3 +110,9 @@ fn compile_error_try_into_model_missing_model() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_try_into_model_missing_model.rs");
 }
+
+#[test]
+fn compile_error_try_into_model_custom_error_convert() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_try_into_model_custom_error_convert.rs");
+}

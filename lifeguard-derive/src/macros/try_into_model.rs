@@ -79,6 +79,13 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
         }
     };
     
+    // Check if error type is LifeError (default) or a custom error type
+    // We need to compare the string representation to determine if we should wrap in LifeError::Other
+    let error_type_str = error_type.to_string();
+    let is_life_error = error_type_str == "lifeguard::LifeError" 
+        || error_type_str == "LifeError"
+        || error_type_str.ends_with("::LifeError");
+    
     // Generate field mapping code
     let mut field_mappings: Vec<TokenStream2> = Vec::new();
     
@@ -125,13 +132,23 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                 }
             };
             
-            quote! {
-                #target_field_name: #convert_fn_ident(self.#field_name)
-                    .map_err(|e| lifeguard::LifeError::Other(format!(
-                        "Failed to convert field '{}': {}",
-                        stringify!(#field_name),
-                        e
-                    )))?,
+            // If error type is LifeError, wrap in LifeError::Other
+            // Otherwise, use ? directly which requires CustomError: From<ConversionError>
+            if is_life_error {
+                quote! {
+                    #target_field_name: #convert_fn_ident(self.#field_name)
+                        .map_err(|e| lifeguard::LifeError::Other(format!(
+                            "Failed to convert field '{}': {}",
+                            stringify!(#field_name),
+                            e
+                        )))?,
+                }
+            } else {
+                // For custom error types, use ? directly
+                // This requires CustomError: From<ConversionError>
+                quote! {
+                    #target_field_name: #convert_fn_ident(self.#field_name)?,
+                }
             }
         } else {
             // Direct field mapping

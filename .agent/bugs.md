@@ -93,6 +93,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-18-01: FindRelated Trait Requires Impossible LifeModelTrait Bound on Models](bugs/BUG-2026-01-18-01.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** API unusable
 
+- [BUG-2026-01-18-02: DeriveTryIntoModel Macro Incorrect Error Handling for Custom Error Types with Convert Attribute](bugs/BUG-2026-01-18-02.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Compilation error / API inconsistency
+
 ---
 
 ## Open Bugs

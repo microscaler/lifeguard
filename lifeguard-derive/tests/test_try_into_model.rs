@@ -194,3 +194,122 @@ fn test_derive_try_into_model_error_type() {
     let result: Result<UserModel, lifeguard::LifeError> = request.try_into_model();
     assert!(result.is_ok());
 }
+
+// Custom error type for testing
+#[derive(Debug, PartialEq)]
+pub struct CustomError {
+    message: String,
+}
+
+impl std::fmt::Display for CustomError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for CustomError {}
+
+// Conversion function that returns CustomError
+fn convert_to_uppercase(s: String) -> Result<String, CustomError> {
+    Ok(s.to_uppercase())
+}
+
+// DTO with custom error type and convert attribute
+#[derive(DeriveTryIntoModel)]
+#[lifeguard(model = "UserModel", error = "CustomError")]
+struct CreateUserRequestCustomError {
+    #[lifeguard(convert = "convert_to_uppercase")]
+    name: String,
+    email: String,
+}
+
+#[test]
+fn test_derive_try_into_model_custom_error_type_with_convert() {
+    // Test that custom error types work correctly with convert attribute
+    // when the conversion function returns the custom error type
+    let request = CreateUserRequestCustomError {
+        name: "john".to_string(),
+        email: "john@example.com".to_string(),
+    };
+
+    let result: Result<UserModel, CustomError> = request.try_into_model();
+    assert!(result.is_ok());
+    let model = result.unwrap();
+    assert_eq!(model.name, "JOHN"); // Converted to uppercase
+    assert_eq!(model.email, "john@example.com");
+    assert_eq!(model.id, 0); // Default value
+}
+
+// Conversion function that returns a different error type, but we implement From
+#[derive(Debug, PartialEq)]
+pub struct ParseError {
+    message: String,
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+// Implement From<ParseError> for CustomError
+impl From<ParseError> for CustomError {
+    fn from(err: ParseError) -> Self {
+        CustomError {
+            message: format!("Parse error: {}", err.message),
+        }
+    }
+}
+
+// Conversion function that takes a String and returns a String, but can fail with ParseError
+fn parse_and_format(s: String) -> Result<String, ParseError> {
+    // Parse as number to validate, then return uppercase
+    s.parse::<i32>()
+        .map_err(|_| ParseError {
+            message: format!("Failed to parse '{}' as integer", s),
+        })?;
+    Ok(s.to_uppercase())
+}
+
+#[derive(DeriveTryIntoModel)]
+#[lifeguard(model = "UserModel", error = "CustomError")]
+struct CreateUserRequestWithParse {
+    name: String,
+    #[lifeguard(convert = "parse_and_format")]
+    email: String, // This will be validated and converted
+}
+
+#[test]
+fn test_derive_try_into_model_custom_error_type_with_from_trait() {
+    // Test that custom error types work when conversion function returns
+    // a different error type but From trait is implemented
+    let request = CreateUserRequestWithParse {
+        name: "Test".to_string(),
+        email: "42".to_string(), // Valid number string
+    };
+
+    let result: Result<UserModel, CustomError> = request.try_into_model();
+    assert!(result.is_ok());
+    let model = result.unwrap();
+    assert_eq!(model.id, 0); // Default value
+    assert_eq!(model.name, "Test");
+    assert_eq!(model.email, "42"); // Converted (uppercase of "42" is still "42")
+}
+
+#[test]
+fn test_derive_try_into_model_custom_error_type_with_from_trait_error() {
+    // Test that conversion errors are properly propagated through From trait
+    let request = CreateUserRequestWithParse {
+        name: "Test".to_string(),
+        email: "not_a_number".to_string(), // Invalid - will fail to parse
+    };
+
+    let result: Result<UserModel, CustomError> = request.try_into_model();
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    // Error should be wrapped through From<ParseError> for CustomError
+    assert!(err.message.contains("Parse error"));
+    assert!(err.message.contains("Failed to parse"));
+}
