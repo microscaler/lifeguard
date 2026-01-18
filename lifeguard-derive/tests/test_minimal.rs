@@ -1517,7 +1517,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_option_get_none() {
-        use option_tests::*;
+        use super::option_tests::*;
         
         // Test getting None value from Option<T> field
         let model = UserWithOptionsModel {
@@ -1551,7 +1551,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_get_some() {
-        use option_tests::*;
+        use super::option_tests::*;
         
         // Test getting Some value from Option<T> field
         let model = UserWithOptionsModel {
@@ -1585,7 +1585,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_set_none() {
-        use option_tests::*;
+        use super::option_tests::*;
         
         // Test setting None value to Option<T> field
         let mut model = UserWithOptionsModel {
@@ -1613,7 +1613,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_set_some() {
-        use option_tests::*;
+        use super::option_tests::*;
         
         // Test setting Some value to Option<T> field
         let mut model = UserWithOptionsModel {
@@ -1643,7 +1643,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_json_get() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test getting JSON value from serde_json::Value field
         let metadata = serde_json::json!({"key": "value", "number": 42});
@@ -1673,7 +1673,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_get_with_some() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test getting Some JSON value from Option<serde_json::Value> field
         let preferences = serde_json::json!({"theme": "dark", "notifications": true});
@@ -1695,7 +1695,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test setting JSON value to serde_json::Value field
         let mut model = UserWithJsonModel {
@@ -1718,7 +1718,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set_option_none() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test setting None to Option<serde_json::Value> field
         let mut model = UserWithJsonModel {
@@ -1735,7 +1735,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set_option_some() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test setting Some JSON to Option<serde_json::Value> field
         let mut model = UserWithJsonModel {
@@ -1756,7 +1756,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set_invalid_type() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test that setting non-JSON value to JSON field returns error
         let mut model = UserWithJsonModel {
@@ -2784,7 +2784,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_not_double_wrapped() {
         // CRITICAL TEST: Verify that Option<T> fields in Model don't become Option<Option<T>> in Record
-        use option_tests::*;
+        use super::option_tests::*;
         
         // Create a model with Option<String> field
         let model = UserWithOptionsModel {
@@ -2831,7 +2831,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_set_works() {
         // Test that set() works correctly for Option<T> fields
-        use option_tests::*;
+        use super::option_tests::*;
         
         let mut record = UserWithOptionsRecord::new();
         
@@ -2868,7 +2868,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_from_model_to_model_roundtrip() {
         // Test roundtrip: Model with Option<T> -> Record -> Model
-        use option_tests::*;
+        use super::option_tests::*;
         
         let model = UserWithOptionsModel {
             id: 1,
@@ -2891,7 +2891,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_none_values() {
         // Test that None values in Option<T> fields work correctly
-        use option_tests::*;
+        use super::option_tests::*;
         
         let model = UserWithOptionsModel {
             id: 1,
@@ -3005,7 +3005,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_get_with_option_fields_unset() {
         // Test get() with Option<T> fields when unset
-        use option_tests::*;
+        use super::option_tests::*;
         
         let record = UserWithOptionsRecord::new();
         
@@ -3023,7 +3023,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_get_with_option_fields_set_to_some() {
         // Test get() with Option<T> fields when set to Some(value)
-        use option_tests::*;
+        use super::option_tests::*;
         
         let mut record = UserWithOptionsRecord::new();
         record.set_name(Some("Alice".to_string()));
@@ -3059,7 +3059,7 @@ mod active_model_trait_tests {
         // When a field is set to None (via set() with Value::String(None)),
         // it becomes unset (None). With Option<T> fields, we can't distinguish
         // "set to None" from "unset" - both are represented as None.
-        use option_tests::*;
+        use super::option_tests::*;
         
         let mut record = UserWithOptionsRecord::new();
         
@@ -3086,7 +3086,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_setter_accepts_option() {
         // Test that setter for Option<T> fields accepts Option<T> directly
-        use option_tests::*;
+        use super::option_tests::*;
         
         let mut record = UserWithOptionsRecord::new();
         
@@ -3221,7 +3221,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_active_model_to_json_with_option_fields() {
         // Test to_json() with Option<T> fields
-        use option_tests::*;
+        use super::option_tests::*;
         use serde_json::json;
         
         let mut record = UserWithOptionsRecord::new();
@@ -3242,7 +3242,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_active_model_from_json_with_option_fields() {
         // Test from_json() with Option<T> fields
-        use option_tests::*;
+        use super::option_tests::*;
         use serde_json::json;
         
         let json = json!({
@@ -3340,7 +3340,7 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_option_fields() {
         // EDGE CASE: Roundtrip JSON with Option<T> fields (None and Some values)
         // Use UserWithOptions which has Option fields
-        use option_tests::*;
+        use super::option_tests::*;
         
         let mut record = UserWithOptionsRecord::new();
         record.set_id(1);
