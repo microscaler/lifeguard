@@ -1,0 +1,11 @@
+error: Column reference path contains invalid identifier "foo-bar" at position 1 in "foo-bar::Column::Id". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).
+  --> tests/ui/compile_error_relation_invalid_column_ref_path.rs:14:5
+   |
+14 |     Invalid,
+   |     ^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_relation_invalid_column_ref_path.rs:15:2
+   |
+15 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_relation_invalid_column_ref_path.rs`

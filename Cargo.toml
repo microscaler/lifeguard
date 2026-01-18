@@ -8,6 +8,13 @@ repository = "https://github.com/microscaler/lifeguard"
 documentation = "https://docs.rs/lifeguard"
 readme = "README.md"
 
+[workspace]
+members = [
+    "lifeguard-derive",
+    "lifeguard-codegen",
+]
+resolver = "2"
+
 [[example]]
 name = "query_builder"
 path = "examples/query_builder_example.rs"

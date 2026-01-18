@@ -21,6 +21,10 @@ allow_k8s_contexts(['kind-lifeguard-test'])
 # The registry is set up by scripts/setup_kind_cluster.sh
 default_registry('localhost:5000')
 
+# Note: Build storms are prevented by setting allow_parallel=False on test resources
+# that share dependencies. This ensures tests run serially after builds complete,
+# preventing multiple cargo processes from competing for resources.
+
 # Get the directory where this Tiltfile is located
 LIFEGUARD_DIR = '.'
 
@@ -68,7 +72,7 @@ local_resource(
     ],
     resource_deps=[],  # No dependencies - standalone crate
     labels=['build'],
-    allow_parallel=True,
+    allow_parallel=True,  # Can build in parallel with codegen
 )
 
 # Build lifeguard-codegen (code generation CLI tool)
@@ -81,7 +85,7 @@ local_resource(
     ],
     resource_deps=[],  # No dependencies - standalone crate
     labels=['build'],
-    allow_parallel=True,
+    allow_parallel=True,  # Can build in parallel with derive
 )
 
 # Build main lifeguard crate (depends on lifeguard-derive)
@@ -97,7 +101,7 @@ local_resource(
     ],
     resource_deps=['build-derive'],  # Wait for lifeguard-derive to compile first
     labels=['build'],
-    allow_parallel=True,
+    allow_parallel=False,  # Serialize after derive build to prevent storms
 )
 
 # ====================
@@ -116,26 +120,11 @@ local_resource(
     ],
     resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
     labels=['tests'],
-    allow_parallel=True,
+    allow_parallel=False,  # Serialize to prevent build storms
 )
 
-# Run integration tests (requires database)
-local_resource(
-    'test-integration',
-    cmd='TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo test --test integration --no-fail-fast || echo "⚠️  No integration tests found. Create tests/integration/ directory."',
-    deps=[
-        'src',
-        'tests',
-        'Cargo.toml',
-        'Cargo.lock',
-        'scripts/get_test_connection_string.sh',
-    ],
-    resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
-    labels=['tests'],
-    allow_parallel=True,
-)
-
-# Run nextest (faster test execution)
+# Run nextest (faster test execution for main crate)
+# Using nextest as the primary test runner
 local_resource(
     'test-nextest',
     cmd='TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo nextest run --workspace --all-features',
@@ -145,42 +134,31 @@ local_resource(
         'Cargo.lock',
         'scripts/get_test_connection_string.sh',
     ],
-    resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
+    resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
     labels=['tests'],
-    allow_parallel=True,
+    allow_parallel=False,  # Serialize to prevent build storms
 )
 
-# Run lifeguard-derive tests (compile-time macro verification tests)
-# These tests don't require a database - they verify macro code generation
-local_resource(
-    'test-derive',
-    cmd='cd lifeguard-derive && cargo test --no-fail-fast',
-    deps=[
-        'lifeguard-derive/src',
-        'lifeguard-derive/tests',
-        'lifeguard-derive/Cargo.toml',
-        'lifeguard-derive/Cargo.lock',
-    ],
-    resource_deps=['build-derive'],  # Wait for build to complete first
-    labels=['tests'],
-    allow_parallel=True,
-)
-
-# Run lifeguard-codegen tests (code generation CLI tests)
-# These tests verify the code generation tool works correctly
-# Only test if Cargo.toml exists (crate may not be created yet)
-local_resource(
-    'test-codegen',
-    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cd lifeguard-codegen && cargo test --no-fail-fast; else echo "⚠️  lifeguard-codegen crate not found, skipping tests"; fi',
-    deps=[
-        'lifeguard-codegen',
-    ],
-    resource_deps=['build-codegen'],  # Wait for build to complete first
-    labels=['tests'],
-    allow_parallel=True,
-)
+# Run integration tests (requires database)
+# NOTE: Disabled by default to reduce build storms. Use test-nextest instead.
+# Uncomment if you need separate integration test output.
+# local_resource(
+#     'test-integration',
+#     cmd='TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo test --test integration --no-fail-fast || echo "⚠️  No integration tests found. Create tests/integration/ directory."',
+#     deps=[
+#         'src',
+#         'tests',
+#         'Cargo.toml',
+#         'Cargo.lock',
+#         'scripts/get_test_connection_string.sh',
+#     ],
+#     resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
+#     labels=['tests'],
+#     allow_parallel=False,
+# )
 
 # Run lifeguard-derive tests with nextest (faster execution)
+# Using nextest as the primary test runner for derive tests
 local_resource(
     'test-derive-nextest',
     cmd='cd lifeguard-derive && cargo nextest run --all-features',
@@ -193,23 +171,57 @@ local_resource(
     ],
     resource_deps=['build-derive'],  # Wait for build to complete first
     labels=['tests'],
-    allow_parallel=True,
+    allow_parallel=False,  # Serialize to prevent build storms
+)
+
+# Run lifeguard-derive tests (compile-time macro verification tests)
+# These tests don't require a database - they verify macro code generation
+# NOTE: Disabled by default to reduce build storms. Use test-derive-nextest instead.
+# Uncomment if you need standard cargo test output.
+# local_resource(
+#     'test-derive',
+#     cmd='cd lifeguard-derive && cargo test --no-fail-fast',
+#     deps=[
+#         'lifeguard-derive/src',
+#         'lifeguard-derive/tests',
+#         'lifeguard-derive/Cargo.toml',
+#         'lifeguard-derive/Cargo.lock',
+#     ],
+#     resource_deps=['build-derive'],  # Wait for build to complete first
+#     labels=['tests'],
+#     allow_parallel=False,
+# )
+
+# Run lifeguard-codegen tests (code generation CLI tests)
+# These tests verify the code generation tool works correctly
+# Only test if Cargo.toml exists (crate may not be created yet)
+local_resource(
+    'test-codegen',
+    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cd lifeguard-codegen && cargo test --no-fail-fast; else echo "⚠️  lifeguard-codegen crate not found, skipping tests"; fi',
+    deps=[
+        'lifeguard-codegen',
+    ],
+    resource_deps=['build-codegen'],  # Wait for build to complete first
+    labels=['tests'],
+    allow_parallel=False,  # Serialize to prevent build storms
 )
 
 # Test the minimal working pattern (verifies basic LifeModel flow)
-local_resource(
-    'test-minimal-pattern',
-    cmd='cd lifeguard-derive && cargo test --test test_minimal',
-    deps=[
-        'lifeguard-derive/src',
-        'lifeguard-derive/tests/test_minimal.rs',
-        'lifeguard-derive/Cargo.toml',
-        'lifeguard-derive/Cargo.lock',
-    ],
-    resource_deps=['build-derive'],  # Wait for build to complete first
-    labels=['tests'],
-    allow_parallel=True,
-)
+# NOTE: This is redundant with test-derive-nextest. Disabled to reduce build storms.
+# Uncomment if you need to test only the minimal pattern.
+# local_resource(
+#     'test-minimal-pattern',
+#     cmd='cd lifeguard-derive && cargo test --test test_minimal',
+#     deps=[
+#         'lifeguard-derive/src',
+#         'lifeguard-derive/tests/test_minimal.rs',
+#         'lifeguard-derive/Cargo.toml',
+#         'lifeguard-derive/Cargo.lock',
+#     ],
+#     resource_deps=['build-derive'],  # Wait for build to complete first
+#     labels=['tests'],
+#     allow_parallel=False,
+# )
 
 # ====================
 # Examples

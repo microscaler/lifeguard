@@ -19,8 +19,8 @@ pub struct User {
 
 // Entity with Option fields for testing Option<T> edge cases
 // Using a module to avoid name conflicts
-mod option_tests {
-    use super::*;
+pub mod option_tests {
+    use lifeguard_derive::{LifeModel, LifeRecord};
     
     #[derive(LifeModel, LifeRecord)]
     #[table_name = "users_with_options"]
@@ -35,8 +35,8 @@ mod option_tests {
 
 // Entity with column_name attributes to test JSON roundtrip with renamed columns
 // This verifies that to_json() and from_json() use the same key names
-mod column_name_tests {
-    use super::*;
+pub mod column_name_tests {
+    use lifeguard_derive::{LifeModel, LifeRecord};
     
     #[derive(LifeModel, LifeRecord)]
     #[table_name = "users_with_renamed_columns"]
@@ -540,7 +540,6 @@ mod option_numeric_tests {
 // NOTE: JSON fields require special FromRow handling (deserialize from text/JSONB)
 // For now, we'll test JSON in get/set operations using manual model construction
 mod json_tests {
-    use super::*;
     
     // Note: We can't use LifeModel derive for JSON fields yet because FromRow needs
     // special handling to deserialize JSON from database text/JSONB columns.
@@ -706,13 +705,14 @@ mod json_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use lifeguard::{FromRow, LifeEntityName, LifeModelTrait, ModelTrait};
     use sea_query::Value;
+    use super::{Entity, Column, PrimaryKey, UserModel, UserRecord};
+    use lifeguard::{FromRow, LifeModelTrait, ModelTrait, PrimaryKeyTrait, PrimaryKeyToColumn};
 
     #[test]
     fn test_entity_exists() {
         // Verify Entity unit struct exists and implements required traits
+        use lifeguard::LifeEntityName;
         let entity = Entity;
         
         // Test LifeEntityName
@@ -834,7 +834,6 @@ mod tests {
 
     // Each entity is in its own module to avoid name conflicts with generated types
     mod option_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
 
@@ -869,10 +868,8 @@ mod tests {
     }
 
     mod i64_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
-        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
-
+        use lifeguard::PrimaryKeyTrait;
         #[derive(LifeModel)]
         #[table_name = "test_i64_pk"]
         pub struct I64PrimaryKeyEntity {
@@ -894,10 +891,9 @@ mod tests {
     }
 
     mod string_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
-
+        
         #[derive(LifeModel)]
         #[table_name = "test_string_pk"]
         pub struct StringPrimaryKeyEntity {
@@ -926,7 +922,6 @@ mod tests {
     }
 
     mod auto_inc_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
 
@@ -1169,8 +1164,6 @@ mod tests {
             #[primary_key]
             pub id1: i32,
             #[primary_key]
-            pub id2: i32,
-            #[primary_key]
             pub id3: i32,
             #[primary_key]
             pub id4: i32,
@@ -1287,7 +1280,7 @@ mod tests {
     mod option_composite_pk_entity {
         use super::*;
         use lifeguard_derive::LifeModel;
-        use lifeguard::PrimaryKeyTrait;
+        use lifeguard::{PrimaryKeyTrait, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn};
 
         #[derive(LifeModel)]
         #[table_name = "test_option_composite_pk"]
@@ -1304,6 +1297,33 @@ mod tests {
             // EDGE CASE: Composite key with Option types - Option should be unwrapped in ValueType tuple
             // ValueType should be (i32, String), not (Option<i32>, Option<String>)
             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, "test".to_string());
+        }
+
+        #[test]
+        fn test_option_composite_primary_key_arity() {
+            // Verify PrimaryKeyArityTrait is implemented and returns Tuple2 for 2-column composite keys
+            // Even though the fields are Option<T>, the arity should still be Tuple2
+            let arity = PrimaryKey::arity();
+            assert_eq!(arity, PrimaryKeyArity::Tuple2, "2-column composite primary key with Option types should return Tuple2 arity");
+        }
+
+        #[test]
+        fn test_option_composite_primary_key_to_column() {
+            // Verify to_column conversion works for Option-based composite keys
+            let pk1 = PrimaryKey::Id;
+            let pk2 = PrimaryKey::Code;
+            assert_eq!(pk1.to_column(), Column::Id);
+            assert_eq!(pk2.to_column(), Column::Code);
+        }
+
+        #[test]
+        fn test_option_composite_primary_key_auto_increment() {
+            // Verify auto_increment returns false for Option-based primary keys
+            // (no #[auto_increment] attributes are present)
+            let pk1 = PrimaryKey::Id;
+            let pk2 = PrimaryKey::Code;
+            assert_eq!(pk1.auto_increment(), false, "Primary key without #[auto_increment] should return false");
+            assert_eq!(pk2.auto_increment(), false, "Primary key without #[auto_increment] should return false");
         }
     }
 
@@ -1542,7 +1562,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_option_get_none() {
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
         
         // Test getting None value from Option<T> field
         let model = UserWithOptionsModel {
@@ -1576,7 +1596,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_get_some() {
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
         
         // Test getting Some value from Option<T> field
         let model = UserWithOptionsModel {
@@ -1610,7 +1630,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_set_none() {
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
         
         // Test setting None value to Option<T> field
         let mut model = UserWithOptionsModel {
@@ -1638,7 +1658,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_set_some() {
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
         
         // Test setting Some value to Option<T> field
         let mut model = UserWithOptionsModel {
@@ -1668,7 +1688,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_json_get() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test getting JSON value from serde_json::Value field
         let metadata = serde_json::json!({"key": "value", "number": 42});
@@ -1698,7 +1718,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_get_with_some() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test getting Some JSON value from Option<serde_json::Value> field
         let preferences = serde_json::json!({"theme": "dark", "notifications": true});
@@ -1720,7 +1740,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test setting JSON value to serde_json::Value field
         let mut model = UserWithJsonModel {
@@ -1743,7 +1763,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set_option_none() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test setting None to Option<serde_json::Value> field
         let mut model = UserWithJsonModel {
@@ -1760,7 +1780,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set_option_some() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test setting Some JSON to Option<serde_json::Value> field
         let mut model = UserWithJsonModel {
@@ -1781,7 +1801,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_json_set_invalid_type() {
-        use json_tests::*;
+        use super::json_tests::*;
         
         // Test that setting non-JSON value to JSON field returns error
         let mut model = UserWithJsonModel {
@@ -1803,7 +1823,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_numeric_get() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test getting all numeric types from non-Option fields
         let model = NumericFieldsModel {
@@ -1861,7 +1881,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_set() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test setting all numeric types to non-Option fields
         let mut model = NumericFieldsModel {
@@ -1907,7 +1927,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_set_null_error() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test that setting None value to non-Option numeric fields returns error
         let mut model = NumericFieldsModel {
@@ -1931,7 +1951,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_set_type_mismatch() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test type mismatches for numeric fields
         let mut model = NumericFieldsModel {
@@ -1964,7 +1984,7 @@ mod tests {
     
     #[test]
     fn test_model_trait_option_numeric_get_none() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test getting None values from Option<T> numeric fields
         let model = OptionNumericFieldsModel {
@@ -2011,7 +2031,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_get_some() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test getting Some values from Option<T> numeric fields
         let model = OptionNumericFieldsModel {
@@ -2063,7 +2083,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_set_none() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test setting None values to Option<T> numeric fields
         let mut model = OptionNumericFieldsModel {
@@ -2098,7 +2118,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_set_some() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test setting Some values to Option<T> numeric fields
         let mut model = OptionNumericFieldsModel {
@@ -2138,7 +2158,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_set_type_mismatch() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test type mismatches for Option<T> numeric fields
         let mut model = OptionNumericFieldsModel {
@@ -2169,7 +2189,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_option_numeric_unsigned_range_validation() {
-        use option_numeric_tests::*;
+        use super::option_numeric_tests::*;
         
         // Test that negative values are rejected for unsigned Option<T> types
         let mut model = OptionNumericFieldsModel {
@@ -2228,7 +2248,7 @@ mod tests {
 
     #[test]
     fn test_model_trait_numeric_unsigned_range_validation() {
-        use numeric_tests::*;
+        use super::numeric_tests::*;
         
         // Test that negative values are rejected for unsigned types
         let mut model = NumericFieldsModel {
@@ -2302,7 +2322,6 @@ mod active_model_trait_tests {
         // Get values using ActiveModelTrait
         let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_some(), "Name should be set");
-        
         let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
         assert!(email_value.is_some(), "Email should be set");
         
@@ -2811,7 +2830,8 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_not_double_wrapped() {
         // CRITICAL TEST: Verify that Option<T> fields in Model don't become Option<Option<T>> in Record
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         
         // Create a model with Option<String> field
         let model = UserWithOptionsModel {
@@ -2831,7 +2851,7 @@ mod active_model_trait_tests {
         // - to_model() should work correctly
         
         // Test get() with Option<String> field
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_some(), "get() should return Some(Value) for Option<String> field");
         match name_value.unwrap() {
             sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
@@ -2839,7 +2859,7 @@ mod active_model_trait_tests {
         }
         
         // Test get() with Option<i32> field
-        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        let age_value = record.get(<Entity as LifeModelTrait>::Column::Age);
         assert!(age_value.is_some(), "get() should return Some(Value) for Option<i32> field");
         match age_value.unwrap() {
             sea_query::Value::Int(Some(v)) => assert_eq!(v, 30),
@@ -2847,7 +2867,7 @@ mod active_model_trait_tests {
         }
         
         // Test get() with Option<bool> field
-        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        let active_value = record.get(<Entity as LifeModelTrait>::Column::Active);
         assert!(active_value.is_some(), "get() should return Some(Value) for Option<bool> field");
         match active_value.unwrap() {
             sea_query::Value::Bool(Some(v)) => assert_eq!(v, true),
@@ -2858,19 +2878,20 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_set_works() {
         // Test that set() works correctly for Option<T> fields
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         
         let mut record = UserWithOptionsRecord::new();
         
         // Set Option<String> field to Some
         let result = record.set(
-            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            <Entity as LifeModelTrait>::Column::Name,
             sea_query::Value::String(Some("Jane".to_string()))
         );
         assert!(result.is_ok(), "set() should work for Option<String> field with Some value");
         
         // Verify get() returns the correct value
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_some());
         match name_value.unwrap() {
             sea_query::Value::String(Some(v)) => assert_eq!(v, "Jane"),
@@ -2881,21 +2902,21 @@ mod active_model_trait_tests {
         // When set() is called with Value::String(None), it sets the field to None (unset)
         // With Option<T> fields, we can't distinguish "set to None" from "unset" - both are None
         let result = record.set(
-            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            <Entity as LifeModelTrait>::Column::Name,
             sea_query::Value::String(None)
         );
         assert!(result.is_ok(), "set() should work for Option<String> field with None value");
         
         // When set to None, the field becomes unset, so get() returns None
         // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
     }
 
     #[test]
     fn test_record_with_option_fields_from_model_to_model_roundtrip() {
         // Test roundtrip: Model with Option<T> -> Record -> Model
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
         
         let model = UserWithOptionsModel {
             id: 1,
@@ -2918,7 +2939,8 @@ mod active_model_trait_tests {
     #[test]
     fn test_record_with_option_fields_none_values() {
         // Test that None values in Option<T> fields work correctly
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         
         let model = UserWithOptionsModel {
             id: 1,
@@ -2937,13 +2959,13 @@ mod active_model_trait_tests {
         // Verify get() returns None for all unset Option<T> fields
         // This is the correct behavior - unset fields return None from get()
         // This allows CRUD operations to correctly detect unset fields
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_none(), "get() should return None for unset Option<String> field");
         
-        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        let age_value = record.get(<Entity as LifeModelTrait>::Column::Age);
         assert!(age_value.is_none(), "get() should return None for unset Option<i32> field");
         
-        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        let active_value = record.get(<Entity as LifeModelTrait>::Column::Active);
         assert!(active_value.is_none(), "get() should return None for unset Option<bool> field");
         
         // Convert back to model
@@ -3032,25 +3054,27 @@ mod active_model_trait_tests {
     #[test]
     fn test_get_with_option_fields_unset() {
         // Test get() with Option<T> fields when unset
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         
         let record = UserWithOptionsRecord::new();
         
         // All Option<T> fields are unset, so get() should return None
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_none(), "get() should return None for unset Option<String> field");
         
-        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        let age_value = record.get(<Entity as LifeModelTrait>::Column::Age);
         assert!(age_value.is_none(), "get() should return None for unset Option<i32> field");
         
-        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        let active_value = record.get(<Entity as LifeModelTrait>::Column::Active);
         assert!(active_value.is_none(), "get() should return None for unset Option<bool> field");
     }
 
     #[test]
     fn test_get_with_option_fields_set_to_some() {
         // Test get() with Option<T> fields when set to Some(value)
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         
         let mut record = UserWithOptionsRecord::new();
         record.set_name(Some("Alice".to_string()));
@@ -3058,21 +3082,21 @@ mod active_model_trait_tests {
         record.set_active(Some(true));
         
         // All Option<T> fields are set to Some, so get() should return Some(Value)
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_some(), "get() should return Some(Value) for set Option<String> field");
         match name_value.unwrap() {
             sea_query::Value::String(Some(v)) => assert_eq!(v, "Alice"),
             _ => panic!("Expected String(Some(\"Alice\"))"),
         }
         
-        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        let age_value = record.get(<Entity as LifeModelTrait>::Column::Age);
         assert!(age_value.is_some(), "get() should return Some(Value) for set Option<i32> field");
         match age_value.unwrap() {
             sea_query::Value::Int(Some(v)) => assert_eq!(v, 25),
             _ => panic!("Expected Int(Some(25))"),
         }
         
-        let active_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Active);
+        let active_value = record.get(<Entity as LifeModelTrait>::Column::Active);
         assert!(active_value.is_some(), "get() should return Some(Value) for set Option<bool> field");
         match active_value.unwrap() {
             sea_query::Value::Bool(Some(v)) => assert_eq!(v, true),
@@ -3086,34 +3110,36 @@ mod active_model_trait_tests {
         // When a field is set to None (via set() with Value::String(None)),
         // it becomes unset (None). With Option<T> fields, we can't distinguish
         // "set to None" from "unset" - both are represented as None.
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         
         let mut record = UserWithOptionsRecord::new();
         
         // Set fields to None explicitly (this sets the field to None, making it unset)
         record.set(
-            <option_tests::Entity as LifeModelTrait>::Column::Name,
+            <Entity as LifeModelTrait>::Column::Name,
             sea_query::Value::String(None)
         ).expect("set() should work");
         
         record.set(
-            <option_tests::Entity as LifeModelTrait>::Column::Age,
+            <Entity as LifeModelTrait>::Column::Age,
             sea_query::Value::Int(None)
         ).expect("set() should work");
         
         // When set to None, the field becomes unset, so get() returns None
         // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
         
-        let age_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        let age_value = record.get(<Entity as LifeModelTrait>::Column::Age);
         assert!(age_value.is_none(), "get() should return None when Option<i32> field is set to None (becomes unset)");
     }
 
     #[test]
     fn test_record_with_option_fields_setter_accepts_option() {
         // Test that setter for Option<T> fields accepts Option<T> directly
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         
         let mut record = UserWithOptionsRecord::new();
         
@@ -3121,7 +3147,7 @@ mod active_model_trait_tests {
         record.set_name(Some("John".to_string()));
         
         // Verify the value was set
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_some());
         match name_value.unwrap() {
             sea_query::Value::String(Some(v)) => assert_eq!(v, "John"),
@@ -3133,7 +3159,7 @@ mod active_model_trait_tests {
         
         // When set to None, the field becomes unset, so get() returns None
         // This is the correct behavior - with Option<T>, we can't distinguish "set to None" from "unset"
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_none(), "get() should return None when Option<String> field is set to None (becomes unset)");
     }
 
@@ -3248,7 +3274,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_active_model_to_json_with_option_fields() {
         // Test to_json() with Option<T> fields
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
         use serde_json::json;
         
         let mut record = UserWithOptionsRecord::new();
@@ -3269,7 +3295,8 @@ mod active_model_trait_tests {
     #[test]
     fn test_active_model_from_json_with_option_fields() {
         // Test from_json() with Option<T> fields
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+        use lifeguard::LifeModelTrait;
         use serde_json::json;
         
         let json = json!({
@@ -3282,7 +3309,7 @@ mod active_model_trait_tests {
         let record = UserWithOptionsRecord::from_json(json).expect("from_json() should succeed");
         
         // Verify fields
-        let name_value = record.get(<option_tests::Entity as LifeModelTrait>::Column::Name);
+        let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
         assert!(name_value.is_some());
         match name_value.unwrap() {
             sea_query::Value::String(Some(v)) => assert_eq!(v, "Test"),
@@ -3367,7 +3394,7 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_option_fields() {
         // EDGE CASE: Roundtrip JSON with Option<T> fields (None and Some values)
         // Use UserWithOptions which has Option fields
-        use option_tests::*;
+        use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
         
         let mut record = UserWithOptionsRecord::new();
         record.set_id(1);
@@ -3379,7 +3406,8 @@ mod active_model_trait_tests {
         let restored = UserWithOptionsRecord::from_json(json).expect("from_json() should succeed");
         
         // Verify age is preserved
-        let restored_age = restored.get(<option_tests::Entity as LifeModelTrait>::Column::Age);
+        use lifeguard::LifeModelTrait;
+        let restored_age = restored.get(<Entity as LifeModelTrait>::Column::Age);
         assert!(restored_age.is_some());
     }
 
@@ -3413,6 +3441,7 @@ mod active_model_trait_tests {
     // Entity with float fields for testing NaN and infinity serialization
     mod float_tests {
         use super::*;
+        use lifeguard_derive::{LifeModel, LifeRecord};
         
         #[derive(LifeModel, LifeRecord)]
         #[table_name = "float_fields"]
@@ -3427,55 +3456,53 @@ mod active_model_trait_tests {
     #[test]
     fn test_json_with_nan_and_infinity() {
         // EDGE CASE: JSON serialization of NaN and infinity values
-        // These special floating-point values cannot be represented as JSON numbers
-        // and should be serialized as strings to preserve the information
-        use float_tests::*;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
+        use float_tests::{FloatFields, Entity, FloatFieldsRecord};
         
         let mut record = FloatFieldsRecord::new();
         record.set_id(1);
         
         // Test NaN for f32
-        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
         let json = record.to_json().expect("to_json() should succeed with NaN");
         let obj = json.as_object().unwrap();
         // NaN should be serialized as string "NaN", not number 0
         assert_eq!(obj.get("f32_field"), Some(&json!("NaN")), "NaN should be serialized as string");
         
         // Test positive infinity for f32
-        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::INFINITY))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::INFINITY))).expect("set should succeed");
         let json = record.to_json().expect("to_json() should succeed with infinity");
         let obj = json.as_object().unwrap();
         assert_eq!(obj.get("f32_field"), Some(&json!("Infinity")), "Positive infinity should be serialized as string");
         
         // Test negative infinity for f32
-        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
         let json = record.to_json().expect("to_json() should succeed with negative infinity");
         let obj = json.as_object().unwrap();
         assert_eq!(obj.get("f32_field"), Some(&json!("-Infinity")), "Negative infinity should be serialized as string");
         
         // Test NaN for f64
-        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
         let json = record.to_json().expect("to_json() should succeed with NaN");
         let obj = json.as_object().unwrap();
         assert_eq!(obj.get("f64_field"), Some(&json!("NaN")), "NaN should be serialized as string");
         
         // Test positive infinity for f64
-        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
         let json = record.to_json().expect("to_json() should succeed with infinity");
         let obj = json.as_object().unwrap();
         assert_eq!(obj.get("f64_field"), Some(&json!("Infinity")), "Positive infinity should be serialized as string");
         
         // Test negative infinity for f64
-        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
         let json = record.to_json().expect("to_json() should succeed with negative infinity");
         let obj = json.as_object().unwrap();
         assert_eq!(obj.get("f64_field"), Some(&json!("-Infinity")), "Negative infinity should be serialized as string");
         
         // Test that normal finite numbers are still serialized as numbers
-        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
-        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(2.71828))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(2.71828))).expect("set should succeed");
         let json = record.to_json().expect("to_json() should succeed with normal numbers");
         let obj = json.as_object().unwrap();
         // Normal numbers should be JSON numbers, not strings
@@ -3487,13 +3514,13 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_nan_and_infinity() {
         // EDGE CASE: Roundtrip serialization/deserialization of NaN and infinity
         // With custom deserializers, we can now roundtrip NaN/infinity values
-        use float_tests::*;
         use lifeguard::LifeModelTrait;
+        use float_tests::{FloatFields, Entity, FloatFieldsRecord};
         
         let mut original = FloatFieldsRecord::new();
         original.set_id(1);
-        original.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
-        original.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
+        original.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        original.set(<float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::INFINITY))).expect("set should succeed");
         
         // Serialize to JSON (NaN/infinity become strings)
         let json = original.to_json().expect("to_json() should succeed");
@@ -3502,7 +3529,7 @@ mod active_model_trait_tests {
         let restored = FloatFieldsRecord::from_json(json).expect("from_json() should succeed with custom deserializers");
         
         // Verify the values were preserved
-        let restored_f32 = restored.get(<Entity as LifeModelTrait>::Column::F32Field);
+        let restored_f32 = restored.get(<float_tests::Entity as LifeModelTrait>::Column::F32Field);
         match restored_f32 {
             Some(sea_query::Value::Float(Some(v))) => assert!(v.is_nan(), "f32 NaN should be preserved"),
             _ => panic!("Expected Float(Some(NaN)), got {:?}", restored_f32),
@@ -3519,13 +3546,13 @@ mod active_model_trait_tests {
         // Test negative infinity roundtrip
         let mut original2 = FloatFieldsRecord::new();
         original2.set_id(2);
-        original2.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
-        original2.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
+        original2.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NEG_INFINITY))).expect("set should succeed");
+        original2.set(<float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NEG_INFINITY))).expect("set should succeed");
         
         let json2 = original2.to_json().expect("to_json() should succeed");
         let restored2 = FloatFieldsRecord::from_json(json2).expect("from_json() should succeed");
         
-        let restored_f32_2 = restored2.get(<Entity as LifeModelTrait>::Column::F32Field);
+        let restored_f32_2 = restored2.get(<float_tests::Entity as LifeModelTrait>::Column::F32Field);
         match restored_f32_2 {
             Some(sea_query::Value::Float(Some(v))) => {
                 assert!(v.is_infinite() && v.is_sign_negative(), "f32 -Infinity should be preserved");
@@ -3537,7 +3564,7 @@ mod active_model_trait_tests {
     #[test]
     fn test_json_with_option_float_nan_and_infinity() {
         // EDGE CASE: Option<f32> and Option<f64> fields with NaN/infinity
-        use float_tests::*;
+        ;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
         
@@ -3587,16 +3614,16 @@ mod active_model_trait_tests {
         // EDGE CASE: NaN comparison behavior
         // NaN != NaN in Rust (IEEE 754 standard), so Value comparisons with NaN will also fail
         // This is expected behavior and documents an important edge case
-        use float_tests::*;
         use lifeguard::LifeModelTrait;
+        use float_tests::{FloatFields, Entity, FloatFieldsRecord};
         
         let mut record1 = FloatFieldsRecord::new();
         record1.set_id(1);
-        record1.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        record1.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
         
         let mut record2 = FloatFieldsRecord::new();
         record2.set_id(1);
-        record2.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
+        record2.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(f32::NAN))).expect("set should succeed");
         
         // Both records have NaN
         let val1 = record1.get(<Entity as LifeModelTrait>::Column::F32Field);
@@ -3624,14 +3651,14 @@ mod active_model_trait_tests {
     #[test]
     fn test_mixed_normal_and_special_float_values() {
         // EDGE CASE: Record with mix of normal numbers and NaN/infinity
-        use float_tests::*;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
+        use float_tests::{FloatFields, Entity, FloatFieldsRecord};
         
         let mut record = FloatFieldsRecord::new();
         record.set_id(1);
-        record.set(<Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
-        record.set(<Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F32Field, sea_query::Value::Float(Some(3.14))).expect("set should succeed");
+        record.set(<float_tests::Entity as LifeModelTrait>::Column::F64Field, sea_query::Value::Double(Some(f64::NAN))).expect("set should succeed");
         
         let json = record.to_json().expect("to_json() should succeed");
         let obj = json.as_object().unwrap();
@@ -3656,7 +3683,8 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_column_name_attribute() {
         // Test that JSON roundtrip works when #[column_name] attribute is used
         // This verifies that to_json() and from_json() use the same key names
-        use column_name_tests::*;
+        use super::column_name_tests::{UserWithRenamedColumns, Entity, Column, UserWithRenamedColumnsRecord};
+        use lifeguard::LifeModelTrait;
         
         let mut original = UserWithRenamedColumnsRecord::new();
         original.set_id(100);
@@ -3677,16 +3705,16 @@ mod active_model_trait_tests {
         let restored = UserWithRenamedColumnsRecord::from_json(json).expect("from_json() should succeed");
         
         // Verify all fields match
-        let original_id = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::Id);
-        let restored_id = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::Id);
+        let original_id = original.get(<Entity as LifeModelTrait>::Column::Id);
+        let restored_id = restored.get(<Entity as LifeModelTrait>::Column::Id);
         assert_eq!(original_id, restored_id);
         
-        let original_first_name = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::FirstName);
-        let restored_first_name = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::FirstName);
+        let original_first_name = original.get(<Entity as LifeModelTrait>::Column::FirstName);
+        let restored_first_name = restored.get(<Entity as LifeModelTrait>::Column::FirstName);
         assert_eq!(original_first_name, restored_first_name);
         
-        let original_email = original.get(<column_name_tests::Entity as LifeModelTrait>::Column::Email);
-        let restored_email = restored.get(<column_name_tests::Entity as LifeModelTrait>::Column::Email);
+        let original_email = original.get(<Entity as LifeModelTrait>::Column::Email);
+        let restored_email = restored.get(<Entity as LifeModelTrait>::Column::Email);
         assert_eq!(original_email, restored_email);
     }
 
