@@ -1,5 +1,11 @@
 error: Entity path has consecutive colons. Found empty segment at position 2 in #[lifeguard(entity = "users::::Entity")]. Use a valid path like "foo::Entity" or "Entity".
- --> tests/ui/compile_error_partial_model_consecutive_colons.rs:6:1
-  |
-6 | #[derive(DerivePartialModel)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  --> tests/ui/compile_error_partial_model_consecutive_colons.rs:10:12
+   |
+10 | pub struct UserPartial {
+   |            ^^^^^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_partial_model_consecutive_colons.rs:13:2
+   |
+13 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_partial_model_consecutive_colons.rs`

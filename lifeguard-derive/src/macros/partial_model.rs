@@ -188,11 +188,13 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
             // Parse nested attributes like #[lifeguard(entity = "...")]
             // Use parse_nested_meta for syn 2.0
             let mut entity_path_str: Option<String> = None;
+            let mut entity_lit_span: Option<proc_macro2::Span> = None;
             
             // Check result and propagate errors instead of silently ignoring them
             if let Err(err) = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("entity") {
                     let value: syn::LitStr = meta.value()?.parse()?;
+                    entity_lit_span = Some(value.span());
                     entity_path_str = Some(value.value());
                     Ok(())
                 } else {
@@ -204,11 +206,25 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
             }
             
             if let Some(entity_path_str) = entity_path_str {
+                // Use the struct ident span for error reporting (attribute span is not easily accessible)
+                // The error will appear on the struct, but the message will be clear
+                let error_span = &input.ident;
+                
                 // Validate that the entity path is not empty
                 if entity_path_str.trim().is_empty() {
                     return Err(syn::Error::new_spanned(
-                        &input.ident,
+                        error_span,
                         "Entity path cannot be empty. Use #[lifeguard(entity = \"path::to::Entity\")] with a valid path.",
+                    )
+                    .to_compile_error());
+                }
+                
+                // Check for leading colons (absolute paths starting with ::)
+                // These are valid Rust syntax but we want to catch them as errors for clarity
+                if entity_path_str.starts_with("::") {
+                    return Err(syn::Error::new_spanned(
+                        error_span,
+                        format!("Entity path has leading colons. Found absolute path in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str),
                     )
                     .to_compile_error());
                 }
@@ -216,6 +232,14 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                 // Parse the entity path string
                 // Try parsing as a path first, then fall back to manual construction
                 let entity_path: syn::Path = if let Ok(path) = syn::parse_str::<syn::Path>(&entity_path_str) {
+                    // Even if parsing succeeds, check for leading colons in the parsed path
+                    if path.leading_colon.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            error_span,
+                            format!("Entity path has leading colons. Found absolute path in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str),
+                        )
+                        .to_compile_error());
+                    }
                     path
                 } else {
                     // If parsing fails, construct a path manually
@@ -225,15 +249,12 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                     // Validate segments: check for empty segments that would cause syn::Ident::new to panic
                     // Empty segments can occur with:
                     // - Empty string: ""
-                    // - Leading colons: "::foo"
                     // - Trailing colons: "foo::"
                     // - Consecutive colons: "foo::::bar"
                     for (idx, segment) in segments.iter().enumerate() {
                         if segment.is_empty() {
                             let error_msg = if segments.len() == 1 {
                                 format!("Entity path cannot be empty. Found empty string in #[lifeguard(entity = \"{}\")].", entity_path_str)
-                            } else if idx == 0 {
-                                format!("Entity path has leading colons. Found empty segment at start in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str)
                             } else if idx == segments.len() - 1 {
                                 format!("Entity path has trailing colons. Found empty segment at end in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str)
                             } else {
@@ -241,7 +262,7 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                             };
                             
                             return Err(syn::Error::new_spanned(
-                                &input.ident,
+                                error_span,
                                 error_msg,
                             )
                             .to_compile_error());

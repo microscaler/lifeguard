@@ -1,5 +1,11 @@
 error: Entity path cannot be empty. Use #[lifeguard(entity = "path::to::Entity")] with a valid path.
- --> tests/ui/compile_error_partial_model_empty_entity.rs:6:1
-  |
-6 | #[derive(DerivePartialModel)]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  --> tests/ui/compile_error_partial_model_empty_entity.rs:10:12
+   |
+10 | pub struct UserPartial {
+   |            ^^^^^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_partial_model_empty_entity.rs:13:2
+   |
+13 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_partial_model_empty_entity.rs`

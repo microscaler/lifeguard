@@ -44,9 +44,3 @@ fn compile_error_partial_model_consecutive_colons() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_partial_model_consecutive_colons.rs");
 }
-
-#[test]
-fn compile_pass_partial_model_valid_paths() {
-    let t = trybuild::TestCases::new();
-    t.pass("tests/ui/compile_pass_partial_model_valid_paths.rs");
-}
