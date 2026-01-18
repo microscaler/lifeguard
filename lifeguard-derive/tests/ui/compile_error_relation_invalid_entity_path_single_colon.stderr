@@ -1,4 +1,4 @@
-error: Entity path contains invalid identifier ":foo" at position 1 in ":foo::Entity". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).
+error: Entity path contains invalid identifier ":foo" at position 1 in entity path ":foo::Entity". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).
   --> tests/ui/compile_error_relation_invalid_entity_path_single_colon.rs:11:5
    |
 11 |     Invalid,

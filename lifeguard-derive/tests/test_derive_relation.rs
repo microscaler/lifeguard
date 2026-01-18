@@ -163,6 +163,96 @@ impl LifeModelTrait for Entity {
     type Column = PostColumn;
 }
 
+// Test entities for has_many_through
+#[derive(Default, Copy, Clone)]
+pub struct TagEntity;
+
+impl sea_query::Iden for TagEntity {
+    fn unquoted(&self) -> &str {
+        "tags"
+    }
+}
+
+impl LifeEntityName for TagEntity {
+    fn table_name(&self) -> &'static str {
+        "tags"
+    }
+}
+
+impl LifeModelTrait for TagEntity {
+    type Model = TagModel;
+    type Column = TagColumn;
+}
+
+#[derive(Default, Copy, Clone)]
+pub struct PostTagEntity;
+
+impl sea_query::Iden for PostTagEntity {
+    fn unquoted(&self) -> &str {
+        "post_tags"
+    }
+}
+
+impl LifeEntityName for PostTagEntity {
+    fn table_name(&self) -> &'static str {
+        "post_tags"
+    }
+}
+
+impl LifeModelTrait for PostTagEntity {
+    type Model = PostTagModel;
+    type Column = PostTagColumn;
+}
+
+// Test models and columns for has_many_through
+pub struct TagModel;
+pub struct PostTagModel;
+
+#[derive(Copy, Clone, Debug)]
+pub enum TagColumn {
+    Id,
+}
+
+impl sea_query::Iden for TagColumn {
+    fn unquoted(&self) -> &str {
+        match self {
+            TagColumn::Id => "id",
+        }
+    }
+}
+
+impl sea_query::IdenStatic for TagColumn {
+    fn as_str(&self) -> &'static str {
+        match self {
+            TagColumn::Id => "id",
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PostTagColumn {
+    PostId,
+    TagId,
+}
+
+impl sea_query::Iden for PostTagColumn {
+    fn unquoted(&self) -> &str {
+        match self {
+            PostTagColumn::PostId => "post_id",
+            PostTagColumn::TagId => "tag_id",
+        }
+    }
+}
+
+impl sea_query::IdenStatic for PostTagColumn {
+    fn as_str(&self) -> &'static str {
+        match self {
+            PostTagColumn::PostId => "post_id",
+            PostTagColumn::TagId => "tag_id",
+        }
+    }
+}
+
 // Test Relation enum with DeriveRelation
 #[derive(DeriveRelation)]
 pub enum Relation {
@@ -174,6 +264,11 @@ pub enum Relation {
         to = "UserColumn::Id"
     )]
     User,
+    #[lifeguard(
+        has_many_through = "TagEntity",
+        through = "PostTagEntity"
+    )]
+    Tags,
 }
 
 #[test]
@@ -211,6 +306,38 @@ fn test_derive_relation_multiple_relationships() {
     // This is verified by the enum having multiple variants
     let _ = Relation::Comments;
     let _ = Relation::User;
+    let _ = Relation::Tags;
+}
+
+#[test]
+fn test_derive_relation_has_many_through() {
+    // Test that has_many_through relationship generates correct RelationDef
+    // Post -> PostTags (join table) -> Tags
+    
+    let rel_def: RelationDef = <Entity as Related<TagEntity>>::to();
+    
+    // Verify relationship type
+    assert_eq!(rel_def.rel_type, lifeguard::relation::def::RelationType::HasManyThrough);
+    
+    // Verify through_tbl is set
+    assert!(rel_def.through_tbl.is_some(), "has_many_through should have through_tbl set");
+    
+    // Verify from_col is primary key of current entity (Post)
+    // This should be Identity::Unary("id")
+    match &rel_def.from_col {
+        lifeguard::Identity::Unary(col) => {
+            assert_eq!(col.to_string(), "id");
+        }
+        _ => panic!("from_col should be Unary for has_many_through"),
+    }
+    
+    // Verify to_col is primary key of target entity (Tag)
+    match &rel_def.to_col {
+        lifeguard::Identity::Unary(col) => {
+            assert_eq!(col.to_string(), "id");
+        }
+        _ => panic!("to_col should be Unary for has_many_through"),
+    }
 }
 
 // Edge case tests for composite keys and path-qualified columns

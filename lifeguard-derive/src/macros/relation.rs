@@ -352,6 +352,7 @@ fn process_relation_variant(
     // Parse attributes to find relationship type and target entity
     let mut relationship_type: Option<String> = None;
     let mut target_entity: Option<String> = None;
+    let mut through_entity: Option<String> = None;
     let mut from_column: Option<String> = None;
     let mut to_column: Option<String> = None;
     
@@ -362,11 +363,16 @@ fn process_relation_variant(
             // Check result and propagate errors instead of silently ignoring them
             if let Err(err) = attr.parse_nested_meta(|meta| {
                 // Check for key-value pairs like has_many = "..."
-                if meta.path.is_ident("has_many") || meta.path.is_ident("has_one") || meta.path.is_ident("belongs_to") {
+                if meta.path.is_ident("has_many") || meta.path.is_ident("has_one") || meta.path.is_ident("belongs_to") || meta.path.is_ident("has_many_through") {
                     let key = meta.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
                     let value: syn::LitStr = meta.value()?.parse()?;
                     relationship_type = Some(key);
                     target_entity = Some(value.value());
+                    Ok(())
+                } else if meta.path.is_ident("through") {
+                    // Parse through attribute for has_many_through relationships
+                    let value: syn::LitStr = meta.value()?.parse()?;
+                    through_entity = Some(value.value());
                     Ok(())
                 } else if meta.path.is_ident("from") {
                     let value: syn::LitStr = meta.value()?.parse()?;
@@ -388,64 +394,100 @@ fn process_relation_variant(
     
     // Generate Related trait implementation if we have the required information
     if let (Some(rel_type_str), Some(target)) = (relationship_type.as_ref(), target_entity.as_ref()) {
+        // Validate has_many_through requires through attribute
+        if rel_type_str == "has_many_through" && through_entity.is_none() {
+            return Some(syn::Error::new_spanned(
+                &variant.ident,
+                "has_many_through relationship requires a 'through' attribute specifying the join table entity. Use #[lifeguard(has_many_through = \"target::Entity\", through = \"join_table::Entity\")]",
+            )
+            .to_compile_error());
+        }
+        
         // Capture relationship type before move
         let rel_type = match rel_type_str.as_str() {
             "has_many" => quote! { lifeguard::RelationType::HasMany },
             "has_one" => quote! { lifeguard::RelationType::HasOne },
             "belongs_to" => quote! { lifeguard::RelationType::BelongsTo },
+            "has_many_through" => quote! { lifeguard::RelationType::HasManyThrough },
             _ => quote! { lifeguard::RelationType::HasMany }, // Default
         };
         
-        // Parse target entity path (e.g., "super::posts::Entity")
-        let target_entity_path: syn::Path = match syn::parse_str(target) {
-            Ok(path) => path,
-            Err(_) => {
-                // If parsing fails, try to construct a path manually
-                let segments: Vec<&str> = target.split("::").collect();
-                
-                // Validate segments before creating identifiers
-                for (idx, segment) in segments.iter().enumerate() {
-                    if segment.is_empty() {
-                        let error_msg = if segments.len() == 1 {
-                            format!("Entity path cannot be empty. Found empty string in entity path \"{}\".", target)
-                        } else if idx == segments.len() - 1 {
-                            format!("Entity path has trailing colons. Found empty segment at end in \"{}\". Use a valid path like \"super::users::Entity\".", target)
-                        } else {
-                            format!("Entity path has consecutive colons. Found empty segment at position {} in \"{}\". Use a valid path like \"super::users::Entity\".", idx + 1, target)
-                        };
-                        return Some(syn::Error::new(
-                            variant.ident.span(),
-                            error_msg,
-                        )
-                        .to_compile_error());
+        // Helper function to parse and validate entity path
+        let parse_entity_path = |entity_str: &str, error_context: &str| -> Result<syn::Path, TokenStream2> {
+            match syn::parse_str(entity_str) {
+                Ok(path) => Ok(path),
+                Err(_) => {
+                    // If parsing fails, try to construct a path manually
+                    let segments: Vec<&str> = entity_str.split("::").collect();
+                    
+                    // Validate segments before creating identifiers
+                    for (idx, segment) in segments.iter().enumerate() {
+                        if segment.is_empty() {
+                            let error_msg = if segments.len() == 1 {
+                                format!("Entity path cannot be empty. Found empty string in {} \"{}\".", error_context, entity_str)
+                            } else if idx == segments.len() - 1 {
+                                format!("Entity path has trailing colons. Found empty segment at end in {} \"{}\". Use a valid path like \"super::users::Entity\".", error_context, entity_str)
+                            } else {
+                                format!("Entity path has consecutive colons. Found empty segment at position {} in {} \"{}\". Use a valid path like \"super::users::Entity\".", idx + 1, error_context, entity_str)
+                            };
+                            return Err(syn::Error::new(
+                                variant.ident.span(),
+                                error_msg,
+                            )
+                            .to_compile_error());
+                        }
+                        
+                        // Validate that the segment is a valid Rust identifier
+                        if syn::parse_str::<syn::Ident>(segment).is_err() {
+                            return Err(syn::Error::new(
+                                variant.ident.span(),
+                                format!("Entity path contains invalid identifier \"{}\" at position {} in {} \"{}\". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", segment, idx + 1, error_context, entity_str),
+                            )
+                            .to_compile_error());
+                        }
                     }
                     
-                    // Validate that the segment is a valid Rust identifier
-                    if syn::parse_str::<syn::Ident>(segment).is_err() {
-                        return Some(syn::Error::new(
-                            variant.ident.span(),
-                            format!("Entity path contains invalid identifier \"{}\" at position {} in \"{}\". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", segment, idx + 1, target),
-                        )
-                        .to_compile_error());
+                    // Build the path after validation
+                    let mut path = syn::Path {
+                        leading_colon: None,
+                        segments: syn::punctuated::Punctuated::new(),
+                    };
+                    for segment in segments {
+                        // At this point, we've validated that segment is not empty and is a valid identifier
+                        let ident = syn::parse_str::<syn::Ident>(segment)
+                            .expect("Segment should be valid identifier after validation");
+                        path.segments.push(syn::PathSegment {
+                            ident,
+                            arguments: syn::PathArguments::None,
+                        });
                     }
+                    Ok(path)
                 }
-                
-                // Build the path after validation
-                let mut path = syn::Path {
-                    leading_colon: None,
-                    segments: syn::punctuated::Punctuated::new(),
-                };
-                for segment in segments {
-                    // At this point, we've validated that segment is not empty and is a valid identifier
-                    let ident = syn::parse_str::<syn::Ident>(segment)
-                        .expect("Segment should be valid identifier after validation");
-                    path.segments.push(syn::PathSegment {
-                        ident,
-                        arguments: syn::PathArguments::None,
-                    });
-                }
-                path
             }
+        };
+        
+        // Parse target entity path (e.g., "super::posts::Entity")
+        let target_entity_path: syn::Path = match parse_entity_path(target, "entity path") {
+            Ok(path) => path,
+            Err(err) => return Some(err),
+        };
+        
+        // Parse through entity path for has_many_through relationships
+        let (through_entity_path, through_table_name) = if let Some(through) = through_entity.as_ref() {
+            let through_path: syn::Path = match parse_entity_path(through, "through entity path") {
+                Ok(path) => path,
+                Err(err) => return Some(err),
+            };
+            let through_table = quote! {
+                {
+                    use lifeguard::LifeEntityName;
+                    let entity = #through_path::default();
+                    entity.table_name()
+                }
+            };
+            (Some(through_path), Some(through_table))
+        } else {
+            (None, None)
         };
         
         // Generate Related trait implementation and RelationMetadata implementation
@@ -518,8 +560,8 @@ fn process_relation_variant(
                         }
                     }
                 }
-                "has_many" | "has_one" => {
-                    // For has_many/has_one: from_col is the primary key in the current table
+                "has_many" | "has_one" | "has_many_through" => {
+                    // For has_many/has_one/has_many_through: from_col is the primary key in the current table
                     quote! {
                         {
                             use lifeguard::LifeModelTrait;
@@ -594,6 +636,18 @@ fn process_relation_variant(
                         }
                     }
                 }
+                "has_many_through" => {
+                    // For has_many_through: to_col is the primary key in the target table
+                    quote! {
+                        {
+                            use lifeguard::LifeModelTrait;
+                            use sea_query::IdenStatic;
+                            // Primary key column in target table
+                            let col = <#target_entity_path as lifeguard::LifeModelTrait>::Column::Id;
+                            lifeguard::Identity::Unary(sea_query::DynIden::from(col.as_str()))
+                        }
+                    }
+                }
                 _ => {
                     // Fallback to primary key
                     quote! {
@@ -606,6 +660,16 @@ fn process_relation_variant(
             }
         };
         
+        // Generate through_tbl field for has_many_through relationships
+        let through_tbl_expr = if let (Some(_through_path), Some(through_table)) = (through_entity_path.as_ref(), through_table_name.as_ref()) {
+            // through_path is used inside through_table quote! macro above
+            quote! {
+                Some(TableRef::Table(TableName(None, #through_table.into_iden()), None))
+            }
+        } else {
+            quote! { None }
+        };
+        
         Some(quote! {
             impl lifeguard::Related<#target_entity_path> for Entity {
                 fn to() -> lifeguard::RelationDef {
@@ -616,6 +680,7 @@ fn process_relation_variant(
                         to_tbl: TableRef::Table(TableName(None, #to_table_name.into_iden()), None),
                         from_col: #from_col_identity,
                         to_col: #to_col_identity,
+                        through_tbl: #through_tbl_expr,
                         is_owner: true,
                         skip_fk: false,
                         on_condition: None,

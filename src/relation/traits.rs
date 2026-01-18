@@ -677,6 +677,7 @@ mod tests {
                     to_tbl: TableRef::Table(TableName(None, PostEntity::table_name(&PostEntity).into_iden()), None),
                     from_col: Identity::Unary(sea_query::DynIden::from(UserColumn::Id.as_str())),
                     to_col: Identity::Unary(sea_query::DynIden::from(PostColumn::UserId.as_str())),
+                    through_tbl: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,
