@@ -142,7 +142,10 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
 
 impl<E: LifeModelTrait> super::traits::PartialModelBuilder<E> for SelectQuery<E> {
     fn select_partial<P: PartialModelTrait<Entity = E>>(mut self) -> SelectPartialQuery<E, P> {
-        // Replace the SELECT * with the columns specified by the partial model
+        // Get the column names from the partial model
+        let column_names = P::selected_columns();
+        
+        // Get table name
         let entity = E::default();
         let table_name = entity.table_name();
         
@@ -153,36 +156,20 @@ impl<E: LifeModelTrait> super::traits::PartialModelBuilder<E> for SelectQuery<E>
             }
         }
         
-        // Clear existing columns and add the partial model's columns
+        // Build new query with partial model columns
+        // Note: This replaces the entire query, which means WHERE, ORDER BY, etc.
+        // clauses from the original query are lost. Users should call select_partial()
+        // early in the query chain, before adding filters/ordering.
+        // TODO: Improve this to preserve existing query clauses
         let mut new_query = sea_query::SelectStatement::default();
         new_query.from(TableName(table_name));
         
         // Add each column from the partial model
-        // selected_columns() returns Vec<Expr>
-        // SeaQuery's SelectStatement.column() accepts IntoColumnRef, but Expr doesn't implement it
-        // This is a known limitation - we need to either:
-        // 1. Change selected_columns() to return column references (strings/enums) instead of Expr
-        // 2. Extract column names from Expr and convert to column references
-        // 3. Use a different SeaQuery API if available
-        // 
-        // For now, we'll use a workaround: assume Expr::col() was used and extract column names
-        // This is a simplified implementation that needs proper column reference handling
-        // TODO: Implement proper column selection from Expr or change API to use column references
-        for column_expr in P::selected_columns() {
-            // Try to use the expression directly - this may not work with current SeaQuery API
-            // We need to find the right method or change the API design
-            // For now, this is a placeholder that prevents compilation
-            // In a full implementation, we'd extract column names from Expr or change the API
-            let _ = column_expr; // Placeholder - needs proper implementation
+        for column_name in column_names {
+            new_query.column(column_name);
         }
         
-        // For now, use SELECT * as a fallback until proper column selection is implemented
-        // This means partial models won't actually select partial columns yet
-        new_query.column(sea_query::Asterisk);
-        
-        // Update the query in SelectQuery
-        // Note: We're replacing the entire query, which loses WHERE/ORDER BY/etc.
-        // A full implementation would preserve these clauses
+        // Replace the query (this loses WHERE/ORDER BY/etc. - documented limitation)
         self.query = new_query;
         
         SelectPartialQuery {
@@ -248,12 +235,12 @@ mod tests {
             }
         }
         
-        impl PartialModelTrait for TestPartial {
-            type Entity = TestEntity;
-            fn selected_columns() -> Vec<Expr> {
-                vec![Expr::col("id")]
+            impl PartialModelTrait for TestPartial {
+                type Entity = TestEntity;
+                fn selected_columns() -> Vec<&'static str> {
+                    vec!["id"]
+                }
             }
-        }
         
         // Verify the trait is properly defined
         let _columns = TestPartial::selected_columns();
@@ -278,7 +265,7 @@ mod tests {
         
         impl PartialModelTrait for EmptyPartial {
             type Entity = TestEntity;
-            fn selected_columns() -> Vec<Expr> {
+            fn selected_columns() -> Vec<&'static str> {
                 vec![] // Empty - should still compile
             }
         }
@@ -307,8 +294,8 @@ mod tests {
         
         impl PartialModelTrait for IdOnlyPartial {
             type Entity = TestEntity;
-            fn selected_columns() -> Vec<Expr> {
-                vec![Expr::col("id")]
+            fn selected_columns() -> Vec<&'static str> {
+                vec!["id"]
             }
         }
         
@@ -336,8 +323,8 @@ mod tests {
         
         impl PartialModelTrait for FullPartial {
             type Entity = TestEntity;
-            fn selected_columns() -> Vec<Expr> {
-                vec![Expr::col("id")]
+            fn selected_columns() -> Vec<&'static str> {
+                vec!["id"]
             }
         }
         
@@ -370,10 +357,10 @@ mod tests {
         
         impl PartialModelTrait for MismatchedOrderPartial {
             type Entity = TestEntity;
-            fn selected_columns() -> Vec<Expr> {
+            fn selected_columns() -> Vec<&'static str> {
                 vec![
-                    Expr::col("name"), // Selected first
-                    Expr::col("id"),   // Selected second
+                    "name", // Selected first
+                    "id",   // Selected second
                 ]
             }
         }

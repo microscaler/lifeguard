@@ -32,7 +32,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `Related` | ✅ Implemented | ✅ Complete | Related entity queries - Trait implemented, DeriveRelation macro generates implementations, returns RelationDef for composite key support |
 | `FindRelated` | ✅ Implemented | ✅ Complete | Extension trait for finding related entities from model instances - Fixed trait bounds, works correctly with Models |
 | `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
-| `PartialModelTrait` | ✅ Implemented | 🟡 **Partial** | Partial model queries (select subset of columns) - Trait implemented, but column selection uses SELECT * fallback, DerivePartialModel macro missing |
+| `PartialModelTrait` | ✅ Implemented | ✅ **Complete** | Partial model queries (select subset of columns) - Trait implemented, column selection working, DerivePartialModel macro implemented |
 | `TryIntoModel` | ❌ Missing | 🟡 **Future** | Conversion utilities |
 
 ---
@@ -57,7 +57,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `DeriveRelatedEntity` | ❌ Missing | 🟡 **Future** | RelatedEntity enum |
 | `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation |
 | `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
-| `DerivePartialModel` | ❌ Missing | 🟡 **Future** | PartialModelTrait implementation (trait exists, macro needed for auto-generation) |
+| `DerivePartialModel` | ✅ Implemented | ✅ **Complete** | PartialModelTrait and FromRow implementation - Generates selected_columns() and FromRow from struct fields with column_name attribute support |
 | `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types |
 | `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum |
 | `DeriveIden` | ❌ Missing | 🟡 **Future** | Iden trait helper |
@@ -322,18 +322,18 @@ This design simplifies the API while maintaining the same functionality.
 - Lazy loading support
 
 #### Partial Models
-**Status:** 🟡 Partial  
+**Status:** ✅ Complete  
 **Current State:**
-- `PartialModelTrait` - ✅ Implemented (trait for partial models with `selected_columns()` method)
+- `PartialModelTrait` - ✅ Implemented (trait for partial models with `selected_columns()` method returning `Vec<&'static str>`)
 - `PartialModelBuilder` - ✅ Implemented (trait for building partial model queries)
 - `SelectPartialQuery` - ✅ Implemented (query builder for partial models)
-- `select_partial()` method - ✅ Implemented (on `SelectQuery<E>`)
+- `select_partial()` method - ✅ Implemented (on `SelectQuery<E>`) - Uses column names directly with SeaQuery
+- `DerivePartialModel` - ✅ Implemented (macro generates PartialModelTrait and FromRow implementations)
 **Known Limitations:**
-- Column selection currently uses `SELECT *` as fallback (proper Expr-to-column conversion pending)
-- Column order must match between `selected_columns()` and `FromRow` implementation
-**Future State:**
-- `DerivePartialModel` - Generate partial model structs automatically
-- Proper column selection implementation (extract column names from Expr or change API)
+- `select_partial()` replaces the entire query, which means WHERE/ORDER BY/etc. clauses from before `select_partial()` are lost. Users should call `select_partial()` early in the query chain, before adding filters/ordering.
+- Column order must match between `selected_columns()` and `FromRow` implementation (enforced by macro)
+**Future Enhancements:**
+- Preserve existing query clauses (WHERE, ORDER BY, etc.) when calling `select_partial()`
 
 #### Advanced Query Features
 **Status:** 🟢 Partial  

@@ -91,3 +91,31 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 pub fn derive_relation(input: TokenStream) -> TokenStream {
     macros::derive_relation(input)
 }
+
+/// Derive macro for `DerivePartialModel` - generates PartialModelTrait and FromRow implementations
+///
+/// This macro generates:
+/// - PartialModelTrait implementation with selected_columns() method
+/// - FromRow implementation for converting database rows to partial models
+///
+/// # Example
+///
+/// ```ignore
+/// use lifeguard_derive::DerivePartialModel;
+///
+/// // Define a partial model that only includes id and name
+/// #[derive(DerivePartialModel)]
+/// #[lifeguard(entity = "super::users::Entity")]
+/// pub struct UserPartial {
+///     pub id: i32,
+///     pub name: String,
+/// }
+///
+/// // The macro generates:
+/// // - impl PartialModelTrait for UserPartial { ... }
+/// // - impl FromRow for UserPartial { ... }
+/// ```
+#[proc_macro_derive(DerivePartialModel, attributes(lifeguard, column_name))]
+pub fn derive_partial_model(input: TokenStream) -> TokenStream {
+    macros::derive_partial_model(input)
+}
