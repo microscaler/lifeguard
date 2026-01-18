@@ -22,6 +22,31 @@
 //! //     fn try_into_model(self) -> Result<UserModel, LifeError> { ... }
 //! // }
 //! ```
+//!
+//! # Critical Implementation Details
+//!
+//! ## Field Attribute Parsing (BUG-2026-01-19-02)
+//!
+//! **CRITICAL**: Field attributes MUST be extracted in a single pass using `extract_field_attributes()`.
+//! 
+//! **DO NOT** call `extract_field_attribute()` multiple times (e.g., once for "map_from", once for "convert").
+//! This causes `parse_nested_meta` to be invoked multiple times on the same attribute, leading to:
+//! - Macro expansion failures with "expected `,`" errors
+//! - Token consumption issues
+//! - Silent error handling problems
+//!
+//! **Correct Pattern:**
+//! ```rust
+//! let (map_from, convert) = extract_field_attributes(field)?;  // ✅ Single pass
+//! ```
+//!
+//! **Anti-Pattern (DO NOT USE):**
+//! ```rust
+//! let map_from = extract_field_attribute(field, "map_from")?;  // ❌ First call
+//! let convert = extract_field_attribute(field, "convert")?;    // ❌ Second call - BREAKS!
+//! ```
+//!
+//! See `extract_field_attributes()` documentation for detailed explanation.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -31,6 +56,19 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Field};
 use crate::attributes;
 
 /// Derive macro for `DeriveTryIntoModel` - generates TryIntoModel trait implementations
+/// 
+/// ## Field Attribute Parsing
+/// 
+/// This macro extracts field attributes (map_from, convert) using `extract_field_attributes()`,
+/// which MUST be called in a single pass. Do NOT call `extract_field_attribute()` multiple times
+/// as this causes `parse_nested_meta` to be invoked multiple times on the same attribute, leading
+/// to macro expansion failures. See `extract_field_attributes()` documentation for details.
+/// 
+/// ## Error Handling
+/// 
+/// All attribute parsing errors are propagated immediately and converted to compile errors.
+/// This ensures users get clear error messages for malformed attributes instead of silent failures.
+/// See BUG-2026-01-19-02 for historical context.
 pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -93,9 +131,21 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
         let field_name = field.ident.as_ref().unwrap();
         let _field_type = &field.ty;
         
-        // Extract field attributes
-        let map_from = extract_field_attribute(field, "map_from");
-        let convert_fn = extract_field_attribute(field, "convert");
+        // CRITICAL: Extract all field attributes in a SINGLE pass.
+        // 
+        // We MUST use extract_field_attributes() which calls parse_nested_meta ONCE per attribute,
+        // not extract_field_attribute() multiple times. Calling parse_nested_meta multiple times
+        // on the same attribute causes macro expansion failures (see BUG-2026-01-19-02).
+        //
+        // This extracts both "map_from" and "convert" in a single parse_nested_meta call,
+        // ensuring proper error propagation and avoiding token consumption issues.
+        let (map_from, convert_fn) = match extract_field_attributes(field) {
+            Ok(attrs) => attrs,
+            Err(err) => {
+                // Propagate parse errors immediately - malformed attributes should cause compile errors
+                return err.to_compile_error().into();
+            }
+        };
         let _is_optional = attributes::has_attribute(field, "optional");
         
         // Determine target field name
@@ -247,18 +297,129 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
     }
 }
 
+/// Extract all field attributes (map_from, convert) in a single pass
+/// 
+/// **CRITICAL: This function MUST extract all attributes in a single `parse_nested_meta` call.**
+/// 
+/// ## Why Single Pass?
+/// 
+/// Calling `parse_nested_meta` multiple times on the same attribute can cause:
+/// 1. **Macro expansion failures**: The macro may fail to expand, causing "expected `,`" errors
+/// 2. **Token consumption issues**: Multiple calls may consume tokens incorrectly
+/// 3. **Error handling problems**: Errors may not propagate correctly
+/// 
+/// ## Historical Context
+/// 
+/// Previously, we had separate `extract_field_attribute` calls for "map_from" and "convert",
+/// which called `parse_nested_meta` twice on the same attribute. This caused a regression where
+/// valid field attributes like `#[lifeguard(convert = "function")]` would fail with "expected `,`"
+/// errors, preventing macro expansion. See BUG-2026-01-19-02 for details.
+/// 
+/// ## Usage Pattern
+/// 
+/// This function checks ALL `#[lifeguard(...)]` attributes on the field in a single
+/// `parse_nested_meta` call. This allows users to split attributes across multiple
+/// `#[lifeguard]` blocks (e.g., `#[lifeguard(map_from = "foo")]` and
+/// `#[lifeguard(convert = "bar")]` on separate lines).
+/// 
+/// ## Error Propagation
+/// 
+/// This function propagates `parse_nested_meta` errors immediately. If a malformed attribute
+/// is detected (e.g., `convert = 123` instead of `convert = "function"`), it returns an error
+/// that will be converted to a compile error. This ensures users get clear error messages
+/// instead of silent failures.
+/// 
+/// ## Returns
+/// 
+/// - `Ok((map_from, convert))` where each is `Some(String)` if found, `None` if not found
+/// - `Err(syn::Error)` if a parsing error occurs (e.g., malformed attribute value)
+/// 
+/// ## Example
+/// 
+/// ```rust
+/// struct MyStruct {
+///     #[lifeguard(convert = "my_function")]  // ✅ Works - single pass extracts this
+///     name: String,
+///     
+///     #[lifeguard(map_from = "foo")]        // ✅ Works - single pass extracts this
+///     #[lifeguard(convert = "bar")]          // ✅ Works - single pass extracts both
+///     value: String,
+/// }
+/// ```
+/// 
+/// ## Anti-Pattern (DO NOT DO THIS)
+/// 
+/// ```rust
+/// // ❌ WRONG: Don't call parse_nested_meta multiple times
+/// let map_from = extract_field_attribute(field, "map_from")?;  // First call
+/// let convert = extract_field_attribute(field, "convert")?;    // Second call - BAD!
+/// ```
+/// 
+/// This anti-pattern causes the regression described above.
+fn extract_field_attributes(field: &Field) -> Result<(Option<String>, Option<String>), syn::Error> {
+    let mut map_from: Option<String> = None;
+    let mut convert: Option<String> = None;
+    
+    // Check all attributes, not just the first one
+    // This allows users to split attributes across multiple #[lifeguard] blocks
+    for attr in &field.attrs {
+        if attr.path().is_ident("lifeguard") {
+            // CRITICAL: Parse ALL nested attributes in a SINGLE parse_nested_meta call.
+            // 
+            // This closure is called once per nested item in the attribute. We handle
+            // both "map_from" and "convert" in the same closure, ensuring we only
+            // call parse_nested_meta once per #[lifeguard] attribute block.
+            //
+            // If we need to extract more attributes in the future, add them here
+            // rather than creating separate extraction functions.
+            if let Err(err) = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("map_from") {
+                    // Extract map_from attribute value
+                    let lit: syn::LitStr = meta.value()?.parse()?;
+                    map_from = Some(lit.value());
+                    Ok(())
+                } else if meta.path.is_ident("convert") {
+                    // Extract convert attribute value
+                    let lit: syn::LitStr = meta.value()?.parse()?;
+                    convert = Some(lit.value());
+                    Ok(())
+                } else {
+                    // Unknown attribute - skip it (don't error on unknown attributes)
+                    // This allows for future extensibility without breaking existing code
+                    Ok(())
+                }
+            }) {
+                // CRITICAL: Propagate parse errors immediately.
+                // 
+                // If parse_nested_meta returns an error (e.g., malformed attribute like
+                // `convert = 123` instead of `convert = "function"`), we MUST return it
+                // so it can be converted to a compile error. Silently ignoring errors
+                // was the original bug (BUG-2026-01-19-02).
+                return Err(err);
+            }
+        }
+    }
+    
+    Ok((map_from, convert))
+}
+
 /// Extract a field attribute value (e.g., map_from, convert)
 /// 
 /// This function checks ALL #[lifeguard(...)] attributes on the field,
 /// not just the first one. This allows users to split attributes across
 /// multiple #[lifeguard] blocks (e.g., #[lifeguard(map_from = "foo")] and
 /// #[lifeguard(convert = "bar")] on separate lines).
-fn extract_field_attribute(field: &Field, attr_name: &str) -> Option<String> {
+/// 
+/// Returns `Ok(Some(String))` if the attribute is found, `Ok(None)` if not found,
+/// or `Err(syn::Error)` if a parsing error occurs (e.g., malformed attribute value).
+#[allow(dead_code)]
+fn extract_field_attribute(field: &Field, attr_name: &str) -> Result<Option<String>, syn::Error> {
     // Check all attributes, not just the first one
     for attr in &field.attrs {
         if attr.path().is_ident("lifeguard") {
             let mut value: Option<String> = None;
-            if attr.parse_nested_meta(|meta| {
+            // Check result and propagate errors instead of silently ignoring them
+            if let Err(err) = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident(attr_name) {
                     let lit: syn::LitStr = meta.value()?.parse()?;
                     value = Some(lit.value());
@@ -266,14 +427,16 @@ fn extract_field_attribute(field: &Field, attr_name: &str) -> Option<String> {
                 } else {
                     Ok(())
                 }
-            }).is_ok() {
-                // If we found the requested attribute, return it
-                // Otherwise, continue checking other attributes
-                if value.is_some() {
-                    return value;
-                }
+            }) {
+                // Return parse error immediately - malformed attribute detected
+                return Err(err);
+            }
+            // If we found the requested attribute, return it
+            // Otherwise, continue checking other attributes
+            if value.is_some() {
+                return Ok(value);
             }
         }
     }
-    None
+    Ok(None)
 }

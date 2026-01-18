@@ -122,3 +122,15 @@ fn compile_pass_try_into_model_split_attributes() {
     let t = trybuild::TestCases::new();
     t.pass("tests/ui/compile_error_try_into_model_split_attributes.rs");
 }
+
+#[test]
+fn compile_error_try_into_model_malformed_convert() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_try_into_model_malformed_convert.rs");
+}
+
+#[test]
+fn compile_error_try_into_model_malformed_map_from() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_try_into_model_malformed_map_from.rs");
+}
