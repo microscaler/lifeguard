@@ -24,7 +24,7 @@ use sea_query::{Condition, ConditionType, Expr, ExprTrait, TableRef};
 /// # Panics
 ///
 /// Panics if `TableRef` is not in the expected format (should not happen in normal usage)
-pub(crate) fn extract_table_name(table_ref: &TableRef) -> String {
+pub fn extract_table_name(table_ref: &TableRef) -> String {
     match table_ref {
         TableRef::Table(table_name, _alias) => {
             // TableName is a tuple (Option<DynIden>, DynIden) where the second element is the table name

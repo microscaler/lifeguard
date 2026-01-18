@@ -6,6 +6,7 @@
 //! - has_many: One-to-many relationship
 //! - has_many_through: Many-to-many relationship (via join table)
 //! - Linked: Multi-hop relationship queries (e.g., User → Posts → Comments)
+//! - Eager loading: Load related entities automatically (selectinload strategy)
 //!
 //! # Architecture
 //!
@@ -13,7 +14,7 @@
 //! - **Traits**: Core relation traits (`RelationTrait`, `Related`, `FindRelated`, `Linked`)
 //! - **Def**: Relation definition types (`RelationDef`, `RelationType`)
 //! - **Identity**: Identity types for single and composite keys
-//! - **Helpers**: Helper functions for join conditions
+//! - **Helpers**: Helper functions for join conditions and eager loading
 
 // Identity types
 pub mod identity;
@@ -34,3 +35,8 @@ pub use traits::{RelationTrait, RelationBuilder, RelationMetadata, Related, Find
 pub mod helpers;
 #[doc(inline)]
 pub use helpers::join_condition;
+
+// Eager loading
+pub mod eager;
+#[doc(inline)]
+pub use eager::load_related;

@@ -31,7 +31,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 | `RelationTrait` | ✅ Implemented | 🟡 **Partial** | Entity relationships (belongs_to, has_one, has_many, has_many_through) - Trait implemented with join support, automatic join condition generation pending |
 | `Related` | ✅ Implemented | ✅ Complete | Related entity queries - Trait implemented, DeriveRelation macro generates implementations, returns RelationDef for composite key support |
 | `FindRelated` | ✅ Implemented | ✅ Complete | Extension trait for finding related entities from model instances - Fixed trait bounds, works correctly with Models |
-| `Linked` | ❌ Missing | 🟡 **Future** | Multi-hop relationship queries |
+| `Linked` | ✅ Implemented | ✅ **Complete** | Multi-hop relationship queries - Linked<I, T> trait and FindLinked extension trait implemented |
 | `PartialModelTrait` | ✅ Implemented | ✅ **Complete** | Partial model queries (select subset of columns) - Trait implemented, column selection working, DerivePartialModel macro implemented |
 | `TryIntoModel` | ❌ Missing | 🟡 **Future** | Conversion utilities |
 
@@ -240,7 +240,7 @@ This design simplifies the API while maintaining the same functionality.
 - `get_primary_key_value()` - Get primary key value(s) ✅
 - `get_value_type(column)` - Get column's value type (🟡 Future)
 - `find_related<R>()` - ✅ Implemented (via FindRelated trait extension) - Fixed trait bounds, works correctly with Models
-- `find_linked<L>()` - Find linked entities (🟡 Future)
+- `find_linked<I, T>()` - Find linked entities ✅ (Implemented via FindLinked trait extension)
 
 #### ColumnTrait
 **Status:** ✅ Implemented  
@@ -313,10 +313,10 @@ This design simplifies the API while maintaining the same functionality.
 - ✅ `DeriveRelation` macro generates `RelationDef` with proper `Identity` construction
 - ✅ `LifeModel` macro generates `get_primary_key_identity()` and `get_primary_key_values()` for all key types
 **Future State:**
-- Enhanced error messages for invalid column references in DeriveRelation macro
-- Support for has_many_through relationships
-- Automatic join condition generation from foreign key metadata
-- `Linked` - Multi-hop relationship queries
+- Enhanced error messages for invalid column references in DeriveRelation macro ✅ (Completed - comprehensive validation added)
+- Support for has_many_through relationships ✅ (Completed - DeriveRelation macro supports has_many_through with through attribute)
+- Automatic join condition generation from foreign key metadata ✅ (Completed - RelationDef::join_on_expr() and convenience methods)
+- `Linked` - Multi-hop relationship queries ✅ (Completed - Linked<I, T> trait and FindLinked extension trait)
 - `DeriveRelatedEntity` - Generate RelatedEntity enum
 - Eager loading support
 - Lazy loading support
