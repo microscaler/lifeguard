@@ -5,58 +5,54 @@ use lifeguard::PartialModelTrait;
 use lifeguard::{LifeModelTrait, LifeEntityName};
 
 // Test entity for partial models (manually defined, similar to DeriveRelation tests)
-mod users {
-    use super::*;
-    
-    #[derive(Default, Copy, Clone)]
-    pub struct Entity;
-    
-    impl sea_query::Iden for Entity {
-        fn unquoted(&self) -> &str {
-            "users"
+#[derive(Default, Copy, Clone)]
+pub struct UserEntity;
+
+impl sea_query::Iden for UserEntity {
+    fn unquoted(&self) -> &str {
+        "users"
+    }
+}
+
+impl LifeEntityName for UserEntity {
+    fn table_name(&self) -> &'static str {
+        "users"
+    }
+}
+
+impl LifeModelTrait for UserEntity {
+    type Model = UserModel;
+    type Column = UserColumn;
+}
+
+pub struct UserModel;
+
+#[derive(Copy, Clone, Debug)]
+pub enum UserColumn {
+    Id,
+    Name,
+    Email,
+    Age,
+}
+
+impl sea_query::Iden for UserColumn {
+    fn unquoted(&self) -> &str {
+        match self {
+            UserColumn::Id => "id",
+            UserColumn::Name => "name",
+            UserColumn::Email => "email",
+            UserColumn::Age => "age",
         }
     }
-    
-    impl LifeEntityName for Entity {
-        fn table_name(&self) -> &'static str {
-            "users"
-        }
-    }
-    
-    impl LifeModelTrait for Entity {
-        type Model = UserModel;
-        type Column = UserColumn;
-    }
-    
-    pub struct UserModel;
-    
-    #[derive(Copy, Clone, Debug)]
-    pub enum UserColumn {
-        Id,
-        Name,
-        Email,
-        Age,
-    }
-    
-    impl sea_query::Iden for UserColumn {
-        fn unquoted(&self) -> &str {
-            match self {
-                UserColumn::Id => "id",
-                UserColumn::Name => "name",
-                UserColumn::Email => "email",
-                UserColumn::Age => "age",
-            }
-        }
-    }
-    
-    impl sea_query::IdenStatic for UserColumn {
-        fn as_str(&self) -> &'static str {
-            match self {
-                UserColumn::Id => "id",
-                UserColumn::Name => "name",
-                UserColumn::Email => "email",
-                UserColumn::Age => "age",
-            }
+}
+
+impl sea_query::IdenStatic for UserColumn {
+    fn as_str(&self) -> &'static str {
+        match self {
+            UserColumn::Id => "id",
+            UserColumn::Name => "name",
+            UserColumn::Email => "email",
+            UserColumn::Age => "age",
         }
     }
 }
@@ -64,7 +60,7 @@ mod users {
 #[test]
 fn test_derive_partial_model_basic() {
     #[derive(DerivePartialModel)]
-    #[lifeguard(entity = "users::Entity")]
+    #[lifeguard(entity = "UserEntity")]
     pub struct UserPartial {
         pub id: i32,
         pub name: String,
@@ -75,14 +71,14 @@ fn test_derive_partial_model_basic() {
     assert_eq!(columns, vec!["id", "name"]);
     
     // Verify Entity type is correct
-    fn _test_entity_type<P: PartialModelTrait<Entity = users::Entity>>() {}
+    fn _test_entity_type<P: PartialModelTrait<Entity = UserEntity>>() {}
     _test_entity_type::<UserPartial>();
 }
 
 #[test]
 fn test_derive_partial_model_with_column_name() {
     #[derive(DerivePartialModel)]
-    #[lifeguard(entity = "users::Entity")]
+    #[lifeguard(entity = "UserEntity")]
     pub struct UserPartial {
         pub id: i32,
         #[column_name = "full_name"]
@@ -97,7 +93,7 @@ fn test_derive_partial_model_with_column_name() {
 #[test]
 fn test_derive_partial_model_single_column() {
     #[derive(DerivePartialModel)]
-    #[lifeguard(entity = "users::Entity")]
+    #[lifeguard(entity = "UserEntity")]
     pub struct UserIdOnly {
         pub id: i32,
     }
@@ -108,11 +104,10 @@ fn test_derive_partial_model_single_column() {
 
 #[test]
 fn test_derive_partial_model_from_row() {
-    use may_postgres::Row;
     use lifeguard::FromRow;
     
     #[derive(DerivePartialModel, Debug, PartialEq)]
-    #[lifeguard(entity = "users::Entity")]
+    #[lifeguard(entity = "UserEntity")]
     pub struct UserPartial {
         pub id: i32,
         pub name: String,
@@ -128,7 +123,7 @@ fn test_derive_partial_model_from_row() {
 #[test]
 fn test_derive_partial_model_field_name_to_snake_case() {
     #[derive(DerivePartialModel)]
-    #[lifeguard(entity = "users::Entity")]
+    #[lifeguard(entity = "UserEntity")]
     pub struct UserPartial {
         pub user_id: i32,
         pub full_name: String,
