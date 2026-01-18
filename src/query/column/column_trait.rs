@@ -221,6 +221,10 @@ pub trait ColumnTrait: IntoColumnRef {
 }
 
 // Implement ColumnTrait for all types that implement IntoColumnRef
+// NOTE: This blanket impl conflicts with macro-generated impls for Column enums.
+// The macro generates specific impls that override def() and enum_type_name().
+// For now, the macro-generated impls will conflict. We need a better solution.
+// TODO: Use specialization (when stable) or change the trait design to avoid conflicts.
 impl<T: IntoColumnRef> ColumnTrait for T {}
 
 #[cfg(test)]
