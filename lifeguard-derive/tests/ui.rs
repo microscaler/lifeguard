@@ -116,3 +116,9 @@ fn compile_error_try_into_model_custom_error_convert() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_try_into_model_custom_error_convert.rs");
 }
+
+#[test]
+fn compile_pass_try_into_model_split_attributes() {
+    let t = trybuild::TestCases::new();
+    t.pass("tests/ui/compile_error_try_into_model_split_attributes.rs");
+}

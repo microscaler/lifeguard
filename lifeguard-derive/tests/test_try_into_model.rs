@@ -313,3 +313,37 @@ fn test_derive_try_into_model_custom_error_type_with_from_trait_error() {
     assert!(err.message.contains("Parse error"));
     assert!(err.message.contains("Failed to parse"));
 }
+
+// Test that split attributes work correctly
+// This verifies that when attributes are split across multiple #[lifeguard] blocks,
+// both attributes are correctly extracted and used.
+fn convert_name_to_uppercase(s: String) -> Result<String, lifeguard::LifeError> {
+    Ok(s.to_uppercase())
+}
+
+#[derive(DeriveTryIntoModel)]
+#[lifeguard(model = "UserModel")]
+struct CreateUserRequestSplitAttributes {
+    #[lifeguard(map_from = "name")]
+    #[lifeguard(convert = "convert_name_to_uppercase")]
+    user_name: String,
+    
+    email: String,
+}
+
+#[test]
+fn test_derive_try_into_model_split_attributes() {
+    // Test that split attributes (map_from and convert on separate lines) work correctly
+    let request = CreateUserRequestSplitAttributes {
+        user_name: "john".to_string(),
+        email: "john@example.com".to_string(),
+    };
+
+    let result: Result<UserModel, lifeguard::LifeError> = request.try_into_model();
+    assert!(result.is_ok());
+    let model = result.unwrap();
+    // user_name should be mapped to name and converted to uppercase
+    assert_eq!(model.name, "JOHN");
+    assert_eq!(model.email, "john@example.com");
+    assert_eq!(model.id, 0); // Default value
+}

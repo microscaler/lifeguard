@@ -133,7 +133,9 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
             };
             
             // If error type is LifeError, wrap in LifeError::Other
-            // Otherwise, use ? directly which requires CustomError: From<ConversionError>
+            // For custom error types, use map_err with Into::into to convert the error
+            // This will work if From<ConversionError> is implemented for CustomError,
+            // otherwise it will provide a clearer compile error
             if is_life_error {
                 quote! {
                     #target_field_name: #convert_fn_ident(self.#field_name)
@@ -144,10 +146,14 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                         )))?,
                 }
             } else {
-                // For custom error types, use ? directly
-                // This requires CustomError: From<ConversionError>
+                // For custom error types, use map_err with Into::into to convert the error
+                // This will work if Into<CustomError> is implemented for ConversionError,
+                // which is automatically the case if From<ConversionError> is implemented for CustomError.
+                // Using map_err with Into::into is more explicit than direct ? and provides
+                // clearer error messages if the conversion is not available.
                 quote! {
-                    #target_field_name: #convert_fn_ident(self.#field_name)?,
+                    #target_field_name: #convert_fn_ident(self.#field_name)
+                        .map_err(std::convert::Into::<#error_type>::into)?,
                 }
             }
         } else {
@@ -242,7 +248,13 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
 }
 
 /// Extract a field attribute value (e.g., map_from, convert)
+/// 
+/// This function checks ALL #[lifeguard(...)] attributes on the field,
+/// not just the first one. This allows users to split attributes across
+/// multiple #[lifeguard] blocks (e.g., #[lifeguard(map_from = "foo")] and
+/// #[lifeguard(convert = "bar")] on separate lines).
 fn extract_field_attribute(field: &Field, attr_name: &str) -> Option<String> {
+    // Check all attributes, not just the first one
     for attr in &field.attrs {
         if attr.path().is_ident("lifeguard") {
             let mut value: Option<String> = None;
@@ -255,7 +267,11 @@ fn extract_field_attribute(field: &Field, attr_name: &str) -> Option<String> {
                     Ok(())
                 }
             }).is_ok() {
-                return value;
+                // If we found the requested attribute, return it
+                // Otherwise, continue checking other attributes
+                if value.is_some() {
+                    return value;
+                }
             }
         }
     }

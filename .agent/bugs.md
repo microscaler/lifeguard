@@ -96,6 +96,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-18-02: DeriveTryIntoModel Macro Incorrect Error Handling for Custom Error Types with Convert Attribute](bugs/BUG-2026-01-18-02.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Compilation error / API inconsistency
 
+- [BUG-2026-01-19-01: DeriveTryIntoModel Macro extract_field_attribute Only Checks First Attribute and Custom Error Type Handling Issues](bugs/BUG-2026-01-19-01.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Silent failure / API inconsistency
+
 ---
 
 ## Open Bugs
