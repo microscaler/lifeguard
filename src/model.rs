@@ -513,12 +513,10 @@ where
 /// This is a fallback implementation that requires enumerating all Column variants.
 /// The macro can override `get_by_column_name()` with a more efficient implementation
 /// (e.g., using a hash map or direct field access based on the column name).
-fn extract_value_by_column_name<M>(model: &M, column_name: &str) -> Option<Value>
+fn extract_value_by_column_name<M>(_model: &M, _column_name: &str) -> Option<Value>
 where
     M: ModelTrait,
 {
-    use crate::query::LifeModelTrait;
-    use sea_query::Iden;
     
     // Try to match column name against all Column enum variants
     // This is a placeholder - the macro should override get_by_column_name() with
@@ -544,4 +542,72 @@ where
     // }
     // ```
     None
+}
+
+#[cfg(test)]
+mod get_by_column_name_tests {
+    use super::*;
+    use crate::{LifeEntityName, LifeModelTrait};
+    use crate::relation::identity::Identity;
+    use sea_query::IdenStatic;
+    
+    #[test]
+    fn test_get_by_column_name_edge_cases() {
+        // Test edge cases for get_by_column_name default implementation
+        // This tests the fallback implementation behavior
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestEntity;
+        
+        impl sea_query::Iden for TestEntity {
+            fn unquoted(&self) -> &str { "test" }
+        }
+        
+        impl LifeEntityName for TestEntity {
+            fn table_name(&self) -> &'static str { "test" }
+        }
+        
+        impl LifeModelTrait for TestEntity {
+            type Model = TestModel;
+            type Column = TestColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TestModel;
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestColumn { Id }
+        
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        
+        impl IdenStatic for TestColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        impl ModelTrait for TestModel {
+            type Entity = TestEntity;
+            fn get(&self, _col: TestColumn) -> Value { Value::Int(None) }
+            fn set(&mut self, _col: TestColumn, _val: Value) -> Result<(), ModelError> { Ok(()) }
+            fn get_primary_key_value(&self) -> Value { Value::Int(None) }
+            fn get_primary_key_identity(&self) -> Identity { Identity::Unary("id".into()) }
+            fn get_primary_key_values(&self) -> Vec<Value> { vec![] }
+            // Use default implementation of get_by_column_name
+        }
+        
+        let model = TestModel;
+        
+        // Test non-existent column - should return None
+        assert_eq!(model.get_by_column_name("nonexistent"), None);
+        
+        // Test empty string - should return None
+        assert_eq!(model.get_by_column_name(""), None);
+        
+        // Test with different casing - should return None (default impl doesn't handle this)
+        assert_eq!(model.get_by_column_name("ID"), None);
+        
+        // Note: The default implementation returns None for all cases
+        // The macro-generated implementation would handle actual column names
+    }
 }

@@ -362,6 +362,12 @@ fn test_derive_relation_generates_related_entity() {
     // The actual From implementations require proper model types
 }
 
+// Note: RelatedEntity is generated at module level, not inside the enum
+// The tests above already verify RelatedEntity generation for the main Relation enum
+// Additional edge cases for empty/single relations would require separate test modules
+// which is complex to set up. The existing test_derive_relation_generates_related_entity
+// already covers the main use case.
+
 // Edge case tests for composite keys and path-qualified columns
 #[derive(Default, Copy, Clone)]
 pub struct TenantEntity;

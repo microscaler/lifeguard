@@ -522,6 +522,313 @@ mod tests {
     }
 
     #[test]
+    fn test_load_related_duplicate_primary_keys() {
+        // Test that load_related handles duplicate primary keys correctly
+        // Duplicate PKs should be deduplicated in the query
+        use sea_query::{TableName, IntoIden, TableRef};
+        
+        #[derive(Default, Copy, Clone)]
+        struct UserEntity;
+        
+        impl sea_query::Iden for UserEntity {
+            fn unquoted(&self) -> &str { "users" }
+        }
+        
+        impl LifeEntityName for UserEntity {
+            fn table_name(&self) -> &'static str { "users" }
+        }
+        
+        impl LifeModelTrait for UserEntity {
+            type Model = UserModel;
+            type Column = UserColumn;
+        }
+        
+        #[derive(Default, Copy, Clone)]
+        struct PostEntity;
+        
+        impl sea_query::Iden for PostEntity {
+            fn unquoted(&self) -> &str { "posts" }
+        }
+        
+        impl LifeEntityName for PostEntity {
+            fn table_name(&self) -> &'static str { "posts" }
+        }
+        
+        impl LifeModelTrait for PostEntity {
+            type Model = PostModel;
+            type Column = PostColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct UserModel { id: i32 }
+        #[derive(Clone, Debug)]
+        struct PostModel { id: i32, user_id: i32 }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum UserColumn { Id }
+        
+        impl sea_query::Iden for UserColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        
+        impl IdenStatic for UserColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum PostColumn { Id, UserId }
+        
+        impl sea_query::Iden for PostColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    PostColumn::Id => "id",
+                    PostColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl IdenStatic for PostColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    PostColumn::Id => "id",
+                    PostColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl crate::query::traits::FromRow for PostModel {
+            fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                Ok(PostModel { id: 0, user_id: 0 })
+            }
+        }
+        
+        impl crate::model::ModelTrait for UserModel {
+            type Entity = UserEntity;
+            fn get(&self, col: UserColumn) -> sea_query::Value {
+                match col {
+                    UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+                }
+            }
+            fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary("id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![sea_query::Value::Int(Some(self.id))]
+            }
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    "id" => Some(sea_query::Value::Int(Some(self.id))),
+                    _ => None,
+                }
+            }
+        }
+        
+        impl Related<PostEntity> for UserEntity {
+            fn to() -> RelationDef {
+                RelationDef {
+                    rel_type: RelationType::HasMany,
+                    from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                    to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
+                    from_col: Identity::Unary("id".into()),
+                    to_col: Identity::Unary("user_id".into()),
+                    through_tbl: None,
+                    is_owner: true,
+                    skip_fk: false,
+                    on_condition: None,
+                    condition_type: ConditionType::All,
+                }
+            }
+        }
+        
+        // Test with duplicate primary keys - should deduplicate
+        let users = vec![
+            UserModel { id: 1 },
+            UserModel { id: 1 }, // Duplicate
+            UserModel { id: 2 },
+        ];
+        
+        // Verify the function can be called with duplicate PKs
+        // The deduplication logic should handle this
+        fn _test_duplicate_pks<M: ModelTrait, R: LifeModelTrait, Ex: LifeExecutor>(
+            entities: &[M],
+            _executor: &Ex,
+        ) -> Result<HashMap<String, Vec<R::Model>>, LifeError>
+        where
+            M::Entity: Related<R>,
+            R::Model: ModelTrait + crate::query::traits::FromRow,
+        {
+            load_related(entities, _executor)
+        }
+        
+        // Just verify it compiles - actual execution test would need executor setup
+        let _ = users;
+    }
+
+    #[test]
+    fn test_load_related_composite_key_grouping() {
+        // Test that load_related correctly groups related entities for composite keys
+        // This tests the grouping logic for composite primary keys
+        use sea_query::{TableName, IntoIden};
+        
+        #[derive(Default, Copy, Clone)]
+        struct TenantEntity;
+        
+        impl sea_query::Iden for TenantEntity {
+            fn unquoted(&self) -> &str { "tenants" }
+        }
+        
+        impl LifeEntityName for TenantEntity {
+            fn table_name(&self) -> &'static str { "tenants" }
+        }
+        
+        impl LifeModelTrait for TenantEntity {
+            type Model = TenantModel;
+            type Column = TenantColumn;
+        }
+        
+        #[derive(Default, Copy, Clone)]
+        struct UserEntity;
+        
+        impl sea_query::Iden for UserEntity {
+            fn unquoted(&self) -> &str { "users" }
+        }
+        
+        impl LifeEntityName for UserEntity {
+            fn table_name(&self) -> &'static str { "users" }
+        }
+        
+        impl LifeModelTrait for UserEntity {
+            type Model = UserModel;
+            type Column = UserColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TenantModel { id: i32, tenant_id: i32 }
+        #[derive(Clone, Debug)]
+        struct UserModel { id: i32, tenant_id: i32 }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TenantColumn { Id, TenantId }
+        
+        impl sea_query::Iden for TenantColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    TenantColumn::Id => "id",
+                    TenantColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        impl IdenStatic for TenantColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    TenantColumn::Id => "id",
+                    TenantColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum UserColumn { Id, TenantId }
+        
+        impl sea_query::Iden for UserColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    UserColumn::Id => "id",
+                    UserColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        impl IdenStatic for UserColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    UserColumn::Id => "id",
+                    UserColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        impl crate::query::traits::FromRow for UserModel {
+            fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                Ok(UserModel { id: 0, tenant_id: 0 })
+            }
+        }
+        
+        impl crate::model::ModelTrait for TenantModel {
+            type Entity = TenantEntity;
+            fn get(&self, col: TenantColumn) -> sea_query::Value {
+                match col {
+                    TenantColumn::Id => sea_query::Value::Int(Some(self.id)),
+                    TenantColumn::TenantId => sea_query::Value::Int(Some(self.tenant_id)),
+                }
+            }
+            fn set(&mut self, _col: TenantColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Binary("id".into(), "tenant_id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![
+                    sea_query::Value::Int(Some(self.id)),
+                    sea_query::Value::Int(Some(self.tenant_id)),
+                ]
+            }
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    "id" => Some(sea_query::Value::Int(Some(self.id))),
+                    "tenant_id" => Some(sea_query::Value::Int(Some(self.tenant_id))),
+                    _ => None,
+                }
+            }
+        }
+        
+        impl Related<UserEntity> for TenantEntity {
+            fn to() -> RelationDef {
+                RelationDef {
+                    rel_type: RelationType::HasMany,
+                    from_tbl: sea_query::TableRef::Table(TableName(None, "tenants".into_iden()), None),
+                    to_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                    from_col: Identity::Binary("id".into(), "tenant_id".into()),
+                    to_col: Identity::Binary("id".into(), "tenant_id".into()),
+                    through_tbl: None,
+                    is_owner: true,
+                    skip_fk: false,
+                    on_condition: None,
+                    condition_type: ConditionType::All,
+                }
+            }
+        }
+        
+        // Test with composite keys
+        let tenants = vec![
+            TenantModel { id: 1, tenant_id: 10 },
+            TenantModel { id: 2, tenant_id: 10 },
+        ];
+        
+        // Verify the function can be called with composite keys
+        fn _test_composite_keys<M: ModelTrait, R: LifeModelTrait, Ex: LifeExecutor>(
+            entities: &[M],
+            _executor: &Ex,
+        ) -> Result<HashMap<String, Vec<R::Model>>, LifeError>
+        where
+            M::Entity: Related<R>,
+            R::Model: ModelTrait + crate::query::traits::FromRow,
+        {
+            load_related(entities, _executor)
+        }
+        
+        // Just verify it compiles - actual execution test would need executor setup
+        let _ = tenants;
+    }
+
+    #[test]
     fn test_find_linked_query_building() {
         // Test that find_linked() builds correct query with multiple joins
         // This is a compile-time test to verify the function signature

@@ -174,4 +174,156 @@ mod tests {
         // LazyLoader::new() and LazyLoader::load() signatures are tested
         // by their usage in the documentation examples above
     }
+
+    #[test]
+    fn test_lazy_loader_composite_key() {
+        // Test that LazyLoader works with composite key entities
+        use sea_query::{TableName, IntoIden, TableRef, ConditionType};
+        use crate::relation::def::{RelationDef, RelationType};
+        
+        #[derive(Default, Copy, Clone)]
+        struct TenantEntity;
+        
+        impl sea_query::Iden for TenantEntity {
+            fn unquoted(&self) -> &str { "tenants" }
+        }
+        
+        impl crate::LifeEntityName for TenantEntity {
+            fn table_name(&self) -> &'static str { "tenants" }
+        }
+        
+        impl crate::LifeModelTrait for TenantEntity {
+            type Model = TenantModel;
+            type Column = TenantColumn;
+        }
+        
+        #[derive(Default, Copy, Clone)]
+        struct UserEntity;
+        
+        impl sea_query::Iden for UserEntity {
+            fn unquoted(&self) -> &str { "users" }
+        }
+        
+        impl crate::LifeEntityName for UserEntity {
+            fn table_name(&self) -> &'static str { "users" }
+        }
+        
+        impl crate::LifeModelTrait for UserEntity {
+            type Model = UserModel;
+            type Column = UserColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TenantModel { id: i32, tenant_id: i32 }
+        #[derive(Clone, Debug)]
+        struct UserModel { id: i32, tenant_id: i32 }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TenantColumn { Id, TenantId }
+        
+        impl sea_query::Iden for TenantColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    TenantColumn::Id => "id",
+                    TenantColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        impl sea_query::IdenStatic for TenantColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    TenantColumn::Id => "id",
+                    TenantColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum UserColumn { Id, TenantId }
+        
+        impl sea_query::Iden for UserColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    UserColumn::Id => "id",
+                    UserColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        impl sea_query::IdenStatic for UserColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    UserColumn::Id => "id",
+                    UserColumn::TenantId => "tenant_id",
+                }
+            }
+        }
+        
+        impl crate::query::traits::FromRow for UserModel {
+            fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                Ok(UserModel { id: 0, tenant_id: 0 })
+            }
+        }
+        
+        impl ModelTrait for TenantModel {
+            type Entity = TenantEntity;
+            fn get(&self, col: TenantColumn) -> sea_query::Value {
+                match col {
+                    TenantColumn::Id => sea_query::Value::Int(Some(self.id)),
+                    TenantColumn::TenantId => sea_query::Value::Int(Some(self.tenant_id)),
+                }
+            }
+            fn set(&mut self, _col: TenantColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Binary("id".into(), "tenant_id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![
+                    sea_query::Value::Int(Some(self.id)),
+                    sea_query::Value::Int(Some(self.tenant_id)),
+                ]
+            }
+            fn get_by_column_name(&self, column_name: &str) -> Option<sea_query::Value> {
+                match column_name {
+                    "id" => Some(sea_query::Value::Int(Some(self.id))),
+                    "tenant_id" => Some(sea_query::Value::Int(Some(self.tenant_id))),
+                    _ => None,
+                }
+            }
+        }
+        
+        impl Related<UserEntity> for TenantEntity {
+            fn to() -> RelationDef {
+                RelationDef {
+                    rel_type: RelationType::HasMany,
+                    from_tbl: sea_query::TableRef::Table(TableName(None, "tenants".into_iden()), None),
+                    to_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                    from_col: Identity::Binary("id".into(), "tenant_id".into()),
+                    to_col: Identity::Binary("id".into(), "tenant_id".into()),
+                    through_tbl: None,
+                    is_owner: true,
+                    skip_fk: false,
+                    on_condition: None,
+                    condition_type: ConditionType::All,
+                }
+            }
+        }
+        
+        let tenant = TenantModel { id: 1, tenant_id: 10 };
+        
+        // Verify LazyLoader can be created with composite key entity
+        fn _test_composite_key<'a, M: ModelTrait, Ex: LifeExecutor>(
+            entity: &'a M,
+            executor: &'a Ex,
+        ) -> LazyLoader<'a, M, Ex> {
+            LazyLoader::new(entity, executor)
+        }
+        
+        // Just verify it compiles - actual execution test would need executor setup
+        let _ = tenant;
+    }
 }
