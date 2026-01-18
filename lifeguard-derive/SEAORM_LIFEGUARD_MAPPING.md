@@ -211,16 +211,16 @@ This design simplifies the API while maintaining the same functionality.
 | `#[sea_orm(table_name = "...")]` | `#[table_name = "..."]` | ✅ Implemented | Table name |
 | `#[sea_orm(schema_name = "...")]` | ❌ Missing | 🟡 **Future** | Schema name |
 | `#[sea_orm(primary_key)]` | `#[primary_key]` | ✅ Implemented | Primary key field |
-| `#[sea_orm(auto_increment = bool)]` | `#[auto_increment]` | ⚠️ Partial | Exists but not fully used |
+| `#[sea_orm(auto_increment = bool)]` | `#[auto_increment]` | ✅ Complete | Auto-increment field - LifeModel macro generates ColumnTrait::def() with auto_increment metadata |
 | `#[sea_orm(column_name = "...")]` | `#[column_name = "..."]` | ✅ Implemented | Custom column name |
-| `#[sea_orm(column_type = "...")]` | `#[column_type = "..."]` | ⚠️ Partial | Exists but not fully used |
+| `#[sea_orm(column_type = "...")]` | `#[column_type = "..."]` | ✅ Complete | Custom column type - LifeModel macro generates ColumnTrait::def() with column_type metadata |
 | `#[sea_orm(nullable)]` | `#[nullable]` | ✅ Implemented | Nullable field |
-| `#[sea_orm(default_value = ...)]` | `#[default_value = ...]` | ⚠️ Partial | Exists but not fully used |
+| `#[sea_orm(default_value = ...)]` | `#[default_value = ...]` | ✅ Complete | Default value - LifeModel macro generates ColumnTrait::def() with default_value metadata |
 | `#[sea_orm(default_expr = "...")]` | ❌ Missing | 🟡 **Future** | Default SQL expression |
-| `#[sea_orm(unique)]` | `#[unique]` | ⚠️ Partial | Exists but not fully used |
-| `#[sea_orm(indexed)]` | `#[indexed]` | ⚠️ Partial | Exists but not fully used |
+| `#[sea_orm(unique)]` | `#[unique]` | ✅ Complete | Unique constraint - LifeModel macro generates ColumnTrait::def() with unique metadata |
+| `#[sea_orm(indexed)]` | `#[indexed]` | ✅ Complete | Indexed column - LifeModel macro generates ColumnTrait::def() with indexed metadata |
 | `#[sea_orm(ignore)]` | ❌ Missing | 🟡 **Future** | Ignore field |
-| `#[sea_orm(enum_name = "...")]` | `#[enum_name = "..."]` | ⚠️ Partial | Exists but not fully used |
+| `#[sea_orm(enum_name = "...")]` | `#[enum_name = "..."]` | ✅ Complete | Enum type name - LifeModel macro generates ColumnTrait::enum_type_name() implementation |
 | `#[sea_orm(select_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom SELECT expression |
 | `#[sea_orm(save_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom save expression |
 | `#[sea_orm(renamed_from = "...")]` | ❌ Missing | 🟡 **Future** | Column renamed from |
