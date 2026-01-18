@@ -44,3 +44,33 @@ fn compile_error_partial_model_consecutive_colons() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_partial_model_consecutive_colons.rs");
 }
+
+#[test]
+fn compile_error_partial_model_invalid_identifier_single_colon() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_partial_model_invalid_identifier_single_colon.rs");
+}
+
+#[test]
+fn compile_error_partial_model_invalid_identifier_colon_in_middle() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_partial_model_invalid_identifier_colon_in_middle.rs");
+}
+
+#[test]
+fn compile_error_partial_model_invalid_identifier_starts_with_number() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_partial_model_invalid_identifier_starts_with_number.rs");
+}
+
+#[test]
+fn compile_error_partial_model_invalid_identifier_contains_hyphen() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_partial_model_invalid_identifier_contains_hyphen.rs");
+}
+
+#[test]
+fn compile_error_partial_model_invalid_identifier_path_segment() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_partial_model_invalid_identifier_path_segment.rs");
+}

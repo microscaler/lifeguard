@@ -594,6 +594,152 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured
 
 ---
 
+### DerivePartialModel Macro: Missing Validation for Invalid Identifiers in Entity Path
+
+**Date:** 2025-01-27  
+**Status:** ✅ **FIXED**  
+**Priority:** High  
+**Severity:** Bug - Macro expansion panic with unhelpful error message
+
+#### Issue
+
+The `extract_entity_type` function validates for empty path segments but not for invalid identifiers. When `syn::parse_str::<syn::Path>()` fails and the fallback manual path construction is used, paths containing invalid identifiers (like `:foo`, `foo:bar`, `123abc`, `foo-bar`) will pass the empty segment check but cause `syn::Ident::new()` to panic with an unhelpful error. The code should validate that each segment is a valid identifier before calling `syn::Ident::new()`, or use `syn::parse_str::<syn::Ident>()` to safely handle invalid input.
+
+**File:** `lifeguard-derive/src/macros/partial_model.rs:244-278`
+
+**Before (Buggy Code):**
+```rust
+// Validate segments: check for empty segments that would cause syn::Ident::new to panic
+for (idx, segment) in segments.iter().enumerate() {
+    if segment.is_empty() {
+        // ... error handling for empty segments ...
+    }
+}
+
+// Later, without validating identifier validity:
+for segment in segments {
+    path.segments.push(syn::PathSegment {
+        ident: syn::Ident::new(segment, proc_macro2::Span::call_site()),  // ❌ Panics if segment is invalid identifier
+        arguments: syn::PathArguments::None,
+    });
+}
+```
+
+**Problem:**
+- Empty segment validation only checks for empty strings
+- Invalid identifiers like `:foo`, `foo:bar`, `123abc`, `foo-bar` pass empty check
+- `syn::Ident::new()` panics when given invalid identifier strings
+- Panic provides no helpful error message to the user
+- Macro expansion crashes instead of reporting a compile error
+
+**Examples of invalid identifiers that would panic:**
+- Single colon: `:foo` → `syn::Ident::new(":foo")` panics
+- Colon in middle: `foo:bar` → `syn::Ident::new("foo:bar")` panics
+- Starts with number: `123abc` → `syn::Ident::new("123abc")` panics
+- Contains hyphen: `foo-bar` → `syn::Ident::new("foo-bar")` panics
+- Invalid in path segment: `valid::123invalid` → `syn::Ident::new("123invalid")` panics
+
+#### Root Cause
+
+The fallback path construction code validated for empty segments but didn't validate that each segment is a valid Rust identifier. The `syn::Ident::new()` function panics when given an invalid identifier string, which can occur when splitting malformed entity paths that contain invalid characters.
+
+#### Fix
+
+**File:** `lifeguard-derive/src/macros/partial_model.rs:245-278`
+
+**After (Fixed Code):**
+```rust
+// Validate segments: check for empty segments and invalid identifiers
+for (idx, segment) in segments.iter().enumerate() {
+    if segment.is_empty() {
+        // ... existing empty segment error handling ...
+    }
+    
+    // Validate that the segment is a valid Rust identifier
+    // Use syn::parse_str to safely check if the segment is a valid identifier
+    if syn::parse_str::<syn::Ident>(segment).is_err() {
+        return Err(syn::Error::new_spanned(
+            error_span,
+            format!("Entity path contains invalid identifier \"{}\" at position {} in #[lifeguard(entity = \"{}\")]. Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", segment, idx + 1, entity_path_str),
+        )
+        .to_compile_error());
+    }
+}
+
+// Later, after validation:
+for segment in segments {
+    // At this point, we've validated that segment is not empty and is a valid identifier
+    // Parse the segment as an identifier to get proper span handling
+    let ident = syn::parse_str::<syn::Ident>(segment)
+        .expect("Segment should be valid identifier after validation");
+    path.segments.push(syn::PathSegment {
+        ident,
+        arguments: syn::PathArguments::None,
+    });
+}
+```
+
+**Changes:**
+1. ✅ Added validation loop to check all path segments for valid identifiers using `syn::parse_str::<syn::Ident>()`
+2. ✅ Generate helpful error messages indicating which segment is invalid and at what position
+3. ✅ Return compile errors instead of panicking
+4. ✅ Only create `syn::Ident` instances after validation passes
+5. ✅ Use `syn::parse_str::<syn::Ident>()` for both validation and creation (consistent approach)
+
+#### Tests Added
+
+**File:** `lifeguard-derive/tests/ui.rs`
+
+**Negative Test Cases (should fail to compile):**
+1. ✅ `compile_error_partial_model_invalid_identifier_single_colon` - Verifies `:foo` produces compile error
+2. ✅ `compile_error_partial_model_invalid_identifier_colon_in_middle` - Verifies `foo:bar` produces compile error
+3. ✅ `compile_error_partial_model_invalid_identifier_starts_with_number` - Verifies `123abc` produces compile error
+4. ✅ `compile_error_partial_model_invalid_identifier_contains_hyphen` - Verifies `foo-bar` produces compile error
+5. ✅ `compile_error_partial_model_invalid_identifier_path_segment` - Verifies `valid::123invalid` produces compile error
+
+**Test Files:**
+- `lifeguard-derive/tests/ui/compile_error_partial_model_invalid_identifier_single_colon.rs`
+- `lifeguard-derive/tests/ui/compile_error_partial_model_invalid_identifier_colon_in_middle.rs`
+- `lifeguard-derive/tests/ui/compile_error_partial_model_invalid_identifier_starts_with_number.rs`
+- `lifeguard-derive/tests/ui/compile_error_partial_model_invalid_identifier_contains_hyphen.rs`
+- `lifeguard-derive/tests/ui/compile_error_partial_model_invalid_identifier_path_segment.rs`
+
+**Test Results:**
+```
+running 5 tests
+test compile_error_partial_model_invalid_identifier_colon_in_middle ... ok
+test compile_error_partial_model_invalid_identifier_contains_hyphen ... ok
+test compile_error_partial_model_invalid_identifier_path_segment ... ok
+test compile_error_partial_model_invalid_identifier_single_colon ... ok
+test compile_error_partial_model_invalid_identifier_starts_with_number ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured
+```
+
+#### Impact
+
+- **Before Fix:**
+  - Invalid identifiers in entity paths caused macro expansion to panic
+  - No helpful error messages for users
+  - Panic messages were cryptic and unhelpful
+  - Users couldn't understand what went wrong
+  - Only empty segment validation existed, leaving many invalid cases uncaught
+
+- **After Fix:**
+  - Invalid identifiers produce clear compile errors
+  - Error messages explain the problem and indicate which segment is invalid
+  - Macro expansion fails gracefully with helpful diagnostics
+  - Users can easily understand and fix their code
+  - All invalid identifier cases are caught before `syn::Ident::new()` is called
+
+#### Related Files
+
+- `lifeguard-derive/src/macros/partial_model.rs:245-278` - Fixed validation logic
+- `lifeguard-derive/tests/ui.rs` - Added test cases
+- `lifeguard-derive/tests/ui/compile_error_partial_model_invalid_identifier_*.rs` - Negative test cases
+
+---
+
 ## Bug Report Template
 
 ```markdown

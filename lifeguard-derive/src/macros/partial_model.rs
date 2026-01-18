@@ -242,11 +242,16 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                     // Handle both simple identifiers (e.g., "UserEntity") and paths (e.g., "users::Entity")
                     let segments: Vec<&str> = entity_path_str.split("::").collect();
                     
-                    // Validate segments: check for empty segments that would cause syn::Ident::new to panic
+                    // Validate segments: check for empty segments and invalid identifiers
                     // Empty segments can occur with:
                     // - Empty string: ""
                     // - Trailing colons: "foo::"
                     // - Consecutive colons: "foo::::bar"
+                    // Invalid identifiers can occur with:
+                    // - Single colon: ":foo" or "foo:bar"
+                    // - Starting with number: "123abc"
+                    // - Containing hyphens: "foo-bar"
+                    // - Other invalid Rust identifier characters
                     for (idx, segment) in segments.iter().enumerate() {
                         if segment.is_empty() {
                             let error_msg = if segments.len() == 1 {
@@ -263,6 +268,16 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                             )
                             .to_compile_error());
                         }
+                        
+                        // Validate that the segment is a valid Rust identifier
+                        // Use syn::parse_str to safely check if the segment is a valid identifier
+                        if syn::parse_str::<syn::Ident>(segment).is_err() {
+                            return Err(syn::Error::new_spanned(
+                                error_span,
+                                format!("Entity path contains invalid identifier \"{}\" at position {} in #[lifeguard(entity = \"{}\")]. Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", segment, idx + 1, entity_path_str),
+                            )
+                            .to_compile_error());
+                        }
                     }
                     
                     let mut path = syn::Path {
@@ -270,9 +285,13 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                         segments: syn::punctuated::Punctuated::new(),
                     };
                     for segment in segments {
-                        // At this point, we've validated that segment is not empty
+                        // At this point, we've validated that segment is not empty and is a valid identifier
+                        // Parse the segment as an identifier to get proper span handling
+                        // This is safe because we've already validated it above
+                        let ident = syn::parse_str::<syn::Ident>(segment)
+                            .expect("Segment should be valid identifier after validation");
                         path.segments.push(syn::PathSegment {
-                            ident: syn::Ident::new(segment, proc_macro2::Span::call_site()),
+                            ident,
                             arguments: syn::PathArguments::None,
                         });
                     }
