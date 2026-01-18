@@ -35,7 +35,7 @@ use crate::model::ModelTrait;
 use crate::query::{SelectQuery, LifeModelTrait};
 use crate::relation::traits::Related;
 use crate::relation::def::extract_table_name;
-use sea_query::{Expr, Condition, Value};
+use sea_query::{Expr, Condition, Value, ExprTrait};
 use std::collections::HashMap;
 
 /// Convert a `sea_query::Value` to a SQL string representation
@@ -291,20 +291,14 @@ where
             let fk_col = rel_def.from_col.iter().next().unwrap();
             let fk_col_str = fk_col.to_string();
             
-            // Use IN clause - Expr::col() with string literals works (Expr::col("id").is_in(...))
-            // The issue is Expr::col(&str) from String may not return SimpleExpr with is_in().
-            // Workaround: Use Expr::col() with a static string by leaking the String
-            // This ensures the &str lives for the duration and Expr::col() can work properly
-            // Use IN clause - Expr::col() with string literals works (Expr::col("id").is_in(...))
-            // The issue is Expr::col(&str) from String returns Expr, not SimpleExpr with is_in().
-            // This is a known limitation - we need to use a workaround for dynamic column names.
-            // For now, use Expr::cust() to create the IN clause manually.
-            // TODO: Fix this to use proper sea_query API when column names are dynamic
-            let placeholders: Vec<String> = (0..pk_values.len()).map(|i| format!("${}", i + 1)).collect();
-            let in_clause = format!("{} IN ({})", fk_col_str, placeholders.join(", "));
-            // Note: This approach doesn't properly handle parameters - it's a placeholder
-            // The actual implementation should use the proper sea_query API
-            query = query.filter(Expr::cust(in_clause));
+            // Create DynIden from owned String - this ensures DynIden owns the data
+            // DynIden::from(String) creates an owned DynIden
+            let fk_col_iden = sea_query::DynIden::from(fk_col_str);
+            
+            // Use Expr::col().is_in() to properly bind parameters
+            // The DynIden owns the string data, so there are no lifetime issues
+            // The is_in() method will properly bind the pk_values as parameters
+            query = query.filter(Expr::col(fk_col_iden).is_in(pk_values));
         }
     } else {
         // Composite key: use OR conditions for each unique PK combination
@@ -1769,5 +1763,135 @@ mod tests {
         // should be skipped entirely (not processed with partial FK data like "42|").
         // The bug fix ensures `continue 'outer` is used to skip to the next entity when
         // any FK column is missing, preventing partial FK key construction.
+    }
+
+    #[test]
+    fn test_single_key_eager_loading_parameter_binding() {
+        // Test that single-key eager loading properly binds parameters
+        // This test verifies the fix for the bug where Expr::cust() was used with
+        // placeholders ($1, $2, $3) but values were never bound, causing "missing parameter" errors.
+        //
+        // The fix uses Expr::col().is_in() which properly binds parameters through sea_query's API.
+        // This test verifies that the code compiles and the query building logic is correct.
+        
+        use sea_query::{TableName, IntoIden, ConditionType};
+        use crate::relation::def::{RelationDef, RelationType};
+        use crate::relation::identity::Identity;
+        use crate::query::{SelectQuery, LifeModelTrait};
+        use sea_query::Expr;
+        
+        // Create a simple test scenario: User -> Posts (single key relationship)
+        #[derive(Default, Copy, Clone)]
+        struct TestUserEntity;
+        
+        impl sea_query::Iden for TestUserEntity {
+            fn unquoted(&self) -> &str { "users" }
+        }
+        
+        impl LifeEntityName for TestUserEntity {
+            fn table_name(&self) -> &'static str { "users" }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestUserColumn { Id }
+        
+        impl sea_query::Iden for TestUserColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        
+        impl sea_query::IdenStatic for TestUserColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        impl LifeModelTrait for TestUserEntity {
+            type Model = TestUserModel;
+            type Column = TestUserColumn;
+        }
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestPostEntity;
+        
+        impl sea_query::Iden for TestPostEntity {
+            fn unquoted(&self) -> &str { "posts" }
+        }
+        
+        impl LifeEntityName for TestPostEntity {
+            fn table_name(&self) -> &'static str { "posts" }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestPostColumn { Id }
+        
+        impl sea_query::Iden for TestPostColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        
+        impl sea_query::IdenStatic for TestPostColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        impl LifeModelTrait for TestPostEntity {
+            type Model = TestPostModel;
+            type Column = TestPostColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct TestUserModel;
+        #[derive(Clone, Debug)]
+        struct TestPostModel;
+        
+        // Create a relation definition for single-key relationship
+        let rel_def = RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+            to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
+            from_col: Identity::Unary("id".into()),
+            to_col: Identity::Unary("user_id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+        
+        // Simulate the single-key path: create a query with IN clause
+        let pk_values = vec![
+            sea_query::Value::Int(Some(1)),
+            sea_query::Value::Int(Some(2)),
+            sea_query::Value::Int(Some(3)),
+        ];
+        
+        // This is the fixed code path: use Expr::col().is_in() instead of Expr::cust()
+        let fk_col = rel_def.from_col.iter().next().unwrap();
+        let fk_col_str = fk_col.to_string();
+        let fk_col_iden = sea_query::DynIden::from(fk_col_str);
+        
+        // Build query with IN clause - this should properly bind parameters
+        let mut query = SelectQuery::<TestPostEntity>::new();
+        query = query.filter(Expr::col(fk_col_iden).is_in(pk_values));
+        
+        // Verify the query was built (compile-time check)
+        // The actual parameter binding is verified by sea_query's build() method
+        // which extracts values and creates placeholders correctly
+        let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
+        
+        // Verify SQL contains IN clause
+        assert!(sql.to_uppercase().contains("IN"), "SQL should contain IN clause");
+        
+        // Verify values are extracted (this is the key fix - values should be bound)
+        let values_vec: Vec<_> = values.iter().collect();
+        assert_eq!(values_vec.len(), 3, "Should have 3 parameter values bound for IN clause");
+        
+        // Verify SQL contains placeholders
+        let placeholder_count = sql.matches('$').count();
+        assert_eq!(placeholder_count, 3, "SQL should contain 3 parameter placeholders");
+        
+        // This test verifies that:
+        // 1. The code compiles (fixes the type errors)
+        // 2. Parameters are properly bound (values_vec.len() == 3)
+        // 3. SQL contains placeholders ($1, $2, $3)
+        // 4. The fix uses Expr::col().is_in() instead of Expr::cust() with unbound placeholders
     }
 }
