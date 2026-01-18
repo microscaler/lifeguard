@@ -114,10 +114,9 @@ impl Default for ColumnAttributes {
 
 /// Parse all column attributes from a field
 /// 
-/// This function is a placeholder for future functionality that will parse
-/// all column attributes at once. Currently, attributes are parsed individually
-/// as needed.
-#[allow(dead_code)]
+/// Extracts all column-related attributes from a field and returns them
+/// as a `ColumnAttributes` struct. Used by the `LifeModel` macro to generate
+/// `ColumnTrait::def()` implementations.
 pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
     let mut attrs = ColumnAttributes::default();
     

@@ -89,6 +89,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut primary_key_types: Vec<&Type> = Vec::new(); // Track all primary key types for tuple ValueType
     let mut _primary_key_auto_increment = false; // Reserved for future PrimaryKeyTrait implementation
     let mut primary_key_to_column_mappings = Vec::new();
+    // Track column definitions for ColumnTrait::def() implementations
+    let mut column_def_match_arms = Vec::new();
+    let mut enum_type_name_match_arms = Vec::new();
 
     for field in fields.iter() {
         let field_name = field.ident.as_ref().unwrap();
@@ -96,9 +99,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let column_name = attributes::extract_column_name(field)
             .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
 
-        // Check if primary key
-        let is_primary_key = attributes::has_attribute(field, "primary_key");
-        let is_auto_increment = attributes::has_attribute(field, "auto_increment");
+        // Extract all column attributes
+        let col_attrs = attributes::parse_column_attributes(field);
+        let is_primary_key = col_attrs.is_primary_key;
+        let is_auto_increment = col_attrs.is_auto_increment;
 
         // Generate Column enum variant (PascalCase)
         let column_variant = Ident::new(
@@ -841,6 +845,52 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         from_row_fields.push(quote! {
             #field_name: #get_expr,
         });
+
+        // Generate ColumnTrait::def() match arm
+        // Convert field type to string representation for ColumnDefinition
+        let rust_type_str = quote! { #field_type }.to_string();
+        
+        // Determine nullability from Option<T> or #[nullable] attribute
+        let is_nullable = col_attrs.is_nullable || rust_type_str.contains("Option<");
+        
+        // Build ColumnDefinition struct literal
+        let column_type_expr = col_attrs.column_type.as_ref().map(|ct| {
+            let ct_lit = syn::LitStr::new(ct, field_name.span());
+            quote! { Some(#ct_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let default_value_expr = col_attrs.default_value.as_ref().map(|dv| {
+            let dv_lit = syn::LitStr::new(dv, field_name.span());
+            quote! { Some(#dv_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        // Extract boolean attributes for use in quote! macro
+        let is_unique_attr = col_attrs.is_unique;
+        let is_indexed_attr = col_attrs.is_indexed;
+        let is_auto_increment_attr = col_attrs.is_auto_increment;
+        
+        column_def_match_arms.push(quote! {
+            Column::#column_variant => lifeguard::ColumnDefinition {
+                column_type: #column_type_expr,
+                nullable: #is_nullable,
+                default_value: #default_value_expr,
+                unique: #is_unique_attr,
+                indexed: #is_indexed_attr,
+                auto_increment: #is_auto_increment_attr,
+            },
+        });
+        
+        // Generate ColumnTrait::enum_type_name() match arm if enum_name is present
+        if let Some(ref enum_name) = col_attrs.enum_name {
+            let enum_name_lit = syn::LitStr::new(enum_name, field_name.span());
+            enum_type_name_match_arms.push(quote! {
+                Column::#column_variant => Some(#enum_name_lit.to_string()),
+            });
+        } else {
+            enum_type_name_match_arms.push(quote! {
+                Column::#column_variant => None,
+            });
+        }
     }
 
     // Generate primary key value expression for ModelTrait
@@ -1090,10 +1140,20 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
         }
 
-        // Note: ColumnTrait is implemented via blanket impl<T: IntoColumnRef> ColumnTrait for T {}
-        // The default def() method returns ColumnDefinition::default().
-        // To get actual column metadata, use ColumnDefinition::from_rust_type() directly
-        // or extend ColumnTrait in the future with a more specific implementation.
+        // Implement ColumnTrait::def() to return column metadata
+        impl lifeguard::ColumnTrait for Column {
+            fn def(self) -> lifeguard::ColumnDefinition {
+                match self {
+                    #(#column_def_match_arms)*
+                }
+            }
+            
+            fn enum_type_name(self) -> Option<String> {
+                match self {
+                    #(#enum_type_name_match_arms)*
+                }
+            }
+        }
 
         // Create a type alias to ensure Column is fully resolved before DeriveEntity expands
         // This helps the compiler resolve Column during nested macro expansion
