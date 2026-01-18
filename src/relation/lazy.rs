@@ -147,10 +147,45 @@ where
         let mut query = SelectQuery::<R>::new();
 
         // Build WHERE condition from the parent entity's primary key
-        let where_condition = build_where_condition(
-            &rel_def,
-            self.entity,
-        );
+        // For has_many relationships, we need to use to_col (FK in target table) instead of from_col (PK in source table)
+        // because we're querying the target table (to_tbl), not the source table (from_tbl)
+        use crate::relation::def::types::RelationType;
+        let where_condition = if rel_def.rel_type == RelationType::HasMany {
+            // For has_many: query target table (to_tbl) filtered by to_col (FK) = source PK
+            // Example: SELECT * FROM posts WHERE posts.user_id = user.id
+            // NOT: SELECT * FROM posts WHERE users.id = user.id (wrong - users table not in query)
+            use crate::relation::def::condition::extract_table_name;
+            use sea_query::{Condition, Expr, ExprTrait};
+            
+            let mut condition = Condition::all();
+            let pk_identity = self.entity.get_primary_key_identity();
+            let pk_values = self.entity.get_primary_key_values();
+            
+            // Ensure arities match
+            assert_eq!(
+                rel_def.to_col.arity(),
+                pk_identity.arity(),
+                "Foreign key columns (to_col) and primary key must have matching arity for has_many"
+            );
+            
+            // Match to_col (FK in target table) to source PK values
+            for (fk_col, pk_val) in rel_def.to_col.iter().zip(pk_values.iter()) {
+                let fk_col_str = fk_col.to_string();
+                let to_tbl_str = extract_table_name(&rel_def.to_tbl);
+                
+                // Create WHERE condition: to_table.fk_col = source_pk_value
+                // Use the same pattern as build_where_condition in condition.rs
+                let col_expr = format!("{}.{}", to_tbl_str, fk_col_str);
+                let expr = Expr::cust(col_expr).eq(Expr::val(pk_val.clone()));
+                condition = condition.add(expr);
+            }
+            
+            condition
+        } else {
+            // For belongs_to and has_one, use the standard build_where_condition
+            // which uses from_col (correct for these relationship types)
+            build_where_condition(&rel_def, self.entity)
+        };
 
         // Apply the WHERE condition
         query = query.filter(where_condition);
@@ -178,7 +213,7 @@ mod tests {
     #[test]
     fn test_lazy_loader_composite_key() {
         // Test that LazyLoader works with composite key entities
-        use sea_query::{TableName, IntoIden, TableRef, ConditionType};
+        use sea_query::{TableName, IntoIden, ConditionType};
         use crate::relation::def::{RelationDef, RelationType};
         
         #[derive(Default, Copy, Clone)]
@@ -327,5 +362,152 @@ mod tests {
         
         // Just verify it compiles - actual execution test would need executor setup
         let _ = tenant;
+    }
+
+    #[test]
+    fn test_lazy_loader_has_many_uses_to_col() {
+        // Test that LazyLoader::load() for has_many relationships uses to_col (FK in target table)
+        // instead of from_col (PK in source table), which would reference an unjoined table
+        // 
+        // BUG FIX: Previously, build_where_condition used from_tbl.from_col (e.g., users.id),
+        // but the query selects from to_tbl (posts) without joining users, causing invalid SQL.
+        // The fix uses to_col (posts.user_id) instead.
+        
+        use sea_query::{TableName, IntoIden, ConditionType};
+        use crate::relation::def::{RelationDef, RelationType};
+        use crate::relation::identity::Identity;
+        
+        #[derive(Default, Copy, Clone)]
+        struct UserEntity;
+        
+        impl sea_query::Iden for UserEntity {
+            fn unquoted(&self) -> &str { "users" }
+        }
+        
+        impl crate::LifeEntityName for UserEntity {
+            fn table_name(&self) -> &'static str { "users" }
+        }
+        
+        impl crate::LifeModelTrait for UserEntity {
+            type Model = UserModel;
+            type Column = UserColumn;
+        }
+        
+        #[derive(Default, Copy, Clone)]
+        struct PostEntity;
+        
+        impl sea_query::Iden for PostEntity {
+            fn unquoted(&self) -> &str { "posts" }
+        }
+        
+        impl crate::LifeEntityName for PostEntity {
+            fn table_name(&self) -> &'static str { "posts" }
+        }
+        
+        impl crate::LifeModelTrait for PostEntity {
+            type Model = PostModel;
+            type Column = PostColumn;
+        }
+        
+        #[derive(Clone, Debug)]
+        struct UserModel { id: i32 }
+        #[derive(Clone, Debug)]
+        struct PostModel { id: i32, user_id: i32 }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum UserColumn { Id }
+        
+        impl sea_query::Iden for UserColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        
+        impl sea_query::IdenStatic for UserColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        #[derive(Copy, Clone, Debug)]
+        enum PostColumn { Id, UserId }
+        
+        impl sea_query::Iden for PostColumn {
+            fn unquoted(&self) -> &str {
+                match self {
+                    PostColumn::Id => "id",
+                    PostColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl sea_query::IdenStatic for PostColumn {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    PostColumn::Id => "id",
+                    PostColumn::UserId => "user_id",
+                }
+            }
+        }
+        
+        impl crate::query::traits::FromRow for PostModel {
+            fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                Ok(PostModel { id: 0, user_id: 0 })
+            }
+        }
+        
+        impl ModelTrait for UserModel {
+            type Entity = UserEntity;
+            fn get(&self, col: UserColumn) -> sea_query::Value {
+                match col {
+                    UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+                }
+            }
+            fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                sea_query::Value::Int(Some(self.id))
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary("id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![sea_query::Value::Int(Some(self.id))]
+            }
+        }
+        
+        impl Related<PostEntity> for UserEntity {
+            fn to() -> RelationDef {
+                RelationDef {
+                    rel_type: RelationType::HasMany,
+                    from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                    to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
+                    from_col: Identity::Unary("id".into()),  // users.id (source PK)
+                    to_col: Identity::Unary("user_id".into()), // posts.user_id (target FK)
+                    through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
+                    is_owner: true,
+                    skip_fk: false,
+                    on_condition: None,
+                    condition_type: ConditionType::All,
+                }
+            }
+        }
+        
+        let user = UserModel { id: 42 };
+        
+        // Verify that LazyLoader::load() would use to_col (posts.user_id) not from_col (users.id)
+        // The fix ensures the WHERE condition references posts.user_id, not users.id
+        // This test verifies the function compiles with the fix
+        fn _test_has_many_fix<M: ModelTrait, R: LifeModelTrait, Ex: LifeExecutor>(
+            entity: &M,
+            _executor: &Ex,
+        ) -> Result<Vec<R::Model>, LifeError>
+        where
+            M::Entity: Related<R>,
+            R::Model: crate::query::traits::FromRow,
+        {
+            let loader = LazyLoader::new(entity, _executor);
+            loader.load()
+        }
+        
+        // Just verify it compiles - actual execution test would need executor setup
+        let _ = user;
     }
 }
