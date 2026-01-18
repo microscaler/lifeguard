@@ -328,25 +328,93 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     
     // Process each variant to extract relationship information
     let mut related_impls = Vec::new();
+    let mut related_entity_variants = Vec::new();
+    let mut related_entity_impls = Vec::new();
+    let mut has_errors = false;
     
     for variant in variants {
-        if let Some(related_impl) = process_relation_variant(variant, enum_name) {
-            related_impls.push(related_impl);
+        if let Some((related_impl, target_entity_path, variant_name)) = process_relation_variant(variant, enum_name) {
+            related_impls.push(related_impl.clone());
+            
+            // Check if this is a dummy path (used for error cases)
+            // We check if the path is just "Entity" without any module prefix
+            // This is a heuristic - if the path segments are just ["Entity"], it's likely a dummy
+            let is_dummy_path = target_entity_path.segments.len() == 1 
+                && target_entity_path.segments[0].ident == "Entity";
+            
+            // Only generate RelatedEntity if this is not a dummy path (error case)
+            if !is_dummy_path {
+                // Collect information for RelatedEntity enum generation
+                // RelatedEntity contains Model types, not Entity types
+                related_entity_variants.push(quote! {
+                    #variant_name(<#target_entity_path as lifeguard::LifeModelTrait>::Model),
+                });
+                
+                // Generate From implementation for RelatedEntity variant
+                related_entity_impls.push(quote! {
+                    impl From<<#target_entity_path as lifeguard::LifeModelTrait>::Model> for RelatedEntity {
+                        fn from(model: <#target_entity_path as lifeguard::LifeModelTrait>::Model) -> Self {
+                            RelatedEntity::#variant_name(model)
+                        }
+                    }
+                });
+            }
+        } else {
+            // If process_relation_variant returns None, it means there was no relationship info
+            // This is not an error case, just a variant without relationship attributes
         }
     }
     
+    // Generate RelatedEntity enum if we have variants
+    // Note: If there are parse errors, they will be in related_impls and will stop compilation
+    // We don't need to check for errors here since the error token streams will be emitted
+    let related_entity_enum = if !related_entity_variants.is_empty() {
+        quote! {
+            /// RelatedEntity enum for type-safe relationship access
+            ///
+            /// This enum contains variants for each related entity type,
+            /// allowing type-safe access to related entity models.
+            ///
+            /// # Example
+            ///
+            /// ```no_run
+            /// use lifeguard::RelatedEntity;
+            ///
+            /// // Match on related entity type
+            /// match related_entity {
+            ///     RelatedEntity::Posts(post_model) => { /* handle post model */ }
+            ///     RelatedEntity::User(user_model) => { /* handle user model */ }
+            /// }
+            /// ```
+            #[derive(Debug, Clone)]
+            pub enum RelatedEntity {
+                #(#related_entity_variants)*
+            }
+            
+            #(#related_entity_impls)*
+        }
+    } else {
+        quote! {}
+    };
+    
     let expanded: TokenStream2 = quote! {
         #(#related_impls)*
+        #related_entity_enum
     };
     
     TokenStream::from(expanded)
 }
 
 /// Process a relation variant and generate Related trait implementation
+///
+/// Returns a tuple of:
+/// - Related trait implementation TokenStream
+/// - Target entity path for RelatedEntity enum generation
+/// - Variant name for RelatedEntity enum generation
 fn process_relation_variant(
     variant: &Variant,
     _enum_name: &syn::Ident,
-) -> Option<TokenStream2> {
+) -> Option<(TokenStream2, syn::Path, syn::Ident)> {
     let _variant_name = &variant.ident;
     
     // Parse attributes to find relationship type and target entity
@@ -387,7 +455,11 @@ fn process_relation_variant(
                 }
             }) {
                 // Return compile error if parsing fails
-                return Some(err.to_compile_error());
+                return Some((
+                    err.to_compile_error(),
+                    syn::parse_str("Entity").unwrap(), // Dummy path - won't be used for RelatedEntity
+                    variant.ident.clone(),
+                ));
             }
         }
     }
@@ -396,11 +468,15 @@ fn process_relation_variant(
     if let (Some(rel_type_str), Some(target)) = (relationship_type.as_ref(), target_entity.as_ref()) {
         // Validate has_many_through requires through attribute
         if rel_type_str == "has_many_through" && through_entity.is_none() {
-            return Some(syn::Error::new_spanned(
-                &variant.ident,
-                "has_many_through relationship requires a 'through' attribute specifying the join table entity. Use #[lifeguard(has_many_through = \"target::Entity\", through = \"join_table::Entity\")]",
-            )
-            .to_compile_error());
+            return Some((
+                syn::Error::new_spanned(
+                    &variant.ident,
+                    "has_many_through relationship requires a 'through' attribute specifying the join table entity. Use #[lifeguard(has_many_through = \"target::Entity\", through = \"join_table::Entity\")]",
+                )
+                .to_compile_error(),
+                syn::parse_str("Entity").unwrap(), // Dummy path for error case
+                variant.ident.clone(),
+            ));
         }
         
         // Capture relationship type before move
@@ -469,14 +545,14 @@ fn process_relation_variant(
         // Parse target entity path (e.g., "super::posts::Entity")
         let target_entity_path: syn::Path = match parse_entity_path(target, "entity path") {
             Ok(path) => path,
-            Err(err) => return Some(err),
+            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone())),
         };
         
         // Parse through entity path for has_many_through relationships
         let (through_entity_path, through_table_name) = if let Some(through) = through_entity.as_ref() {
             let through_path: syn::Path = match parse_entity_path(through, "through entity path") {
                 Ok(path) => path,
-                Err(err) => return Some(err),
+                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone())),
             };
             let through_table = quote! {
                 {
@@ -542,7 +618,7 @@ fn process_relation_variant(
             // Parse the column reference and build Identity
             match build_identity_from_column_ref(from_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some(err),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone())),
             }
         } else {
             // Default: infer from relationship type
@@ -591,7 +667,7 @@ fn process_relation_variant(
             // The "to" column might be in a different module (e.g., "super::users::Column::Id")
             match build_identity_from_column_ref(to_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some(err),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone())),
             }
         } else {
             // Default: infer from relationship type
@@ -670,7 +746,8 @@ fn process_relation_variant(
             quote! { None }
         };
         
-        Some(quote! {
+        let variant_name = variant.ident.clone();
+        let related_impl = quote! {
             impl lifeguard::Related<#target_entity_path> for Entity {
                 fn to() -> lifeguard::RelationDef {
                     use sea_query::{TableRef, TableName, ConditionType, IntoIden};
@@ -689,7 +766,9 @@ fn process_relation_variant(
                 }
             }
             #fk_col_impl
-        })
+        };
+        
+        Some((related_impl, target_entity_path.clone(), variant_name))
     } else {
         None
     }

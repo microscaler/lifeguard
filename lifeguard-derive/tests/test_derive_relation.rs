@@ -69,8 +69,11 @@ impl LifeModelTrait for CommentEntity {
 }
 
 // Test models and columns (simplified)
+#[derive(Debug, Clone)]
 pub struct UserModel;
+#[derive(Debug, Clone)]
 pub struct PostModel;
+#[derive(Debug, Clone)]
 pub struct CommentModel;
 
 #[derive(Copy, Clone, Debug)]
@@ -205,7 +208,9 @@ impl LifeModelTrait for PostTagEntity {
 }
 
 // Test models and columns for has_many_through
+#[derive(Debug, Clone)]
 pub struct TagModel;
+#[derive(Debug, Clone)]
 pub struct PostTagModel;
 
 #[derive(Copy, Clone, Debug)]
@@ -338,6 +343,23 @@ fn test_derive_relation_has_many_through() {
         }
         _ => panic!("to_col should be Unary for has_many_through"),
     }
+}
+
+#[test]
+fn test_derive_relation_generates_related_entity() {
+    // Test that DeriveRelation generates RelatedEntity enum
+    // The RelatedEntity enum should have variants for each relation
+    
+    // Verify RelatedEntity enum exists and compiles
+    // This is a compile-time check - if RelatedEntity doesn't exist, this won't compile
+    // Note: Actual model instances would require proper ModelTrait implementations
+    // This test just verifies the enum structure is generated
+    let _ = RelatedEntity::Comments;
+    let _ = RelatedEntity::User;
+    let _ = RelatedEntity::Tags;
+    
+    // Verify the enum can be used (compile-time check)
+    // The actual From implementations require proper model types
 }
 
 // Edge case tests for composite keys and path-qualified columns
@@ -486,6 +508,7 @@ impl sea_query::IdenStatic for AuthorColumn {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct AuthorModel;
 
 // Test module for belongs_to default column inference
