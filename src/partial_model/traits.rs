@@ -5,7 +5,6 @@
 
 use crate::query::{LifeModelTrait, FromRow};
 use super::query::SelectPartialQuery;
-use sea_query::Expr;
 
 /// Trait for partial models that represent a subset of columns
 ///
@@ -27,12 +26,9 @@ use sea_query::Expr;
 /// impl PartialModelTrait for UserPartial {
 ///     type Entity = User;
 ///     
-///     fn selected_columns() -> Vec<sea_query::Expr> {
-///         vec![
-///             sea_query::Expr::col("id"),
-///             sea_query::Expr::col("name"),
-///         ]
-///     }
+    ///     fn selected_columns() -> Vec<&'static str> {
+    ///         vec!["id", "name"]
+    ///     }
 /// }
 ///
 /// impl lifeguard::FromRow for UserPartial {
@@ -60,19 +56,26 @@ pub trait PartialModelTrait: FromRow {
     
     /// Get the list of columns that should be selected for this partial model
     ///
-    /// This method returns a vector of column expressions that should be selected.
+    /// This method returns a vector of column names that should be selected.
     /// The order of columns should match the order in which they are read in
     /// the `FromRow` implementation.
     ///
     /// # Returns
     ///
-    /// A vector of column expressions to select (typically `Expr::col("column_name")`)
+    /// A vector of column names as static string slices
     ///
-    /// # Note
+    /// # Example
     ///
-    /// This is a simplified API. In a full implementation, this might return
-    /// column references directly instead of Expr, to work better with SeaQuery's API.
-    fn selected_columns() -> Vec<Expr>
+    /// ```no_run
+    /// impl PartialModelTrait for UserPartial {
+    ///     type Entity = User;
+    ///     
+    ///     fn selected_columns() -> Vec<&'static str> {
+    ///         vec!["id", "name"]
+    ///     }
+    /// }
+    /// ```
+    fn selected_columns() -> Vec<&'static str>
     where
         Self: Sized;
 }

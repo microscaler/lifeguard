@@ -1,0 +1,11 @@
+error: Entity path has leading colons. Found absolute path in #[lifeguard(entity = "::UserEntity")]. Use a valid path like "foo::Entity" or "Entity".
+  --> tests/ui/compile_error_partial_model_leading_colons.rs:10:12
+   |
+10 | pub struct UserPartial {
+   |            ^^^^^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_partial_model_leading_colons.rs:13:2
+   |
+13 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_partial_model_leading_colons.rs`
