@@ -1,0 +1,11 @@
+error: Entity path contains invalid identifier "foo:bar" at position 1 in "foo:bar::Entity". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).
+  --> tests/ui/compile_error_relation_invalid_entity_path_colon_in_middle.rs:11:5
+   |
+11 |     Invalid,
+   |     ^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_relation_invalid_entity_path_colon_in_middle.rs:12:2
+   |
+12 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_relation_invalid_entity_path_colon_in_middle.rs`
