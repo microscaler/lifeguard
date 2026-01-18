@@ -236,6 +236,33 @@ pub trait RelationTrait: LifeModelTrait {
         let join_expr = rel_def.join_on_expr();
         self.has_many(rel, "", join_expr)
     }
+
+    /// Get a query builder for a has_many_through relationship using RelationDef
+    ///
+    /// This is a convenience method that automatically generates join conditions
+    /// from the provided `RelationDef` for many-to-many relationships.
+    ///
+    /// # Arguments
+    ///
+    /// * `rel` - The related entity type
+    /// * `through` - The intermediate entity type (join table)
+    /// * `rel_def` - The relationship definition containing join metadata
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery` builder for the related entities with automatically generated join conditions
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rel_def` is not a `HasManyThrough` relationship or if required fields are missing.
+    fn has_many_through_with_def<R, T>(&self, rel: R, through: T, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    where
+        R: LifeModelTrait + Iden,
+        T: LifeModelTrait + Iden,
+    {
+        let (first_join, second_join) = rel_def.join_on_exprs();
+        self.has_many_through(rel, through, first_join, second_join)
+    }
 }
 
 /// Helper trait for building relationship queries with join conditions
@@ -926,6 +953,8 @@ mod tests {
                     from_col: Identity::Unary(sea_query::DynIden::from(UserColumn::Id.as_str())),
                     to_col: Identity::Unary(sea_query::DynIden::from(PostColumn::UserId.as_str())),
                     through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,
@@ -1049,6 +1078,8 @@ mod tests {
                         from_col: Identity::Unary("id".into()),
                         to_col: Identity::Unary("user_id".into()),
                         through_tbl: None,
+                        through_from_col: None,
+                        through_to_col: None,
                         is_owner: true,
                         skip_fk: false,
                         on_condition: None,
@@ -1062,6 +1093,8 @@ mod tests {
                         from_col: Identity::Unary("id".into()),
                         to_col: Identity::Unary("post_id".into()),
                         through_tbl: None,
+                        through_from_col: None,
+                        through_to_col: None,
                         is_owner: true,
                         skip_fk: false,
                         on_condition: None,
@@ -1219,6 +1252,8 @@ mod tests {
                     from_col: Identity::Unary("id".into()),
                     to_col: Identity::Unary("user_id".into()),
                     through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,
@@ -1236,6 +1271,8 @@ mod tests {
                     from_col: Identity::Unary("id".into()),
                     to_col: Identity::Unary("post_id".into()),
                     through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,
@@ -1442,6 +1479,8 @@ mod tests {
                     from_col: Identity::Unary("id".into()),
                     to_col: Identity::Unary("user_id".into()),
                     through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,
@@ -1459,6 +1498,8 @@ mod tests {
                     from_col: Identity::Unary("id".into()),
                     to_col: Identity::Unary("post_id".into()),
                     through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,
@@ -1476,6 +1517,8 @@ mod tests {
                     from_col: Identity::Unary("id".into()),
                     to_col: Identity::Unary("comment_id".into()),
                     through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,

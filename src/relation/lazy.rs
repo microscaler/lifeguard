@@ -305,6 +305,8 @@ mod tests {
                     from_col: Identity::Binary("id".into(), "tenant_id".into()),
                     to_col: Identity::Binary("id".into(), "tenant_id".into()),
                     through_tbl: None,
+                    through_from_col: None,
+                    through_to_col: None,
                     is_owner: true,
                     skip_fk: false,
                     on_condition: None,

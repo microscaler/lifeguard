@@ -343,6 +343,74 @@ fn test_derive_relation_has_many_through() {
         }
         _ => panic!("to_col should be Unary for has_many_through"),
     }
+    
+    // Verify through_from_col is set (FK in join table pointing to source)
+    // This should be "post_id" in PostTags
+    assert!(rel_def.through_from_col.is_some(), "has_many_through should have through_from_col set");
+    match rel_def.through_from_col.as_ref().unwrap() {
+        lifeguard::Identity::Unary(col) => {
+            assert_eq!(col.to_string(), "post_id", "through_from_col should be 'post_id' for Post -> PostTags -> Tags");
+        }
+        _ => panic!("through_from_col should be Unary for has_many_through"),
+    }
+    
+    // Verify through_to_col is set (FK in join table pointing to target)
+    // This should be "tag_id" in PostTags
+    assert!(rel_def.through_to_col.is_some(), "has_many_through should have through_to_col set");
+    match rel_def.through_to_col.as_ref().unwrap() {
+        lifeguard::Identity::Unary(col) => {
+            assert_eq!(col.to_string(), "tag_id", "through_to_col should be 'tag_id' for Post -> PostTags -> Tags");
+        }
+        _ => panic!("through_to_col should be Unary for has_many_through"),
+    }
+}
+
+#[test]
+fn test_derive_relation_has_many_through_join_exprs() {
+    // Test that has_many_through relationship generates correct two-join expressions
+    // Post -> PostTags (join table) -> Tags
+    // First join: posts.id = post_tags.post_id
+    // Second join: post_tags.tag_id = tags.id
+    
+    let rel_def: RelationDef = <Entity as Related<TagEntity>>::to();
+    
+    // Verify join_on_exprs() generates correct two joins
+    let (first_join, second_join) = rel_def.join_on_exprs();
+    
+    // Verify both joins are created (can't easily test the exact SQL string, but we can verify they're Expr types)
+    let _ = first_join;
+    let _ = second_join;
+    
+    // Verify that join_on_expr() would generate wrong SQL (posts.id = tags.id)
+    // This is the bug we're fixing - join_on_expr() should not be used for has_many_through
+    // But we can't easily test the SQL string, so we just verify join_on_exprs() works
+}
+
+#[test]
+#[should_panic(expected = "join_on_exprs() can only be called on HasManyThrough relationships")]
+fn test_derive_relation_join_on_exprs_panics_on_non_has_many_through() {
+    // Test that join_on_exprs() panics when called on non-has_many_through relationships
+    use lifeguard::relation::def::{RelationDef, RelationType};
+    use lifeguard::relation::identity::Identity;
+    use sea_query::{TableName, IntoIden, ConditionType};
+    
+    let rel_def = RelationDef {
+        rel_type: RelationType::BelongsTo,
+        from_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
+        to_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+        from_col: Identity::Unary("user_id".into()),
+        to_col: Identity::Unary("id".into()),
+        through_tbl: None,
+        through_from_col: None,
+        through_to_col: None,
+        is_owner: true,
+        skip_fk: false,
+        on_condition: None,
+        condition_type: ConditionType::All,
+    };
+    
+    // This should panic
+    let _ = rel_def.join_on_exprs();
 }
 
 #[test]

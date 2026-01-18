@@ -746,6 +746,47 @@ fn process_relation_variant(
             quote! { None }
         };
         
+        // Generate through_from_col and through_to_col for has_many_through relationships
+        // These are the foreign key columns in the join table pointing to source and target entities
+        let (through_from_col_expr, through_to_col_expr) = if rel_type_str == "has_many_through" {
+            // For has_many_through: infer FK column names from source and target entity names
+            // through_from_col: FK in join table pointing to source (e.g., "post_id" in PostTags for Post -> PostTags -> Tags)
+            // through_to_col: FK in join table pointing to target (e.g., "tag_id" in PostTags for Post -> PostTags -> Tags)
+            
+            // Infer FK column name from source entity (Entity)
+            // We need to get the entity name - assume it's "Entity" in the same module
+            // Use the table name to infer the FK column name
+            let source_fk_col = quote! {
+                {
+                    use lifeguard::LifeEntityName;
+                    // Get source entity's table name and infer foreign key column
+                    // Foreign key in join table pointing to source (e.g., "post_id" in post_tags for Post -> PostTags -> Tags)
+                    let from_table = Entity::default().table_name();
+                    // Convert table name to singular and append "_id"
+                    // Simple heuristic: remove trailing 's' if present, then append "_id"
+                    let fk_name = if from_table.ends_with('s') && from_table.len() > 1 {
+                        format!("{}_id", &from_table[..from_table.len() - 1])
+                    } else {
+                        format!("{}_id", from_table)
+                    };
+                    // Use String directly - DynIden::from() accepts String
+                    Some(lifeguard::Identity::Unary(sea_query::DynIden::from(fk_name)))
+                }
+            };
+            
+            // Infer FK column name from target entity
+            let target_fk_col_name = infer_foreign_key_column_name(target);
+            let target_fk_col_name_lit = syn::LitStr::new(&target_fk_col_name, proc_macro2::Span::call_site());
+            let target_fk_col = quote! {
+                Some(lifeguard::Identity::Unary(sea_query::DynIden::from(#target_fk_col_name_lit)))
+            };
+            
+            (source_fk_col, target_fk_col)
+        } else {
+            // For non-has_many_through relationships, these fields are None
+            (quote! { None }, quote! { None })
+        };
+        
         let variant_name = variant.ident.clone();
         let related_impl = quote! {
             impl lifeguard::Related<#target_entity_path> for Entity {
@@ -758,6 +799,8 @@ fn process_relation_variant(
                         from_col: #from_col_identity,
                         to_col: #to_col_identity,
                         through_tbl: #through_tbl_expr,
+                        through_from_col: #through_from_col_expr,
+                        through_to_col: #through_to_col_expr,
                         is_owner: true,
                         skip_fk: false,
                         on_condition: None,

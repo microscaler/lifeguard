@@ -55,6 +55,14 @@ pub struct RelationDef {
     /// Through table reference for has_many_through relationships
     /// None for direct relationships (has_one, has_many, belongs_to)
     pub through_tbl: Option<TableRef>,
+    /// Foreign key column(s) in join table pointing to source entity (for has_many_through)
+    /// None for direct relationships
+    /// Example: For Post -> PostTags -> Tags, this would be "post_id" in PostTags
+    pub through_from_col: Option<Identity>,
+    /// Foreign key column(s) in join table pointing to target entity (for has_many_through)
+    /// None for direct relationships
+    /// Example: For Post -> PostTags -> Tags, this would be "tag_id" in PostTags
+    pub through_to_col: Option<Identity>,
     /// Whether this entity owns the relationship
     pub is_owner: bool,
     /// Skip foreign key constraint generation
@@ -74,6 +82,8 @@ impl std::fmt::Debug for RelationDef {
             .field("from_col", &self.from_col)
             .field("to_col", &self.to_col)
             .field("through_tbl", &self.through_tbl)
+            .field("through_from_col", &self.through_from_col)
+            .field("through_to_col", &self.through_to_col)
             .field("is_owner", &self.is_owner)
             .field("skip_fk", &self.skip_fk)
             .field("on_condition", &if self.on_condition.is_some() { "Some" } else { "None" })
@@ -96,6 +106,8 @@ impl RelationDef {
             from_col: self.to_col,
             to_col: self.from_col,
             through_tbl: self.through_tbl,
+            through_from_col: self.through_to_col,
+            through_to_col: self.through_from_col,
             is_owner: !self.is_owner,
             skip_fk: self.skip_fk,
             on_condition: self.on_condition,
@@ -108,6 +120,8 @@ impl RelationDef {
     /// This method automatically generates an `Expr` that can be used in JOIN ON clauses
     /// based on the `from_col` and `to_col` Identity values. It supports both single
     /// and composite keys.
+    ///
+    /// For `has_many_through` relationships, use `join_on_exprs()` instead to get both joins.
     ///
     /// # Returns
     ///
@@ -131,5 +145,80 @@ impl RelationDef {
             self.from_col.clone(),
             self.to_col.clone(),
         )
+    }
+
+    /// Generate join condition expressions for has_many_through relationships
+    ///
+    /// This method generates two join expressions needed for many-to-many relationships:
+    /// 1. First join: `source_table.primary_key = through_table.through_from_col`
+    /// 2. Second join: `through_table.through_to_col = target_table.primary_key`
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(first_join, second_join)` where:
+    /// - `first_join`: Join condition from source to through table
+    /// - `second_join`: Join condition from through to target table
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on a non-`has_many_through` relationship or if required fields are missing.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::relation::def::{RelationDef, RelationType};
+    /// use sea_query::Expr;
+    ///
+    /// let rel_def = RelationDef {
+    ///     rel_type: RelationType::HasManyThrough,
+    ///     // ... other fields ...
+    ///     # through_tbl: Some(/* ... */),
+    ///     # through_from_col: Some(/* ... */),
+    ///     # through_to_col: Some(/* ... */),
+    /// };
+    /// let (first_join, second_join) = rel_def.join_on_exprs();
+    /// // Use in has_many_through: query.left_join(through_entity, first_join).left_join(target_entity, second_join)
+    /// ```
+    pub fn join_on_exprs(&self) -> (sea_query::Expr, sea_query::Expr) {
+        use crate::relation::def::condition::join_tbl_on_expr;
+        use crate::relation::def::types::RelationType;
+        
+        assert_eq!(
+            self.rel_type,
+            RelationType::HasManyThrough,
+            "join_on_exprs() can only be called on HasManyThrough relationships"
+        );
+        
+        let through_tbl = self.through_tbl.as_ref().expect(
+            "HasManyThrough relationship must have through_tbl set"
+        );
+        
+        let through_from_col = self.through_from_col.as_ref().expect(
+            "HasManyThrough relationship must have through_from_col set"
+        );
+        
+        let through_to_col = self.through_to_col.as_ref().expect(
+            "HasManyThrough relationship must have through_to_col set"
+        );
+        
+        // First join: source_table.primary_key = through_table.through_from_col
+        // For has_many_through, from_col is the source entity's primary key
+        let first_join = join_tbl_on_expr(
+            self.from_tbl.clone(),
+            through_tbl.clone(),
+            self.from_col.clone(),
+            through_from_col.clone(),
+        );
+        
+        // Second join: through_table.through_to_col = target_table.primary_key
+        // For has_many_through, to_col is the target entity's primary key
+        let second_join = join_tbl_on_expr(
+            through_tbl.clone(),
+            self.to_tbl.clone(),
+            through_to_col.clone(),
+            self.to_col.clone(),
+        );
+        
+        (first_join, second_join)
     }
 }
