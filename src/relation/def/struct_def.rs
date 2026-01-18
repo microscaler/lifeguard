@@ -102,4 +102,34 @@ impl RelationDef {
             condition_type: self.condition_type,
         }
     }
+
+    /// Generate a join condition expression from this RelationDef
+    ///
+    /// This method automatically generates an `Expr` that can be used in JOIN ON clauses
+    /// based on the `from_col` and `to_col` Identity values. It supports both single
+    /// and composite keys.
+    ///
+    /// # Returns
+    ///
+    /// An `Expr` representing the join condition: `from_table.from_col = to_table.to_col`
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::relation::def::RelationDef;
+    /// use sea_query::Expr;
+    ///
+    /// let rel_def = RelationDef { /* ... */ };
+    /// let join_expr: Expr = rel_def.join_on_expr();
+    /// // Use in left_join: query.left_join(related_entity, join_expr)
+    /// ```
+    pub fn join_on_expr(&self) -> sea_query::Expr {
+        use crate::relation::def::condition::join_tbl_on_expr;
+        join_tbl_on_expr(
+            self.from_tbl.clone(),
+            self.to_tbl.clone(),
+            self.from_col.clone(),
+            self.to_col.clone(),
+        )
+    }
 }

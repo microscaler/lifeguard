@@ -149,6 +149,93 @@ pub trait RelationTrait: LifeModelTrait {
             .left_join(through, first_join)
             .left_join(rel, second_join)
     }
+
+    /// Get a query builder for a belongs_to relationship using RelationDef
+    ///
+    /// This is a convenience method that automatically generates join conditions
+    /// from the provided `RelationDef`, eliminating the need to manually construct
+    /// join expressions.
+    ///
+    /// # Arguments
+    ///
+    /// * `rel` - The related entity type
+    /// * `rel_def` - The relationship definition containing join metadata
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery` builder for the related entity with automatically generated join condition
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{RelationTrait, Related, LifeModelTrait};
+    ///
+    /// struct Post;
+    /// struct User;
+    ///
+    /// impl RelationTrait for Post {
+    ///     // ... other methods ...
+    /// }
+    ///
+    /// impl Related<User> for Post {
+    ///     fn to() -> lifeguard::RelationDef {
+    ///         // ... relationship definition ...
+    ///         # lifeguard::RelationDef { /* ... */ }
+    ///     }
+    /// }
+    ///
+    /// // Use automatic join condition generation
+    /// let query = Post::default().belongs_to_with_def(User, <Post as Related<User>>::to());
+    /// ```
+    fn belongs_to_with_def<R>(&self, rel: R, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    where
+        R: LifeModelTrait + Iden,
+    {
+        let join_expr = rel_def.join_on_expr();
+        self.belongs_to(rel, "", join_expr)
+    }
+
+    /// Get a query builder for a has_one relationship using RelationDef
+    ///
+    /// This is a convenience method that automatically generates join conditions
+    /// from the provided `RelationDef`.
+    ///
+    /// # Arguments
+    ///
+    /// * `rel` - The related entity type
+    /// * `rel_def` - The relationship definition containing join metadata
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery` builder for the related entity with automatically generated join condition
+    fn has_one_with_def<R>(&self, rel: R, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    where
+        R: LifeModelTrait + Iden,
+    {
+        let join_expr = rel_def.join_on_expr();
+        self.has_one(rel, "", join_expr)
+    }
+
+    /// Get a query builder for a has_many relationship using RelationDef
+    ///
+    /// This is a convenience method that automatically generates join conditions
+    /// from the provided `RelationDef`.
+    ///
+    /// # Arguments
+    ///
+    /// * `rel` - The related entity type
+    /// * `rel_def` - The relationship definition containing join metadata
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery` builder for the related entities with automatically generated join condition
+    fn has_many_with_def<R>(&self, rel: R, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    where
+        R: LifeModelTrait + Iden,
+    {
+        let join_expr = rel_def.join_on_expr();
+        self.has_many(rel, "", join_expr)
+    }
 }
 
 /// Helper trait for building relationship queries with join conditions

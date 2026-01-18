@@ -13,7 +13,7 @@ pub use types::RelationType;
 #[doc(inline)]
 pub use struct_def::RelationDef;
 #[doc(inline)]
-pub use condition::{join_tbl_on_condition, build_where_condition};
+pub use condition::{join_tbl_on_condition, join_tbl_on_expr, build_where_condition};
 
 #[cfg(test)]
 mod tests {
