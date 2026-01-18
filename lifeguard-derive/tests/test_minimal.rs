@@ -951,6 +951,8 @@ mod tests {
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
 
         #[derive(LifeModel)]
+        #[table_name = "test_composite_pk"]
+        pub struct CompositePrimaryKeyEntity {
             #[primary_key]
             pub id1: i32,
             #[primary_key]
@@ -1006,6 +1008,8 @@ mod tests {
 
         #[derive(LifeModel)]
         #[table_name = "test_mixed_auto_inc_pk"]
+        pub struct MixedAutoIncrementCompositePrimaryKeyEntity {
+            #[primary_key]
             #[auto_increment]
             pub id1: i32,
             #[primary_key]

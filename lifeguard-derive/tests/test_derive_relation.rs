@@ -365,6 +365,8 @@ pub struct AuthorModel;
 // This module creates a separate Entity that represents ArticleEntity
 // to test belongs_to without from/to attributes
 mod belongs_to_default_test {
+    use lifeguard_derive::DeriveRelation;
+    use lifeguard::{LifeEntityName, LifeModelTrait};
     
     // Entity representing ArticleEntity for this test
     #[derive(Default, Copy, Clone)]
