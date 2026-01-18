@@ -596,7 +596,7 @@ mod tests {
     #[test]
     fn test_join_tbl_on_expr_single_key() {
         // Test that join_tbl_on_expr generates correct Expr for single key
-        use sea_query::{TableName, IntoIden, Expr};
+        use sea_query::{TableName, IntoIden};
         
         let expr = join_tbl_on_expr(
             TableRef::Table(TableName(None, "posts".into_iden()), None),
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn test_join_tbl_on_expr_composite_key() {
         // Test that join_tbl_on_expr generates correct Expr for composite key
-        use sea_query::{TableName, IntoIden, Expr};
+        use sea_query::{TableName, IntoIden};
         
         let expr = join_tbl_on_expr(
             TableRef::Table(TableName(None, "posts".into_iden()), None),

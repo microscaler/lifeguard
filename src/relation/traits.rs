@@ -470,6 +470,167 @@ where
     }
 }
 
+/// Trait for defining multi-hop relationship paths
+///
+/// This trait allows entities to define linked relationships that traverse
+/// through intermediate entities. For example, User → Posts → Comments.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{Linked, LifeModelTrait};
+///
+/// struct User;
+/// struct Post;
+/// struct Comment;
+///
+/// // Define a linked path: User → Posts → Comments
+/// impl Linked<Post, Comment> for User {
+///     fn via() -> Vec<lifeguard::relation::def::RelationDef> {
+///         vec![
+///             // First hop: User → Post
+///             <User as lifeguard::Related<Post>>::to(),
+///             // Second hop: Post → Comment
+///             <Post as lifeguard::Related<Comment>>::to(),
+///         ]
+///     }
+/// }
+/// ```
+pub trait Linked<I, T>
+where
+    Self: LifeModelTrait,
+    I: LifeModelTrait,
+    T: LifeModelTrait,
+{
+    /// Returns a vector of RelationDefs representing the path from Self to T through I
+    ///
+    /// The first RelationDef should be from Self to I (intermediate entity),
+    /// and the second should be from I to T (target entity).
+    ///
+    /// # Returns
+    ///
+    /// A vector of RelationDefs that define the multi-hop path
+    fn via() -> Vec<RelationDef>;
+}
+
+/// Extension trait for models to find linked entities through multi-hop relationships
+///
+/// This trait provides the `find_linked()` method on model instances,
+/// allowing you to find entities through intermediate relationships.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{FindLinked, Linked, LifeModelTrait, ModelTrait, LifeExecutor};
+///
+/// // Assuming User → Posts → Comments linked relationship
+/// # struct UserModel { id: i32 };
+/// # struct CommentModel { id: i32 };
+/// # impl lifeguard::ModelTrait for UserModel {
+/// #     fn get_primary_key_value(&self) -> lifeguard::PrimaryKeyValue { todo!() }
+/// # }
+/// # let user: UserModel = UserModel { id: 1 };
+/// # let executor: &dyn LifeExecutor = todo!();
+/// // Find all comments for this user through their posts
+/// // let comments: Vec<CommentModel> = user.find_linked::<Post, Comment>().all(executor)?;
+/// ```
+pub trait FindLinked: ModelTrait {
+    /// Find linked entities through a multi-hop relationship
+    ///
+    /// This method uses the `Linked<I, T>` trait implementation to build a query
+    /// that joins through intermediate entities, then filters by the current model's primary key.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `I` - The intermediate entity type
+    /// * `T` - The target entity type. `Self::Entity` must implement `Linked<I, T>`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `SelectQuery<T>` filtered by the current model's primary key
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{FindLinked, Linked, LifeModelTrait, ModelTrait, LifeExecutor};
+    ///
+    /// // Assuming User → Posts → Comments linked relationship
+    /// # struct UserModel { id: i32 };
+    /// # struct CommentModel { id: i32 };
+    /// # impl lifeguard::ModelTrait for UserModel {
+    /// #     type Entity = User;
+    /// #     fn get_primary_key_value(&self) -> sea_query::Value { todo!() }
+    /// #     fn get(&self, _col: <User as lifeguard::LifeModelTrait>::Column) -> sea_query::Value { todo!() }
+    /// #     fn set(&mut self, _col: <User as lifeguard::LifeModelTrait>::Column, _val: sea_query::Value) -> Result<(), lifeguard::ModelError> { todo!() }
+    /// #     fn get_primary_key_identity(&self) -> lifeguard::Identity { todo!() }
+    /// # }
+    /// # struct User;
+    /// # impl lifeguard::LifeModelTrait for User {
+    /// #     type Model = UserModel;
+    /// #     type Column = ();
+    /// # }
+    /// # let user: UserModel = UserModel { id: 1 };
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// // Find all comments for this user through their posts
+    /// // let comments: Vec<CommentModel> = user.find_linked::<Post, Comment>().all(executor)?;
+    /// ```
+    fn find_linked<I, T>(&self) -> SelectQuery<T>
+    where
+        I: LifeModelTrait + Iden,
+        T: LifeModelTrait + Iden,
+        Self::Entity: Linked<I, T>;
+}
+
+// Implement FindLinked for all ModelTrait types
+impl<M> FindLinked for M
+where
+    M: ModelTrait,
+    M::Entity: LifeEntityName,
+{
+    fn find_linked<I, T>(&self) -> SelectQuery<T>
+    where
+        I: LifeModelTrait + Iden,
+        T: LifeModelTrait + Iden,
+        Self::Entity: Linked<I, T>,
+    {
+        // Get the linked path from Linked trait
+        let path = <Self::Entity as Linked<I, T>>::via();
+        
+        // Ensure we have at least one hop (should have 2 for a proper linked relationship)
+        if path.is_empty() {
+            // Return empty query if no path defined
+            return SelectQuery::new();
+        }
+        
+        // Build query with joins through intermediate entities
+        let mut query = SelectQuery::new();
+        
+        // For each hop in the path, add a LEFT JOIN
+        // First hop: Self::Entity -> I (intermediate)
+        if let Some(first_hop) = path.first() {
+            let join_expr = first_hop.join_on_expr();
+            query = query.left_join(I::default(), join_expr);
+        }
+        
+        // Second hop: I -> T (target)
+        if path.len() >= 2 {
+            if let Some(second_hop) = path.get(1) {
+                let join_expr = second_hop.join_on_expr();
+                query = query.left_join(T::default(), join_expr);
+            }
+        }
+        
+        // Filter by the current model's primary key
+        // Use the first hop's relation definition to build the WHERE condition
+        if let Some(first_hop) = path.first() {
+            let condition = build_where_condition(first_hop, self);
+            query = query.filter(condition);
+        }
+        
+        query
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -779,5 +940,139 @@ mod tests {
         let user = UserModel { id: 1 };
         let _query = user.find_related::<PostEntity>();
         // Just verify it compiles - the actual query execution would require an executor
+    }
+
+    #[test]
+    fn test_linked_trait_exists() {
+        // Test that Linked trait can be implemented
+        // This is a compile-time test - if it compiles, the trait works
+        use crate::relation::def::{RelationDef, RelationType};
+        use crate::relation::identity::Identity;
+        use sea_query::{TableName, IntoIden, ConditionType, Iden};
+        
+        // Define a simple linked relationship for testing
+        #[derive(Default, Copy, Clone)]
+        struct TestUser;
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestUserColumn { Id }
+        impl sea_query::Iden for TestUserColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        impl IdenStatic for TestUserColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        impl Iden for TestUser {
+            fn unquoted(&self) -> &str {
+                "users"
+            }
+        }
+        
+        impl LifeEntityName for TestUser {
+            fn table_name(&self) -> &'static str {
+                "users"
+            }
+        }
+        
+        impl LifeModelTrait for TestUser {
+            type Model = ();
+            type Column = TestUserColumn;
+        }
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestPost;
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestPostColumn { Id }
+        impl sea_query::Iden for TestPostColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        impl IdenStatic for TestPostColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        impl Iden for TestPost {
+            fn unquoted(&self) -> &str {
+                "posts"
+            }
+        }
+        
+        impl LifeEntityName for TestPost {
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
+        }
+        
+        impl LifeModelTrait for TestPost {
+            type Model = ();
+            type Column = TestPostColumn;
+        }
+        
+        #[derive(Default, Copy, Clone)]
+        struct TestComment;
+        
+        #[derive(Copy, Clone, Debug)]
+        enum TestCommentColumn { Id }
+        impl sea_query::Iden for TestCommentColumn {
+            fn unquoted(&self) -> &str { "id" }
+        }
+        impl IdenStatic for TestCommentColumn {
+            fn as_str(&self) -> &'static str { "id" }
+        }
+        
+        impl Iden for TestComment {
+            fn unquoted(&self) -> &str {
+                "comments"
+            }
+        }
+        
+        impl LifeEntityName for TestComment {
+            fn table_name(&self) -> &'static str {
+                "comments"
+            }
+        }
+        
+        impl LifeModelTrait for TestComment {
+            type Model = ();
+            type Column = TestCommentColumn;
+        }
+        
+        impl Linked<TestPost, TestComment> for TestUser {
+            fn via() -> Vec<RelationDef> {
+                vec![
+                    // First hop: User -> Post
+                    RelationDef {
+                        rel_type: RelationType::HasMany,
+                        from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                        to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
+                        from_col: Identity::Unary("id".into()),
+                        to_col: Identity::Unary("user_id".into()),
+                        through_tbl: None,
+                        is_owner: true,
+                        skip_fk: false,
+                        on_condition: None,
+                        condition_type: ConditionType::All,
+                    },
+                    // Second hop: Post -> Comment
+                    RelationDef {
+                        rel_type: RelationType::HasMany,
+                        from_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
+                        to_tbl: sea_query::TableRef::Table(TableName(None, "comments".into_iden()), None),
+                        from_col: Identity::Unary("id".into()),
+                        to_col: Identity::Unary("post_id".into()),
+                        through_tbl: None,
+                        is_owner: true,
+                        skip_fk: false,
+                        on_condition: None,
+                        condition_type: ConditionType::All,
+                    },
+                ]
+            }
+        }
+        
+        // Verify the trait can be used
+        let path = <TestUser as Linked<TestPost, TestComment>>::via();
+        assert_eq!(path.len(), 2);
     }
 }
