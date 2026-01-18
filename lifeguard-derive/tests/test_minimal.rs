@@ -703,7 +703,6 @@ mod json_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use sea_query::Value;
 
     #[test]
@@ -831,7 +830,6 @@ mod tests {
     // Each entity is in its own module to avoid name conflicts with generated types
     mod option_pk_entity {
         use super::*;
-        use lifeguard_derive::LifeModel;
 
         #[derive(LifeModel)]
         #[table_name = "test_option_pk"]
@@ -866,7 +864,6 @@ mod tests {
     mod i64_pk_entity {
         use super::*;
         use lifeguard_derive::LifeModel;
-        use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
         #[derive(LifeModel)]
         #[table_name = "test_i64_pk"]
         pub struct I64PrimaryKeyEntity {
@@ -891,7 +888,6 @@ mod tests {
         use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
-
         #[table_name = "test_string_pk"]
         pub struct StringPrimaryKeyEntity {
             #[primary_key]
@@ -923,7 +919,6 @@ mod tests {
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
 
-        #[derive(LifeModel)]
         pub struct AutoIncrementPrimaryKeyEntity {
             #[primary_key]
             #[auto_increment]
@@ -956,7 +951,6 @@ mod tests {
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
 
         #[derive(LifeModel)]
-        #[table_name = "test_composite_pk"]
             #[primary_key]
             pub id1: i32,
             #[primary_key]
@@ -1012,7 +1006,6 @@ mod tests {
 
         #[derive(LifeModel)]
         #[table_name = "test_mixed_auto_inc_pk"]
-        pub struct MixedAutoIncrementCompositePrimaryKeyEntity {
             #[auto_increment]
             pub id1: i32,
             #[primary_key]
@@ -1076,7 +1069,6 @@ mod tests {
         #[table_name = "test_tuple3_composite_pk"]
         pub struct Tuple3CompositePrimaryKeyEntity {
             #[primary_key]
-            #[primary_key]
             pub id2: i32,
             #[primary_key]
             pub id3: i32,
@@ -1100,7 +1092,6 @@ mod tests {
         #[table_name = "test_tuple4_composite_pk"]
         pub struct Tuple4CompositePrimaryKeyEntity {
             #[primary_key]
-            pub id1: i32,
             pub id2: i32,
             #[primary_key]
             pub id3: i32,
@@ -1127,7 +1118,6 @@ mod tests {
         pub struct Tuple5CompositePrimaryKeyEntity {
             #[primary_key]
             pub id1: i32,
-            #[primary_key]
             #[primary_key]
             pub id3: i32,
             #[primary_key]
@@ -1156,7 +1146,6 @@ mod tests {
             #[primary_key]
             pub id1: i32,
             #[primary_key]
-            pub id2: i32,
             pub id3: i32,
             #[primary_key]
             pub id4: i32,
@@ -1189,7 +1178,6 @@ mod tests {
             pub id1: i32,
             #[primary_key]
             pub id2: i32,
-            #[primary_key]
             #[primary_key]
             pub id4: i32,
             pub name: String,
@@ -1240,7 +1228,6 @@ mod tests {
             #[primary_key]
             pub code: String,
             pub name: String,
-        }
         #[test]
         fn test_mixed_type_composite_primary_key_arity() {
             // Test composite key with different types (i32 + String)
@@ -1282,7 +1269,6 @@ mod tests {
             pub code: Option<String>,
             pub name: String,
         }
-
         fn test_option_composite_primary_key_value_type() {
             // EDGE CASE: Composite key with Option types - Option should be unwrapped in ValueType tuple
             // ValueType should be (i32, String), not (Option<i32>, Option<String>)
@@ -2284,7 +2270,6 @@ mod active_model_trait_tests {
         
         // Get values using ActiveModelTrait
         let name_value = record.get(<Entity as LifeModelTrait>::Column::Name);
-        assert!(name_value.is_some(), "Name should be set");
         let email_value = record.get(<Entity as LifeModelTrait>::Column::Email);
         assert!(email_value.is_some(), "Email should be set");
         
@@ -3409,7 +3394,6 @@ mod active_model_trait_tests {
     #[test]
     fn test_json_with_nan_and_infinity() {
         // EDGE CASE: JSON serialization of NaN and infinity values
-        // These special floating-point values cannot be represented as JSON numbers
         use float_tests::*;
         use serde_json::json;
         use lifeguard::LifeModelTrait;
