@@ -318,8 +318,8 @@ This design simplifies the API while maintaining the same functionality.
 - Automatic join condition generation from foreign key metadata ✅ (Completed - RelationDef::join_on_expr() and convenience methods)
 - `Linked` - Multi-hop relationship queries ✅ (Completed - Linked<I, T> trait and FindLinked extension trait)
 - `DeriveRelatedEntity` - Generate RelatedEntity enum
-- Eager loading support
-- Lazy loading support
+- Eager loading support ✅ (Completed - load_related() function with selectinload strategy, FK extraction, and grouping)
+- Lazy loading support ✅ (Completed - LazyLoader struct with on-demand query execution)
 
 #### Partial Models
 **Status:** ✅ Complete  

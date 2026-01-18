@@ -7,6 +7,7 @@
 //! - has_many_through: Many-to-many relationship (via join table)
 //! - Linked: Multi-hop relationship queries (e.g., User → Posts → Comments)
 //! - Eager loading: Load related entities automatically (selectinload strategy)
+//! - Lazy loading: Load related entities on-demand (deferred queries)
 //!
 //! # Architecture
 //!
@@ -40,3 +41,8 @@ pub use helpers::join_condition;
 pub mod eager;
 #[doc(inline)]
 pub use eager::load_related;
+
+// Lazy loading
+pub mod lazy;
+#[doc(inline)]
+pub use lazy::LazyLoader;
