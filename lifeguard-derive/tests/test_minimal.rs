@@ -1232,6 +1232,8 @@ mod tests {
             #[primary_key]
             pub code: String,
             pub name: String,
+        }
+
         #[test]
         fn test_mixed_type_composite_primary_key_arity() {
             // Test composite key with different types (i32 + String)
