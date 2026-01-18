@@ -798,3 +798,16 @@ fn test_derive_relation_module_qualified_path() {
     assert_eq!(infer_fk_name("UserEntity"), "user_id");
     assert_eq!(infer_fk_name("CommentEntity"), "comment_id");
 }
+
+// Note: Testing duplicate From impls is tricky because having multiple relations
+// to the same entity from the same source entity would also create conflicting Related impls,
+// which is a separate Rust trait coherence issue.
+//
+// The fix we've implemented deduplicates From impls by tracking seen target entity paths.
+// This ensures that even if multiple relation variants target the same entity,
+// only one From impl is generated per unique target entity path.
+//
+// The fix is verified by:
+// 1. The code change in derive_relation() that tracks seen_target_entity_paths
+// 2. The fact that existing tests continue to pass
+// 3. Manual verification that the generated code only has one From impl per target entity

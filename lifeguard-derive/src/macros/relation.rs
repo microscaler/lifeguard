@@ -330,7 +330,27 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     let mut related_impls = Vec::new();
     let mut related_entity_variants = Vec::new();
     let mut related_entity_impls = Vec::new();
-    let mut has_errors = false;
+    // Track which target entity paths we've already generated From impls for
+    // This prevents duplicate From impls when multiple relations target the same entity
+    // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
+    // We use a helper function to create a unique key from the path
+    let mut seen_target_entity_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    
+    // Helper function to create a unique string key from a syn::Path
+    // This allows us to compare paths for equality
+    let path_to_key = |path: &syn::Path| -> String {
+        let mut key = String::new();
+        if path.leading_colon.is_some() {
+            key.push_str("::");
+        }
+        for (i, segment) in path.segments.iter().enumerate() {
+            if i > 0 {
+                key.push_str("::");
+            }
+            key.push_str(&segment.ident.to_string());
+        }
+        key
+    };
     
     for variant in variants {
         if let Some((related_impl, target_entity_path, variant_name)) = process_relation_variant(variant, enum_name) {
@@ -351,13 +371,19 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 });
                 
                 // Generate From implementation for RelatedEntity variant
-                related_entity_impls.push(quote! {
-                    impl From<<#target_entity_path as lifeguard::LifeModelTrait>::Model> for RelatedEntity {
-                        fn from(model: <#target_entity_path as lifeguard::LifeModelTrait>::Model) -> Self {
-                            RelatedEntity::#variant_name(model)
+                // Only generate one From impl per unique target entity path to avoid conflicts
+                // when multiple relations target the same entity (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
+                let target_path_key = path_to_key(&target_entity_path);
+                if !seen_target_entity_paths.contains(&target_path_key) {
+                    seen_target_entity_paths.insert(target_path_key);
+                    related_entity_impls.push(quote! {
+                        impl From<<#target_entity_path as lifeguard::LifeModelTrait>::Model> for RelatedEntity {
+                            fn from(model: <#target_entity_path as lifeguard::LifeModelTrait>::Model) -> Self {
+                                RelatedEntity::#variant_name(model)
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
         } else {
             // If process_relation_variant returns None, it means there was no relationship info
