@@ -210,18 +210,18 @@ This design simplifies the API while maintaining the same functionality.
 | SeaORM Attribute | Lifeguard Attribute | Status | Notes |
 |----------------|---------------------|--------|-------|
 | `#[sea_orm(table_name = "...")]` | `#[table_name = "..."]` | ✅ Implemented | Table name |
-| `#[sea_orm(schema_name = "...")]` | ❌ Missing | 🟡 **Future** | Schema name |
 | `#[sea_orm(primary_key)]` | `#[primary_key]` | ✅ Implemented | Primary key field |
 | `#[sea_orm(auto_increment = bool)]` | `#[auto_increment]` | ✅ Complete | Auto-increment field - LifeModel macro generates ColumnTrait::def() with auto_increment metadata |
 | `#[sea_orm(column_name = "...")]` | `#[column_name = "..."]` | ✅ Implemented | Custom column name |
 | `#[sea_orm(column_type = "...")]` | `#[column_type = "..."]` | ✅ Complete | Custom column type - LifeModel macro generates ColumnTrait::def() with column_type metadata |
 | `#[sea_orm(nullable)]` | `#[nullable]` | ✅ Implemented | Nullable field |
 | `#[sea_orm(default_value = ...)]` | `#[default_value = ...]` | ✅ Complete | Default value - LifeModel macro generates ColumnTrait::def() with default_value metadata |
-| `#[sea_orm(default_expr = "...")]` | ❌ Missing | 🟡 **Future** | Default SQL expression |
 | `#[sea_orm(unique)]` | `#[unique]` | ✅ Complete | Unique constraint - LifeModel macro generates ColumnTrait::def() with unique metadata |
 | `#[sea_orm(indexed)]` | `#[indexed]` | ✅ Complete | Indexed column - LifeModel macro generates ColumnTrait::def() with indexed metadata |
-| `#[sea_orm(ignore)]` | ❌ Missing | 🟡 **Future** | Ignore field |
 | `#[sea_orm(enum_name = "...")]` | `#[enum_name = "..."]` | ✅ Complete | Enum type name - LifeModel macro generates ColumnTrait::enum_type_name() implementation |
+| `#[sea_orm(default_expr = "...")]` | ❌ Missing | 🟡 **Future** | Default SQL expression |
+| `#[sea_orm(schema_name = "...")]` | ❌ Missing | 🟡 **Future** | Schema name |
+| `#[sea_orm(ignore)]` | ❌ Missing | 🟡 **Future** | Ignore field |
 | `#[sea_orm(select_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom SELECT expression |
 | `#[sea_orm(save_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom save expression |
 | `#[sea_orm(renamed_from = "...")]` | ❌ Missing | 🟡 **Future** | Column renamed from |
@@ -558,3 +558,565 @@ This design simplifies the API while maintaining the same functionality.
 7. ✅ Comprehensive test coverage for all key types and edge cases
 
 **Design Document:** See [DESIGN_RELATION_METADATA_AND_COMPOSITE_KEYS.md](./DESIGN_RELATION_METADATA_AND_COMPOSITE_KEYS.md) for detailed implementation architecture, design decisions, and step-by-step guide.
+
+---
+
+## 14. Implementation Priority Plan: Value Types & Attributes
+
+### Executive Summary
+
+**Highest Impact: Attributes & Configuration (Section 222-229)**  
+**Lower Priority: Value Types & Conversions (Section 199-205)**
+
+The **Attributes & Configuration** section has **significantly higher impact** on delivering README promises, particularly for:
+1. **Migrations** (promised but partially implemented)
+2. **PostgreSQL schema support** (critical for production)
+3. **Column management** (needed for real-world applications)
+
+The **Value Types & Conversions** section provides infrastructure improvements but doesn't block core functionality since composite keys already work.
+
+---
+
+### Priority Analysis
+
+#### Section 1: Value Types & Conversions (199-205)
+
+| Feature | Priority | Impact on README Promises | Current Status |
+|---------|----------|---------------------------|----------------|
+| `IntoValueTuple` | 🟡 **Low** | Minimal - Composite keys already work | 🔴 Future |
+| `FromValueTuple` | 🟡 **Low** | Minimal - Composite keys already work | 🔴 Future |
+| `ValueType` | 🟡 **Medium** | Developer experience improvement | 🟡 Future |
+| `TryGetable` | 🟡 **Medium** | Better error handling, not blocking | 🟡 Future |
+| `TryGetableMany` | 🟡 **Low** | Convenience feature | 🟡 Future |
+| `TryFromU64` | 🟡 **Low** | Minor convenience for primary keys | 🟡 Future |
+
+**Overall Assessment:** 
+- ✅ **Composite keys already fully implemented** (via `get_primary_key_identity()` and `get_primary_key_values()`)
+- These features are **nice-to-have optimizations**, not blockers
+- **Impact:** Low - improves developer experience but doesn't enable new functionality
+
+#### Section 2: Attributes & Configuration (222-229)
+
+| Feature | Priority | Impact on README Promises | Blocks What? |
+|---------|----------|---------------------------|--------------|
+| `default_expr` | 🔴 **CRITICAL** | **Migrations** (promised, partially implemented) | SQL expressions like `NOW()`, `uuid_generate_v4()`, `gen_random_uuid()` |
+| `schema_name` | 🔴 **CRITICAL** | **PostgreSQL Features** (promised) | Multi-tenant apps, schema organization, production deployments |
+| `renamed_from` | 🔴 **CRITICAL** | **Migrations** (promised, partially implemented) | Column renames during migrations |
+| `ignore` | 🟠 **HIGH** | **ORM Features** (promised) | Computed columns, virtual fields, fields not in database |
+| `select_as` | 🟠 **HIGH** | **Query Builder** (promised) | Computed columns, virtual columns, custom SELECT expressions |
+| `save_as` | 🟠 **HIGH** | **CRUD Operations** (promised) | Custom save expressions, computed columns on write |
+| `comment` | 🟡 **MEDIUM** | **Developer Experience** (promised) | Column documentation, schema introspection |
+
+**Overall Assessment:**
+- 🔴 **Blocks Migrations** - README promises "Programmatic, data seeding, advanced ops" but these attributes are needed for real migrations
+- 🔴 **Blocks PostgreSQL Schema Support** - Critical for production multi-tenant applications
+- 🟠 **Enables Advanced ORM Features** - Needed for computed columns, virtual fields
+- **Impact:** **CRITICAL** - Directly blocks promised features
+
+---
+
+### Recommended Implementation Order
+
+#### Phase 1: Critical Migration Attributes (Week 1-2)
+
+**Priority: 🔴 CRITICAL - Blocks Migrations Promise**
+
+1. **`default_expr`** - Default SQL expression
+   - **Why:** Essential for migrations with SQL expressions (`NOW()`, `uuid_generate_v4()`, `gen_random_uuid()`)
+   - **Impact:** Enables promised "programmatic migrations" with real-world use cases
+   - **Complexity:** Medium (requires SQL expression parsing/storage)
+   - **Dependencies:** None
+
+2. **`renamed_from`** - Column renamed from
+   - **Why:** Critical for migration workflows (column renames are common)
+   - **Impact:** Enables promised "advanced migration operations"
+   - **Complexity:** Low (metadata storage)
+   - **Dependencies:** None
+
+3. **`schema_name`** - Schema name
+   - **Why:** Critical for PostgreSQL production deployments (multi-tenant, organization)
+   - **Impact:** Enables promised "PostgreSQL Features" (schema support)
+   - **Complexity:** Low (metadata storage, table name generation)
+   - **Dependencies:** None
+
+**Deliverable:** Complete migration support for promised features
+
+#### Phase 2: Advanced ORM Attributes (Week 3-4)
+
+**Priority: 🟠 HIGH - Enables Advanced Features**
+
+4. **`ignore`** - Ignore field
+   - **Why:** Needed for computed columns, virtual fields, fields not in database
+   - **Impact:** Enables promised "ORM Features" completeness
+   - **Complexity:** Low (macro filtering)
+   - **Dependencies:** None
+
+5. **`select_as`** - Custom SELECT expression
+   - **Why:** Needed for computed columns, virtual columns, custom SELECT expressions
+   - **Impact:** Enables promised "Query Builder" advanced features
+   - **Complexity:** Medium (SQL expression handling in query builder)
+   - **Dependencies:** None
+
+6. **`save_as`** - Custom save expression
+   - **Why:** Needed for computed columns on write, custom save logic
+   - **Impact:** Enables promised "CRUD Operations" completeness
+   - **Complexity:** Medium (SQL expression handling in insert/update)
+   - **Dependencies:** None
+
+**Deliverable:** Advanced ORM features enabled
+
+#### Phase 3: Developer Experience (Week 5)
+
+**Priority: 🟡 MEDIUM - Nice-to-Have**
+
+7. **`comment`** - Column comment
+   - **Why:** Documentation, schema introspection
+   - **Impact:** Improves developer experience
+   - **Complexity:** Low (metadata storage)
+   - **Dependencies:** None
+
+**Deliverable:** Better documentation support
+
+#### Phase 4: Value Type Infrastructure (Week 6-8)
+
+**Priority: 🟡 LOW - Optimization**
+
+8. **`ValueType`** - Trait for value type conversions
+   - **Why:** Better type safety, developer experience
+   - **Impact:** Improves type system, not blocking
+   - **Complexity:** Medium (trait design, macro integration)
+   - **Dependencies:** None
+
+9. **`TryGetable`** - Trait for safe value extraction
+   - **Why:** Better error handling
+   - **Impact:** Improves error messages, not blocking
+   - **Complexity:** Medium (trait design, error types)
+   - **Dependencies:** ValueType (optional)
+
+10. **`TryGetableMany`** - Trait for extracting multiple values
+    - **Why:** Convenience for batch operations
+    - **Impact:** Minor convenience, not blocking
+    - **Complexity:** Low (extends TryGetable)
+    - **Dependencies:** TryGetable
+
+11. **`TryFromU64`** - Conversion from u64
+    - **Why:** Convenience for primary keys
+    - **Impact:** Minor convenience, not blocking
+    - **Complexity:** Low (trait implementation)
+    - **Dependencies:** None
+
+12. **`IntoValueTuple` / `FromValueTuple`** - Composite key conversions
+    - **Why:** Optimization for composite keys (already work without these)
+    - **Impact:** Performance optimization, not blocking
+    - **Complexity:** Medium (trait design, tuple handling)
+    - **Dependencies:** None
+
+**Deliverable:** Enhanced type system and developer experience
+
+---
+
+### Impact Summary
+
+#### Attributes & Configuration (222-229)
+- **Blocks:** Migrations (promised), PostgreSQL schema support (promised)
+- **Enables:** Advanced ORM features (promised)
+- **Impact Score:** 🔴 **9/10** (Critical)
+
+#### Value Types & Conversions (199-205)
+- **Blocks:** Nothing (composite keys already work)
+- **Enables:** Better developer experience, optimizations
+- **Impact Score:** 🟡 **3/10** (Low)
+
+---
+
+### Recommendation
+
+**Implement Attributes & Configuration FIRST** (Phases 1-3, Weeks 1-5)
+
+**Rationale:**
+1. ✅ **Directly blocks promised features** (Migrations, PostgreSQL schema support)
+2. ✅ **High user impact** - Needed for production deployments
+3. ✅ **Enables real-world use cases** - Multi-tenant apps, computed columns, migrations
+4. ✅ **Lower complexity** - Mostly metadata storage and macro changes
+5. ✅ **Clear deliverables** - Each phase delivers tangible value
+
+**Defer Value Types & Conversions** (Phase 4, Weeks 6-8)
+
+**Rationale:**
+1. ✅ **Not blocking** - Composite keys already work
+2. ✅ **Optimization focus** - Improves developer experience but doesn't enable new features
+3. ✅ **Lower priority** - Can be added incrementally without breaking changes
+4. ✅ **Better to ship core features first** - Migrations and schema support are more critical
+
+---
+
+### Success Metrics
+
+#### Phase 1 Success (Critical Migration Attributes)
+- ✅ Can create migrations with SQL default expressions (`NOW()`, `uuid_generate_v4()`)
+- ✅ Can rename columns during migrations
+- ✅ Can use PostgreSQL schemas (multi-tenant support)
+- ✅ README "Migrations" status: 🟡 Partial → ✅ Implemented
+
+#### Phase 2 Success (Advanced ORM Attributes)
+- ✅ Can ignore fields not in database
+- ✅ Can use computed columns in SELECT queries
+- ✅ Can use custom save expressions
+- ✅ README "ORM Features" status: 🟡 67% → 🟡 75%+
+
+#### Phase 3 Success (Developer Experience)
+- ✅ Column comments stored and accessible
+- ✅ Better schema introspection support
+
+#### Phase 4 Success (Value Type Infrastructure)
+- ✅ Better type safety with ValueType trait
+- ✅ Improved error messages with TryGetable
+- ✅ Performance optimizations for composite keys
+
+---
+
+### Implementation Notes
+
+#### For Attributes (Phases 1-3)
+
+**Macro Changes Required:**
+- `lifeguard-derive/src/macros/life_model.rs` - Parse new attributes
+- `lifeguard-derive/src/attributes.rs` - Store attribute metadata
+- `src/query/column/definition.rs` - Use attributes in ColumnDefinition
+- `src/query/column/column_trait.rs` - Implement select_as() and save_as()
+
+**Testing Required:**
+- Migration tests with `default_expr`
+- Schema name tests
+- Column rename tests
+- Computed column tests
+- Ignore field tests
+
+#### For Value Types (Phase 4)
+
+**Trait Design Required:**
+- `src/value/types.rs` - ValueType trait
+- `src/value/try_getable.rs` - TryGetable trait
+- `src/value/tuple.rs` - IntoValueTuple/FromValueTuple traits
+- Macro integration for auto-implementations
+
+**Testing Required:**
+- Type conversion tests
+- Error handling tests
+- Composite key optimization tests
+
+---
+
+### Conclusion
+
+**Attributes & Configuration (222-229) should be prioritized** because they:
+1. Block promised features (Migrations, PostgreSQL schema support)
+2. Enable real-world production use cases
+3. Have clear, measurable deliverables
+4. Are needed for the "Migrations" promise in README
+
+**Value Types & Conversions (199-205) can be deferred** because they:
+1. Don't block any promised features
+2. Are optimizations, not requirements
+3. Composite keys already work without them
+4. Can be added incrementally later
+
+**Recommended Timeline:**
+- **Weeks 1-5:** Attributes & Configuration (Phases 1-3)
+- **Weeks 6-8:** Value Types & Conversions (Phase 4) - if time permits
+
+This prioritization maximizes impact on README promises while delivering value incrementally.
+
+---
+
+## 15. ORM Equivalents: SQL Views & Stored Procedures
+
+### Overview
+
+This section explains how SQL Views and Stored Procedures map to ORM patterns, and how Lifeguard can support them.
+
+---
+
+### SQL Views → ORM Equivalents
+
+#### What are SQL Views?
+
+SQL Views are **virtual tables** based on the result of a SQL query. They:
+- Don't store data (except materialized views)
+- Provide a query interface (SELECT only, typically)
+- Can simplify complex queries
+- Can provide security/abstraction layers
+
+#### ORM Equivalents
+
+| SQL Concept | ORM Equivalent | Lifeguard Status | Implementation Approach |
+|-------------|----------------|-------------------|------------------------|
+| **Regular View** | **Read-only Model** | 🟡 **Future** | Model backed by SELECT query, no write operations |
+| **Materialized View** | **Cached Query Model** | 🟡 **Future** | Model backed by materialized view table, refresh support |
+| **View with JOINs** | **Query-based Model** | ✅ **Partial** | Use query builder with joins, map to struct |
+| **View with Aggregations** | **Projection/Partial Model** | ✅ **Implemented** | `DerivePartialModel` for selected columns |
+| **View as Security Layer** | **Scoped Queries** | 🟡 **Future** | Scopes (promised but not implemented) |
+
+#### Implementation Patterns
+
+**Pattern 1: Read-only Model (Regular View)**
+```rust
+// SQL: CREATE VIEW user_stats AS SELECT user_id, COUNT(*) as post_count FROM posts GROUP BY user_id;
+
+#[derive(LifeModel)]
+#[table_name = "user_stats"]  // Points to view, not table
+#[read_only]  // Future attribute - prevents insert/update/delete
+pub struct UserStats {
+    pub user_id: i32,
+    pub post_count: i64,
+}
+
+// Usage - works like normal model, but only SELECT
+let stats = UserStats::find().all(&executor)?;
+```
+
+**Pattern 2: Query-based Model (Complex View)**
+```rust
+// SQL: CREATE VIEW active_users AS SELECT u.* FROM users u WHERE u.is_active = true;
+
+#[derive(LifeModel)]
+#[table_name = "active_users"]
+pub struct ActiveUser {
+    // Same fields as User model
+}
+
+// OR use query builder directly
+let active_users = User::find()
+    .filter(User::IsActive.eq(true))
+    .all(&executor)?;
+```
+
+**Pattern 3: Materialized View**
+```rust
+// SQL: CREATE MATERIALIZED VIEW user_summary AS SELECT ...;
+
+#[derive(LifeModel)]
+#[table_name = "user_summary"]
+#[materialized_view]  // Future attribute
+pub struct UserSummary {
+    // Fields
+}
+
+// Refresh materialized view
+UserSummary::refresh_materialized_view(&executor)?;
+
+// Then query normally
+let summaries = UserSummary::find().all(&executor)?;
+```
+
+**Pattern 4: Partial Model (View-like Projection)**
+```rust
+// SQL: SELECT id, name, email FROM users;  (not all columns)
+
+#[derive(DerivePartialModel)]
+pub struct UserBasic {
+    pub id: i32,
+    pub name: String,
+    pub email: String,
+}
+
+// Query with partial model
+let users = User::find()
+    .select_partial::<UserBasic>()
+    .all(&executor)?;
+```
+
+#### Current Lifeguard Support
+
+✅ **What Works Now:**
+- Query builder with joins (can simulate views)
+- Partial models (`DerivePartialModel`) for column selection
+- Raw SQL queries (can query views directly)
+- Type-safe models (can map view results to structs)
+
+🟡 **What's Missing:**
+- `#[read_only]` attribute to prevent writes to views
+- `#[materialized_view]` attribute for refresh support
+- Automatic view detection (schema introspection)
+- View-specific query optimizations
+
+---
+
+### Stored Procedures → ORM Equivalents
+
+#### What are Stored Procedures?
+
+Stored Procedures are **pre-compiled SQL code** stored in the database. They:
+- Encapsulate business logic in the database
+- Can accept parameters
+- Can return result sets or single values
+- Can perform complex operations (transactions, loops, etc.)
+
+#### ORM Equivalents
+
+| SQL Concept | ORM Equivalent | Lifeguard Status | Implementation Approach |
+|-------------|----------------|-------------------|------------------------|
+| **Stored Procedure** | **Raw SQL Execution** | ✅ **Implemented** | `execute_statement()` or `find_by_statement()` |
+| **Function (returns value)** | **Query Value Helper** | ✅ **Implemented** | `query_value()` for single values |
+| **Function (returns table)** | **Query with Model Mapping** | ✅ **Implemented** | `find_all_by_statement()` + `FromRow` |
+| **Procedure with Business Logic** | **Repository Pattern** | 🟡 **Future** | Model Managers (promised but not implemented) |
+| **Database Function** | **Custom Query Methods** | 🟡 **Future** | Model Managers or extension traits |
+
+#### Implementation Patterns
+
+**Pattern 1: Raw SQL Execution (Current)**
+```rust
+// SQL: CREATE FUNCTION get_user_stats(user_id INT) RETURNS TABLE(...) AS $$
+
+use lifeguard::{execute_statement, find_all_by_statement, LifeExecutor};
+
+// Call stored procedure/function
+let rows = find_all_by_statement(
+    &executor,
+    "SELECT * FROM get_user_stats($1)",
+    &[&42i64]
+)?;
+
+// Map to model
+let stats: Vec<UserStats> = rows.iter()
+    .map(|row| UserStats::from_row(row))
+    .collect();
+```
+
+**Pattern 2: Query Value (Single Return)**
+```rust
+// SQL: CREATE FUNCTION count_active_users() RETURNS INT AS $$
+
+use lifeguard::{query_value, LifeExecutor};
+
+let count: i64 = query_value(
+    &executor,
+    "SELECT count_active_users()",
+    &[]
+)?;
+```
+
+**Pattern 3: Repository Pattern (Future)**
+```rust
+// Model Manager with stored procedure wrapper
+impl User {
+    pub fn get_stats(&self, executor: &dyn LifeExecutor) -> Result<UserStats, LifeError> {
+        find_by_statement(
+            executor,
+            "SELECT * FROM get_user_stats($1)",
+            &[&self.id]
+        )?
+        .try_into()
+    }
+    
+    pub fn refresh_cache(executor: &dyn LifeExecutor) -> Result<(), LifeError> {
+        execute_statement(executor, "CALL refresh_user_cache()", &[])?;
+        Ok(())
+    }
+}
+```
+
+**Pattern 4: Extension Trait (Future)**
+```rust
+// Custom trait for database functions
+trait UserFunctions {
+    fn get_stats(&self, executor: &dyn LifeExecutor) -> Result<UserStats, LifeError>;
+    fn calculate_score(&self, executor: &dyn LifeExecutor) -> Result<f64, LifeError>;
+}
+
+impl UserFunctions for User {
+    fn get_stats(&self, executor: &dyn LifeExecutor) -> Result<UserStats, LifeError> {
+        // Implementation using raw SQL
+    }
+}
+```
+
+#### Current Lifeguard Support
+
+✅ **What Works Now:**
+- Raw SQL execution (`execute_statement()`, `execute_unprepared()`)
+- Parameterized queries (`find_by_statement()`, `find_all_by_statement()`)
+- Single value queries (`query_value()`)
+- Result mapping (can use `FromRow` to map results to models)
+
+🟡 **What's Missing:**
+- Model Managers (promised but not implemented)
+- Type-safe stored procedure wrappers
+- Automatic parameter binding for procedures
+- Procedure result set type inference
+
+---
+
+### Can ORMs Deliver This Functionality?
+
+**Yes, absolutely!** ORMs can deliver both Views and Stored Procedures support:
+
+#### Views Support
+
+**✅ Fully Deliverable:**
+1. **Read-only Models** - Models that map to views, prevent writes
+2. **Query-based Models** - Models backed by SELECT queries
+3. **Materialized Views** - Models with refresh capabilities
+4. **View Queries** - Query builder can target views
+
+**Implementation Complexity:**
+- **Low-Medium** - Mostly metadata and attribute handling
+- Requires `#[read_only]` attribute support
+- Requires materialized view refresh methods
+- Can leverage existing query builder
+
+#### Stored Procedures Support
+
+**✅ Fully Deliverable:**
+1. **Raw SQL Execution** - ✅ Already implemented
+2. **Parameter Binding** - ✅ Already implemented
+3. **Result Mapping** - ✅ Already implemented (via `FromRow`)
+4. **Type-safe Wrappers** - 🟡 Future (Model Managers)
+
+**Implementation Complexity:**
+- **Low** - Raw SQL already works
+- **Medium** - For type-safe wrappers (Model Managers)
+- Can be enhanced with convenience methods
+
+---
+
+### Recommended Implementation for Lifeguard
+
+#### Phase 1: View Support (Medium Priority)
+
+**Features:**
+1. `#[read_only]` attribute - Prevents insert/update/delete on view-backed models
+2. `#[materialized_view]` attribute - Marks materialized views
+3. `refresh_materialized_view()` method - Refreshes materialized views
+4. View detection in schema introspection (future)
+
+**Impact:** Enables promised "Views, materialized views" in README
+
+**Complexity:** Medium (attribute parsing, write prevention, refresh method)
+
+#### Phase 2: Stored Procedure Enhancements (Low Priority)
+
+**Features:**
+1. Model Managers - Custom query methods (already promised)
+2. Type-safe procedure wrappers - Convenience methods
+3. Procedure parameter helpers - Easier parameter binding
+
+**Impact:** Improves developer experience for stored procedures
+
+**Complexity:** Low-Medium (Model Managers are already planned)
+
+---
+
+### Conclusion
+
+**Views:**
+- ✅ **Can be delivered** via read-only models and query-based models
+- 🟡 **Partially supported** - Query builder works, need read-only attribute
+- 📋 **Recommended:** Implement `#[read_only]` and `#[materialized_view]` attributes
+
+**Stored Procedures:**
+- ✅ **Already supported** - Raw SQL execution works perfectly
+- 🟡 **Can be enhanced** - Model Managers will provide type-safe wrappers
+- 📋 **Recommended:** Implement Model Managers (already promised) for better DX
+
+**Both features are fully deliverable via ORM patterns**, and Lifeguard already has the foundation (raw SQL, query builder, type-safe models) to support them.
