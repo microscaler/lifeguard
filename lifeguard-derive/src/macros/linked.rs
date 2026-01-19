@@ -188,7 +188,10 @@ fn parse_linked_path(path_str: &str, error_span: proc_macro2::Span) -> Result<Li
 /// Generate Linked trait implementation
 ///
 /// For a path like "PostEntity -> CommentEntity", generates:
-/// ```rust
+/// ```ignore
+/// use lifeguard::relation::Linked;
+/// use lifeguard::{Related, RelationDef};
+///
 /// impl Linked<PostEntity, CommentEntity> for Entity {
 ///     fn via() -> Vec<RelationDef> {
 ///         vec![
