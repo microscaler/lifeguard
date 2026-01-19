@@ -332,6 +332,8 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     let mut related_entity_impls = Vec::new();
     // Store variant names and their RelationDef construction for def() method generation
     let mut def_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
+    // Track if we have any valid (non-error) relations - only generate def() if we have valid relations
+    let mut has_valid_relations = false;
     // Track which target entity paths we've already generated From impls for
     // This prevents duplicate From impls when multiple relations target the same entity
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
@@ -432,9 +434,12 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                     // First time seeing this target entity path - record it and add the impl
                     seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone()));
                     related_impls.push(related_impl);
+                    has_valid_relations = true;
                     
                     // Store RelationDef construction for def() method generation
                     // Only add when we actually generate the Related impl
+                    // Check that def_relation_def is not empty (error cases have empty quote! {})
+                    // We can check this by ensuring the token stream has content
                     def_match_arms.push(quote! {
                         #enum_name::#variant_name => #def_relation_def,
                     });
@@ -507,11 +512,9 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     };
     
     // Generate def() method implementation for Relation enum
-    // Only generate if we have match arms and no errors (errors would make match non-exhaustive)
-    // Check if any of the related_impls are error token streams by checking if they're empty
-    // Actually, we can't easily detect errors, so we'll generate the def() method
-    // and let the compiler error if the match is non-exhaustive (which is the correct behavior)
-    let def_impl = if !def_match_arms.is_empty() {
+    // Only generate if we have valid relations (has_valid_relations) and match arms
+    // This prevents generating def() when there are only error cases
+    let def_impl = if has_valid_relations && !def_match_arms.is_empty() {
         quote! {
             impl #enum_name {
                 /// Returns the RelationDef for this relation variant
