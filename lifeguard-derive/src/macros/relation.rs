@@ -463,14 +463,26 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                         def_match_arms.push(quote! {
                             #enum_name::#variant_name => #def_relation_def,
                         });
+                    } else {
+                        // If def_relation_def is empty, it means there was an error in column parsing
+                        // We still push the related_impl (which contains the error) but need to add a match arm
+                        // that panics to avoid non-exhaustive match error
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => {
+                                panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
+                            },
+                        });
                     }
-                    // If def_relation_def is empty, it means there was an error in column parsing
-                    // We still push the related_impl (which contains the error) but don't generate def() match arm
                 }
             } else {
                 // Always emit error cases (dummy paths)
                 related_impls.push(related_impl);
-                // Don't add def() match arm for error cases (dummy paths)
+                // Add a match arm for error cases (dummy paths) that panics to avoid non-exhaustive match error
+                def_match_arms.push(quote! {
+                    #enum_name::#variant_name => {
+                        panic!("Relation variant `{}` has invalid entity path. See compile error above.", stringify!(#variant_name))
+                    },
+                });
             }
             
             // Only generate RelatedEntity if this is not a dummy path (error case)
