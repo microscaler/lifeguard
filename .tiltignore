@@ -1,0 +1,26 @@
+# Tilt ignore patterns
+# Files and directories that Tilt should ignore when watching for changes
+
+# Cargo build artifacts
+target/
+**/target/
+
+# Test output and temporary files
+*.stderr
+*.stdout
+nexttest-errors.log
+test-derive-errors.log
+
+# Generated files
+**/*.rs.bk
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

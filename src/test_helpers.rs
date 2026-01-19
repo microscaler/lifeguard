@@ -175,16 +175,44 @@ mod tests {
     #[test]
     fn test_get_connection_string_env_var() {
         // Test that environment variable is respected
-        // Clear DATABASE_URL first to ensure TEST_DATABASE_URL takes priority
+        // Save old values to restore later
+        let old_test_database_url = env::var("TEST_DATABASE_URL").ok();
         let old_database_url = env::var("DATABASE_URL").ok();
+        
+        // Clear both to ensure TEST_DATABASE_URL takes priority when we set it
+        env::remove_var("TEST_DATABASE_URL");
         env::remove_var("DATABASE_URL");
         
-        env::set_var("TEST_DATABASE_URL", "postgresql://test:test@localhost:5432/test");
-        let url = TestDatabase::get_connection_string().unwrap();
-        assert!(url.contains("test"), "URL should contain 'test', got: {}", url);
+        // Set TEST_DATABASE_URL to a test value with a unique identifier
+        // Using a unique port number to make it easier to identify in error messages
+        let test_url = "postgresql://test:test@localhost:9999/test_db";
+        env::set_var("TEST_DATABASE_URL", test_url);
         
-        // Cleanup
+        // Verify the environment variable is actually set
+        // This helps catch issues where env::set_var doesn't work
+        let env_check = env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL should be set immediately after env::set_var");
+        assert_eq!(
+            env_check, test_url,
+            "Environment variable check failed. This may indicate env::set_var is not working in this test environment."
+        );
+        
+        // Get connection string - should use TEST_DATABASE_URL
+        let url = TestDatabase::get_connection_string().unwrap();
+        
+        // Verify it matches exactly (more strict than just containing "test")
+        assert_eq!(
+            url, test_url,
+            "URL should match TEST_DATABASE_URL exactly. Got: {}. This indicates the environment variable was not respected. \
+             Possible causes: env::set_var not working in test environment, or environment variable was cleared/modified.",
+            url
+        );
+        
+        // Cleanup - restore old values
         env::remove_var("TEST_DATABASE_URL");
+        if let Some(old_url) = old_test_database_url {
+            env::set_var("TEST_DATABASE_URL", old_url);
+        }
         if let Some(old_url) = old_database_url {
             env::set_var("DATABASE_URL", old_url);
         }

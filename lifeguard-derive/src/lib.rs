@@ -119,3 +119,38 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
 pub fn derive_partial_model(input: TokenStream) -> TokenStream {
     macros::derive_partial_model(input)
 }
+
+/// Derive macro for `DeriveTryIntoModel` - generates TryIntoModel trait implementations
+///
+/// This macro generates `TryIntoModel` implementations for converting custom types (DTOs, partial models, etc.)
+/// into Model instances with proper error handling.
+///
+/// # Example
+///
+/// ```ignore
+/// use lifeguard_derive::DeriveTryIntoModel;
+///
+/// #[derive(DeriveTryIntoModel)]
+/// #[lifeguard(model = "UserModel")]
+/// struct CreateUserRequest {
+///     name: String,
+///     email: String,
+///     // Missing fields (id, etc.) will use Default::default()
+/// }
+///
+/// // The macro generates:
+/// // impl TryIntoModel<UserModel> for CreateUserRequest {
+/// //     type Error = LifeError;
+/// //     fn try_into_model(self) -> Result<UserModel, LifeError> {
+/// //         Ok(UserModel {
+/// //             id: Default::default(),
+/// //             name: self.name,
+/// //             email: self.email,
+/// //         })
+/// //     }
+/// // }
+/// ```
+#[proc_macro_derive(DeriveTryIntoModel, attributes(lifeguard))]
+pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
+    macros::derive_try_into_model(input)
+}

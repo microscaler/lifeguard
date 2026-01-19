@@ -2,6 +2,10 @@
 //!
 //! This module provides the `ModelTrait` which allows dynamic access to model fields
 //! and primary key values. Similar to SeaORM's `ModelTrait`.
+//!
+//! ## Submodules
+//!
+//! - `try_into_model` - `TryIntoModel` trait for converting types into Model instances
 
 use crate::query::LifeModelTrait;
 use crate::relation::identity::Identity;
@@ -611,3 +615,7 @@ mod get_by_column_name_tests {
         // The macro-generated implementation would handle actual column names
     }
 }
+
+// TryIntoModel trait submodule
+pub mod try_into_model;
+pub use try_into_model::TryIntoModel;
