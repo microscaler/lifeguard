@@ -254,6 +254,7 @@ impl ColumnDefinition {
             renamed_from: None,
             select_as: None,
             save_as: None,
+            comment: None,
             unique: is_primary_key, // Primary keys are typically unique
             indexed: is_primary_key, // Primary keys are typically indexed
             auto_increment: is_auto_increment,
