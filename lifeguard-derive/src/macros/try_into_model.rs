@@ -117,12 +117,22 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
         }
     };
     
-    // Check if error type is LifeError (default) or a custom error type
-    // We need to compare the string representation to determine if we should wrap in LifeError::Other
-    let error_type_str = error_type.to_string();
-    let is_life_error = error_type_str == "lifeguard::LifeError" 
-        || error_type_str == "LifeError"
-        || error_type_str.ends_with("::LifeError");
+    // Check if error type is lifeguard::LifeError (default) or a custom error type
+    // We need to check the path structure to determine if we should wrap in LifeError::Other
+    // CRITICAL: Only match lifeguard::LifeError, not any type ending with ::LifeError
+    // (e.g., mymod::LifeError should NOT match)
+    let error_type_parsed: syn::Type = match syn::parse2(error_type.clone()) {
+        Ok(ty) => ty,
+        Err(e) => {
+            return syn::Error::new_spanned(
+                &input.ident,
+                format!("Failed to parse error type: {}", e)
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+    let is_life_error = is_lifeguard_life_error(&error_type_parsed);
     
     // Generate field mapping code
     let mut field_mappings: Vec<TokenStream2> = Vec::new();
@@ -233,6 +243,52 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     };
     
     TokenStream::from(expanded)
+}
+
+/// Check if the error type is specifically `lifeguard::LifeError`
+/// 
+/// This function examines the path structure to determine if the error type
+/// is `lifeguard::LifeError`, not just any type ending with `::LifeError`.
+/// 
+/// # Returns
+/// 
+/// - `true` if the error type is `lifeguard::LifeError` or unqualified `LifeError`
+/// - `false` for any other error type, including custom error types from other modules
+///   (e.g., `mymod::LifeError` should return `false`)
+fn is_lifeguard_life_error(error_type: &syn::Type) -> bool {
+    match error_type {
+        syn::Type::Path(type_path) => {
+            let path = &type_path.path;
+            
+            // Check if path has exactly 2 segments: "lifeguard" and "LifeError"
+            if path.segments.len() == 2 {
+                let seg1 = &path.segments[0];
+                let seg2 = &path.segments[1];
+                
+                // Check if first segment is "lifeguard" and second is "LifeError"
+                if seg1.ident == "lifeguard" && seg2.ident == "LifeError" {
+                    // Verify there are no arguments (e.g., LifeError<T>)
+                    if let syn::PathArguments::None = &seg2.arguments {
+                        return true;
+                    }
+                }
+            }
+            
+            // Check if path has exactly 1 segment: "LifeError" (unqualified)
+            if path.segments.len() == 1 {
+                let seg = &path.segments[0];
+                if seg.ident == "LifeError" {
+                    // Verify there are no arguments (e.g., LifeError<T>)
+                    if let syn::PathArguments::None = &seg.arguments {
+                        return true;
+                    }
+                }
+            }
+            
+            false
+        }
+        _ => false,
+    }
 }
 
 /// Extract the target Model type from #[lifeguard(model = "...")] attribute

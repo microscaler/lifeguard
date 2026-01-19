@@ -134,3 +134,9 @@ fn compile_error_try_into_model_malformed_map_from() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_try_into_model_malformed_map_from.rs");
 }
+
+#[test]
+fn compile_error_try_into_model_custom_lifeerror_from_other_module() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs");
+}
