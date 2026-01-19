@@ -654,3 +654,57 @@ fn test_default_expr_with_other_attributes() {
     assert_eq!(def_uuid.default_expr, Some("uuid_generate_v4()".to_string()));
     assert_eq!(def_uuid.column_type, Some("UUID".to_string()));
 }
+
+// ============================================================================
+// Column Renamed From (renamed_from)
+// ============================================================================
+
+#[test]
+fn test_renamed_from_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_renamed_from"]
+    pub struct TestRenamedFrom {
+        #[primary_key]
+        pub id: i32,
+        #[renamed_from = "old_email"]
+        pub email: String,
+        #[renamed_from = "user_name"]
+        pub name: String,
+        pub active: bool, // No renamed_from
+    }
+    
+    // Verify renamed_from is set
+    let def_email = <Entity as LifeModelTrait>::Column::Email.column_def();
+    assert_eq!(def_email.renamed_from, Some("old_email".to_string()));
+    
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.renamed_from, Some("user_name".to_string()));
+    
+    // Verify no renamed_from
+    let def_active = <Entity as LifeModelTrait>::Column::Active.column_def();
+    assert_eq!(def_active.renamed_from, None);
+}
+
+#[test]
+fn test_renamed_from_with_other_attributes() {
+    #[derive(LifeModel)]
+    #[table_name = "test_renamed_from_combined"]
+    pub struct TestRenamedFromCombined {
+        #[primary_key]
+        pub id: i32,
+        #[renamed_from = "old_email"]
+        #[nullable]
+        pub email: Option<String>,
+        #[renamed_from = "user_name"]
+        #[column_type = "VARCHAR(255)"]
+        pub name: String,
+    }
+    
+    let def_email = <Entity as LifeModelTrait>::Column::Email.column_def();
+    assert_eq!(def_email.renamed_from, Some("old_email".to_string()));
+    assert_eq!(def_email.nullable, true);
+    
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.renamed_from, Some("user_name".to_string()));
+    assert_eq!(def_name.column_type, Some("VARCHAR(255)".to_string()));
+}
