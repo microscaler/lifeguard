@@ -291,6 +291,7 @@ mod tests {
             renamed_from: Some("old_name".to_string()),
             select_as: None,
             save_as: None,
+            comment: None,
             unique: true,
             indexed: true,
             auto_increment: false,
