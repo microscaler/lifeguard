@@ -81,5 +81,10 @@ pub use primary_key::{
     PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
 };
 
+// Model Manager pattern for custom query methods
+pub mod manager;
+#[doc(inline)]
+pub use manager::{ModelManager, StoredProcedure};
+
 // FromRow trait is in traits module
 pub use traits::FromRow;

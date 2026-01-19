@@ -68,6 +68,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     // Process fields
     let mut record_fields = Vec::new();
     let mut record_field_names = Vec::new();
+    let mut ignored_field_names = Vec::new();
+    let mut ignored_field_defaults = Vec::new();
     let mut from_model_fields = Vec::new();
     let mut to_model_fields = Vec::new();
     let mut dirty_fields_check = Vec::new();
@@ -104,15 +106,70 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // This is critical: conversion functions need the inner type (e.g., String), not Option<String>
         let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
         
+        // Extract all column attributes
+        let col_attrs = attributes::parse_column_attributes(field);
+        let is_primary_key = col_attrs.is_primary_key;
+        let is_auto_increment = col_attrs.is_auto_increment;
+        let is_ignored = col_attrs.is_ignored;
+        
+        // Validate: primary key fields cannot be skipped/ignored
+        if is_primary_key && is_ignored {
+            // Find the skip/ignore attribute to use its span for better error location
+            if let Some(attr) = field.attrs.iter()
+                .find(|attr| attr.path().is_ident("skip") || attr.path().is_ident("ignore")) {
+                return syn::Error::new_spanned(
+                    attr,
+                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+                )
+                .to_compile_error()
+                .into();
+            } else {
+                // Fallback to field name if attribute not found (shouldn't happen)
+                return syn::Error::new_spanned(
+                    field_name,
+                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+        
+        // Skip ignored fields - they're not included in database operations
+        // But we still need to add them to the Record struct and conversion methods
+        if is_ignored {
+            // Still include in Record struct with original type (not Option<T>)
+            record_fields.push(quote! {
+                pub #field_name: #field_type,
+            });
+            
+            // Add to from_model_fields - copy directly from model
+            from_model_fields.push(quote! {
+                #field_name: model.#field_name.clone(),
+            });
+            
+            // Add to to_model_fields - copy directly to model
+            to_model_fields.push(quote! {
+                #field_name: self.#field_name.clone(),
+            });
+            
+            // Track for new() method initialization (use Default::default() instead of None)
+            ignored_field_names.push(field_name.clone());
+            let default_expr = if extract_option_inner_type(field_type).is_some() {
+                quote! { None }
+            } else {
+                quote! { <#field_type as Default>::default() }
+            };
+            ignored_field_defaults.push(default_expr);
+            
+            // Don't generate Column enum variant, ActiveModel methods, etc. for ignored fields
+            continue;
+        }
+        
         // Extract column name for database (snake_case) and enum variant (PascalCase)
         let db_column_name = attributes::extract_column_name(field)
             .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
         let column_variant_name = utils::pascal_case(&field_name.to_string());
         let column_variant = Ident::new(&column_variant_name, field_name.span());
-        
-        // Check if field is primary key
-        let is_primary_key = attributes::has_attribute(field, "primary_key");
-        let is_auto_increment = attributes::has_attribute(field, "auto_increment");
         
         // Track primary key information
         if is_primary_key {
@@ -479,6 +536,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 Self {
                     #(
                         #record_field_names: None,
+                    )*
+                    #(
+                        #ignored_field_names: #ignored_field_defaults,
                     )*
                 }
             }

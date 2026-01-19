@@ -220,12 +220,12 @@ This design simplifies the API while maintaining the same functionality.
 | `#[sea_orm(indexed)]` | `#[indexed]` | ✅ Complete | Indexed column - LifeModel macro generates ColumnTrait::def() with indexed metadata |
 | `#[sea_orm(enum_name = "...")]` | `#[enum_name = "..."]` | ✅ Complete | Enum type name - LifeModel macro generates ColumnTrait::enum_type_name() implementation |
 | `#[sea_orm(default_expr = "...")]` | `#[default_expr = "..."]` | ✅ Implemented | Default SQL expression - LifeModel macro generates ColumnTrait::def() with default_expr metadata, includes apply_default_expr() helper for migrations |
-| `#[sea_orm(schema_name = "...")]` | ❌ Missing | 🟡 **Future** | Schema name |
-| `#[sea_orm(ignore)]` | ❌ Missing | 🟡 **Future** | Ignore field |
-| `#[sea_orm(select_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom SELECT expression |
-| `#[sea_orm(save_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom save expression |
-| `#[sea_orm(renamed_from = "...")]` | ❌ Missing | 🟡 **Future** | Column renamed from |
-| `#[sea_orm(comment = "...")]` | ❌ Missing | 🟡 **Future** | Column comment |
+| `#[sea_orm(schema_name = "...")]` | `#[schema_name = "..."]` | ✅ Implemented | Schema name - LifeModel macro generates schema_name() method on Entity, query builders use schema-qualified table names |
+| `#[sea_orm(ignore)]` | `#[skip]` | ✅ Implemented | Ignore field - Fields with `#[skip]` are excluded from Column enum and database operations but remain in Model struct |
+| `#[sea_orm(select_as = "...")]` | `#[select_as = "..."]` | ✅ Implemented | Custom SELECT expression - Metadata stored in ColumnDefinition, ready for query builder integration |
+| `#[sea_orm(save_as = "...")]` | `#[save_as = "..."]` | ✅ Implemented | Custom save expression - Metadata stored in ColumnDefinition, ready for CRUD operations integration |
+| `#[sea_orm(renamed_from = "...")]` | `#[renamed_from = "..."]` | ✅ Implemented | Column renamed from - LifeModel macro generates ColumnTrait::def() with renamed_from metadata for migration workflows |
+| `#[sea_orm(comment = "...")]` | `#[comment = "..."]` | ✅ Implemented | Column comment - Metadata stored in ColumnDefinition for documentation and schema introspection |
 
 ---
 
@@ -343,13 +343,13 @@ This design simplifies the API while maintaining the same functionality.
   - **Blocked by:** sea-query API limitations (see `SEAQUERY_IMPROVEMENTS_AUDIT.md`)
 
 #### Advanced Query Features
-**Status:** 🟢 Partial  
+**Status:** ✅ **Complete**  
 **Current State:**
 - `group_by()`, `having()` - ✅ Implemented (GROUP BY and HAVING clauses)
 - `join()`, `left_join()`, `right_join()`, `inner_join()` - ✅ Implemented (JOIN operations)
-**Future State:**
-- Subqueries and CTEs (🟡 Future)
-- Window functions (🟡 Future)
+- `with()` - ✅ Implemented (CTEs using WITH clauses, returns `WithQuery`)
+- `subquery_column()` - ✅ Implemented (Subqueries as SELECT columns)
+- `window_function_cust()` - ✅ Implemented (Window functions using `Expr::cust()` for SQL expressions)
 
 ### Low Priority (Nice-to-Have)
 

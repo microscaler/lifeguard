@@ -19,6 +19,23 @@ pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
     None
 }
 
+/// Extract schema name from struct attributes
+pub fn extract_schema_name(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("schema_name") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    return Some(s.value());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Extract column name from field attributes
 pub fn extract_column_name(field: &Field) -> Option<String> {
     for attr in &field.attrs {
@@ -90,11 +107,16 @@ pub struct ColumnAttributes {
     pub column_type: Option<String>,
     pub default_value: Option<String>,
     pub default_expr: Option<String>,
+    pub renamed_from: Option<String>,
     pub is_unique: bool,
     pub is_indexed: bool,
     pub is_nullable: bool,
     pub is_auto_increment: bool,
     pub enum_name: Option<String>,
+    pub is_ignored: bool,
+    pub select_as: Option<String>,
+    pub save_as: Option<String>,
+    pub comment: Option<String>,
 }
 
 impl Default for ColumnAttributes {
@@ -105,11 +127,16 @@ impl Default for ColumnAttributes {
             column_type: None,
             default_value: None,
             default_expr: None,
+            renamed_from: None,
             is_unique: false,
             is_indexed: false,
             is_nullable: false,
             is_auto_increment: false,
             enum_name: None,
+            is_ignored: false,
+            select_as: None,
+            save_as: None,
+            comment: None,
         }
     }
 }
@@ -161,6 +188,15 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
                     attrs.default_expr = Some(s.value());
                 }
             }
+        } else if attr.path().is_ident("renamed_from") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.renamed_from = Some(s.value());
+                }
+            }
         } else if attr.path().is_ident("unique") {
             attrs.is_unique = true;
         } else if attr.path().is_ident("indexed") {
@@ -176,6 +212,35 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
                     ..
                 }) = &meta.value {
                     attrs.enum_name = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("ignore") || attr.path().is_ident("skip") {
+            attrs.is_ignored = true;
+        } else if attr.path().is_ident("select_as") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.select_as = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("save_as") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.save_as = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("comment") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.comment = Some(s.value());
                 }
             }
         }

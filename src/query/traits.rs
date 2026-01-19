@@ -43,6 +43,12 @@ use crate::query::select::SelectQuery;
 pub trait LifeEntityName: Default {
     /// Get the name of the table.
     fn table_name(&self) -> &'static str;
+    
+    /// Get the schema name (if any).
+    /// Returns `None` if no schema is specified (default schema).
+    fn schema_name(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Trait for LifeModel entities that provides CRUD operations.
