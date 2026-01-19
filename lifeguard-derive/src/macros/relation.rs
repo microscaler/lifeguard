@@ -372,15 +372,19 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             // Error cases are identified by:
             // 1. Path is just "Entity" without any module prefix
             // 2. Both from_col and to_col are None (error cases always return None for both)
+            // 3. def_relation_def is empty (error cases return quote! {} for def_relation_def)
             // This distinguishes error cases from valid self-referential relationships,
-            // which would have at least one column specified (or use defaults, but the
-            // tuple values would still be None if not user-specified, so we need to be careful)
-            // However, if the path is "Entity" AND both are None, it's almost certainly an error case
-            // because valid self-referential relationships would typically specify columns explicitly
+            // which would have a non-empty def_relation_def even if columns are None (defaults are inferred)
+            // Valid self-referential relationships like #[lifeguard(has_many = "Entity")] will have:
+            // - Path is "Entity" (single segment)
+            // - Both from_col and to_col are None (defaults inferred, not explicitly specified)
+            // - But def_relation_def is NOT empty (contains valid RelationDef construction code)
+            let def_relation_def_str = def_relation_def.to_string();
             let is_dummy_path = target_entity_path.segments.len() == 1 
                 && target_entity_path.segments[0].ident == "Entity"
                 && from_col.is_none()
-                && to_col.is_none();
+                && to_col.is_none()
+                && def_relation_def_str.trim().is_empty();
             
             // Only deduplicate Related impls if this is not a dummy path (error case)
             // Error cases should always be emitted to show the compile error

@@ -108,6 +108,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-19-04: DeriveRelation Macro Non-Exhaustive Match in def() Method for Duplicate Relations and Unannotated Variants](bugs/BUG-2026-01-19-04.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Compilation error / Non-exhaustive match
 
+- [BUG-2026-01-19-05: DeriveRelation Macro is_dummy_path Heuristic Incorrectly Flags Valid Self-Referential Relationships](bugs/BUG-2026-01-19-05.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Runtime panic / Incorrect code generation
+
 ---
 
 ## Open Bugs

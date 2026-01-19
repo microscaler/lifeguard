@@ -1145,3 +1145,99 @@ fn test_derive_relation_mixed_annotated_unannotated() {
     });
     assert!(result.is_err(), "Unannotated variant should panic when def() is called");
 }
+
+// Test module for self-referential relationships WITHOUT explicit columns
+// This tests the fix for the is_dummy_path heuristic incorrectly flagging valid
+// self-referential relationships as error cases
+mod self_referential_no_columns_test {
+    use lifeguard_derive::DeriveRelation;
+    use lifeguard::{RelationDef, LifeEntityName, LifeModelTrait};
+    
+    // Entity representing CategoryEntity for this test
+    #[derive(Default, Copy, Clone)]
+    pub struct Entity;
+    
+    impl sea_query::Iden for Entity {
+        fn unquoted(&self) -> &str {
+            "categories"
+        }
+    }
+    
+    impl LifeEntityName for Entity {
+        fn table_name(&self) -> &'static str {
+            "categories"
+        }
+    }
+    
+    impl LifeModelTrait for Entity {
+        type Model = CategoryModel;
+        type Column = CategoryColumn;
+    }
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum CategoryColumn {
+        Id,
+        ParentId, // Foreign key to parent category
+    }
+    
+    impl sea_query::Iden for CategoryColumn {
+        fn unquoted(&self) -> &str {
+            match self {
+                CategoryColumn::Id => "id",
+                CategoryColumn::ParentId => "parent_id",
+            }
+        }
+    }
+    
+    impl sea_query::IdenStatic for CategoryColumn {
+        fn as_str(&self) -> &'static str {
+            match self {
+                CategoryColumn::Id => "id",
+                CategoryColumn::ParentId => "parent_id",
+            }
+        }
+    }
+    
+    #[derive(Debug, Clone)]
+    pub struct CategoryModel;
+    
+    // Relation enum for testing self-referential relationships WITHOUT explicit columns
+    // The target entity is "Entity" (the same entity), and columns are inferred from defaults
+    // This should NOT be treated as a dummy path (error case) even though:
+    // - Path is "Entity" (single segment)
+    // - Both from_col and to_col are None (defaults inferred, not explicitly specified)
+    // The def() method should work correctly, not panic
+    #[derive(DeriveRelation)]
+    pub enum Relation {
+        // Self-referential has_many relationship without explicit columns
+        // Columns are inferred: from_col = Entity's primary key (Id), to_col = inferred FK (category_id)
+        #[lifeguard(has_many = "Entity")]
+        Children,
+    }
+}
+
+#[test]
+fn test_derive_relation_self_referential_no_columns_def_method() {
+    use self_referential_no_columns_test::*;
+    
+    // Test that def() method works for self-referential relationships without explicit columns
+    // This verifies the fix for the is_dummy_path heuristic incorrectly flagging valid
+    // self-referential relationships as error cases
+    // Before the fix, this would panic at runtime because def() would generate a panic arm
+    // After the fix, this should return a valid RelationDef
+    
+    // Test def() method exists and returns RelationDef
+    let rel_def: RelationDef = Relation::Children.def();
+    
+    // Verify that def() returns the same RelationDef as Related::to()
+    let rel_def_from_related: RelationDef = <Entity as Related<Entity>>::to();
+    
+    // The def() method should return equivalent RelationDef
+    assert_eq!(rel_def.rel_type, rel_def_from_related.rel_type);
+    
+    // Verify that the relationship is correctly configured
+    // For has_many self-referential: from_col should be Entity's primary key (Id)
+    // to_col should be inferred FK (category_id)
+    assert_eq!(rel_def.from_col.arity(), 1);
+    assert_eq!(rel_def.to_col.arity(), 1);
+}
