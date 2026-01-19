@@ -41,11 +41,16 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    // Extract struct name and table name
+    // Extract struct name, table name, and schema name
     let struct_name = &input.ident;
     let table_name = attributes::extract_table_name(&input.attrs)
         .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
     let table_name_lit = syn::LitStr::new(&table_name, struct_name.span());
+    let schema_name = attributes::extract_schema_name(&input.attrs);
+    let schema_attr = schema_name.as_ref().map(|s| {
+        let schema_lit = syn::LitStr::new(s, struct_name.span());
+        quote! { #[schema_name = #schema_lit] }
+    });
 
     // Extract fields
     let fields = match &input.data {
@@ -104,6 +109,53 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let col_attrs = attributes::parse_column_attributes(field);
         let is_primary_key = col_attrs.is_primary_key;
         let is_auto_increment = col_attrs.is_auto_increment;
+        let is_ignored = col_attrs.is_ignored;
+
+        // Validate: primary key fields cannot be skipped/ignored
+        if is_primary_key && is_ignored {
+            // Find the skip/ignore attribute to use its span for better error location
+            if let Some(attr) = field.attrs.iter()
+                .find(|attr| attr.path().is_ident("skip") || attr.path().is_ident("ignore")) {
+                return syn::Error::new_spanned(
+                    attr,
+                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+                )
+                .to_compile_error()
+                .into();
+            } else {
+                // Fallback to field name if attribute not found (shouldn't happen)
+                return syn::Error::new_spanned(
+                    field_name,
+                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+
+        // Skip ignored fields - they're not mapped to database columns
+        // But we still need to add them to the Model struct and FromRow
+        if is_ignored {
+            // Still include in Model struct
+            model_fields.push(quote! {
+                pub #field_name: #field_type,
+            });
+            // Add to FromRow with default value (since they're not in database)
+            // Use Default::default() if available, otherwise use a placeholder
+            // For Option<T>, use None; for other types, try Default::default()
+            let default_expr = if extract_option_inner_type(field_type).is_some() {
+                quote! { None }
+            } else {
+                quote! { <#field_type as Default>::default() }
+            };
+            from_row_fields.push(quote! {
+                #field_name: #default_expr,
+            });
+            // Don't generate Column enum variant, Iden, etc. for ignored fields
+            continue;
+        }
+        
+        // For non-ignored fields, add to Model struct with serde attributes
 
         // Generate Column enum variant (PascalCase)
         let column_variant = Ident::new(
@@ -874,6 +926,26 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             quote! { Some(#de_lit.to_string()) }
         }).unwrap_or_else(|| quote! { None });
         
+        let renamed_from_expr = col_attrs.renamed_from.as_ref().map(|rf| {
+            let rf_lit = syn::LitStr::new(rf, field_name.span());
+            quote! { Some(#rf_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let select_as_expr = col_attrs.select_as.as_ref().map(|sa| {
+            let sa_lit = syn::LitStr::new(sa, field_name.span());
+            quote! { Some(#sa_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let save_as_expr = col_attrs.save_as.as_ref().map(|sa| {
+            let sa_lit = syn::LitStr::new(sa, field_name.span());
+            quote! { Some(#sa_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let comment_expr = col_attrs.comment.as_ref().map(|c| {
+            let c_lit = syn::LitStr::new(c, field_name.span());
+            quote! { Some(#c_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
         // Extract boolean attributes for use in quote! macro
         let is_unique_attr = col_attrs.is_unique;
         let is_indexed_attr = col_attrs.is_indexed;
@@ -885,6 +957,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 nullable: #is_nullable,
                 default_value: #default_value_expr,
                 default_expr: #default_expr_expr,
+                renamed_from: #renamed_from_expr,
+                select_as: #select_as_expr,
+                save_as: #save_as_expr,
+                comment: #comment_expr,
                 unique: #is_unique_attr,
                 indexed: #is_indexed_attr,
                 auto_increment: #is_auto_increment_attr,
@@ -1190,6 +1266,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         #[derive(Copy, Clone, Debug, lifeguard_derive::DeriveEntity)]
         #[table_name = #table_name_lit]
         #[model = #model_name_lit]
+        #schema_attr
         pub struct Entity;
 
         // Table name constant (for convenience, matches Entity::table_name())

@@ -598,7 +598,7 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 | **Auto Timestamps** | ✅✅✅ created_at, updated_at | ❌ **Not Implemented** | ⚠️ Manual | ❌ No | ❌ No |
 | **Session/Unit of Work** | ✅✅✅ Identity map, dirty tracking | ❌ **Not Implemented** | ❌ No | ❌ No | ❌ No |
 | **Scopes** | ✅✅✅ Named query scopes | ❌ **Not Implemented** | ❌ No | ❌ No | ❌ No |
-| **Model Managers** | ✅✅✅ Custom query methods | ❌ **Not Implemented** | ❌ No | ❌ No | ❌ No |
+| **Model Managers** | ✅✅✅ Custom query methods | ✅ **Implemented** (ModelManager trait + custom methods pattern) | ❌ No | ❌ No | ❌ No |
 | **F() Expressions** | ✅✅✅ Database-level expressions | ❌ **Not Implemented** | ❌ No | ⚠️ Limited | ❌ No |
 | **Subqueries** | ✅✅✅ Full support | 🟡 **Future** (Not yet implemented) | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Manual SQL |
 | **CTEs** | ✅✅✅ WITH clauses | 🟡 **Future** (Not yet implemented) | ✅✅✅ WITH clauses | ✅✅ WITH clauses | ✅✅ Manual SQL |

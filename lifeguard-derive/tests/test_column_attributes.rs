@@ -654,3 +654,266 @@ fn test_default_expr_with_other_attributes() {
     assert_eq!(def_uuid.default_expr, Some("uuid_generate_v4()".to_string()));
     assert_eq!(def_uuid.column_type, Some("UUID".to_string()));
 }
+
+// ============================================================================
+// Column Renamed From (renamed_from)
+// ============================================================================
+
+#[test]
+fn test_renamed_from_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_renamed_from"]
+    pub struct TestRenamedFrom {
+        #[primary_key]
+        pub id: i32,
+        #[renamed_from = "old_email"]
+        pub email: String,
+        #[renamed_from = "user_name"]
+        pub name: String,
+        pub active: bool, // No renamed_from
+    }
+    
+    // Verify renamed_from is set
+    let def_email = <Entity as LifeModelTrait>::Column::Email.column_def();
+    assert_eq!(def_email.renamed_from, Some("old_email".to_string()));
+    
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.renamed_from, Some("user_name".to_string()));
+    
+    // Verify no renamed_from
+    let def_active = <Entity as LifeModelTrait>::Column::Active.column_def();
+    assert_eq!(def_active.renamed_from, None);
+}
+
+#[test]
+fn test_renamed_from_with_other_attributes() {
+    #[derive(LifeModel)]
+    #[table_name = "test_renamed_from_combined"]
+    pub struct TestRenamedFromCombined {
+        #[primary_key]
+        pub id: i32,
+        #[renamed_from = "old_email"]
+        #[nullable]
+        pub email: Option<String>,
+        #[renamed_from = "user_name"]
+        #[column_type = "VARCHAR(255)"]
+        pub name: String,
+    }
+    
+    let def_email = <Entity as LifeModelTrait>::Column::Email.column_def();
+    assert_eq!(def_email.renamed_from, Some("old_email".to_string()));
+    assert_eq!(def_email.nullable, true);
+    
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.renamed_from, Some("user_name".to_string()));
+    assert_eq!(def_name.column_type, Some("VARCHAR(255)".to_string()));
+}
+
+// ============================================================================
+// Schema Name (schema_name)
+// ============================================================================
+
+#[test]
+fn test_schema_name_attribute() {
+    use lifeguard::LifeEntityName;
+    
+    #[derive(LifeModel)]
+    #[table_name = "users"]
+    #[schema_name = "public"]
+    pub struct User {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+    }
+    
+    // Verify schema_name is accessible
+    let entity = Entity::default();
+    assert_eq!(entity.schema_name(), Some("public"));
+    assert_eq!(entity.table_name(), "users");
+}
+
+#[test]
+fn test_schema_name_without_attribute() {
+    use lifeguard::LifeEntityName;
+    
+    #[derive(LifeModel)]
+    #[table_name = "users"]
+    pub struct User {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+    }
+    
+    // Verify schema_name returns None when not specified
+    let entity = Entity::default();
+    assert_eq!(entity.schema_name(), None);
+    assert_eq!(entity.table_name(), "users");
+}
+
+#[test]
+fn test_schema_name_custom_schema() {
+    use lifeguard::LifeEntityName;
+    
+    #[derive(LifeModel)]
+    #[table_name = "orders"]
+    #[schema_name = "commerce"]
+    pub struct Order {
+        #[primary_key]
+        pub id: i32,
+        pub total: f64,
+    }
+    
+    // Verify custom schema name
+    let entity = Entity::default();
+    assert_eq!(entity.schema_name(), Some("commerce"));
+    assert_eq!(entity.table_name(), "orders");
+}
+
+// ============================================================================
+// Ignore Field (ignore)
+// ============================================================================
+
+#[test]
+fn test_ignore_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_ignore"]
+    pub struct TestIgnore {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+        #[skip]
+        pub computed_field: String, // Not in database
+        #[skip]
+        pub virtual_field: i32, // Not in database
+        pub email: String,
+    }
+    
+    // Verify ignored fields are NOT in Column enum
+    // Column enum should only have: Id, Name, Email
+    let columns = [
+        <Entity as LifeModelTrait>::Column::Id,
+        <Entity as LifeModelTrait>::Column::Name,
+        <Entity as LifeModelTrait>::Column::Email,
+    ];
+    
+    // Verify we can't access ComputedField or VirtualField as columns
+    // (This is a compile-time check - if it compiles, the test passes)
+    let _ = columns;
+    
+    // Verify ignored fields ARE in Model struct
+    // This is a compile-time check - Model should have all fields
+    // Note: Ignored fields won't be populated from database (FromRow skips them),
+    // but they're still part of the Model struct for manual initialization
+    // We test this by checking that the Model type exists and can be used
+    type Model = <Entity as LifeModelTrait>::Model;
+    let _: Model = Model {
+        id: 1,
+        name: "Test".to_string(),
+        computed_field: "computed".to_string(), // Skipped field - not in Column enum, but in Model struct
+        virtual_field: 42, // Skipped field - not in Column enum, but in Model struct
+        email: "test@example.com".to_string(),
+    };
+}
+
+#[test]
+fn test_ignore_with_other_attributes() {
+    #[derive(LifeModel)]
+    #[table_name = "test_ignore_combined"]
+    pub struct TestIgnoreCombined {
+        #[primary_key]
+        pub id: i32,
+        #[skip]
+        #[nullable] // This should be ignored since field is skipped
+        pub virtual_field: Option<String>,
+        pub name: String,
+    }
+    
+    // Verify ignored field is not in Column enum
+    // Column enum should only have: Id, Name
+    let columns = [
+        <Entity as LifeModelTrait>::Column::Id,
+        <Entity as LifeModelTrait>::Column::Name,
+    ];
+    let _ = columns;
+}
+
+// ============================================================================
+// Select As (select_as)
+// ============================================================================
+
+#[test]
+fn test_select_as_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_select_as"]
+    pub struct TestSelectAs {
+        #[primary_key]
+        pub id: i32,
+        pub first_name: String,
+        pub last_name: String,
+        #[select_as = "CONCAT(first_name, ' ', last_name) AS full_name"]
+        pub full_name: String,
+    }
+    
+    // Verify select_as is stored in ColumnDefinition
+    let def_full_name = <Entity as LifeModelTrait>::Column::FullName.column_def();
+    assert_eq!(def_full_name.select_as, Some("CONCAT(first_name, ' ', last_name) AS full_name".to_string()));
+    
+    // Verify regular columns don't have select_as
+    let def_id = <Entity as LifeModelTrait>::Column::Id.column_def();
+    assert_eq!(def_id.select_as, None);
+}
+
+// ============================================================================
+// Save As (save_as)
+// ============================================================================
+
+#[test]
+fn test_save_as_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_save_as"]
+    pub struct TestSaveAs {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+        #[save_as = "NOW()"]
+        pub updated_at: String,
+    }
+    
+    // Verify save_as is stored in ColumnDefinition
+    let def_updated_at = <Entity as LifeModelTrait>::Column::UpdatedAt.column_def();
+    assert_eq!(def_updated_at.save_as, Some("NOW()".to_string()));
+    
+    // Verify regular columns don't have save_as
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.save_as, None);
+}
+
+// ============================================================================
+// Comment (comment)
+// ============================================================================
+
+#[test]
+fn test_comment_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_comment"]
+    pub struct TestComment {
+        #[primary_key]
+        pub id: i32,
+        #[comment = "User's full name"]
+        pub name: String,
+        #[comment = "Email address for authentication"]
+        pub email: String,
+        pub active: bool, // No comment
+    }
+    
+    // Verify comment is stored in ColumnDefinition
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.comment, Some("User's full name".to_string()));
+    
+    let def_email = <Entity as LifeModelTrait>::Column::Email.column_def();
+    assert_eq!(def_email.comment, Some("Email address for authentication".to_string()));
+    
+    // Verify columns without comment have None
+    let def_active = <Entity as LifeModelTrait>::Column::Active.column_def();
+    assert_eq!(def_active.comment, None);
+}

@@ -1,0 +1,19 @@
+error: Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.
+  --> tests/ui/compile_error_ignore_primary_key.rs:12:5
+   |
+12 |     #[ignore]  // ERROR: primary key fields cannot be ignored
+   |     ^^^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_ignore_primary_key.rs:15:2
+   |
+15 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_ignore_primary_key.rs`
+
+warning: `#[ignore]` only has an effect on functions
+  --> tests/ui/compile_error_ignore_primary_key.rs:12:5
+   |
+12 |     #[ignore]  // ERROR: primary key fields cannot be ignored
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(unused_attributes)]` on by default

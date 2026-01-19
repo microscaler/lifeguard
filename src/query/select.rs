@@ -93,16 +93,18 @@ where
     pub fn new() -> Self {
         let entity = E::default();
         let table_name = entity.table_name();
+        let schema_name = entity.schema_name();
         
-        struct TableName(&'static str);
-        impl Iden for TableName {
-            fn unquoted(&self) -> &str {
-                self.0
-            }
-        }
+        // Use schema-qualified table name if schema is present
+        use sea_query::{TableName, IntoIden, SchemaName};
+        let table_ref = if let Some(schema) = schema_name {
+            TableName(Some(SchemaName::from(schema)), table_name.into_iden())
+        } else {
+            TableName(None, table_name.into_iden())
+        };
         
         let mut query = SelectStatement::default();
-        query.column(sea_query::Asterisk).from(TableName(table_name));
+        query.column(sea_query::Asterisk).from(table_ref);
         Self {
             query,
             _phantom: PhantomData,
@@ -383,6 +385,146 @@ where
     /// ```
     pub fn inner_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
         self.query.join(sea_query::JoinType::InnerJoin, table, on);
+        self
+    }
+    
+    /// Add a Common Table Expression (CTE) using WITH clause
+    ///
+    /// CTEs allow you to define temporary named result sets that exist only for the duration of a query.
+    /// **Note:** This method returns a `WithQuery` which has a different API than `SelectQuery`.
+    /// You can use `with_query.select()` to continue building the query.
+    ///
+    /// # Arguments
+    ///
+    /// * `with_clause` - The WITH clause containing one or more CTEs (created with `WithClause::new().cte(...)`)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden, SelectStatement, WithClause, CommonTableExpression};
+    ///
+    /// # struct UserModel { id: i32 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// struct ActiveUsers;
+    /// impl sea_query::Iden for ActiveUsers {
+    ///     fn unquoted(&self) -> &str { "active_users" }
+    /// }
+    ///
+    /// // Define a CTE for active users
+    /// let mut cte_query = SelectStatement::default();
+    /// cte_query
+    ///     .column(sea_query::Asterisk)
+    ///     .from("users")
+    ///     .cond_where(Expr::col("status").eq("active"));
+    ///
+    /// let cte = CommonTableExpression::new(ActiveUsers, cte_query);
+    /// let with_clause = WithClause::new().cte(cte).to_owned();
+    ///
+    /// // Use the CTE in the main query
+    /// # let query = UserModel::find();
+    /// let with_query = query.with(with_clause);
+    /// // Continue with: with_query.select(...)
+    /// ```
+    pub fn with(self, with_clause: sea_query::WithClause) -> sea_query::WithQuery {
+        self.query.with(with_clause)
+    }
+    
+    /// Add a subquery as a column in the SELECT clause
+    ///
+    /// Subqueries can be used in SELECT, WHERE, and other clauses to create nested queries.
+    /// This method converts a `SelectStatement` to an `Expr` and adds it as a column.
+    ///
+    /// # Arguments
+    ///
+    /// * `subquery` - The subquery to add as a column (a `SelectStatement`)
+    /// * `alias` - Optional alias for the subquery column (must implement `Iden`)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::{Expr, Iden, SelectStatement, SubQueryStatement};
+    ///
+    /// # struct UserModel { id: i32, post_count: i64 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// struct PostCount;
+    /// impl sea_query::Iden for PostCount {
+    ///     fn unquoted(&self) -> &str { "post_count" }
+    /// }
+    ///
+    /// // Create a subquery to count posts per user
+    /// let mut subquery = SelectStatement::default();
+    /// subquery
+    ///     .expr(Expr::col("COUNT(*)"))
+    ///     .from("posts")
+    ///     .cond_where(Expr::col("posts.user_id").equals("users.id"));
+    ///
+    /// // Add subquery as a column
+    /// # let query = UserModel::find();
+    /// let query_with_subquery = query.subquery_column(subquery, Some(PostCount));
+    /// ```
+    pub fn subquery_column<T: Iden>(mut self, subquery: SelectStatement, alias: Option<T>) -> Self {
+        // Convert SelectStatement to SubQueryStatement, then to Expr
+        use sea_query::SubQueryStatement;
+        let subquery_stmt = SubQueryStatement::SelectStatement(subquery);
+        let expr = Expr::SubQuery(None, Box::new(subquery_stmt));
+        if let Some(alias) = alias {
+            self.query.expr_as(expr, alias);
+        } else {
+            self.query.expr(expr);
+        }
+        self
+    }
+    
+    /// Add a window function expression using custom SQL
+    ///
+    /// Window functions perform calculations across a set of rows related to the current row.
+    /// **Note:** This is a convenience method that uses `Expr::cust()` for window functions.
+    /// For more complex window functions, consider using `Expr::cust()` directly.
+    ///
+    /// # Arguments
+    ///
+    /// * `window_expr` - The complete window function expression as SQL string (e.g., `"ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)"`)
+    /// * `alias` - Optional alias for the window function column (must implement `Iden`)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::SelectQuery;
+    /// use sea_query::Iden;
+    ///
+    /// # struct UserModel { id: i32, name: String, row_num: i64 };
+    /// # impl lifeguard::FromRow for UserModel {
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// # }
+    /// struct RowNumber;
+    /// impl sea_query::Iden for RowNumber {
+    ///     fn unquoted(&self) -> &str { "row_number" }
+    /// }
+    ///
+    /// // Add window function to query using custom SQL
+    /// # let query = UserModel::find();
+    /// let query_with_window = query.window_function_cust(
+    ///     "ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)",
+    ///     Some(RowNumber)
+    /// );
+    /// ```
+    pub fn window_function_cust<T: Iden>(
+        mut self,
+        window_expr: &'static str,
+        alias: Option<T>,
+    ) -> Self {
+        let expr = Expr::cust(window_expr);
+        if let Some(alias) = alias {
+            self.query.expr_as(expr, alias);
+        } else {
+            self.query.expr(expr);
+        }
         self
     }
 }

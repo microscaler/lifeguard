@@ -158,3 +158,15 @@ fn compile_error_linked_invalid_entity_path() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_linked_invalid_entity_path.rs");
 }
+
+#[test]
+fn compile_error_skip_primary_key() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_skip_primary_key.rs");
+}
+
+#[test]
+fn compile_error_ignore_primary_key() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_ignore_primary_key.rs");
+}
