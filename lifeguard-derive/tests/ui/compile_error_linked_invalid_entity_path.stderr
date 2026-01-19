@@ -1,0 +1,11 @@
+error: Invalid entity path in hop 1 'Post-Entity': unexpected token. Expected a valid Rust path like `PostEntity` or `super::posts::PostEntity`
+ --> tests/ui/compile_error_linked_invalid_entity_path.rs:9:5
+  |
+9 |     Comments,
+  |     ^^^^^^^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_linked_invalid_entity_path.rs:10:2
+   |
+10 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_linked_invalid_entity_path.rs`

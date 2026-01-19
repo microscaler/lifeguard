@@ -92,6 +92,40 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     macros::derive_relation(input)
 }
 
+/// Derive macro for `DeriveLinked` - generates Linked trait implementations
+///
+/// This macro generates `Linked<I, T>` trait implementations from enum variants
+/// with `#[lifeguard(linked = "...")]` attributes, reducing boilerplate for
+/// multi-hop relationship queries.
+///
+/// # Example
+///
+/// ```ignore
+/// use lifeguard_derive::DeriveLinked;
+///
+/// #[derive(DeriveLinked)]
+/// pub enum LinkedRelation {
+///     #[lifeguard(linked = "PostEntity -> CommentEntity")]
+///     Comments,
+/// }
+/// ```
+///
+/// This generates:
+/// ```ignore
+/// impl Linked<PostEntity, CommentEntity> for Entity {
+///     fn via() -> Vec<RelationDef> {
+///         vec![
+///             <Entity as Related<PostEntity>>::to(),
+///             <PostEntity as Related<CommentEntity>>::to(),
+///         ]
+///     }
+/// }
+/// ```
+#[proc_macro_derive(DeriveLinked, attributes(lifeguard))]
+pub fn derive_linked(input: TokenStream) -> TokenStream {
+    macros::derive_linked(input)
+}
+
 /// Derive macro for `DerivePartialModel` - generates PartialModelTrait and FromRow implementations
 ///
 /// This macro generates:
