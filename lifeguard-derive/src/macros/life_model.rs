@@ -874,6 +874,11 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             quote! { Some(#de_lit.to_string()) }
         }).unwrap_or_else(|| quote! { None });
         
+        let renamed_from_expr = col_attrs.renamed_from.as_ref().map(|rf| {
+            let rf_lit = syn::LitStr::new(rf, field_name.span());
+            quote! { Some(#rf_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
         // Extract boolean attributes for use in quote! macro
         let is_unique_attr = col_attrs.is_unique;
         let is_indexed_attr = col_attrs.is_indexed;
@@ -885,6 +890,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 nullable: #is_nullable,
                 default_value: #default_value_expr,
                 default_expr: #default_expr_expr,
+                renamed_from: #renamed_from_expr,
                 unique: #is_unique_attr,
                 indexed: #is_indexed_attr,
                 auto_increment: #is_auto_increment_attr,

@@ -224,7 +224,7 @@ This design simplifies the API while maintaining the same functionality.
 | `#[sea_orm(ignore)]` | ❌ Missing | 🟡 **Future** | Ignore field |
 | `#[sea_orm(select_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom SELECT expression |
 | `#[sea_orm(save_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom save expression |
-| `#[sea_orm(renamed_from = "...")]` | ❌ Missing | 🟡 **Future** | Column renamed from |
+| `#[sea_orm(renamed_from = "...")]` | `#[renamed_from = "..."]` | ✅ Implemented | Column renamed from - LifeModel macro generates ColumnTrait::def() with renamed_from metadata for migration workflows |
 | `#[sea_orm(comment = "...")]` | ❌ Missing | 🟡 **Future** | Column comment |
 
 ---

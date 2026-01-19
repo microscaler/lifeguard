@@ -21,6 +21,8 @@ pub struct ColumnDefinition {
     pub default_value: Option<String>,
     /// Default SQL expression (e.g., "NOW()", "uuid_generate_v4()")
     pub default_expr: Option<String>,
+    /// Previous column name (for migrations - column was renamed from this)
+    pub renamed_from: Option<String>,
     /// Whether the column is unique
     pub unique: bool,
     /// Whether the column is indexed
@@ -36,6 +38,7 @@ impl Default for ColumnDefinition {
             nullable: false,
             default_value: None,
             default_expr: None,
+            renamed_from: None,
             unique: false,
             indexed: false,
             auto_increment: false,
@@ -239,6 +242,7 @@ impl ColumnDefinition {
             nullable,
             default_value: None,
             default_expr: None,
+            renamed_from: None,
             unique: is_primary_key, // Primary keys are typically unique
             indexed: is_primary_key, // Primary keys are typically indexed
             auto_increment: is_auto_increment,
@@ -257,6 +261,7 @@ mod tests {
         assert_eq!(def.nullable, false);
         assert_eq!(def.default_value, None);
         assert_eq!(def.default_expr, None);
+        assert_eq!(def.renamed_from, None);
         assert_eq!(def.unique, false);
         assert_eq!(def.indexed, false);
         assert_eq!(def.auto_increment, false);
@@ -269,6 +274,7 @@ mod tests {
             nullable: true,
             default_value: Some("''".to_string()),
             default_expr: Some("NOW()".to_string()),
+            renamed_from: Some("old_name".to_string()),
             unique: true,
             indexed: true,
             auto_increment: false,
@@ -278,6 +284,7 @@ mod tests {
         assert_eq!(def.nullable, true);
         assert_eq!(def.default_value, Some("''".to_string()));
         assert_eq!(def.default_expr, Some("NOW()".to_string()));
+        assert_eq!(def.renamed_from, Some("old_name".to_string()));
         assert_eq!(def.unique, true);
         assert_eq!(def.indexed, true);
         assert_eq!(def.auto_increment, false);
@@ -290,6 +297,7 @@ mod tests {
             nullable: true,
             default_value: None,
             default_expr: None,
+            renamed_from: None,
             unique: false,
             indexed: false,
             auto_increment: true,
