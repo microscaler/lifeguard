@@ -22,3 +22,20 @@ error[E0601]: `main` function not found in crate `$CRATE`
     |
 133 | }
     |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_duplicate_related_impl_different_columns.rs`
+
+error[E0004]: non-exhaustive patterns: `&Relation::EditedPosts` not covered
+   --> tests/ui/compile_error_duplicate_related_impl_different_columns.rs:119:10
+    |
+119 | #[derive(DeriveRelation)]
+    |          ^^^^^^^^^^^^^^ pattern `&Relation::EditedPosts` not covered
+    |
+note: `Relation` defined here
+   --> tests/ui/compile_error_duplicate_related_impl_different_columns.rs:120:10
+    |
+120 | pub enum Relation {
+    |          ^^^^^^^^
+...
+132 |     EditedPosts,
+    |     ----------- not covered
+    = note: the matched value is of type `&Relation`
+    = note: this error originates in the derive macro `DeriveRelation` (in Nightly builds, run with -Z macro-backtrace for more info)

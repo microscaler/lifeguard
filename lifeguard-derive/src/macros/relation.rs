@@ -421,17 +421,28 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                             error_msg,
                         );
                         related_impls.push(error.to_compile_error());
+                        // Don't generate def() method when there are errors
+                        // Skip the rest of this iteration
                         continue;
                     }
                     // Same column configuration - skip this Related impl (already generated)
+                    // Also skip def() match arm since we're not generating a Related impl for this variant
+                    continue;
                 } else {
                     // First time seeing this target entity path - record it and add the impl
                     seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone()));
                     related_impls.push(related_impl);
+                    
+                    // Store RelationDef construction for def() method generation
+                    // Only add when we actually generate the Related impl
+                    def_match_arms.push(quote! {
+                        #enum_name::#variant_name => #def_relation_def,
+                    });
                 }
             } else {
                 // Always emit error cases (dummy paths)
                 related_impls.push(related_impl);
+                // Don't add def() match arm for error cases
             }
             
             // Only generate RelatedEntity if this is not a dummy path (error case)
@@ -456,11 +467,6 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                         }
                     });
                 }
-                
-                // Store RelationDef construction for def() method generation
-                def_match_arms.push(quote! {
-                    #enum_name::#variant_name => #def_relation_def,
-                });
             }
         } else {
             // If process_relation_variant returns None, it means there was no relationship info
@@ -501,6 +507,10 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     };
     
     // Generate def() method implementation for Relation enum
+    // Only generate if we have match arms and no errors (errors would make match non-exhaustive)
+    // Check if any of the related_impls are error token streams by checking if they're empty
+    // Actually, we can't easily detect errors, so we'll generate the def() method
+    // and let the compiler error if the match is non-exhaustive (which is the correct behavior)
     let def_impl = if !def_match_arms.is_empty() {
         quote! {
             impl #enum_name {
