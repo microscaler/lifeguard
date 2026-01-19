@@ -315,6 +315,28 @@ fn test_derive_relation_multiple_relationships() {
 }
 
 #[test]
+fn test_derive_relation_def_method() {
+    // Test that Relation enum has def() method that returns RelationDef
+    // This matches SeaORM's Relation::Posts.def() pattern
+    
+    // Test def() method exists and returns RelationDef
+    let rel_def_comments: RelationDef = Relation::Comments.def();
+    let rel_def_user: RelationDef = Relation::User.def();
+    
+    // Verify that def() returns the same RelationDef as Related::to()
+    let rel_def_from_related: RelationDef = <Entity as Related<CommentEntity>>::to();
+    
+    // The def() method should return equivalent RelationDef
+    // (We can't directly compare structs, but we can verify they have the same structure)
+    assert_eq!(rel_def_comments.rel_type, rel_def_from_related.rel_type);
+    
+    // Test that all variants have def() method
+    let _ = Relation::Comments.def();
+    let _ = Relation::User.def();
+    let _ = Relation::Tags.def();
+}
+
+#[test]
 fn test_derive_relation_has_many_through() {
     // Test that has_many_through relationship generates correct RelationDef
     // Post -> PostTags (join table) -> Tags
@@ -909,4 +931,313 @@ fn test_derive_relation_self_referential() {
     // If the bug existed, the RelatedEntity variant would not be generated
     // because the target path "Entity" would be incorrectly flagged as a dummy path
     // and we would get compilation errors when trying to use it
+}
+
+// Test module for duplicate relations with same column config
+mod duplicate_same_config_test {
+    use lifeguard_derive::DeriveRelation;
+    use lifeguard::{Related, RelationDef};
+    
+    #[derive(Default, Copy, Clone)]
+    pub struct Entity;
+    
+    impl sea_query::Iden for Entity {
+        fn unquoted(&self) -> &str { "users" }
+    }
+    
+    impl lifeguard::LifeEntityName for Entity {
+        fn table_name(&self) -> &'static str { "users" }
+    }
+    
+    impl lifeguard::LifeModelTrait for Entity {
+        type Model = Model;
+        type Column = Column;
+    }
+    
+    #[derive(Debug, Clone)]
+    pub struct Model;
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum Column {
+        Id,
+    }
+    
+    impl sea_query::Iden for Column {
+        fn unquoted(&self) -> &str { "id" }
+    }
+    
+    impl sea_query::IdenStatic for Column {
+        fn as_str(&self) -> &'static str { "id" }
+    }
+    
+    #[derive(Default, Copy, Clone)]
+    pub struct PostEntity;
+    
+    impl sea_query::Iden for PostEntity {
+        fn unquoted(&self) -> &str { "posts" }
+    }
+    
+    impl lifeguard::LifeEntityName for PostEntity {
+        fn table_name(&self) -> &'static str { "posts" }
+    }
+    
+    impl lifeguard::LifeModelTrait for PostEntity {
+        type Model = PostModel;
+        type Column = PostColumn;
+    }
+    
+    #[derive(Debug, Clone)]
+    pub struct PostModel;
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum PostColumn {
+        Id,
+        UserId,
+    }
+    
+    impl sea_query::Iden for PostColumn {
+        fn unquoted(&self) -> &str {
+            match self {
+                PostColumn::Id => "id",
+                PostColumn::UserId => "user_id",
+            }
+        }
+    }
+    
+    impl sea_query::IdenStatic for PostColumn {
+        fn as_str(&self) -> &'static str {
+            match self {
+                PostColumn::Id => "id",
+                PostColumn::UserId => "user_id",
+            }
+        }
+    }
+    
+    // Two variants targeting the same entity with SAME column config
+    // Both should work and have def() match arms
+    #[derive(DeriveRelation)]
+    pub enum Relation {
+        #[lifeguard(has_many = "PostEntity")]
+        CreatedPosts,
+        #[lifeguard(has_many = "PostEntity")]
+        EditedPosts,
+    }
+}
+
+#[test]
+fn test_derive_relation_duplicate_same_config() {
+    use duplicate_same_config_test::*;
+    
+    // Test that both variants work with def() method
+    // This verifies that when multiple variants target the same entity with the same config,
+    // both variants get match arms in def() method (no non-exhaustive match error)
+    let _rel_def_created: RelationDef = Relation::CreatedPosts.def();
+    let _rel_def_edited: RelationDef = Relation::EditedPosts.def();
+    
+    // Both should return the same RelationDef since they have the same config
+    let rel_def_created = Relation::CreatedPosts.def();
+    let rel_def_edited = Relation::EditedPosts.def();
+    assert_eq!(rel_def_created.rel_type, rel_def_edited.rel_type);
+}
+
+// Test module for mixed annotated and unannotated variants
+mod mixed_annotated_unannotated_test {
+    use lifeguard_derive::DeriveRelation;
+    use lifeguard::{Related, RelationDef};
+    
+    #[derive(Default, Copy, Clone)]
+    pub struct Entity;
+    
+    impl sea_query::Iden for Entity {
+        fn unquoted(&self) -> &str { "users" }
+    }
+    
+    impl lifeguard::LifeEntityName for Entity {
+        fn table_name(&self) -> &'static str { "users" }
+    }
+    
+    impl lifeguard::LifeModelTrait for Entity {
+        type Model = Model;
+        type Column = Column;
+    }
+    
+    #[derive(Debug, Clone)]
+    pub struct Model;
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum Column {
+        Id,
+    }
+    
+    impl sea_query::Iden for Column {
+        fn unquoted(&self) -> &str { "id" }
+    }
+    
+    impl sea_query::IdenStatic for Column {
+        fn as_str(&self) -> &'static str { "id" }
+    }
+    
+    #[derive(Default, Copy, Clone)]
+    pub struct PostEntity;
+    
+    impl sea_query::Iden for PostEntity {
+        fn unquoted(&self) -> &str { "posts" }
+    }
+    
+    impl lifeguard::LifeEntityName for PostEntity {
+        fn table_name(&self) -> &'static str { "posts" }
+    }
+    
+    impl lifeguard::LifeModelTrait for PostEntity {
+        type Model = PostModel;
+        type Column = PostColumn;
+    }
+    
+    #[derive(Debug, Clone)]
+    pub struct PostModel;
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum PostColumn {
+        Id,
+        UserId,
+    }
+    
+    impl sea_query::Iden for PostColumn {
+        fn unquoted(&self) -> &str {
+            match self {
+                PostColumn::Id => "id",
+                PostColumn::UserId => "user_id",
+            }
+        }
+    }
+    
+    impl sea_query::IdenStatic for PostColumn {
+        fn as_str(&self) -> &'static str {
+            match self {
+                PostColumn::Id => "id",
+                PostColumn::UserId => "user_id",
+            }
+        }
+    }
+    
+    // Mixed annotated and unannotated variants
+    // Annotated variant should work, unannotated variant should panic when def() is called
+    #[derive(DeriveRelation)]
+    pub enum Relation {
+        #[lifeguard(has_many = "PostEntity")]
+        Posts,
+        // Unannotated variant - should have a match arm that panics
+        UnannotatedVariant,
+    }
+}
+
+#[test]
+fn test_derive_relation_mixed_annotated_unannotated() {
+    use mixed_annotated_unannotated_test::*;
+    
+    // Test that annotated variant works
+    let _rel_def: RelationDef = Relation::Posts.def();
+    
+    // Test that unannotated variant panics when def() is called
+    // This verifies that unannotated variants get match arms that panic
+    let result = std::panic::catch_unwind(|| {
+        let _ = Relation::UnannotatedVariant.def();
+    });
+    assert!(result.is_err(), "Unannotated variant should panic when def() is called");
+}
+
+// Test module for self-referential relationships WITHOUT explicit columns
+// This tests the fix for the is_dummy_path heuristic incorrectly flagging valid
+// self-referential relationships as error cases
+mod self_referential_no_columns_test {
+    use lifeguard_derive::DeriveRelation;
+    use lifeguard::{RelationDef, LifeEntityName, LifeModelTrait};
+    
+    // Entity representing CategoryEntity for this test
+    #[derive(Default, Copy, Clone)]
+    pub struct Entity;
+    
+    impl sea_query::Iden for Entity {
+        fn unquoted(&self) -> &str {
+            "categories"
+        }
+    }
+    
+    impl LifeEntityName for Entity {
+        fn table_name(&self) -> &'static str {
+            "categories"
+        }
+    }
+    
+    impl LifeModelTrait for Entity {
+        type Model = CategoryModel;
+        type Column = CategoryColumn;
+    }
+    
+    #[derive(Copy, Clone, Debug)]
+    pub enum CategoryColumn {
+        Id,
+        ParentId, // Foreign key to parent category
+    }
+    
+    impl sea_query::Iden for CategoryColumn {
+        fn unquoted(&self) -> &str {
+            match self {
+                CategoryColumn::Id => "id",
+                CategoryColumn::ParentId => "parent_id",
+            }
+        }
+    }
+    
+    impl sea_query::IdenStatic for CategoryColumn {
+        fn as_str(&self) -> &'static str {
+            match self {
+                CategoryColumn::Id => "id",
+                CategoryColumn::ParentId => "parent_id",
+            }
+        }
+    }
+    
+    #[derive(Debug, Clone)]
+    pub struct CategoryModel;
+    
+    // Relation enum for testing self-referential relationships WITHOUT explicit columns
+    // The target entity is "Entity" (the same entity), and columns are inferred from defaults
+    // This should NOT be treated as a dummy path (error case) even though:
+    // - Path is "Entity" (single segment)
+    // - Both from_col and to_col are None (defaults inferred, not explicitly specified)
+    // The def() method should work correctly, not panic
+    #[derive(DeriveRelation)]
+    pub enum Relation {
+        // Self-referential has_many relationship without explicit columns
+        // Columns are inferred: from_col = Entity's primary key (Id), to_col = inferred FK (category_id)
+        #[lifeguard(has_many = "Entity")]
+        Children,
+    }
+}
+
+#[test]
+fn test_derive_relation_self_referential_no_columns_def_method() {
+    use self_referential_no_columns_test::*;
+    
+    // Test that def() method works for self-referential relationships without explicit columns
+    // This verifies the fix for the is_dummy_path heuristic incorrectly flagging valid
+    // self-referential relationships as error cases
+    // Before the fix, this would panic at runtime because def() would generate a panic arm
+    // After the fix, this should return a valid RelationDef
+    
+    // Test def() method exists and returns RelationDef
+    let rel_def: RelationDef = Relation::Children.def();
+    
+    // Verify that def() returns the same RelationDef as Related::to()
+    let rel_def_from_related: RelationDef = <Entity as Related<Entity>>::to();
+    
+    // The def() method should return equivalent RelationDef
+    assert_eq!(rel_def.rel_type, rel_def_from_related.rel_type);
+    
+    // Verify that the relationship is correctly configured
+    // For has_many self-referential: from_col should be Entity's primary key (Id)
+    // to_col should be inferred FK (category_id)
+    assert_eq!(rel_def.from_col.arity(), 1);
+    assert_eq!(rel_def.to_col.arity(), 1);
 }

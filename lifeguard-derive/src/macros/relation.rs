@@ -330,6 +330,8 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     let mut related_impls = Vec::new();
     let mut related_entity_variants = Vec::new();
     let mut related_entity_impls = Vec::new();
+    // Store variant names and their RelationDef construction for def() method generation
+    let mut def_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
     // Track which target entity paths we've already generated From impls for
     // This prevents duplicate From impls when multiple relations target the same entity
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
@@ -338,8 +340,10 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     // Track which target entity paths we've already generated Related impls for
     // This prevents duplicate Related impls when multiple relations target the same entity
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
-    // Key: target entity path, Value: (from_col, to_col, variant_name) for error reporting
-    let mut seen_related_impls: std::collections::HashMap<String, (Option<String>, Option<String>, syn::Ident)> = std::collections::HashMap::new();
+    // Key: target entity path, Value: (from_col, to_col, variant_name, def_relation_def) for reuse
+    let mut seen_related_impls: std::collections::HashMap<String, (Option<String>, Option<String>, syn::Ident, TokenStream2)> = std::collections::HashMap::new();
+    // Track all enum variants (including unannotated ones) for exhaustive def() match
+    let mut all_variant_names: Vec<syn::Ident> = Vec::new();
     
     // Helper function to create a unique string key from a syn::Path
     // This allows us to compare paths for equality
@@ -357,21 +361,30 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
         key
     };
     
+    // First pass: collect all variant names (including unannotated ones)
     for variant in variants {
-        if let Some((related_impl, target_entity_path, variant_name, from_col, to_col)) = process_relation_variant(variant, enum_name) {
+        all_variant_names.push(variant.ident.clone());
+    }
+    
+    for variant in variants {
+        if let Some((related_impl, target_entity_path, variant_name, from_col, to_col, def_relation_def)) = process_relation_variant(variant, enum_name) {
             // Check if this is a dummy path (used for error cases)
             // Error cases are identified by:
             // 1. Path is just "Entity" without any module prefix
             // 2. Both from_col and to_col are None (error cases always return None for both)
+            // 3. def_relation_def is empty (error cases return quote! {} for def_relation_def)
             // This distinguishes error cases from valid self-referential relationships,
-            // which would have at least one column specified (or use defaults, but the
-            // tuple values would still be None if not user-specified, so we need to be careful)
-            // However, if the path is "Entity" AND both are None, it's almost certainly an error case
-            // because valid self-referential relationships would typically specify columns explicitly
+            // which would have a non-empty def_relation_def even if columns are None (defaults are inferred)
+            // Valid self-referential relationships like #[lifeguard(has_many = "Entity")] will have:
+            // - Path is "Entity" (single segment)
+            // - Both from_col and to_col are None (defaults inferred, not explicitly specified)
+            // - But def_relation_def is NOT empty (contains valid RelationDef construction code)
+            let def_relation_def_str = def_relation_def.to_string();
             let is_dummy_path = target_entity_path.segments.len() == 1 
                 && target_entity_path.segments[0].ident == "Entity"
                 && from_col.is_none()
-                && to_col.is_none();
+                && to_col.is_none()
+                && def_relation_def_str.trim().is_empty();
             
             // Only deduplicate Related impls if this is not a dummy path (error case)
             // Error cases should always be emitted to show the compile error
@@ -381,7 +394,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 let target_path_key = path_to_key(&target_entity_path);
                 
                 // Check if we've already seen this target entity path
-                if let Some((existing_from, existing_to, existing_variant)) = seen_related_impls.get(&target_path_key) {
+                if let Some((existing_from, existing_to, existing_variant, existing_def_relation_def)) = seen_related_impls.get(&target_path_key) {
                     // Check if the column configuration is different
                     let from_col_str = from_col.as_ref().map(|s| s.as_str()).unwrap_or("default");
                     let to_col_str = to_col.as_ref().map(|s| s.as_str()).unwrap_or("default");
@@ -419,17 +432,69 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                             error_msg,
                         );
                         related_impls.push(error.to_compile_error());
+                        // Still add a match arm for this variant to avoid non-exhaustive match
+                        // The match arm will panic at runtime since this is an error case
+                        // But we need it for the match to be exhaustive
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => {
+                                panic!("Multiple relations target the same entity with different column configurations. See compile error above.")
+                            },
+                        });
+                        // Skip the rest of this iteration
                         continue;
                     }
                     // Same column configuration - skip this Related impl (already generated)
+                    // But still add a match arm that reuses the same RelationDef
+                    let existing_def_str = existing_def_relation_def.to_string();
+                    if !existing_def_str.trim().is_empty() {
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => #existing_def_relation_def,
+                        });
+                    } else {
+                        // If existing_def_relation_def is empty, it means the original relation had a column parsing error
+                        // We still need to add a match arm that panics to avoid non-exhaustive match error
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => {
+                                panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
+                            },
+                        });
+                    }
+                    continue;
                 } else {
                     // First time seeing this target entity path - record it and add the impl
-                    seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone()));
+                    seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone(), def_relation_def.clone()));
                     related_impls.push(related_impl);
+                    
+                    // Store RelationDef construction for def() method generation
+                    // Only add when we actually generate the Related impl
+                    // Check that def_relation_def is not empty (error cases have empty quote! {})
+                    // Error cases occur when column parsing fails but target entity path is valid
+                    // In such cases, def_relation_def is empty and should not be added to def_match_arms
+                    let def_relation_def_str = def_relation_def.to_string();
+                    if !def_relation_def_str.trim().is_empty() {
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => #def_relation_def,
+                        });
+                    } else {
+                        // If def_relation_def is empty, it means there was an error in column parsing
+                        // We still push the related_impl (which contains the error) but need to add a match arm
+                        // that panics to avoid non-exhaustive match error
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => {
+                                panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
+                            },
+                        });
+                    }
                 }
             } else {
                 // Always emit error cases (dummy paths)
                 related_impls.push(related_impl);
+                // Add a match arm for error cases (dummy paths) that panics to avoid non-exhaustive match error
+                def_match_arms.push(quote! {
+                    #enum_name::#variant_name => {
+                        panic!("Relation variant `{}` has invalid entity path. See compile error above.", stringify!(#variant_name))
+                    },
+                });
             }
             
             // Only generate RelatedEntity if this is not a dummy path (error case)
@@ -458,6 +523,14 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
         } else {
             // If process_relation_variant returns None, it means there was no relationship info
             // This is not an error case, just a variant without relationship attributes
+            // We still need to add a match arm for this variant to make def() exhaustive
+            // For unannotated variants, we'll panic at runtime since they have no RelationDef
+            let variant_name = variant.ident.clone();
+            def_match_arms.push(quote! {
+                #enum_name::#variant_name => {
+                    panic!("Relation variant `{}` does not have a `#[lifeguard(...)]` attribute and cannot be used with `def()` method.", stringify!(#variant_name))
+                },
+            });
         }
     }
     
@@ -493,9 +566,40 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
         quote! {}
     };
     
+    // Generate def() method implementation for Relation enum
+    // Generate if we have match arms for all variants (exhaustive match)
+    // Even if there are errors, we should generate def() with match arms to avoid non-exhaustive match errors
+    // The match arms for error cases will panic at runtime
+    let def_impl = if !def_match_arms.is_empty() {
+        quote! {
+            impl #enum_name {
+                /// Returns the RelationDef for this relation variant
+                ///
+                /// This method provides access to relationship metadata for each variant,
+                /// matching SeaORM's `Relation::Posts.def()` pattern.
+                ///
+                /// # Example
+                ///
+                /// ```no_run
+                /// use lifeguard::relation::def::RelationDef;
+                ///
+                /// let rel_def: RelationDef = Relation::Posts.def();
+                /// ```
+                pub fn def(&self) -> lifeguard::RelationDef {
+                    match self {
+                        #(#def_match_arms)*
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+    
     let expanded: TokenStream2 = quote! {
         #(#related_impls)*
         #related_entity_enum
+        #def_impl
     };
     
     TokenStream::from(expanded)
@@ -509,10 +613,11 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
 /// - Variant name for RelatedEntity enum generation
 /// - From column configuration (for conflict detection)
 /// - To column configuration (for conflict detection)
+/// - RelationDef construction code for def() method
 fn process_relation_variant(
     variant: &Variant,
     _enum_name: &syn::Ident,
-) -> Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>)> {
+) -> Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>, TokenStream2)> {
     let _variant_name = &variant.ident;
     
     // Parse attributes to find relationship type and target entity
@@ -559,6 +664,7 @@ fn process_relation_variant(
                     variant.ident.clone(),
                     None, // from_col
                     None, // to_col
+                    quote! {}, // Empty RelationDef construction for error case
                 ));
             }
         }
@@ -578,6 +684,7 @@ fn process_relation_variant(
                 variant.ident.clone(),
                 None, // from_col
                 None, // to_col
+                quote! {}, // Empty RelationDef construction for error case
             ));
         }
         
@@ -647,14 +754,14 @@ fn process_relation_variant(
         // Parse target entity path (e.g., "super::posts::Entity")
         let target_entity_path: syn::Path = match parse_entity_path(target, "entity path") {
             Ok(path) => path,
-            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None)),
+            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None, quote! {})),
         };
         
         // Parse through entity path for has_many_through relationships
         let (through_entity_path, through_table_name) = if let Some(through) = through_entity.as_ref() {
             let through_path: syn::Path = match parse_entity_path(through, "through entity path") {
                 Ok(path) => path,
-                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None)),
+                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None, quote! {})),
             };
             let through_table = quote! {
                 {
@@ -720,7 +827,7 @@ fn process_relation_variant(
             // Parse the column reference and build Identity
             match build_identity_from_column_ref(from_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone())),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone(), quote! {})),
             }
         } else {
             // Default: infer from relationship type
@@ -769,7 +876,7 @@ fn process_relation_variant(
             // The "to" column might be in a different module (e.g., "super::users::Column::Id")
             match build_identity_from_column_ref(to_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone())),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone(), quote! {})),
             }
         } else {
             // Default: infer from relationship type
@@ -890,30 +997,38 @@ fn process_relation_variant(
         };
         
         let variant_name = variant.ident.clone();
+        
+        // Extract RelationDef construction code for reuse in def() method
+        let relation_def_construction = quote! {
+            {
+                use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+                lifeguard::RelationDef {
+                    rel_type: #rel_type,
+                    from_tbl: TableRef::Table(TableName(None, #from_table_name.into_iden()), None),
+                    to_tbl: TableRef::Table(TableName(None, #to_table_name.into_iden()), None),
+                    from_col: #from_col_identity,
+                    to_col: #to_col_identity,
+                    through_tbl: #through_tbl_expr,
+                    through_from_col: #through_from_col_expr,
+                    through_to_col: #through_to_col_expr,
+                    is_owner: true,
+                    skip_fk: false,
+                    on_condition: None,
+                    condition_type: ConditionType::All,
+                }
+            }
+        };
+        
         let related_impl = quote! {
             impl lifeguard::Related<#target_entity_path> for Entity {
                 fn to() -> lifeguard::RelationDef {
-                    use sea_query::{TableRef, TableName, ConditionType, IntoIden};
-                    lifeguard::RelationDef {
-                        rel_type: #rel_type,
-                        from_tbl: TableRef::Table(TableName(None, #from_table_name.into_iden()), None),
-                        to_tbl: TableRef::Table(TableName(None, #to_table_name.into_iden()), None),
-                        from_col: #from_col_identity,
-                        to_col: #to_col_identity,
-                        through_tbl: #through_tbl_expr,
-                        through_from_col: #through_from_col_expr,
-                        through_to_col: #through_to_col_expr,
-                        is_owner: true,
-                        skip_fk: false,
-                        on_condition: None,
-                        condition_type: ConditionType::All,
-                    }
+                    #relation_def_construction
                 }
             }
             #fk_col_impl
         };
         
-        Some((related_impl, target_entity_path.clone(), variant_name, from_column.clone(), to_column.clone()))
+        Some((related_impl, target_entity_path.clone(), variant_name, from_column.clone(), to_column.clone(), relation_def_construction))
     } else {
         None
     }
