@@ -708,3 +708,63 @@ fn test_renamed_from_with_other_attributes() {
     assert_eq!(def_name.renamed_from, Some("user_name".to_string()));
     assert_eq!(def_name.column_type, Some("VARCHAR(255)".to_string()));
 }
+
+// ============================================================================
+// Schema Name (schema_name)
+// ============================================================================
+
+#[test]
+fn test_schema_name_attribute() {
+    use lifeguard::LifeEntityName;
+    
+    #[derive(LifeModel)]
+    #[table_name = "users"]
+    #[schema_name = "public"]
+    pub struct User {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+    }
+    
+    // Verify schema_name is accessible
+    let entity = Entity::default();
+    assert_eq!(entity.schema_name(), Some("public"));
+    assert_eq!(entity.table_name(), "users");
+}
+
+#[test]
+fn test_schema_name_without_attribute() {
+    use lifeguard::LifeEntityName;
+    
+    #[derive(LifeModel)]
+    #[table_name = "users"]
+    pub struct User {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+    }
+    
+    // Verify schema_name returns None when not specified
+    let entity = Entity::default();
+    assert_eq!(entity.schema_name(), None);
+    assert_eq!(entity.table_name(), "users");
+}
+
+#[test]
+fn test_schema_name_custom_schema() {
+    use lifeguard::LifeEntityName;
+    
+    #[derive(LifeModel)]
+    #[table_name = "orders"]
+    #[schema_name = "commerce"]
+    pub struct Order {
+        #[primary_key]
+        pub id: i32,
+        pub total: f64,
+    }
+    
+    // Verify custom schema name
+    let entity = Entity::default();
+    assert_eq!(entity.schema_name(), Some("commerce"));
+    assert_eq!(entity.table_name(), "orders");
+}

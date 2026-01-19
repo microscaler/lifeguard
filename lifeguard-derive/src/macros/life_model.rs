@@ -41,11 +41,16 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    // Extract struct name and table name
+    // Extract struct name, table name, and schema name
     let struct_name = &input.ident;
     let table_name = attributes::extract_table_name(&input.attrs)
         .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
     let table_name_lit = syn::LitStr::new(&table_name, struct_name.span());
+    let schema_name = attributes::extract_schema_name(&input.attrs);
+    let schema_attr = schema_name.as_ref().map(|s| {
+        let schema_lit = syn::LitStr::new(s, struct_name.span());
+        quote! { #[schema_name = #schema_lit] }
+    });
 
     // Extract fields
     let fields = match &input.data {
@@ -1196,6 +1201,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         #[derive(Copy, Clone, Debug, lifeguard_derive::DeriveEntity)]
         #[table_name = #table_name_lit]
         #[model = #model_name_lit]
+        #schema_attr
         pub struct Entity;
 
         // Table name constant (for convenience, matches Entity::table_name())
