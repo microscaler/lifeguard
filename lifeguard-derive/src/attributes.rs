@@ -113,6 +113,7 @@ pub struct ColumnAttributes {
     pub is_nullable: bool,
     pub is_auto_increment: bool,
     pub enum_name: Option<String>,
+    pub is_ignored: bool,
 }
 
 impl Default for ColumnAttributes {
@@ -129,6 +130,7 @@ impl Default for ColumnAttributes {
             is_nullable: false,
             is_auto_increment: false,
             enum_name: None,
+            is_ignored: false,
         }
     }
 }
@@ -206,6 +208,8 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
                     attrs.enum_name = Some(s.value());
                 }
             }
+        } else if attr.path().is_ident("ignore") || attr.path().is_ident("skip") {
+            attrs.is_ignored = true;
         }
     }
     

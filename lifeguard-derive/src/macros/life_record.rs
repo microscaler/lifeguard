@@ -104,15 +104,23 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // This is critical: conversion functions need the inner type (e.g., String), not Option<String>
         let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
         
+        // Extract all column attributes
+        let col_attrs = attributes::parse_column_attributes(field);
+        let is_primary_key = col_attrs.is_primary_key;
+        let is_auto_increment = col_attrs.is_auto_increment;
+        let is_ignored = col_attrs.is_ignored;
+        
+        // Skip ignored fields - they're not included in database operations
+        if is_ignored {
+            // Still include in Record struct, but skip all database-related generation
+            continue;
+        }
+        
         // Extract column name for database (snake_case) and enum variant (PascalCase)
         let db_column_name = attributes::extract_column_name(field)
             .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
         let column_variant_name = utils::pascal_case(&field_name.to_string());
         let column_variant = Ident::new(&column_variant_name, field_name.span());
-        
-        // Check if field is primary key
-        let is_primary_key = attributes::has_attribute(field, "primary_key");
-        let is_auto_increment = attributes::has_attribute(field, "auto_increment");
         
         // Track primary key information
         if is_primary_key {
