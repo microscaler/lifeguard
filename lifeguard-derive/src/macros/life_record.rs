@@ -68,6 +68,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     // Process fields
     let mut record_fields = Vec::new();
     let mut record_field_names = Vec::new();
+    let mut ignored_field_names = Vec::new();
+    let mut ignored_field_defaults = Vec::new();
     let mut from_model_fields = Vec::new();
     let mut to_model_fields = Vec::new();
     let mut dirty_fields_check = Vec::new();
@@ -111,8 +113,33 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         let is_ignored = col_attrs.is_ignored;
         
         // Skip ignored fields - they're not included in database operations
+        // But we still need to add them to the Record struct and conversion methods
         if is_ignored {
-            // Still include in Record struct, but skip all database-related generation
+            // Still include in Record struct with original type (not Option<T>)
+            record_fields.push(quote! {
+                pub #field_name: #field_type,
+            });
+            
+            // Add to from_model_fields - copy directly from model
+            from_model_fields.push(quote! {
+                #field_name: model.#field_name.clone(),
+            });
+            
+            // Add to to_model_fields - copy directly to model
+            to_model_fields.push(quote! {
+                #field_name: self.#field_name.clone(),
+            });
+            
+            // Track for new() method initialization (use Default::default() instead of None)
+            ignored_field_names.push(field_name.clone());
+            let default_expr = if extract_option_inner_type(field_type).is_some() {
+                quote! { None }
+            } else {
+                quote! { <#field_type as Default>::default() }
+            };
+            ignored_field_defaults.push(default_expr);
+            
+            // Don't generate Column enum variant, ActiveModel methods, etc. for ignored fields
             continue;
         }
         
@@ -487,6 +514,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 Self {
                     #(
                         #record_field_names: None,
+                    )*
+                    #(
+                        #ignored_field_names: #ignored_field_defaults,
                     )*
                 }
             }
