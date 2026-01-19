@@ -1,4 +1,4 @@
-//! UI tests for DeriveRelation and DerivePartialModel macro compile errors
+//! UI tests for DeriveRelation, DerivePartialModel, and DeriveLinked macro compile errors
 //!
 //! These tests verify that malformed attributes cause compile errors
 //! instead of being silently ignored or panicking.
@@ -139,4 +139,22 @@ fn compile_error_try_into_model_malformed_map_from() {
 fn compile_error_try_into_model_custom_lifeerror_from_other_module() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs");
+}
+
+#[test]
+fn compile_error_linked_invalid_path() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_linked_invalid_path.rs");
+}
+
+#[test]
+fn compile_error_linked_empty_path() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_linked_empty_path.rs");
+}
+
+#[test]
+fn compile_error_linked_invalid_entity_path() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_linked_invalid_entity_path.rs");
 }
