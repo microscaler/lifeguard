@@ -343,13 +343,13 @@ This design simplifies the API while maintaining the same functionality.
   - **Blocked by:** sea-query API limitations (see `SEAQUERY_IMPROVEMENTS_AUDIT.md`)
 
 #### Advanced Query Features
-**Status:** 🟢 Partial  
+**Status:** ✅ **Complete**  
 **Current State:**
 - `group_by()`, `having()` - ✅ Implemented (GROUP BY and HAVING clauses)
 - `join()`, `left_join()`, `right_join()`, `inner_join()` - ✅ Implemented (JOIN operations)
-**Future State:**
-- Subqueries and CTEs (🟡 Future)
-- Window functions (🟡 Future)
+- `with()` - ✅ Implemented (CTEs using WITH clauses, returns `WithQuery`)
+- `subquery_column()` - ✅ Implemented (Subqueries as SELECT columns)
+- `window_function_cust()` - ✅ Implemented (Window functions using `Expr::cust()` for SQL expressions)
 
 ### Low Priority (Nice-to-Have)
 
