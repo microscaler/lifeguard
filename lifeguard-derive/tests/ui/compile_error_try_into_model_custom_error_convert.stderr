@@ -8,7 +8,7 @@ error[E0277]: the trait bound `CustomError: From<ParseIntError>` is not satisfie
    --> tests/ui/compile_error_try_into_model_custom_error_convert.rs:140:10
     |
 140 | #[derive(DeriveTryIntoModel)]
-    |          ^^^^^^^^^^^^^^^^^^ the trait `From<ParseIntError>` is not implemented for `CustomError`
+    |          ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
     |
 help: the trait `From<ParseIntError>` is not implemented for `CustomError`
    --> tests/ui/compile_error_try_into_model_custom_error_convert.rs:119:1

@@ -8,7 +8,7 @@ error[E0277]: the trait bound `mymod::LifeError: From<ParseIntError>` is not sat
    --> tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs:145:10
     |
 145 | #[derive(DeriveTryIntoModel)]
-    |          ^^^^^^^^^^^^^^^^^^ the trait `From<ParseIntError>` is not implemented for `mymod::LifeError`
+    |          ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
     |
 help: the trait `From<ParseIntError>` is not implemented for `mymod::LifeError`
    --> tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs:122:5
