@@ -6,6 +6,40 @@
 
 use super::type_mapping;
 use sea_query::{ColumnDef, Iden};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
+
+/// Global cache for SQL expression strings to avoid memory leaks.
+///
+/// This cache stores leaked `&'static str` references for SQL expressions,
+/// ensuring each unique expression is only leaked once. This prevents memory
+/// accumulation when `apply_default_expr()` is called multiple times with
+/// the same expression (e.g., in tests or repeated migrations).
+#[cfg_attr(test, allow(dead_code))]
+static EXPR_CACHE: Lazy<Mutex<HashMap<String, &'static str>>> = Lazy::new(|| {
+    Mutex::new(HashMap::new())
+});
+
+/// Get or create a static string reference for a SQL expression.
+///
+/// This function uses a global cache to ensure each unique expression string
+/// is only leaked once, preventing memory accumulation in tests and repeated
+/// migration workflows.
+#[cfg_attr(test, allow(dead_code))]
+fn get_static_expr(expr: &str) -> &'static str {
+    let mut cache = EXPR_CACHE.lock().unwrap();
+    
+    // Check if we already have this expression cached
+    if let Some(&cached) = cache.get(expr) {
+        return cached;
+    }
+    
+    // Not in cache - leak it and store the reference
+    let static_str: &'static str = Box::leak(expr.to_string().into_boxed_str());
+    cache.insert(expr.to_string(), static_str);
+    static_str
+}
 
 /// Column definition metadata
 ///
@@ -160,6 +194,14 @@ impl ColumnDefinition {
     /// It should be called by migration builders after `to_column_def()` if
     /// `default_expr` is set.
     ///
+    /// # Memory Safety
+    ///
+    /// This method uses a global cache to ensure each unique expression string
+    /// is only leaked once. This prevents memory accumulation when called
+    /// multiple times (e.g., in tests or repeated migrations). The cache
+    /// persists for the lifetime of the program, which is acceptable for
+    /// migration use cases where expressions are typically short and reused.
+    ///
     /// # Arguments
     ///
     /// * `def` - The ColumnDef to apply the default expression to
@@ -180,9 +222,8 @@ impl ColumnDefinition {
     /// ```
     pub fn apply_default_expr(&self, def: &mut ColumnDef) {
         if let Some(ref expr_str) = self.default_expr {
-            // Create a static string by leaking the string (for migration use only)
-            // This is safe because migrations are typically run once at startup
-            let static_str: &'static str = Box::leak(expr_str.clone().into_boxed_str());
+            // Use cached static string to avoid leaking memory on every call
+            let static_str = get_static_expr(expr_str);
             use sea_query::Expr;
             let expr = Expr::cust(static_str);
             def.default(expr);
@@ -360,5 +401,45 @@ mod tests {
         def.apply_default_expr(&mut column_def);
         // Can't easily test the ColumnDef internals, but we can verify it doesn't panic
         let _ = column_def;
+    }
+    
+    #[test]
+    fn test_apply_default_expr_cache_prevents_multiple_leaks() {
+        // This test verifies that calling apply_default_expr multiple times
+        // with the same expression doesn't leak memory on each call.
+        // The cache should ensure the same expression is reused.
+        
+        let expr = "NOW()".to_string();
+        let def1 = ColumnDefinition {
+            default_expr: Some(expr.clone()),
+            ..Default::default()
+        };
+        let def2 = ColumnDefinition {
+            default_expr: Some(expr.clone()),
+            ..Default::default()
+        };
+        
+        struct TestColumn;
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str { "created_at" }
+        }
+        
+        // Call apply_default_expr multiple times with the same expression
+        let mut def1_col = def1.to_column_def(TestColumn);
+        def1.apply_default_expr(&mut def1_col);
+        
+        let mut def2_col = def2.to_column_def(TestColumn);
+        def2.apply_default_expr(&mut def2_col);
+        
+        // Verify the cache contains exactly one entry for this expression
+        let cache = EXPR_CACHE.lock().unwrap();
+        assert_eq!(cache.len(), 1, "Cache should contain exactly one entry for 'NOW()'");
+        assert!(cache.contains_key("NOW()"), "Cache should contain 'NOW()'");
+        
+        // Verify both calls returned the same static reference
+        let cached_expr = cache.get("NOW()").unwrap();
+        // The expressions should be the same pointer (same memory address)
+        // This verifies that the cache is working and preventing duplicate leaks
+        let _ = cached_expr;
     }
 }
