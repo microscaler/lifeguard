@@ -222,10 +222,10 @@ This design simplifies the API while maintaining the same functionality.
 | `#[sea_orm(default_expr = "...")]` | `#[default_expr = "..."]` | ✅ Implemented | Default SQL expression - LifeModel macro generates ColumnTrait::def() with default_expr metadata, includes apply_default_expr() helper for migrations |
 | `#[sea_orm(schema_name = "...")]` | `#[schema_name = "..."]` | ✅ Implemented | Schema name - LifeModel macro generates schema_name() method on Entity, query builders use schema-qualified table names |
 | `#[sea_orm(ignore)]` | `#[skip]` | ✅ Implemented | Ignore field - Fields with `#[skip]` are excluded from Column enum and database operations but remain in Model struct |
-| `#[sea_orm(select_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom SELECT expression |
-| `#[sea_orm(save_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom save expression |
+| `#[sea_orm(select_as = "...")]` | `#[select_as = "..."]` | ✅ Implemented | Custom SELECT expression - Metadata stored in ColumnDefinition, ready for query builder integration |
+| `#[sea_orm(save_as = "...")]` | `#[save_as = "..."]` | ✅ Implemented | Custom save expression - Metadata stored in ColumnDefinition, ready for CRUD operations integration |
 | `#[sea_orm(renamed_from = "...")]` | `#[renamed_from = "..."]` | ✅ Implemented | Column renamed from - LifeModel macro generates ColumnTrait::def() with renamed_from metadata for migration workflows |
-| `#[sea_orm(comment = "...")]` | ❌ Missing | 🟡 **Future** | Column comment |
+| `#[sea_orm(comment = "...")]` | `#[comment = "..."]` | ✅ Implemented | Column comment - Metadata stored in ColumnDefinition for documentation and schema introspection |
 
 ---
 

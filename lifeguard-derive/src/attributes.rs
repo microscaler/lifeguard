@@ -114,6 +114,9 @@ pub struct ColumnAttributes {
     pub is_auto_increment: bool,
     pub enum_name: Option<String>,
     pub is_ignored: bool,
+    pub select_as: Option<String>,
+    pub save_as: Option<String>,
+    pub comment: Option<String>,
 }
 
 impl Default for ColumnAttributes {
@@ -131,6 +134,9 @@ impl Default for ColumnAttributes {
             is_auto_increment: false,
             enum_name: None,
             is_ignored: false,
+            select_as: None,
+            save_as: None,
+            comment: None,
         }
     }
 }
@@ -210,6 +216,33 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
             }
         } else if attr.path().is_ident("ignore") || attr.path().is_ident("skip") {
             attrs.is_ignored = true;
+        } else if attr.path().is_ident("select_as") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.select_as = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("save_as") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.save_as = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("comment") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.comment = Some(s.value());
+                }
+            }
         }
     }
     

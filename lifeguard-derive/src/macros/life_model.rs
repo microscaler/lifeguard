@@ -909,6 +909,21 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             quote! { Some(#rf_lit.to_string()) }
         }).unwrap_or_else(|| quote! { None });
         
+        let select_as_expr = col_attrs.select_as.as_ref().map(|sa| {
+            let sa_lit = syn::LitStr::new(sa, field_name.span());
+            quote! { Some(#sa_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let save_as_expr = col_attrs.save_as.as_ref().map(|sa| {
+            let sa_lit = syn::LitStr::new(sa, field_name.span());
+            quote! { Some(#sa_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let comment_expr = col_attrs.comment.as_ref().map(|c| {
+            let c_lit = syn::LitStr::new(c, field_name.span());
+            quote! { Some(#c_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
         // Extract boolean attributes for use in quote! macro
         let is_unique_attr = col_attrs.is_unique;
         let is_indexed_attr = col_attrs.is_indexed;
@@ -921,6 +936,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 default_value: #default_value_expr,
                 default_expr: #default_expr_expr,
                 renamed_from: #renamed_from_expr,
+                select_as: #select_as_expr,
+                save_as: #save_as_expr,
+                comment: #comment_expr,
                 unique: #is_unique_attr,
                 indexed: #is_indexed_attr,
                 auto_increment: #is_auto_increment_attr,

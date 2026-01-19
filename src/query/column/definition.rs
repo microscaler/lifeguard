@@ -23,6 +23,12 @@ pub struct ColumnDefinition {
     pub default_expr: Option<String>,
     /// Previous column name (for migrations - column was renamed from this)
     pub renamed_from: Option<String>,
+    /// Custom SELECT expression (e.g., "CONCAT(first, ' ', last) AS full_name")
+    pub select_as: Option<String>,
+    /// Custom save expression (e.g., "NOW()" for timestamps)
+    pub save_as: Option<String>,
+    /// Column comment/documentation
+    pub comment: Option<String>,
     /// Whether the column is unique
     pub unique: bool,
     /// Whether the column is indexed
@@ -39,6 +45,9 @@ impl Default for ColumnDefinition {
             default_value: None,
             default_expr: None,
             renamed_from: None,
+            select_as: None,
+            save_as: None,
+            comment: None,
             unique: false,
             indexed: false,
             auto_increment: false,
@@ -243,6 +252,8 @@ impl ColumnDefinition {
             default_value: None,
             default_expr: None,
             renamed_from: None,
+            select_as: None,
+            save_as: None,
             unique: is_primary_key, // Primary keys are typically unique
             indexed: is_primary_key, // Primary keys are typically indexed
             auto_increment: is_auto_increment,
@@ -262,6 +273,9 @@ mod tests {
         assert_eq!(def.default_value, None);
         assert_eq!(def.default_expr, None);
         assert_eq!(def.renamed_from, None);
+        assert_eq!(def.select_as, None);
+        assert_eq!(def.save_as, None);
+        assert_eq!(def.comment, None);
         assert_eq!(def.unique, false);
         assert_eq!(def.indexed, false);
         assert_eq!(def.auto_increment, false);
@@ -275,6 +289,8 @@ mod tests {
             default_value: Some("''".to_string()),
             default_expr: Some("NOW()".to_string()),
             renamed_from: Some("old_name".to_string()),
+            select_as: None,
+            save_as: None,
             unique: true,
             indexed: true,
             auto_increment: false,
@@ -298,6 +314,9 @@ mod tests {
             default_value: None,
             default_expr: None,
             renamed_from: None,
+            select_as: None,
+            save_as: None,
+            comment: None,
             unique: false,
             indexed: false,
             auto_increment: true,
@@ -322,6 +341,9 @@ mod tests {
             default_value: None,
             default_expr: Some("NOW()".to_string()),
             renamed_from: None,
+            select_as: None,
+            save_as: None,
+            comment: None,
             unique: false,
             indexed: false,
             auto_increment: false,

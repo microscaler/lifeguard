@@ -836,3 +836,84 @@ fn test_ignore_with_other_attributes() {
     ];
     let _ = columns;
 }
+
+// ============================================================================
+// Select As (select_as)
+// ============================================================================
+
+#[test]
+fn test_select_as_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_select_as"]
+    pub struct TestSelectAs {
+        #[primary_key]
+        pub id: i32,
+        pub first_name: String,
+        pub last_name: String,
+        #[select_as = "CONCAT(first_name, ' ', last_name) AS full_name"]
+        pub full_name: String,
+    }
+    
+    // Verify select_as is stored in ColumnDefinition
+    let def_full_name = <Entity as LifeModelTrait>::Column::FullName.column_def();
+    assert_eq!(def_full_name.select_as, Some("CONCAT(first_name, ' ', last_name) AS full_name".to_string()));
+    
+    // Verify regular columns don't have select_as
+    let def_id = <Entity as LifeModelTrait>::Column::Id.column_def();
+    assert_eq!(def_id.select_as, None);
+}
+
+// ============================================================================
+// Save As (save_as)
+// ============================================================================
+
+#[test]
+fn test_save_as_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_save_as"]
+    pub struct TestSaveAs {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+        #[save_as = "NOW()"]
+        pub updated_at: String,
+    }
+    
+    // Verify save_as is stored in ColumnDefinition
+    let def_updated_at = <Entity as LifeModelTrait>::Column::UpdatedAt.column_def();
+    assert_eq!(def_updated_at.save_as, Some("NOW()".to_string()));
+    
+    // Verify regular columns don't have save_as
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.save_as, None);
+}
+
+// ============================================================================
+// Comment (comment)
+// ============================================================================
+
+#[test]
+fn test_comment_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_comment"]
+    pub struct TestComment {
+        #[primary_key]
+        pub id: i32,
+        #[comment = "User's full name"]
+        pub name: String,
+        #[comment = "Email address for authentication"]
+        pub email: String,
+        pub active: bool, // No comment
+    }
+    
+    // Verify comment is stored in ColumnDefinition
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.comment, Some("User's full name".to_string()));
+    
+    let def_email = <Entity as LifeModelTrait>::Column::Email.column_def();
+    assert_eq!(def_email.comment, Some("Email address for authentication".to_string()));
+    
+    // Verify columns without comment have None
+    let def_active = <Entity as LifeModelTrait>::Column::Active.column_def();
+    assert_eq!(def_active.comment, None);
+}
