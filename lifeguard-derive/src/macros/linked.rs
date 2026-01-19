@@ -29,6 +29,9 @@ use syn::{parse_macro_input, Data, DataEnum, DeriveInput, Variant};
 ///
 /// This generates:
 /// ```ignore
+/// use lifeguard::relation::Linked;
+/// use lifeguard::{Related, RelationDef};
+///
 /// impl Linked<PostEntity, CommentEntity> for Entity {
 ///     fn via() -> Vec<RelationDef> {
 ///         vec![
