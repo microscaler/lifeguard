@@ -434,15 +434,21 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                     // First time seeing this target entity path - record it and add the impl
                     seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone()));
                     related_impls.push(related_impl);
-                    has_valid_relations = true;
                     
                     // Store RelationDef construction for def() method generation
                     // Only add when we actually generate the Related impl
                     // Check that def_relation_def is not empty (error cases have empty quote! {})
-                    // We can check this by ensuring the token stream has content
-                    def_match_arms.push(quote! {
-                        #enum_name::#variant_name => #def_relation_def,
-                    });
+                    // Error cases occur when column parsing fails but target entity path is valid
+                    // In such cases, def_relation_def is empty and should not be added to def_match_arms
+                    let def_relation_def_str = def_relation_def.to_string();
+                    if !def_relation_def_str.trim().is_empty() {
+                        has_valid_relations = true;
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => #def_relation_def,
+                        });
+                    }
+                    // If def_relation_def is empty, it means there was an error in column parsing
+                    // We still push the related_impl (which contains the error) but don't generate def() match arm
                 }
             } else {
                 // Always emit error cases (dummy paths)

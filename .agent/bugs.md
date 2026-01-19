@@ -102,6 +102,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-19-02: DeriveTryIntoModel Macro Silent Ignoring of parse_nested_meta Errors in extract_field_attribute](bugs/BUG-2026-01-19-02.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Silent failure / API inconsistency
 
+- [BUG-2026-01-19-03: DeriveRelation Macro Generates Invalid Rust Syntax When Column Parsing Fails](bugs/BUG-2026-01-19-03.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Compilation error / Invalid code generation
+
 ---
 
 ## Open Bugs
