@@ -321,6 +321,7 @@ mod tests {
             nullable: false,
             default_value: None,
             default_expr: Some("NOW()".to_string()),
+            renamed_from: None,
             unique: false,
             indexed: false,
             auto_increment: false,
