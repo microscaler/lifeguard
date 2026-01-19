@@ -330,6 +330,8 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     let mut related_impls = Vec::new();
     let mut related_entity_variants = Vec::new();
     let mut related_entity_impls = Vec::new();
+    // Store variant names and their RelationDef construction for def() method generation
+    let mut def_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
     // Track which target entity paths we've already generated From impls for
     // This prevents duplicate From impls when multiple relations target the same entity
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
@@ -358,7 +360,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     };
     
     for variant in variants {
-        if let Some((related_impl, target_entity_path, variant_name, from_col, to_col)) = process_relation_variant(variant, enum_name) {
+        if let Some((related_impl, target_entity_path, variant_name, from_col, to_col, def_relation_def)) = process_relation_variant(variant, enum_name) {
             // Check if this is a dummy path (used for error cases)
             // Error cases are identified by:
             // 1. Path is just "Entity" without any module prefix
@@ -454,6 +456,11 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                         }
                     });
                 }
+                
+                // Store RelationDef construction for def() method generation
+                def_match_arms.push(quote! {
+                    #enum_name::#variant_name => #def_relation_def,
+                });
             }
         } else {
             // If process_relation_variant returns None, it means there was no relationship info
@@ -493,9 +500,37 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
         quote! {}
     };
     
+    // Generate def() method implementation for Relation enum
+    let def_impl = if !def_match_arms.is_empty() {
+        quote! {
+            impl #enum_name {
+                /// Returns the RelationDef for this relation variant
+                ///
+                /// This method provides access to relationship metadata for each variant,
+                /// matching SeaORM's `Relation::Posts.def()` pattern.
+                ///
+                /// # Example
+                ///
+                /// ```no_run
+                /// use lifeguard::relation::def::RelationDef;
+                ///
+                /// let rel_def: RelationDef = Relation::Posts.def();
+                /// ```
+                pub fn def(&self) -> lifeguard::RelationDef {
+                    match self {
+                        #(#def_match_arms)*
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+    
     let expanded: TokenStream2 = quote! {
         #(#related_impls)*
         #related_entity_enum
+        #def_impl
     };
     
     TokenStream::from(expanded)
@@ -509,10 +544,11 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
 /// - Variant name for RelatedEntity enum generation
 /// - From column configuration (for conflict detection)
 /// - To column configuration (for conflict detection)
+/// - RelationDef construction code for def() method
 fn process_relation_variant(
     variant: &Variant,
     _enum_name: &syn::Ident,
-) -> Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>)> {
+) -> Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>, TokenStream2)> {
     let _variant_name = &variant.ident;
     
     // Parse attributes to find relationship type and target entity
@@ -559,6 +595,7 @@ fn process_relation_variant(
                     variant.ident.clone(),
                     None, // from_col
                     None, // to_col
+                    quote! {}, // Empty RelationDef construction for error case
                 ));
             }
         }
@@ -578,6 +615,7 @@ fn process_relation_variant(
                 variant.ident.clone(),
                 None, // from_col
                 None, // to_col
+                quote! {}, // Empty RelationDef construction for error case
             ));
         }
         
@@ -647,14 +685,14 @@ fn process_relation_variant(
         // Parse target entity path (e.g., "super::posts::Entity")
         let target_entity_path: syn::Path = match parse_entity_path(target, "entity path") {
             Ok(path) => path,
-            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None)),
+            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None, quote! {})),
         };
         
         // Parse through entity path for has_many_through relationships
         let (through_entity_path, through_table_name) = if let Some(through) = through_entity.as_ref() {
             let through_path: syn::Path = match parse_entity_path(through, "through entity path") {
                 Ok(path) => path,
-                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None)),
+                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None, quote! {})),
             };
             let through_table = quote! {
                 {
@@ -720,7 +758,7 @@ fn process_relation_variant(
             // Parse the column reference and build Identity
             match build_identity_from_column_ref(from_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone())),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone(), quote! {})),
             }
         } else {
             // Default: infer from relationship type
@@ -769,7 +807,7 @@ fn process_relation_variant(
             // The "to" column might be in a different module (e.g., "super::users::Column::Id")
             match build_identity_from_column_ref(to_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone())),
+                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone(), quote! {})),
             }
         } else {
             // Default: infer from relationship type
@@ -890,30 +928,38 @@ fn process_relation_variant(
         };
         
         let variant_name = variant.ident.clone();
+        
+        // Extract RelationDef construction code for reuse in def() method
+        let relation_def_construction = quote! {
+            {
+                use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+                lifeguard::RelationDef {
+                    rel_type: #rel_type,
+                    from_tbl: TableRef::Table(TableName(None, #from_table_name.into_iden()), None),
+                    to_tbl: TableRef::Table(TableName(None, #to_table_name.into_iden()), None),
+                    from_col: #from_col_identity,
+                    to_col: #to_col_identity,
+                    through_tbl: #through_tbl_expr,
+                    through_from_col: #through_from_col_expr,
+                    through_to_col: #through_to_col_expr,
+                    is_owner: true,
+                    skip_fk: false,
+                    on_condition: None,
+                    condition_type: ConditionType::All,
+                }
+            }
+        };
+        
         let related_impl = quote! {
             impl lifeguard::Related<#target_entity_path> for Entity {
                 fn to() -> lifeguard::RelationDef {
-                    use sea_query::{TableRef, TableName, ConditionType, IntoIden};
-                    lifeguard::RelationDef {
-                        rel_type: #rel_type,
-                        from_tbl: TableRef::Table(TableName(None, #from_table_name.into_iden()), None),
-                        to_tbl: TableRef::Table(TableName(None, #to_table_name.into_iden()), None),
-                        from_col: #from_col_identity,
-                        to_col: #to_col_identity,
-                        through_tbl: #through_tbl_expr,
-                        through_from_col: #through_from_col_expr,
-                        through_to_col: #through_to_col_expr,
-                        is_owner: true,
-                        skip_fk: false,
-                        on_condition: None,
-                        condition_type: ConditionType::All,
-                    }
+                    #relation_def_construction
                 }
             }
             #fk_col_impl
         };
         
-        Some((related_impl, target_entity_path.clone(), variant_name, from_column.clone(), to_column.clone()))
+        Some((related_impl, target_entity_path.clone(), variant_name, from_column.clone(), to_column.clone(), relation_def_construction))
     } else {
         None
     }

@@ -315,6 +315,28 @@ fn test_derive_relation_multiple_relationships() {
 }
 
 #[test]
+fn test_derive_relation_def_method() {
+    // Test that Relation enum has def() method that returns RelationDef
+    // This matches SeaORM's Relation::Posts.def() pattern
+    
+    // Test def() method exists and returns RelationDef
+    let rel_def_comments: RelationDef = Relation::Comments.def();
+    let rel_def_user: RelationDef = Relation::User.def();
+    
+    // Verify that def() returns the same RelationDef as Related::to()
+    let rel_def_from_related: RelationDef = <Entity as Related<CommentEntity>>::to();
+    
+    // The def() method should return equivalent RelationDef
+    // (We can't directly compare structs, but we can verify they have the same structure)
+    assert_eq!(rel_def_comments.rel_type, rel_def_from_related.rel_type);
+    
+    // Test that all variants have def() method
+    let _ = Relation::Comments.def();
+    let _ = Relation::User.def();
+    let _ = Relation::Tags.def();
+}
+
+#[test]
 fn test_derive_relation_has_many_through() {
     // Test that has_many_through relationship generates correct RelationDef
     // Post -> PostTags (join table) -> Tags
