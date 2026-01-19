@@ -64,6 +64,7 @@ pub use query::{
     SelectQuery, SelectModel, FromRow, LifeEntityName, LifeModelTrait,
     ColumnTrait, ColumnDefinition,
     PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
+    ModelManager, StoredProcedure,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules
