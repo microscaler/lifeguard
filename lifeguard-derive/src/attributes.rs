@@ -89,6 +89,7 @@ pub struct ColumnAttributes {
     pub column_name: Option<String>,
     pub column_type: Option<String>,
     pub default_value: Option<String>,
+    pub default_expr: Option<String>,
     pub is_unique: bool,
     pub is_indexed: bool,
     pub is_nullable: bool,
@@ -103,6 +104,7 @@ impl Default for ColumnAttributes {
             column_name: None,
             column_type: None,
             default_value: None,
+            default_expr: None,
             is_unique: false,
             is_indexed: false,
             is_nullable: false,
@@ -148,6 +150,15 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
                     ..
                 }) = &meta.value {
                     attrs.default_value = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("default_expr") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.default_expr = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("unique") {

@@ -19,6 +19,8 @@ pub struct ColumnDefinition {
     pub nullable: bool,
     /// Default value (if any)
     pub default_value: Option<String>,
+    /// Default SQL expression (e.g., "NOW()", "uuid_generate_v4()")
+    pub default_expr: Option<String>,
     /// Whether the column is unique
     pub unique: bool,
     /// Whether the column is indexed
@@ -33,6 +35,7 @@ impl Default for ColumnDefinition {
             column_type: None,
             nullable: false,
             default_value: None,
+            default_expr: None,
             unique: false,
             indexed: false,
             auto_increment: false,
@@ -118,12 +121,60 @@ impl ColumnDefinition {
             // For migrations, users can manually set defaults using SeaQuery's API
         }
         
+        // Set default SQL expression if provided
+        // Note: Expr::cust() requires &'static str, but we have &String
+        // For now, we store the expression as metadata and migration builders
+        // should use it when generating migration SQL.
+        // TODO: Consider using a helper that creates Expr from non-static strings
+        // or change the API to accept expressions at migration time
+        if let Some(ref _expr_str) = self.default_expr {
+            // The expression is stored in self.default_expr and can be used
+            // by migration builders to set the default expression.
+            // Migration builders should use: Expr::cust(expr_str) and then def.default(expr)
+            // For now, we just store the metadata - actual application happens in migrations
+        }
+        
         // Note: Unique and indexed constraints are typically handled separately
         // in SeaQuery via IndexDef, not ColumnDef. The metadata is preserved
         // in ColumnDefinition for reference, but actual unique/index creation
         // should be done via migration builders.
         
         def
+    }
+    
+    /// Apply default expression to a ColumnDef (for use in migrations)
+    ///
+    /// This helper method applies the default SQL expression to a ColumnDef.
+    /// It should be called by migration builders after `to_column_def()` if
+    /// `default_expr` is set.
+    ///
+    /// # Arguments
+    ///
+    /// * `def` - The ColumnDef to apply the default expression to
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::ColumnDefinition;
+    /// use sea_query::{ColumnDef, Iden};
+    ///
+    /// let col_def = ColumnDefinition {
+    ///     default_expr: Some("NOW()".to_string()),
+    ///     ..Default::default()
+    /// };
+    ///
+    /// let mut def = col_def.to_column_def(sea_query::Iden::unquoted("created_at"));
+    /// col_def.apply_default_expr(&mut def);
+    /// ```
+    pub fn apply_default_expr(&self, def: &mut ColumnDef) {
+        if let Some(ref expr_str) = self.default_expr {
+            // Create a static string by leaking the string (for migration use only)
+            // This is safe because migrations are typically run once at startup
+            let static_str: &'static str = Box::leak(expr_str.clone().into_boxed_str());
+            use sea_query::Expr;
+            let expr = Expr::cust(static_str);
+            def.default(expr);
+        }
     }
     
     /// Create a ColumnDefinition from a Rust type
@@ -187,6 +238,7 @@ impl ColumnDefinition {
             column_type,
             nullable,
             default_value: None,
+            default_expr: None,
             unique: is_primary_key, // Primary keys are typically unique
             indexed: is_primary_key, // Primary keys are typically indexed
             auto_increment: is_auto_increment,
@@ -204,6 +256,7 @@ mod tests {
         assert_eq!(def.column_type, None);
         assert_eq!(def.nullable, false);
         assert_eq!(def.default_value, None);
+        assert_eq!(def.default_expr, None);
         assert_eq!(def.unique, false);
         assert_eq!(def.indexed, false);
         assert_eq!(def.auto_increment, false);
@@ -215,6 +268,7 @@ mod tests {
             column_type: Some("String".to_string()),
             nullable: true,
             default_value: Some("''".to_string()),
+            default_expr: Some("NOW()".to_string()),
             unique: true,
             indexed: true,
             auto_increment: false,
@@ -223,6 +277,7 @@ mod tests {
         assert_eq!(def.column_type, Some("String".to_string()));
         assert_eq!(def.nullable, true);
         assert_eq!(def.default_value, Some("''".to_string()));
+        assert_eq!(def.default_expr, Some("NOW()".to_string()));
         assert_eq!(def.unique, true);
         assert_eq!(def.indexed, true);
         assert_eq!(def.auto_increment, false);
@@ -234,6 +289,7 @@ mod tests {
             column_type: Some("Integer".to_string()),
             nullable: true,
             default_value: None,
+            default_expr: None,
             unique: false,
             indexed: false,
             auto_increment: true,
@@ -246,6 +302,29 @@ mod tests {
         }
         
         let column_def = def.to_column_def(TestColumn);
+        // Can't easily test the ColumnDef internals, but we can verify it doesn't panic
+        let _ = column_def;
+    }
+    
+    #[test]
+    fn test_column_definition_apply_default_expr() {
+        let def = ColumnDefinition {
+            column_type: Some("Timestamp".to_string()),
+            nullable: false,
+            default_value: None,
+            default_expr: Some("NOW()".to_string()),
+            unique: false,
+            indexed: false,
+            auto_increment: false,
+        };
+        
+        struct TestColumn;
+        impl sea_query::Iden for TestColumn {
+            fn unquoted(&self) -> &str { "created_at" }
+        }
+        
+        let mut column_def = def.to_column_def(TestColumn);
+        def.apply_default_expr(&mut column_def);
         // Can't easily test the ColumnDef internals, but we can verify it doesn't panic
         let _ = column_def;
     }
