@@ -384,3 +384,55 @@ fn test_derive_linked_multiple_paths() {
     
     assert_eq!(tags_path.len(), 2, "Tags path should have 2 hops");
 }
+
+// Test module for self-referential linked relationship
+mod self_referential_test {
+    use super::*;
+    
+    // Define Entity as UserEntity for this test
+    pub type Entity = super::UserEntity;
+    
+    // Self-referential: User -> User (via parent relationship)
+    // This requires a Related<UserEntity> for UserEntity implementation
+    impl lifeguard::Related<UserEntity> for UserEntity {
+        fn to() -> RelationDef {
+            use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+            RelationDef {
+                rel_type: lifeguard::RelationType::BelongsTo,
+                from_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
+                to_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
+                from_col: lifeguard::Identity::Unary("parent_id".into()),
+                to_col: lifeguard::Identity::Unary("id".into()),
+                through_tbl: None,
+                through_from_col: None,
+                through_to_col: None,
+                is_owner: true,
+                skip_fk: false,
+                on_condition: None,
+                condition_type: ConditionType::All,
+            }
+        }
+    }
+    
+    #[derive(DeriveLinked)]
+    pub enum LinkedRelation {
+        // Self-referential: Entity -> Entity
+        #[lifeguard(linked = "Entity -> Entity")]
+        Parent,
+    }
+}
+
+#[test]
+fn test_derive_linked_self_referential() {
+    use self_referential_test::*;
+    
+    // Test that self-referential linked path works
+    let path: Vec<RelationDef> = <Entity as lifeguard::relation::Linked<Entity, Entity>>::via();
+    
+    // Verify path has 2 hops (Entity -> Entity)
+    assert_eq!(path.len(), 2, "Self-referential path should have 2 hops");
+    
+    // Both hops should be Entity -> Entity
+    assert_eq!(path[0].rel_type, lifeguard::RelationType::BelongsTo);
+    assert_eq!(path[1].rel_type, lifeguard::RelationType::BelongsTo);
+}
