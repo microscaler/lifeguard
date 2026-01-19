@@ -18,9 +18,10 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     // Extract struct name (Entity should be a unit struct)
     let struct_name = &input.ident;
     
-    // Extract table name from attributes
+    // Extract table name and schema name from attributes
     let table_name = attributes::extract_table_name(&input.attrs)
         .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
+    let schema_name = attributes::extract_schema_name(&input.attrs);
     
     // Following SeaORM's EXACT pattern: DeriveEntity generates EntityName, Iden, IdenStatic, and EntityTrait
     // This is called via NESTED macro expansion from DeriveEntityModel (or our LifeModel)
@@ -83,6 +84,21 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     // not in the same expansion as Entity and Model. This allows the compiler to resolve
     // types properly across expansion phases.
     
+    let schema_name_impl = if let Some(ref schema) = schema_name {
+        let schema_lit = syn::LitStr::new(schema, struct_name.span());
+        quote! {
+            fn schema_name(&self) -> Option<&'static str> {
+                Some(#schema_lit)
+            }
+        }
+    } else {
+        quote! {
+            fn schema_name(&self) -> Option<&'static str> {
+                None
+            }
+        }
+    };
+    
     let expanded: TokenStream2 = quote! {
         // Implement Default for Entity (required by LifeEntityName)
         impl Default for #struct_name {
@@ -96,6 +112,8 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
             fn table_name(&self) -> &'static str {
                 #table_name
             }
+            
+            #schema_name_impl
         }
         
         // Implement Iden for Entity (for use in sea_query)

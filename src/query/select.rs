@@ -93,16 +93,18 @@ where
     pub fn new() -> Self {
         let entity = E::default();
         let table_name = entity.table_name();
+        let schema_name = entity.schema_name();
         
-        struct TableName(&'static str);
-        impl Iden for TableName {
-            fn unquoted(&self) -> &str {
-                self.0
-            }
-        }
+        // Use schema-qualified table name if schema is present
+        use sea_query::{TableName, IntoIden, SchemaName};
+        let table_ref = if let Some(schema) = schema_name {
+            TableName(Some(SchemaName::from(schema)), table_name.into_iden())
+        } else {
+            TableName(None, table_name.into_iden())
+        };
         
         let mut query = SelectStatement::default();
-        query.column(sea_query::Asterisk).from(TableName(table_name));
+        query.column(sea_query::Asterisk).from(table_ref);
         Self {
             query,
             _phantom: PhantomData,

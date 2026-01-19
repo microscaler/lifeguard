@@ -19,6 +19,23 @@ pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
     None
 }
 
+/// Extract schema name from struct attributes
+pub fn extract_schema_name(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("schema_name") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    return Some(s.value());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Extract column name from field attributes
 pub fn extract_column_name(field: &Field) -> Option<String> {
     for attr in &field.attrs {
