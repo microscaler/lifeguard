@@ -70,6 +70,10 @@ local_resource(
         'lifeguard-derive/Cargo.toml',
         'lifeguard-derive/Cargo.lock',
     ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+    ],
     resource_deps=[],  # No dependencies - standalone crate
     labels=['build'],
     allow_parallel=True,  # Can build in parallel with codegen
@@ -82,6 +86,10 @@ local_resource(
     cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cargo build -p lifeguard-codegen; else echo "⚠️  lifeguard-codegen crate not found, skipping build"; fi',
     deps=[
         'lifeguard-codegen',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
     ],
     resource_deps=[],  # No dependencies - standalone crate
     labels=['build'],
@@ -98,6 +106,10 @@ local_resource(
         'Cargo.toml',
         'Cargo.lock',
         'lifeguard-derive/Cargo.toml',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
     ],
     resource_deps=['build-derive'],  # Wait for lifeguard-derive to compile first
     labels=['build'],
@@ -118,6 +130,14 @@ local_resource(
         'Cargo.toml',
         'Cargo.lock',
     ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        '*.stderr',
+        '*.stdout',
+        'nexttest-errors.log',
+        'test-derive-errors.log',
+    ],
     resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
     labels=['tests'],
     allow_parallel=False,  # Serialize to prevent build storms
@@ -125,6 +145,7 @@ local_resource(
 
 # Run nextest (faster test execution for main crate)
 # Using nextest as the primary test runner
+# Note: ignore patterns prevent infinite loops from test output files in target/
 local_resource(
     'test-nextest',
     cmd='TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo nextest run --workspace --all-features',
@@ -133,6 +154,14 @@ local_resource(
         'Cargo.toml',
         'Cargo.lock',
         'scripts/get_test_connection_string.sh',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        '*.stderr',
+        '*.stdout',
+        'nexttest-errors.log',
+        'test-derive-errors.log',
     ],
     resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
     labels=['tests'],
@@ -169,6 +198,14 @@ local_resource(
         'lifeguard-derive/Cargo.lock',
         '.config/nextest.toml',  # Use workspace nextest config
     ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        '*.stderr',
+        '*.stdout',
+        'nexttest-errors.log',
+        'test-derive-errors.log',
+    ],
     resource_deps=['build-derive'],  # Wait for build to complete first
     labels=['tests'],
     allow_parallel=False,  # Serialize to prevent build storms
@@ -200,6 +237,14 @@ local_resource(
     cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cd lifeguard-codegen && cargo test --no-fail-fast; else echo "⚠️  lifeguard-codegen crate not found, skipping tests"; fi',
     deps=[
         'lifeguard-codegen',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        '*.stderr',
+        '*.stdout',
+        'nexttest-errors.log',
+        'test-derive-errors.log',
     ],
     resource_deps=['build-codegen'],  # Wait for build to complete first
     labels=['tests'],
@@ -237,6 +282,10 @@ local_resource(
         'src',
         'Cargo.toml',
     ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+    ],
     resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
     labels=['examples'],
     allow_parallel=True,
@@ -251,6 +300,10 @@ local_resource(
         'src',
         'Cargo.toml',
     ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+    ],
     resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
     labels=['examples'],
     allow_parallel=True,
@@ -264,6 +317,10 @@ local_resource(
         'examples/health_check_example.rs',
         'src',
         'Cargo.toml',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
     ],
     resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
     labels=['examples'],
