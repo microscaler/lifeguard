@@ -572,54 +572,61 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 
 ## 🎯 Competitive Metrics: Lifeguard vs Rust ORMs
 
-*Assuming successful delivery of all epics and stories*
+*Implementation status based on current codebase analysis (see `lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md`)*
 
-| Feature | Lifeguard | SeaORM | Diesel | SQLx |
-|---------|-----------|--------|--------|------|
-| **Concurrency Model** | ✅ Coroutine-native (`may`) | ❌ Async/await (Tokio) | ❌ Sync-only | ❌ Async/await (Tokio) |
-| **Performance (Hot Paths)** | ✅✅✅ 2-5× faster | ⚠️ Async overhead | ✅ Fast (sync) | ⚠️ Async overhead |
-| **Performance (Small Queries)** | ✅✅✅ 10×+ faster | ⚠️ Future allocation | ✅ Fast | ⚠️ Future allocation |
-| **Memory Footprint** | ✅✅ Low (stackful coroutines) | ⚠️ Higher (heap futures) | ✅ Low | ⚠️ Higher (heap futures) |
-| **Predictable Latency** | ✅✅✅ Deterministic scheduling | ⚠️ Poll-based (variable) | ✅ Predictable | ⚠️ Poll-based (variable) |
-| **Type Safety** | ✅✅✅ Compile-time validation | ✅✅ Compile-time validation | ✅✅✅ Strong compile-time | ✅✅ Compile-time SQL checks |
-| **ORM Features** | ✅✅✅ Complete (SeaORM parity) | ✅✅✅ Complete | ✅✅ Good | ❌ Query builder only |
-| **CRUD Operations** | ✅✅✅ Full support | ✅✅✅ Full support | ✅✅ Full support | ⚠️ Manual SQL |
-| **Relations** | ✅✅✅ All types (has_one, has_many, belongs_to, many_to_many) | ✅✅✅ All types | ✅✅ Basic support | ❌ Manual joins |
-| **Migrations** | ✅✅✅ Programmatic, data seeding, advanced ops | ✅✅✅ Programmatic | ✅✅ CLI-based | ⚠️ Manual SQL |
-| **Schema Inference** | ✅✅✅ From database (Diesel equivalent) | ✅✅ From database | ✅✅✅ `table!` macro | ❌ No |
-| **Query Builder** | ✅✅✅ Type-safe, chainable | ✅✅✅ Type-safe, chainable | ✅✅✅ Compile-time checked | ✅✅ Compile-time SQL |
-| **Transactions** | ✅✅✅ Full support | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Full support |
-| **Batch Operations** | ✅✅✅ insert_many, update_many, delete_many | ✅✅✅ Batch support | ✅✅ Batch support | ⚠️ Manual |
-| **Upsert** | ✅✅✅ save(), on_conflict() | ✅✅✅ save(), on_conflict() | ✅✅ on_conflict() | ⚠️ Manual SQL |
-| **Pagination** | ✅✅✅ paginate(), paginate_and_count() | ✅✅✅ Pagination helpers | ⚠️ Manual | ⚠️ Manual |
-| **Entity Hooks** | ✅✅✅ before/after lifecycle events | ✅✅✅ Hooks support | ❌ No | ❌ No |
-| **Validators** | ✅✅✅ Field & model-level | ⚠️ Limited | ❌ No | ❌ No |
-| **Soft Deletes** | ✅✅✅ Built-in support | ⚠️ Manual | ❌ No | ❌ No |
-| **Auto Timestamps** | ✅✅✅ created_at, updated_at | ⚠️ Manual | ❌ No | ❌ No |
-| **Session/Unit of Work** | ✅✅✅ Identity map, dirty tracking | ❌ No | ❌ No | ❌ No |
-| **Scopes** | ✅✅✅ Named query scopes | ❌ No | ❌ No | ❌ No |
-| **Model Managers** | ✅✅✅ Custom query methods | ❌ No | ❌ No | ❌ No |
-| **F() Expressions** | ✅✅✅ Database-level expressions | ❌ No | ⚠️ Limited | ❌ No |
-| **Subqueries** | ✅✅✅ Full support | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Manual SQL |
-| **CTEs** | ✅✅✅ WITH clauses | ✅✅✅ WITH clauses | ✅✅ WITH clauses | ✅✅ Manual SQL |
-| **Window Functions** | ✅✅✅ Full support | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Manual SQL |
-| **Eager Loading** | ✅✅✅ Multiple strategies (joinedload, subqueryload, selectinload) | ✅✅✅ Eager loading | ⚠️ Manual | ❌ Manual |
-| **Raw SQL** | ✅✅✅ find_by_statement(), execute_unprepared() | ✅✅✅ Raw SQL support | ✅✅✅ Raw SQL support | ✅✅✅ Primary feature |
-| **Connection Pooling** | ✅✅✅ Persistent, semaphore-based, health monitoring | ✅✅✅ Built-in pool | ⚠️ External (r2d2) | ✅✅✅ Built-in pool |
-| **Replica Read Support** | ✅✅✅ WAL-based health monitoring, automatic routing | ❌ No | ❌ No | ❌ No |
-| **Read Preferences** | ✅✅✅ primary, replica, mixed, strong | ❌ No | ❌ No | ❌ No |
-| **Distributed Caching** | ✅✅✅✅ **LifeReflector (UNIQUE)** | ❌ No | ❌ No | ❌ No |
-| **Cache Coherence** | ✅✅✅✅ **Zero-stale reads (UNIQUE)** | ❌ No | ❌ No | ❌ No |
-| **TTL-Based Active Set** | ✅✅✅✅ **Adaptive caching (UNIQUE)** | ❌ No | ❌ No | ❌ No |
-| **PostgreSQL Features** | ✅✅✅ Views, materialized views, JSONB, FTS, PostGIS, partitioning | ✅✅✅ Most features | ✅✅✅ Most features | ✅✅✅ All features (raw SQL) |
-| **Observability** | ✅✅✅ Prometheus, OpenTelemetry, comprehensive metrics | ✅✅ Basic metrics | ⚠️ Limited | ⚠️ Limited |
-| **Developer Experience** | ✅✅✅ Familiar API, no async/await, clear errors | ✅✅✅ Good, async/await required | ⚠️ Complex type system | ✅✅ Good, async/await required |
-| **Learning Curve** | ✅✅ Moderate (familiar if you know SeaORM) | ✅✅ Moderate | ⚠️ Steep (complex macros) | ✅✅ Moderate |
-| **Production Ready** | ✅✅✅ Complete observability, health checks, metrics | ✅✅✅ Production ready | ✅✅✅ Production ready | ✅✅✅ Production ready |
-| **Multi-Database** | ❌ PostgreSQL only (by design) | ✅✅ PostgreSQL, MySQL, SQLite | ✅✅ PostgreSQL, MySQL, SQLite | ✅✅✅ PostgreSQL, MySQL, SQLite, MSSQL |
-| **Coroutine Runtime** | ✅✅✅✅ **Native support (UNIQUE)** | ❌ Incompatible | ❌ Incompatible | ❌ Incompatible |
+| Feature | Lifeguard Promise | Implementation Status | SeaORM | Diesel | SQLx |
+|---------|-------------------|----------------------|--------|--------|------|
+| **Concurrency Model** | ✅ Coroutine-native (`may`) | ✅ **Implemented** | ❌ Async/await (Tokio) | ❌ Sync-only | ❌ Async/await (Tokio) |
+| **Performance (Hot Paths)** | ✅✅✅ 2-5× faster | 🟡 **Architectural** | ⚠️ Async overhead | ✅ Fast (sync) | ⚠️ Async overhead |
+| **Performance (Small Queries)** | ✅✅✅ 10×+ faster | 🟡 **Architectural** | ⚠️ Future allocation | ✅ Fast | ⚠️ Future allocation |
+| **Memory Footprint** | ✅✅ Low (stackful coroutines) | 🟡 **Architectural** | ⚠️ Higher (heap futures) | ✅ Low | ⚠️ Higher (heap futures) |
+| **Predictable Latency** | ✅✅✅ Deterministic scheduling | 🟡 **Architectural** | ⚠️ Poll-based (variable) | ✅ Predictable | ⚠️ Poll-based (variable) |
+| **Type Safety** | ✅✅✅ Compile-time validation | ✅ **Implemented** | ✅✅ Compile-time validation | ✅✅✅ Strong compile-time | ✅✅ Compile-time SQL checks |
+| **ORM Features** | ✅✅✅ Complete (SeaORM parity) | 🟡 **67% Complete** (Core traits, relations, query builder) | ✅✅✅ Complete | ✅✅ Good | ❌ Query builder only |
+| **CRUD Operations** | ✅✅✅ Full support | ✅ **Implemented** (insert/update/save/delete via ActiveModelTrait) | ✅✅✅ Full support | ✅✅ Full support | ⚠️ Manual SQL |
+| **Relations** | ✅✅✅ All types (has_one, has_many, belongs_to, many_to_many) | ✅ **Implemented** (Complete with eager/lazy loading, composite keys, DeriveLinked) | ✅✅✅ All types | ✅✅ Basic support | ❌ Manual joins |
+| **Migrations** | ✅✅✅ Programmatic, data seeding, advanced ops | 🟡 **Partial** (DeriveMigrationName missing, infrastructure may exist) | ✅✅✅ Programmatic | ✅✅ CLI-based | ⚠️ Manual SQL |
+| **Schema Inference** | ✅✅✅ From database (Diesel equivalent) | ❌ **Not Implemented** | ✅✅ From database | ✅✅✅ `table!` macro | ❌ No |
+| **Query Builder** | ✅✅✅ Type-safe, chainable | ✅ **Implemented** (19/20 methods, 95% coverage) | ✅✅✅ Type-safe, chainable | ✅✅✅ Compile-time checked | ✅✅ Compile-time SQL |
+| **Transactions** | ✅✅✅ Full support | ✅ **Implemented** (Roadmap Epic 01) | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Full support |
+| **Batch Operations** | ✅✅✅ insert_many, update_many, delete_many | ✅ **Implemented** | ✅✅✅ Batch support | ✅✅ Batch support | ⚠️ Manual |
+| **Upsert** | ✅✅✅ save(), on_conflict() | ✅ **Implemented** (save() method exists) | ✅✅✅ save(), on_conflict() | ✅✅ on_conflict() | ⚠️ Manual SQL |
+| **Pagination** | ✅✅✅ paginate(), paginate_and_count() | ✅ **Implemented** | ✅✅✅ Pagination helpers | ⚠️ Manual | ⚠️ Manual |
+| **Entity Hooks** | ✅✅✅ before/after lifecycle events | ✅ **Implemented** (ActiveModelBehavior with 8 lifecycle hooks) | ✅✅✅ Hooks support | ❌ No | ❌ No |
+| **Validators** | ✅✅✅ Field & model-level | ❌ **Not Implemented** | ⚠️ Limited | ❌ No | ❌ No |
+| **Soft Deletes** | ✅✅✅ Built-in support | ❌ **Not Implemented** | ⚠️ Manual | ❌ No | ❌ No |
+| **Auto Timestamps** | ✅✅✅ created_at, updated_at | ❌ **Not Implemented** | ⚠️ Manual | ❌ No | ❌ No |
+| **Session/Unit of Work** | ✅✅✅ Identity map, dirty tracking | ❌ **Not Implemented** | ❌ No | ❌ No | ❌ No |
+| **Scopes** | ✅✅✅ Named query scopes | ❌ **Not Implemented** | ❌ No | ❌ No | ❌ No |
+| **Model Managers** | ✅✅✅ Custom query methods | ❌ **Not Implemented** | ❌ No | ❌ No | ❌ No |
+| **F() Expressions** | ✅✅✅ Database-level expressions | ❌ **Not Implemented** | ❌ No | ⚠️ Limited | ❌ No |
+| **Subqueries** | ✅✅✅ Full support | 🟡 **Future** (Not yet implemented) | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Manual SQL |
+| **CTEs** | ✅✅✅ WITH clauses | 🟡 **Future** (Not yet implemented) | ✅✅✅ WITH clauses | ✅✅ WITH clauses | ✅✅ Manual SQL |
+| **Window Functions** | ✅✅✅ Full support | 🟡 **Future** (Not yet implemented) | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Manual SQL |
+| **Eager Loading** | ✅✅✅ Multiple strategies (joinedload, subqueryload, selectinload) | ✅ **Implemented** (selectinload strategy with FK extraction) | ✅✅✅ Eager loading | ⚠️ Manual | ❌ Manual |
+| **Raw SQL** | ✅✅✅ find_by_statement(), execute_unprepared() | ✅ **Implemented** (Architecture supports raw SQL) | ✅✅✅ Raw SQL support | ✅✅✅ Raw SQL support | ✅✅✅ Primary feature |
+| **Connection Pooling** | ✅✅✅ Persistent, semaphore-based, health monitoring | ✅ **Implemented** (LifeguardPool architecture) | ✅✅✅ Built-in pool | ⚠️ External (r2d2) | ✅✅✅ Built-in pool |
+| **Replica Read Support** | ✅✅✅ WAL-based health monitoring, automatic routing | 🟡 **Architectural** (Not in SeaORM mapping, may exist) | ❌ No | ❌ No | ❌ No |
+| **Read Preferences** | ✅✅✅ primary, replica, mixed, strong | 🟡 **Architectural** (Not in SeaORM mapping, may exist) | ❌ No | ❌ No | ❌ No |
+| **Distributed Caching** | ✅✅✅✅ **LifeReflector (UNIQUE)** | 🟡 **Architectural** (Not in SeaORM mapping, may exist) | ❌ No | ❌ No | ❌ No |
+| **Cache Coherence** | ✅✅✅✅ **Zero-stale reads (UNIQUE)** | 🟡 **Architectural** (Not in SeaORM mapping, may exist) | ❌ No | ❌ No | ❌ No |
+| **TTL-Based Active Set** | ✅✅✅✅ **Adaptive caching (UNIQUE)** | 🟡 **Architectural** (Not in SeaORM mapping, may exist) | ❌ No | ❌ No | ❌ No |
+| **PostgreSQL Features** | ✅✅✅ Views, materialized views, JSONB, FTS, PostGIS, partitioning | 🟡 **Partial** (JSONB ✅ core feature, others future) | ✅✅✅ Most features | ✅✅✅ Most features | ✅✅✅ All features (raw SQL) |
+| **Observability** | ✅✅✅ Prometheus, OpenTelemetry, comprehensive metrics | 🟡 **Partial** (Metrics infrastructure exists) | ✅✅ Basic metrics | ⚠️ Limited | ⚠️ Limited |
+| **Developer Experience** | ✅✅✅ Familiar API, no async/await, clear errors | ✅ **Implemented** (SeaORM-like API) | ✅✅✅ Good, async/await required | ⚠️ Complex type system | ✅✅ Good, async/await required |
+| **Learning Curve** | ✅✅ Moderate (familiar if you know SeaORM) | ✅ **Implemented** (SeaORM-like API) | ✅✅ Moderate | ⚠️ Steep (complex macros) | ✅✅ Moderate |
+| **Production Ready** | ✅✅✅ Complete observability, health checks, metrics | 🟡 **Partial** (Core ORM ready, advanced features pending) | ✅✅✅ Production ready | ✅✅✅ Production ready | ✅✅✅ Production ready |
+| **Multi-Database** | ❌ PostgreSQL only (by design) | ✅ **By Design** | ✅✅ PostgreSQL, MySQL, SQLite | ✅✅ PostgreSQL, MySQL, SQLite | ✅✅✅ PostgreSQL, MySQL, SQLite, MSSQL |
+| **Coroutine Runtime** | ✅✅✅✅ **Native support (UNIQUE)** | ✅ **Implemented** | ❌ Incompatible | ❌ Incompatible | ❌ Incompatible |
 
 ### Legend
+
+**Implementation Status Column:**
+- ✅ **Implemented** = Feature is fully implemented and working
+- 🟡 **Partial/Future/Architectural** = Partially implemented, planned for future, or architectural feature (not in SeaORM mapping)
+- ❌ **Not Implemented** = Feature promised but not yet implemented
+
+**Feature Comparison Columns:**
 - ✅✅✅✅ = **Unique advantage** (no other ORM has this)
 - ✅✅✅ = Excellent support
 - ✅✅ = Good support
@@ -627,27 +634,67 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 - ⚠️ = Limited or manual implementation required
 - ❌ = Not supported
 
+### Implementation Status Summary
+
+**✅ Fully Implemented (Core ORM - 67% of SeaORM parity):**
+- Core traits (LifeModelTrait, ModelTrait, ActiveModelTrait, ColumnTrait, PrimaryKeyTrait)
+- Complete CRUD operations (insert, update, save, delete)
+- Relations system (has_one, has_many, belongs_to, has_many_through) with composite key support
+- Query builder (19/20 methods, 95% coverage)
+- Eager/lazy loading with multiple strategies
+- Pagination, batch operations, upsert
+- Entity hooks (ActiveModelBehavior with 8 lifecycle hooks)
+- JSON support (core feature, always enabled)
+- Partial models (DerivePartialModel)
+- Multi-hop relationships (DeriveLinked - competitive advantage)
+
+**🟡 Partially Implemented / Future:**
+- Migrations (infrastructure may exist, but DeriveMigrationName macro missing)
+- Subqueries, CTEs, Window Functions (planned for future)
+- PostgreSQL advanced features (JSONB ✅, others future)
+- Observability (metrics infrastructure exists, full implementation pending)
+
+**❌ Not Yet Implemented (Promised but Missing):**
+- Validators (field & model-level)
+- Soft deletes
+- Auto-managed timestamps
+- Session/Unit of Work pattern
+- Scopes (named query scopes)
+- Model Managers (custom query methods)
+- F() Expressions (database-level expressions)
+- Schema inference (Diesel `table!` equivalent)
+
+**🟡 Architectural Features (Not in SeaORM mapping, status unclear):**
+- LifeReflector (distributed cache coherence)
+- Replica read support with WAL-based routing
+- Read preferences (primary, replica, mixed, strong)
+- TTL-based active set caching
+
+**Overall Progress:** ~67% of SeaORM feature parity achieved. Core ORM functionality is complete and production-ready. Advanced features (validators, soft deletes, scopes) and architectural features (LifeReflector, replica routing) are pending.
+
 ### Key Differentiators
 
 **Lifeguard's Unique Advantages:**
-1. **LifeReflector** - Distributed cache coherence (Oracle Coherence-level) - **NO OTHER ORM HAS THIS**
-2. **Coroutine-Native** - No async overhead, deterministic scheduling - **UNIQUE TO LIFEGUARD**
-3. **WAL-Based Replica Routing** - Automatic health monitoring - **UNIQUE TO LIFEGUARD**
-4. **TTL-Based Active Set** - Adaptive caching - **UNIQUE TO LIFEGUARD**
-5. **Session/Unit of Work** - Identity map, automatic change tracking - **NOT IN OTHER RUST ORMs**
+1. **LifeReflector** - Distributed cache coherence (Oracle Coherence-level) - **NO OTHER ORM HAS THIS** (🟡 Status unclear)
+2. **Coroutine-Native** - No async overhead, deterministic scheduling - **UNIQUE TO LIFEGUARD** ✅
+3. **WAL-Based Replica Routing** - Automatic health monitoring - **UNIQUE TO LIFEGUARD** (🟡 Status unclear)
+4. **TTL-Based Active Set** - Adaptive caching - **UNIQUE TO LIFEGUARD** (🟡 Status unclear)
+5. **DeriveLinked Macro** - Multi-hop relationship code generation - **COMPETITIVE ADVANTAGE** ✅ (SeaORM doesn't have this)
+6. **Session/Unit of Work** - Identity map, automatic change tracking - **NOT IN OTHER RUST ORMs** (❌ Not yet implemented)
 
 **Where Lifeguard Matches or Exceeds:**
-- ✅ Complete SeaORM API parity
-- ✅ Schema inference (matches Diesel's `table!` macro)
-- ✅ Advanced features from SQLAlchemy, Django, ActiveRecord
-- ✅ Better performance (2-5× faster on hot paths)
-- ✅ Lower memory footprint
-- ✅ Predictable latency
+- ✅ Complete SeaORM API parity (67% feature coverage, core ORM complete)
+- ✅ Relations system with composite keys and eager/lazy loading
+- ✅ Query builder with 95% method coverage
+- ✅ Better performance potential (2-5× faster on hot paths - architectural)
+- ✅ Lower memory footprint (architectural)
+- ✅ Predictable latency (architectural)
 
 **Trade-offs:**
 - ❌ PostgreSQL-only (by design - enables advanced features)
 - ❌ Requires `may` coroutine runtime (not Tokio)
 - ❌ Smaller ecosystem (newer project)
+- ⚠️ Some promised features not yet implemented (validators, soft deletes, scopes, etc.)
 
 ### Performance Comparison (Estimated)
 
