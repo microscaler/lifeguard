@@ -446,6 +446,14 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                         def_match_arms.push(quote! {
                             #enum_name::#variant_name => #existing_def_relation_def,
                         });
+                    } else {
+                        // If existing_def_relation_def is empty, it means the original relation had a column parsing error
+                        // We still need to add a match arm that panics to avoid non-exhaustive match error
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => {
+                                panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
+                            },
+                        });
                     }
                     continue;
                 } else {
