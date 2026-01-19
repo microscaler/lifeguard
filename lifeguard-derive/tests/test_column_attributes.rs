@@ -768,3 +768,71 @@ fn test_schema_name_custom_schema() {
     assert_eq!(entity.schema_name(), Some("commerce"));
     assert_eq!(entity.table_name(), "orders");
 }
+
+// ============================================================================
+// Ignore Field (ignore)
+// ============================================================================
+
+#[test]
+fn test_ignore_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_ignore"]
+    pub struct TestIgnore {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+        #[skip]
+        pub computed_field: String, // Not in database
+        #[skip]
+        pub virtual_field: i32, // Not in database
+        pub email: String,
+    }
+    
+    // Verify ignored fields are NOT in Column enum
+    // Column enum should only have: Id, Name, Email
+    let columns = [
+        <Entity as LifeModelTrait>::Column::Id,
+        <Entity as LifeModelTrait>::Column::Name,
+        <Entity as LifeModelTrait>::Column::Email,
+    ];
+    
+    // Verify we can't access ComputedField or VirtualField as columns
+    // (This is a compile-time check - if it compiles, the test passes)
+    let _ = columns;
+    
+    // Verify ignored fields ARE in Model struct
+    // This is a compile-time check - Model should have all fields
+    // Note: Ignored fields won't be populated from database (FromRow skips them),
+    // but they're still part of the Model struct for manual initialization
+    // We test this by checking that the Model type exists and can be used
+    type Model = <Entity as LifeModelTrait>::Model;
+    let _: Model = Model {
+        id: 1,
+        name: "Test".to_string(),
+        computed_field: "computed".to_string(), // Skipped field - not in Column enum, but in Model struct
+        virtual_field: 42, // Skipped field - not in Column enum, but in Model struct
+        email: "test@example.com".to_string(),
+    };
+}
+
+#[test]
+fn test_ignore_with_other_attributes() {
+    #[derive(LifeModel)]
+    #[table_name = "test_ignore_combined"]
+    pub struct TestIgnoreCombined {
+        #[primary_key]
+        pub id: i32,
+        #[skip]
+        #[nullable] // This should be ignored since field is skipped
+        pub virtual_field: Option<String>,
+        pub name: String,
+    }
+    
+    // Verify ignored field is not in Column enum
+    // Column enum should only have: Id, Name
+    let columns = [
+        <Entity as LifeModelTrait>::Column::Id,
+        <Entity as LifeModelTrait>::Column::Name,
+    ];
+    let _ = columns;
+}

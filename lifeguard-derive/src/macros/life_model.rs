@@ -109,6 +109,31 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let col_attrs = attributes::parse_column_attributes(field);
         let is_primary_key = col_attrs.is_primary_key;
         let is_auto_increment = col_attrs.is_auto_increment;
+        let is_ignored = col_attrs.is_ignored;
+
+        // Skip ignored fields - they're not mapped to database columns
+        // But we still need to add them to the Model struct and FromRow
+        if is_ignored {
+            // Still include in Model struct
+            model_fields.push(quote! {
+                pub #field_name: #field_type,
+            });
+            // Add to FromRow with default value (since they're not in database)
+            // Use Default::default() if available, otherwise use a placeholder
+            // For Option<T>, use None; for other types, try Default::default()
+            let default_expr = if extract_option_inner_type(field_type).is_some() {
+                quote! { None }
+            } else {
+                quote! { <#field_type as Default>::default() }
+            };
+            from_row_fields.push(quote! {
+                #field_name: #default_expr,
+            });
+            // Don't generate Column enum variant, Iden, etc. for ignored fields
+            continue;
+        }
+        
+        // For non-ignored fields, add to Model struct with serde attributes
 
         // Generate Column enum variant (PascalCase)
         let column_variant = Ident::new(
