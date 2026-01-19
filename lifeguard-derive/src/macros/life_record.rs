@@ -112,6 +112,28 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         let is_auto_increment = col_attrs.is_auto_increment;
         let is_ignored = col_attrs.is_ignored;
         
+        // Validate: primary key fields cannot be skipped/ignored
+        if is_primary_key && is_ignored {
+            // Find the skip/ignore attribute to use its span for better error location
+            if let Some(attr) = field.attrs.iter()
+                .find(|attr| attr.path().is_ident("skip") || attr.path().is_ident("ignore")) {
+                return syn::Error::new_spanned(
+                    attr,
+                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+                )
+                .to_compile_error()
+                .into();
+            } else {
+                // Fallback to field name if attribute not found (shouldn't happen)
+                return syn::Error::new_spanned(
+                    field_name,
+                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+        
         // Skip ignored fields - they're not included in database operations
         // But we still need to add them to the Record struct and conversion methods
         if is_ignored {
