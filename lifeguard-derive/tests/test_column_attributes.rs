@@ -595,3 +595,62 @@ fn test_json_type_with_attributes() {
     assert_eq!(def.column_type, Some("JSONB".to_string()));
     assert_eq!(def.nullable, true);
 }
+
+// ============================================================================
+// Default SQL Expression (default_expr)
+// ============================================================================
+
+#[test]
+fn test_default_expr_attribute() {
+    #[derive(LifeModel)]
+    #[table_name = "test_default_expr"]
+    pub struct TestDefaultExpr {
+        #[primary_key]
+        pub id: i32,
+        #[default_expr = "NOW()"]
+        pub created_at: String,
+        #[default_expr = "uuid_generate_v4()"]
+        pub uuid: String,
+        #[default_expr = "gen_random_uuid()"]
+        pub random_uuid: String,
+        pub name: String, // No default_expr
+    }
+    
+    // Verify default_expr is set
+    let def_created_at = <Entity as LifeModelTrait>::Column::CreatedAt.column_def();
+    assert_eq!(def_created_at.default_expr, Some("NOW()".to_string()));
+    
+    let def_uuid = <Entity as LifeModelTrait>::Column::Uuid.column_def();
+    assert_eq!(def_uuid.default_expr, Some("uuid_generate_v4()".to_string()));
+    
+    let def_random_uuid = <Entity as LifeModelTrait>::Column::RandomUuid.column_def();
+    assert_eq!(def_random_uuid.default_expr, Some("gen_random_uuid()".to_string()));
+    
+    // Verify no default_expr
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.default_expr, None);
+}
+
+#[test]
+fn test_default_expr_with_other_attributes() {
+    #[derive(LifeModel)]
+    #[table_name = "test_default_expr_combined"]
+    pub struct TestDefaultExprCombined {
+        #[primary_key]
+        pub id: i32,
+        #[default_expr = "NOW()"]
+        #[nullable]
+        pub updated_at: Option<String>,
+        #[default_expr = "uuid_generate_v4()"]
+        #[column_type = "UUID"]
+        pub uuid: String,
+    }
+    
+    let def_updated_at = <Entity as LifeModelTrait>::Column::UpdatedAt.column_def();
+    assert_eq!(def_updated_at.default_expr, Some("NOW()".to_string()));
+    assert_eq!(def_updated_at.nullable, true);
+    
+    let def_uuid = <Entity as LifeModelTrait>::Column::Uuid.column_def();
+    assert_eq!(def_uuid.default_expr, Some("uuid_generate_v4()".to_string()));
+    assert_eq!(def_uuid.column_type, Some("UUID".to_string()));
+}

@@ -219,7 +219,7 @@ This design simplifies the API while maintaining the same functionality.
 | `#[sea_orm(unique)]` | `#[unique]` | ✅ Complete | Unique constraint - LifeModel macro generates ColumnTrait::def() with unique metadata |
 | `#[sea_orm(indexed)]` | `#[indexed]` | ✅ Complete | Indexed column - LifeModel macro generates ColumnTrait::def() with indexed metadata |
 | `#[sea_orm(enum_name = "...")]` | `#[enum_name = "..."]` | ✅ Complete | Enum type name - LifeModel macro generates ColumnTrait::enum_type_name() implementation |
-| `#[sea_orm(default_expr = "...")]` | ❌ Missing | 🟡 **Future** | Default SQL expression |
+| `#[sea_orm(default_expr = "...")]` | `#[default_expr = "..."]` | ✅ Implemented | Default SQL expression - LifeModel macro generates ColumnTrait::def() with default_expr metadata, includes apply_default_expr() helper for migrations |
 | `#[sea_orm(schema_name = "...")]` | ❌ Missing | 🟡 **Future** | Schema name |
 | `#[sea_orm(ignore)]` | ❌ Missing | 🟡 **Future** | Ignore field |
 | `#[sea_orm(select_as = "...")]` | ❌ Missing | 🟡 **Future** | Custom SELECT expression |
