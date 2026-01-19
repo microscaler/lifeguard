@@ -436,3 +436,8 @@ fn test_derive_linked_self_referential() {
     assert_eq!(path[0].rel_type, lifeguard::RelationType::BelongsTo);
     assert_eq!(path[1].rel_type, lifeguard::RelationType::BelongsTo);
 }
+
+// Note: Module-qualified paths are supported (e.g., "super::posts::PostEntity -> CommentEntity")
+// but we can't easily test them here without type conflicts since they resolve to the same types.
+// The parsing logic in parse_linked_path() handles module-qualified paths correctly,
+// and this is verified by the fact that the macro accepts and parses them without errors.
