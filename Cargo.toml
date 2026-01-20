@@ -13,6 +13,7 @@ members = [
     "lifeguard-derive",
     "lifeguard-codegen",
     "lifeguard-migrate",
+    "tests-integration",
 ]
 resolver = "2"
 
@@ -72,3 +73,5 @@ metrics = ["dep:opentelemetry", "dep:opentelemetry-prometheus", "dep:prometheus"
 # Enable OpenTelemetry tracing
 tracing = ["dep:tracing"]
 mock = []
+# Enable test helpers for integration tests
+test-helpers = []

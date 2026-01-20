@@ -925,6 +925,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lifeguard-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "lifeguard",
+ "sea-query",
+]
+
+[[package]]
 name = "lifeguard-migrate"
 version = "0.1.0"
 dependencies = [

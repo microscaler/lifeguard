@@ -91,26 +91,41 @@ test-unit-verbose:
     @DATABASE_URL={{DATABASE_URL}} cargo test --lib -- --nocapture --no-fail-fast
 
 # Run tests with nextest (faster test execution)
+# Excludes integration tests (lifeguard-integration-tests) which require database
 nextest-test:
-    @echo "🧪 Running tests with nextest..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1
+    @echo "🧪 Running tests with nextest (excluding integration tests)..."
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests
 
 alias nt := nextest-test
 
 # Run tests with nextest (no capture - passes through stdout/stderr directly)
+# Excludes integration tests (lifeguard-integration-tests) which require database
 nt-verbose:
     @echo "🧪 Running tests with nextest (no capture - full output)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture --exclude lifeguard-integration-tests
 
 # Run tests with nextest (CI profile)
+# Excludes integration tests (lifeguard-integration-tests) which require database
 nt-ci:
     @echo "🧪 Running tests with nextest (CI profile)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci --exclude lifeguard-integration-tests
 
 # Run unit tests only with nextest
 nt-unit:
     @echo "🧪 Running unit tests with nextest..."
     @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --test-group unit
+
+# Run integration tests (requires database connection)
+test-integration:
+    @echo "🧪 Running integration tests..."
+    @echo "⚠️  Note: These tests require a running database connection"
+    @TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo test --package lifeguard-integration-tests
+
+# Run integration tests with nextest
+nt-integration:
+    @echo "🧪 Running integration tests with nextest..."
+    @echo "⚠️  Note: These tests require a running database connection"
+    @TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo nextest run --package lifeguard-integration-tests
 
 # Run tests with standard cargo (fallback)
 test-cargo:

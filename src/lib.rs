@@ -40,7 +40,7 @@ pub mod metrics;
 // pub mod pool;
 
 // Test helpers - Epic 01 Story 08
-#[cfg(test)]
+// Available for integration tests
 pub mod test_helpers;
 
 // Entity tests will be rebuilt in Epic 03

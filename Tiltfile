@@ -8,6 +8,7 @@
 #
 # Resources are organized into parallel streams using labels:
 # - 'infrastructure' label: PostgreSQL test database
+# - 'migration' label: Migration integration tests (runs in parallel with other tests)
 
 # ====================
 # Configuration
@@ -145,6 +146,7 @@ local_resource(
 
 # Run nextest (faster test execution for main crate)
 # Using nextest as the primary test runner
+# Excludes integration tests (lifeguard-integration-tests) which require database and run separately
 # Note: ignore patterns prevent infinite loops from test output files in target/
 local_resource(
     'test-nextest',
@@ -166,6 +168,32 @@ local_resource(
     resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
     labels=['tests'],
     allow_parallel=False,  # Serialize to prevent build storms
+)
+
+# Run migration integration tests (requires database connection)
+# These tests are separated from the main test suite to avoid slowing down normal test runs
+# Runs in parallel with other tests since it's in a separate crate
+local_resource(
+    'test-migration',
+    cmd='TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo nextest run --package lifeguard-integration-tests',
+    deps=[
+        'tests-integration',
+        'src/migration',
+        'Cargo.toml',
+        'Cargo.lock',
+        'scripts/get_test_connection_string.sh',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        '*.stderr',
+        '*.stdout',
+        'nexttest-errors.log',
+        'test-derive-errors.log',
+    ],
+    resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
+    labels=['migration'],
+    allow_parallel=True,  # Can run in parallel with other tests (separate crate)
 )
 
 # Run integration tests (requires database)

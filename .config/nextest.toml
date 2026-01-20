@@ -21,6 +21,11 @@ status-level = "all"  # Show all test statuses
 # JUnit XML output for CI
 junit = { path = "test-results.xml" }
 
+# Exclude integration tests by default (they require database and run separately)
+# Integration tests should be run explicitly with: cargo nextest run --package lifeguard-integration-tests
+# Use filter expression to exclude the integration test package by default
+filter = 'not package(lifeguard-integration-tests)'
+
 # Test groups for organizing tests
 # Note: test-groups are defined at the workspace level, not in profiles
 # They can be used with --test-group flag
@@ -35,6 +40,8 @@ failure-output = "immediate-final"  # Show output immediately on failure
 success-output = "never"  # Don't show stdout for successful tests
 status-level = "all"  # Show all test statuses
 junit = { path = "test-results.xml" }
+# Exclude integration tests in CI profile as well (run separately if needed)
+filter = 'not package(lifeguard-integration-tests)'
 
 # Development profile with verbose output
 [profile.dev]
