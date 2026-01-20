@@ -5,6 +5,8 @@
 //! are defined here, while execution methods are in the execution module.
 
 use crate::query::traits::{LifeModelTrait, FromRow};
+use crate::query::column::ColumnTrait;
+use crate::query::column::definition::get_static_expr;
 use sea_query::{SelectStatement, Iden, Expr, Order, IntoColumnRef};
 use std::marker::PhantomData;
 
@@ -104,7 +106,37 @@ where
         };
         
         let mut query = SelectStatement::default();
-        query.column(sea_query::Asterisk).from(table_ref);
+        
+        // Check if any column has a select_as expression
+        // If so, we need to build individual column selections instead of using Asterisk
+        let columns = E::all_columns();
+        let has_select_as = columns.iter().any(|col| {
+            // Use ColumnTrait::def() to get column definition
+            ColumnTrait::def(*col).select_as.is_some()
+        });
+        
+        if has_select_as {
+            // Build individual column selections, using select_as expressions when available
+            for col in columns {
+                let col_def = ColumnTrait::def(*col);
+                if let Some(select_expr) = col_def.select_as {
+                    // Use custom SELECT expression
+                    // Convert to static string using the same cache mechanism as default_expr
+                    let static_str = get_static_expr(&select_expr);
+                    let expr = Expr::cust(static_str);
+                    query.expr(expr);
+                } else {
+                    // Use regular column reference (need to convert to column ref)
+                    use sea_query::IntoColumnRef;
+                    query.column((*col).into_column_ref());
+                }
+            }
+        } else {
+            // No select_as expressions, use Asterisk for efficiency
+            query.column(sea_query::Asterisk);
+        }
+        
+        query.from(table_ref);
         Self {
             query,
             _phantom: PhantomData,

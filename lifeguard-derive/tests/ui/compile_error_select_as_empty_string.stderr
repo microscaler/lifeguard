@@ -1,0 +1,11 @@
+error: Empty string not allowed in select_as attribute. select_as must contain a valid SQL expression.
+  --> tests/ui/compile_error_select_as_empty_string.rs:13:19
+   |
+13 |     #[select_as = ""]
+   |                   ^^
+
+error[E0601]: `main` function not found in crate `$CRATE`
+  --> tests/ui/compile_error_select_as_empty_string.rs:15:2
+   |
+15 | }
+   |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_select_as_empty_string.rs`

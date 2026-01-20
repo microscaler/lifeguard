@@ -605,16 +605,16 @@ The **Value Types & Conversions** section provides infrastructure improvements b
 | `schema_name` | 🔴 **CRITICAL** | **PostgreSQL Features** (promised) | ✅ **Complete** - Parsed, used in entity generation, query builders use schema-qualified names |
 | `renamed_from` | 🔴 **CRITICAL** | **Migrations** (promised) | ✅ **Complete** - Parsed, stored in ColumnDefinition for migration workflows |
 | `ignore` / `skip` | 🟠 **HIGH** | **ORM Features** (promised) | ✅ **Complete** - Fields excluded from Column enum and database operations |
-| `select_as` | 🟠 **HIGH** | **Query Builder** (promised) | 🟡 **Metadata Only** - Parsed and stored, trait method exists, not yet integrated into query building |
-| `save_as` | 🟠 **HIGH** | **CRUD Operations** (promised) | 🟡 **Metadata Only** - Parsed and stored, trait method exists, not yet integrated into CRUD operations |
-| `comment` | 🟡 **MEDIUM** | **Developer Experience** (promised) | 🟡 **Metadata Only** - Parsed and stored, not yet used in migrations/schema introspection |
+| `select_as` | 🟠 **HIGH** | **Query Builder** (promised) | ✅ **Complete** - Integrated into SELECT query building, uses custom expressions when specified |
+| `save_as` | 🟠 **HIGH** | **CRUD Operations** (promised) | ✅ **Complete** - Integrated into INSERT and UPDATE operations, uses custom expressions when specified |
+| `comment` | 🟡 **MEDIUM** | **Developer Experience** (promised) | ✅ **Complete** - `comment_sql()` helper method generates COMMENT ON COLUMN SQL for migrations |
 
 **Overall Assessment:**
 - ✅ **Core Migration Attributes Complete** - `default_expr`, `schema_name`, `renamed_from` fully implemented
 - ✅ **Field Exclusion Complete** - `ignore`/`skip` fully functional
-- 🟡 **Query/CRUD Integration Pending** - `select_as`, `save_as` have metadata and trait methods but need query builder integration
-- 🟡 **Documentation Support Pending** - `comment` stored but not yet used in migrations
-- **Impact:** **HIGH** - Core features complete, advanced features need query builder integration
+- ✅ **Query/CRUD Integration Complete** - `select_as` and `save_as` fully integrated into query building and CRUD operations
+- ✅ **Documentation Support Complete** - `comment` integrated with `comment_sql()` helper for migration builders
+- **Impact:** **HIGH** - All attribute features complete and fully functional
 
 ---
 

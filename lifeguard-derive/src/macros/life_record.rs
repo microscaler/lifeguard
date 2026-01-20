@@ -107,7 +107,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
         
         // Extract all column attributes
-        let col_attrs = attributes::parse_column_attributes(field);
+        let col_attrs = match attributes::parse_column_attributes(field) {
+            Ok(attrs) => attrs,
+            Err(err) => return err.to_compile_error().into(),
+        };
         let is_primary_key = col_attrs.is_primary_key;
         let is_auto_increment = col_attrs.is_auto_increment;
         let is_ignored = col_attrs.is_ignored;
@@ -305,10 +308,22 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // NOTE: These checks use record_for_hooks.get() to include modifications made by before_insert() hook
         if is_primary_key && is_auto_increment {
             // Auto-increment PK: include only if set
+            // NOTE: If save_as is used on an auto-increment PK:
+            // - If value is set: save_as expression is used (overrides database auto-increment)
+            // - If value is not set: RETURNING clause is used to get database-generated value
+            // This means save_as on auto-increment PKs will prevent the database from generating
+            // the value when a value is explicitly provided. Users should be aware of this behavior.
             insert_column_checks.push(quote! {
                 if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    values.push(value);
+                    // Check for save_as expression
+                    if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                        use lifeguard::query::column::definition::get_static_expr;
+                        let static_str = get_static_expr(&save_expr);
+                        exprs.push(sea_query::Expr::cust(static_str));
+                    } else {
+                        exprs.push(sea_query::Expr::val(value));
+                    }
                 }
             });
             // Track auto-increment PKs that need RETURNING (if not set)
@@ -317,8 +332,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // Both Option<T> and T fields need to wrap the returned value in Some()
             // NOTE: Check updated_record (not record_for_hooks) since record_for_hooks is moved to updated_record
             // before this code is expanded. The check happens after the move at line 613.
+            // NOTE: If save_as is present and value is set, RETURNING is not needed (expression handles it)
+            // If save_as is present but value is not set, RETURNING is still needed to get the generated value
             returning_extractors.push(quote! {
                 // Check if this auto-increment PK was not set and needs RETURNING
+                // Note: If save_as is used and value is set, the expression is used instead of RETURNING
                 if updated_record.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
                     // Extract returned value for #field_name (database returns T, wrap in Some())
                     let pk_value: #inner_type = row.get(returning_idx);
@@ -331,7 +349,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             insert_column_checks.push(quote! {
                 if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    values.push(value);
+                    // Check for save_as expression
+                    if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                        use lifeguard::query::column::definition::get_static_expr;
+                        let static_str = get_static_expr(&save_expr);
+                        exprs.push(sea_query::Expr::cust(static_str));
+                    } else {
+                        exprs.push(sea_query::Expr::val(value));
+                    }
                 }
             });
         } else {
@@ -339,7 +364,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             insert_column_checks.push(quote! {
                 if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                     columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    values.push(value);
+                    // Check for save_as expression
+                    if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                        use lifeguard::query::column::definition::get_static_expr;
+                        let static_str = get_static_expr(&save_expr);
+                        exprs.push(sea_query::Expr::cust(static_str));
+                    } else {
+                        exprs.push(sea_query::Expr::val(value));
+                    }
                 }
             });
         }
@@ -347,18 +379,45 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Generate UPDATE SET clause (skip primary keys)
         if !is_primary_key {
             // SET clause using self (for backward compatibility, though not used in update() anymore)
-            update_set_clauses.push(quote! {
-                if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
-                }
-            });
+            // Check for save_as expression
+            let has_save_as = col_attrs.save_as.is_some();
+            if has_save_as {
+                update_set_clauses.push(quote! {
+                    if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
+                        use lifeguard::query::column::definition::get_static_expr;
+                        if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                            let static_str = get_static_expr(&save_expr);
+                            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::cust(static_str));
+                        }
+                    }
+                });
+            } else {
+                update_set_clauses.push(quote! {
+                    if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
+                    }
+                });
+            }
             
             // SET clause using record_for_hooks (includes before_update() changes)
-            update_set_clauses_from_hooks.push(quote! {
-                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
-                }
-            });
+            // This is the one actually used in update() method
+            if has_save_as {
+                update_set_clauses_from_hooks.push(quote! {
+                    if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
+                        use lifeguard::query::column::definition::get_static_expr;
+                        if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                            let static_str = get_static_expr(&save_expr);
+                            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::cust(static_str));
+                        }
+                    }
+                });
+            } else {
+                update_set_clauses_from_hooks.push(quote! {
+                    if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
+                    }
+                });
+            }
         }
         
         // Generate DELETE WHERE clause (only for primary keys)
@@ -623,9 +682,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let entity = #entity_name::default();
                 query.into_table(entity);
                 
-                // Collect columns and values (skip auto-increment PKs if not set)
+                // Collect columns and expressions (skip auto-increment PKs if not set)
+                // Use Expr instead of Value to support save_as custom expressions
                 let mut columns = Vec::new();
-                let mut values = Vec::new();
+                let mut exprs = Vec::new();
                 
                 #(#insert_column_checks)*
                 
@@ -633,11 +693,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     return Err(lifeguard::ActiveModelError::Other("No fields set for insert".to_string()));
                 }
                 
-                // Add columns and values to query
+                // Add columns and expressions to query
                 // SeaQuery API: columns() takes items that implement IntoIden (Column implements Iden, which provides IntoIden via blanket impl)
-                // values_panic() takes an iterator of Expr (wrapping Values)
+                // values_panic() takes an iterator of Expr
                 query.columns(columns.iter().copied());
-                let exprs: Vec<sea_query::Expr> = values.iter().map(|v| sea_query::Expr::val(v.clone())).collect();
                 query.values_panic(exprs.iter().cloned());
                 
                 // Check if we need RETURNING clause for auto-increment primary keys
