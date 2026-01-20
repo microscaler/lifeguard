@@ -99,5 +99,12 @@ pub use raw_sql::{
     execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
 };
 
+// Value type system - Epic 02 Story 10 (Phase 4: Value Type Infrastructure)
+pub mod value;
+pub use value::{
+    ValueType, TryGetable, TryGetableMany, ValueExtractionError,
+    IntoValueTuple, FromValueTuple, TryFromU64,
+};
+
 // Re-export transaction types for convenience
 pub use transaction::{Transaction, TransactionError, IsolationLevel};
