@@ -113,6 +113,65 @@ pub fn is_option_f64_type(ty: &Type) -> bool {
     false
 }
 
+/// Convert a Rust Type to its string representation
+///
+/// This function converts a `syn::Type` to a string representation that can be used
+/// for runtime type introspection. It handles:
+/// - Simple types: `i32`, `String`, `bool`, etc.
+/// - Option types: `Option<i32>` → `"Option<i32>"`
+/// - Path types: `serde_json::Value` → `"serde_json::Value"`
+/// - Generic types: `Vec<u8>` → `"Vec<u8>"`
+///
+/// # Arguments
+///
+/// * `ty` - The Rust type to convert
+///
+/// # Returns
+///
+/// A string representation of the type
+pub fn type_to_string(ty: &Type) -> String {
+    match ty {
+        Type::Path(type_path) => {
+            let path = &type_path.path;
+            let segments: Vec<String> = path.segments.iter()
+                .map(|seg| {
+                    let mut result = seg.ident.to_string();
+                    // Handle generic arguments
+                    if let PathArguments::AngleBracketed(args) = &seg.arguments {
+                        if !args.args.is_empty() {
+                            result.push('<');
+                            let generic_args: Vec<String> = args.args.iter()
+                                .filter_map(|arg| {
+                                    if let GenericArgument::Type(inner_ty) = arg {
+                                        Some(type_to_string(inner_ty))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            result.push_str(&generic_args.join(", "));
+                            result.push('>');
+                        }
+                    }
+                    result
+                })
+                .collect();
+            segments.join("::")
+        }
+        Type::Array(_) => "array".to_string(),
+        Type::Slice(_) => "slice".to_string(),
+        Type::Tuple(tuple) => {
+            let elems: Vec<String> = tuple.elems.iter()
+                .map(|elem| type_to_string(elem))
+                .collect();
+            format!("({})", elems.join(", "))
+        }
+        Type::Reference(_) => "reference".to_string(),
+        Type::Ptr(_) => "pointer".to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
 /// Generate code to convert a Rust field value to `sea_query::Value`
 ///
 /// This is used for Model-to-Value conversion (non-Option fields).

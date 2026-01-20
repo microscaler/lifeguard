@@ -89,6 +89,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut model_get_match_arms = Vec::new();
     let mut model_set_match_arms = Vec::new();
     let mut get_by_column_name_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
+    let mut get_value_type_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut primary_key_value_expr: Option<proc_macro2::TokenStream> = None;
     // Track primary key metadata for PrimaryKeyTrait
     let mut primary_key_type: Option<&Type> = None; // Keep for backward compatibility (first key only)
@@ -295,6 +296,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // Note: column_name_lit is already defined above (line 180)
         get_by_column_name_match_arms.push(quote! {
             #column_name_lit => Some(self.get(Column::#column_variant)),
+        });
+
+        // Generate get_value_type match arm
+        let type_string = type_conversion::type_to_string(field_type);
+        let type_string_lit = syn::LitStr::new(&type_string, field_name.span());
+        get_value_type_match_arms.push(quote! {
+            Column::#column_variant => Some(#type_string_lit),
         });
 
         // Generate ModelTrait::set() match arm
@@ -1349,6 +1357,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 match column_name {
                     #(#get_by_column_name_match_arms)*
                     _ => None,
+                }
+            }
+            
+            fn get_value_type(&self, column: Column) -> Option<&'static str> {
+                match column {
+                    #(#get_value_type_match_arms)*
                 }
             }
         }
