@@ -1,244 +1,159 @@
-# Implement ValueType Infrastructure (Phase 4: Value Type Infrastructure)
+# Implement ModelTrait::get_value_type() for Runtime Type Introspection
 
 ## Summary
 
-This PR implements the complete ValueType infrastructure for Lifeguard, providing enhanced type safety and developer experience for value conversions. This completes **Phase 4** of the SEAORM_LIFEGUARD_MAPPING.md implementation plan.
+This PR implements the `get_value_type()` method on `ModelTrait`, enabling runtime type introspection for model columns. This method returns the Rust type string representation for a given column, which is useful for dynamic serialization, type validation, and runtime type checking.
 
 ## Changes
 
 ### Core Implementation
 
-- **Created `ValueType` trait** - Type-safe conversions between Rust types and `sea_query::Value`
-- **Created `TryGetable` trait** - Safe value extraction with error handling
-- **Created `TryGetableMany` trait** - Extract multiple values from collections
-- **Created `IntoValueTuple` and `FromValueTuple` traits** - Composite key conversions
-- **Created `TryFromU64` trait** - Safe conversion from u64 with overflow handling
+- **Added `get_value_type()` method to `ModelTrait`** - Returns `Option<&'static str>` with the Rust type string for a column
+- **Created `type_to_string()` helper function** - Converts `syn::Type` to string representation
+- **Updated `LifeModel` macro** - Generates `get_value_type()` implementations for each column
 
 ### Code Changes
 
-1. **`src/value/mod.rs`** (NEW):
-   - Module organization and public API exports
-   - Comprehensive module documentation
+1. **`src/model.rs`**:
+   - Added `get_value_type()` method to `ModelTrait` trait
+   - Default implementation returns `None` (macro overrides with actual type strings)
+   - Comprehensive documentation with examples
 
-2. **`src/value/types.rs`** (NEW):
-   - `ValueType` trait with `into_value()` and `from_value()` methods
-   - `null_value()` helper method for Option<T> support
-   - Implementations for all supported Rust types:
-     - Integer types: i8, i16, i32, i64, u8, u16, u32, u64
-     - Floating point: f32, f64
-     - Boolean: bool
-     - String: String
-     - Binary: Vec<u8>
-     - JSON: serde_json::Value
-     - Option<T> for all above types
-   - Comprehensive test coverage (5 tests)
+2. **`lifeguard-derive/src/type_conversion.rs`**:
+   - Added `type_to_string()` function to convert `syn::Type` to string
+   - Handles simple types, `Option<T>`, path types (e.g., `serde_json::Value`), and generic types (e.g., `Vec<u8>`)
+   - Recursive handling of nested generics and tuples
 
-3. **`src/value/try_getable.rs`** (NEW):
-   - `ValueExtractionError` enum with detailed error types:
-     - `NullValue` - Value is null
-     - `TypeMismatch` - Value type doesn't match expected type
-     - `ConversionError` - Conversion failed (e.g., overflow)
-   - `TryGetable` trait with `try_get()` and `try_get_opt()` methods
-   - `TryGetableMany` trait with `try_get_many()` and `try_get_many_opt()` methods
-   - Implementations for all supported types
-   - Comprehensive test coverage (7 tests)
+3. **`lifeguard-derive/src/macros/life_model.rs`**:
+   - Added `get_value_type_match_arms` vector to collect match arms
+   - Generates match arm for each column returning its type string
+   - Uses `type_to_string()` to convert field types to strings
+   - Generates `get_value_type()` implementation in ModelTrait impl
 
-4. **`src/value/tuple.rs`** (NEW):
-   - `IntoValueTuple` trait for converting Rust tuples to Value tuples
-   - `FromValueTuple` trait for converting Value tuples back to Rust tuples
-   - Implementations for tuples of size 2-6
-   - Vec<Value> support for tuples with 6+ elements (matching PrimaryKeyArity::Tuple6Plus)
-   - Comprehensive test coverage (6 tests)
+4. **`lifeguard-derive/tests/test_minimal.rs`**:
+   - Added `test_model_trait_get_value_type()` - Tests basic types (i32, String)
+   - Added `test_model_trait_get_value_type_with_options()` - Tests Option<T> types
 
-5. **`src/value/u64.rs`** (NEW):
-   - `TryFromU64` trait for safe conversion from u64
-   - Overflow handling for all integer types (i8, i16, i32, i64, u8, u16, u32, u64)
-   - Detailed error messages for overflow cases
-   - Comprehensive test coverage (7 tests)
-
-6. **`src/lib.rs`**:
-   - Added `value` module export
-   - Re-exported all public traits and types
-
-7. **`lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md`**:
-   - Updated all ValueType-related entries to ✅ Complete
-   - Updated Phase 4 section to mark as complete
-   - Added implementation notes and status
+5. **`lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md`**:
+   - Updated `get_value_type()` status from 🟡 Future to ✅ Complete
+   - Added implementation notes
 
 ## Benefits
 
-1. **Type Safety** - Compile-time guarantees for value conversions
-2. **Better Error Handling** - Distinguishes between null values, type mismatches, and conversion errors
-3. **Composite Key Support** - Full support for composite primary keys with tuple conversions
-4. **Overflow Protection** - Safe conversion from u64 with proper overflow handling
-5. **Developer Experience** - Clear error messages and intuitive API
+1. **Runtime Type Introspection** - Query column types at runtime without compile-time knowledge
+2. **Dynamic Serialization** - Use type information for custom serialization logic
+3. **Type Validation** - Validate values against expected types at runtime
+4. **Developer Experience** - Better debugging and introspection capabilities
+5. **API Completeness** - Completes ModelTrait API as documented in SEAORM_LIFEGUARD_MAPPING.md
 
 ## Example Usage
 
-### ValueType Trait
+### Basic Usage
 
 ```rust
-use lifeguard::ValueType;
-use sea_query::Value;
+use lifeguard::ModelTrait;
 
-// Convert Rust type to Value
-let value: Value = 42i32.into_value();
-assert!(matches!(value, Value::Int(Some(42))));
+let model = UserModel {
+    id: 1,
+    name: "John".to_string(),
+    email: "john@example.com".to_string(),
+};
 
-// Convert Value back to Rust type
-let extracted: Option<i32> = ValueType::from_value(value);
-assert_eq!(extracted, Some(42));
+// Get type for id column
+let id_type = model.get_value_type(User::Column::Id);
+assert_eq!(id_type, Some("i32"));
 
-// Handle Option<T>
-let opt_value: Value = Some(42i32).into_value();
-let extracted: Option<Option<i32>> = ValueType::from_value(opt_value);
-assert_eq!(extracted, Some(Some(42)));
+// Get type for name column
+let name_type = model.get_value_type(User::Column::Name);
+assert_eq!(name_type, Some("String"));
 ```
 
-### TryGetable Trait
+### With Option<T> Fields
 
 ```rust
-use lifeguard::{TryGetable, ValueExtractionError};
-use sea_query::Value;
+use lifeguard::ModelTrait;
 
-// Safe extraction with error handling
-let value = Value::Int(Some(42));
-let result: Result<i32, ValueExtractionError> = TryGetable::try_get(value);
-assert_eq!(result, Ok(42));
+let model = UserWithOptionsModel {
+    id: 1,
+    name: Some("John".to_string()),
+    age: Some(30),
+    active: Some(true),
+};
 
-// Handle null values
-let null_value = Value::Int(None);
-let result: Result<i32, ValueExtractionError> = TryGetable::try_get(null_value);
-assert!(matches!(result, Err(ValueExtractionError::NullValue)));
+// Get type for optional fields
+let name_type = model.get_value_type(UserWithOptions::Column::Name);
+assert_eq!(name_type, Some("Option<String>"));
 
-// Handle type mismatches
-let wrong_type = Value::String(Some("hello".to_string()));
-let result: Result<i32, ValueExtractionError> = TryGetable::try_get(wrong_type);
-assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+let age_type = model.get_value_type(UserWithOptions::Column::Age);
+assert_eq!(age_type, Some("Option<i32>"));
 ```
 
-### TryGetableMany Trait
+### Dynamic Type Checking
 
 ```rust
-use lifeguard::TryGetableMany;
-use sea_query::Value;
+use lifeguard::ModelTrait;
 
-// Extract multiple values
-let values = vec![
-    Value::Int(Some(1)),
-    Value::Int(Some(2)),
-    Value::Int(Some(3)),
-];
-let result: Result<Vec<i32>, _> = TryGetableMany::try_get_many(values);
-assert_eq!(result, Ok(vec![1, 2, 3]));
+fn validate_column_type(model: &impl ModelTrait, column: Column, expected_type: &str) -> bool {
+    model.get_value_type(column)
+        .map(|actual_type| actual_type == expected_type)
+        .unwrap_or(false)
+}
+
+// Usage
+let model = UserModel { /* ... */ };
+assert!(validate_column_type(&model, User::Column::Id, "i32"));
+assert!(!validate_column_type(&model, User::Column::Id, "String"));
 ```
 
-### IntoValueTuple and FromValueTuple
+## Supported Type Representations
 
-```rust
-use lifeguard::{IntoValueTuple, FromValueTuple};
-use sea_query::Value;
+The method returns type strings in standard Rust syntax:
 
-// Convert tuple to Value tuple
-let tuple = (42i32, "hello".to_string());
-let value_tuple: (Value, Value) = tuple.into_value_tuple();
-
-// Convert Value tuple back to Rust tuple
-let value_tuple = (
-    Value::Int(Some(42)),
-    Value::String(Some("hello".to_string())),
-);
-let result: Result<(i32, String), _> = FromValueTuple::from_value_tuple(value_tuple);
-assert_eq!(result, Ok((42, "hello".to_string())));
-```
-
-### TryFromU64
-
-```rust
-use lifeguard::TryFromU64;
-
-// Safe conversion from u64
-let value: u64 = 42;
-let result: Result<i32, _> = TryFromU64::try_from_u64(value);
-assert_eq!(result, Ok(42));
-
-// Overflow protection
-let overflow: u64 = i32::MAX as u64 + 1;
-let result: Result<i32, _> = TryFromU64::try_from_u64(overflow);
-assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
-```
-
-## Features
-
-### Supported Types
-
-All traits are implemented for:
-- **Integer types**: i8, i16, i32, i64, u8, u16, u32, u64
-- **Floating point**: f32, f64
-- **Boolean**: bool
-- **String**: String
-- **Binary**: Vec<u8>
-- **JSON**: serde_json::Value
-- **Option<T>**: For all above types
-
-### Tuple Support
-
-- **Tuples 2-6**: Full support with type-safe conversions
-- **Tuples 6+**: Vec<Value> representation (matching PrimaryKeyArity::Tuple6Plus)
-- **Mixed types**: Supports tuples with different types (e.g., `(i32, String, bool)`)
-
-### Error Handling
-
-The `ValueExtractionError` enum provides detailed error information:
-- **NullValue**: Value is null (None variant)
-- **TypeMismatch**: Value type doesn't match expected type (includes expected and actual types)
-- **ConversionError**: Conversion failed (e.g., overflow, with detailed message)
+- **Simple types**: `"i32"`, `"String"`, `"bool"`, `"f64"`
+- **Option types**: `"Option<i32>"`, `"Option<String>"`
+- **Path types**: `"serde_json::Value"`
+- **Generic types**: `"Vec<u8>"`
+- **Complex types**: Full path representation (e.g., `"std::collections::HashMap<String, i32>"`)
 
 ## Testing
 
-- ✅ **43 tests** passing across all modules
-- ✅ **ValueType tests**: 5 tests (i32, String, Option, bool, f64)
-- ✅ **TryGetable tests**: 7 tests (success, null, type mismatch, optional extraction, many extraction)
-- ✅ **Tuple tests**: 6 tests (2-tuple, 3-tuple, mixed types, error cases)
-- ✅ **TryFromU64 tests**: 7 tests (success cases, overflow cases for all integer types)
-- ✅ **All doctests** passing
-- ✅ **Error messages** verified to be clear and actionable
+- ✅ **2 new tests** added and passing
+- ✅ **Basic type tests**: i32, String types
+- ✅ **Option type tests**: Option<String>, Option<i32>, Option<bool>
+- ✅ **All existing tests** continue to pass
+- ✅ **No breaking changes** - purely additive feature
 
-## Implementation Phases
+## Implementation Details
 
-### Phase 4: Value Type Infrastructure ✅ **COMPLETE**
+### Type String Generation
 
-1. **ValueType trait** ✅
-   - Core trait with `into_value()` and `from_value()` methods
-   - `null_value()` helper for Option<T> support
-   - Implementations for all supported types
+The `type_to_string()` function recursively processes Rust types:
 
-2. **TryGetable trait** ✅
-   - Error-aware extraction with `ValueExtractionError`
-   - Implementations for all supported types
-   - `try_get_opt()` for optional extraction
+1. **Path types** (e.g., `i32`, `String`): Returns the identifier
+2. **Generic types** (e.g., `Option<T>`, `Vec<T>`): Includes angle brackets with inner types
+3. **Path segments** (e.g., `serde_json::Value`): Joins segments with `::`
+4. **Tuples**: Formats as `"(T1, T2, T3)"`
+5. **Other types**: Returns descriptive strings (e.g., `"array"`, `"slice"`)
 
-3. **TryGetableMany trait** ✅
-   - Batch extraction from collections
-   - `try_get_many()` and `try_get_many_opt()` methods
+### Macro Generation
 
-4. **IntoValueTuple and FromValueTuple** ✅
-   - Tuple conversion for composite keys
-   - Support for tuples 2-6 and Vec<Value> for 6+
+The `LifeModel` macro generates a match statement for each column:
 
-5. **TryFromU64** ✅
-   - Safe u64 conversion with overflow handling
-   - Implementations for all integer types
+```rust
+fn get_value_type(&self, column: Column) -> Option<&'static str> {
+    match column {
+        Column::Id => Some("i32"),
+        Column::Name => Some("String"),
+        Column::Email => Some("Option<String>"),
+        // ... etc
+    }
+}
+```
 
 ## Related Issues
 
-Completes Phase 4 of the implementation plan tracked in `SEAORM_LIFEGUARD_MAPPING.md`:
-- `ValueType` trait ✅ **Completed**
-- `TryGetable` trait ✅ **Completed**
-- `TryGetableMany` trait ✅ **Completed**
-- `IntoValueTuple` trait ✅ **Completed**
-- `FromValueTuple` trait ✅ **Completed**
-- `TryFromU64` trait ✅ **Completed**
+Completes the `get_value_type()` feature request tracked in `SEAORM_LIFEGUARD_MAPPING.md`:
+- `ModelTrait::get_value_type()` ✅ **Completed**
 
 ## Breaking Changes
 
@@ -246,11 +161,11 @@ None - This is a purely additive feature. All existing code continues to work un
 
 ## Impact
 
-### Value Types & Conversions (199-205) ✅ **COMPLETE**
+### ModelTrait Enhancement
 
-- **Blocks:** Nothing (composite keys already work)
-- **Enables:** Better developer experience, optimizations
-- **Impact Score:** 🟡 **3/10** (Low - Optimization)
-- **Status:** ✅ All value type traits implemented and tested
+- **Blocks:** Nothing
+- **Enables:** Runtime type introspection, dynamic serialization, type validation
+- **Impact Score:** 🟡 **4/10** (Medium - Developer Experience)
+- **Status:** ✅ Implemented and tested
 
-This implementation provides the foundation for enhanced type safety and developer experience, while maintaining full backward compatibility with existing code.
+This implementation provides runtime type introspection capabilities while maintaining full backward compatibility with existing code.
