@@ -111,6 +111,11 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-19-05: DeriveRelation Macro is_dummy_path Heuristic Incorrectly Flags Valid Self-Referential Relationships](bugs/BUG-2026-01-19-05.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Runtime panic / Incorrect code generation
 
+### 2026-01-20
+
+- [BUG-2026-01-20-01: TryGetable Returns TypeMismatch Instead of ConversionError for Negative Values](bugs/BUG-2026-01-20-01.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** API inconsistency / Incorrect error type
+
 ---
 
 ## Open Bugs

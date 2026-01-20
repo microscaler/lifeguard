@@ -119,6 +119,18 @@ impl TryGetable for u8 {
             Value::SmallInt(Some(v)) if v >= 0 && v <= u8::MAX as i16 => {
                 Ok(v as u8)
             }
+            Value::SmallInt(Some(v)) if v < 0 => {
+                Err(ValueExtractionError::ConversionError(format!(
+                    "Cannot convert negative value {} to u8",
+                    v
+                )))
+            }
+            Value::SmallInt(Some(v)) => {
+                Err(ValueExtractionError::ConversionError(format!(
+                    "Value {} overflows u8::MAX ({})",
+                    v, u8::MAX
+                )))
+            }
             Value::SmallInt(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
                 expected: "TinyUnsigned or SmallInt".to_string(),
@@ -136,6 +148,18 @@ impl TryGetable for u16 {
             Value::Int(Some(v)) if v >= 0 && v <= u16::MAX as i32 => {
                 Ok(v as u16)
             }
+            Value::Int(Some(v)) if v < 0 => {
+                Err(ValueExtractionError::ConversionError(format!(
+                    "Cannot convert negative value {} to u16",
+                    v
+                )))
+            }
+            Value::Int(Some(v)) => {
+                Err(ValueExtractionError::ConversionError(format!(
+                    "Value {} overflows u16::MAX ({})",
+                    v, u16::MAX
+                )))
+            }
             Value::Int(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
                 expected: "SmallUnsigned or Int".to_string(),
@@ -152,6 +176,18 @@ impl TryGetable for u32 {
             Value::Unsigned(None) => Err(ValueExtractionError::NullValue),
             Value::BigInt(Some(v)) if v >= 0 && v <= u32::MAX as i64 => {
                 Ok(v as u32)
+            }
+            Value::BigInt(Some(v)) if v < 0 => {
+                Err(ValueExtractionError::ConversionError(format!(
+                    "Cannot convert negative value {} to u32",
+                    v
+                )))
+            }
+            Value::BigInt(Some(v)) => {
+                Err(ValueExtractionError::ConversionError(format!(
+                    "Value {} overflows u32::MAX ({})",
+                    v, u32::MAX
+                )))
             }
             Value::BigInt(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
@@ -343,7 +379,20 @@ mod tests {
     fn test_try_get_u8_overflow() {
         let value = Value::SmallInt(Some(256i16)); // > u8::MAX
         let result: Result<u8, _> = TryGetable::try_get(value);
-        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+        assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
+    }
+    
+    #[test]
+    fn test_try_get_u8_negative() {
+        let value = Value::SmallInt(Some(-1i16));
+        let result: Result<u8, _> = TryGetable::try_get(value);
+        assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
+        match result {
+            Err(ValueExtractionError::ConversionError(msg)) => {
+                assert!(msg.contains("negative"));
+            }
+            _ => panic!("Expected ConversionError for negative value"),
+        }
     }
     
     #[test]
@@ -364,7 +413,20 @@ mod tests {
     fn test_try_get_u16_overflow() {
         let value = Value::Int(Some(65536i32)); // > u16::MAX
         let result: Result<u16, _> = TryGetable::try_get(value);
-        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+        assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
+    }
+    
+    #[test]
+    fn test_try_get_u16_negative() {
+        let value = Value::Int(Some(-1i32));
+        let result: Result<u16, _> = TryGetable::try_get(value);
+        assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
+        match result {
+            Err(ValueExtractionError::ConversionError(msg)) => {
+                assert!(msg.contains("negative"));
+            }
+            _ => panic!("Expected ConversionError for negative value"),
+        }
     }
     
     #[test]
@@ -385,7 +447,20 @@ mod tests {
     fn test_try_get_u32_overflow() {
         let value = Value::BigInt(Some(4294967296i64)); // > u32::MAX
         let result: Result<u32, _> = TryGetable::try_get(value);
-        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+        assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
+    }
+    
+    #[test]
+    fn test_try_get_u32_negative() {
+        let value = Value::BigInt(Some(-1i64));
+        let result: Result<u32, _> = TryGetable::try_get(value);
+        assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
+        match result {
+            Err(ValueExtractionError::ConversionError(msg)) => {
+                assert!(msg.contains("negative"));
+            }
+            _ => panic!("Expected ConversionError for negative value"),
+        }
     }
     
     #[test]
