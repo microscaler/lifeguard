@@ -137,6 +137,10 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         impl lifeguard::LifeModelTrait for #struct_name {
             type Model = #model_name;
             type Column = #column_name;
+            
+            fn all_columns() -> &'static [Self::Column] {
+                #column_name::all_columns()
+            }
         }
     };
     

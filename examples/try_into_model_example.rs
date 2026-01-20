@@ -54,6 +54,12 @@ impl sea_query::IdenStatic for UserColumn {
     }
 }
 
+impl lifeguard::query::column::column_trait::ColumnDefHelper for UserColumn {
+    fn column_def(self) -> lifeguard::query::column::definition::ColumnDefinition {
+        lifeguard::query::column::definition::ColumnDefinition::default()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UserModel {
     pub id: i32,

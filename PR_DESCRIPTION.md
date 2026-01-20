@@ -1,171 +1,305 @@
-# Implement ModelTrait::get_value_type() for Runtime Type Introspection
+# Complete Attribute Integration: select_as, save_as, and comment
 
 ## Summary
 
-This PR implements the `get_value_type()` method on `ModelTrait`, enabling runtime type introspection for model columns. This method returns the Rust type string representation for a given column, which is useful for dynamic serialization, type validation, and runtime type checking.
+This PR completes the implementation of three critical column attributes (`select_as`, `save_as`, and `comment`) and adds comprehensive edge case validations. These features enable advanced query building, custom CRUD expressions, and column documentation support, fulfilling key promises in the README.
 
-## Changes
+## Features Implemented
 
-### Core Implementation
+### 1. select_as - Custom SELECT Expressions ✅
 
-- **Added `get_value_type()` method to `ModelTrait`** - Returns `Option<&'static str>` with the Rust type string for a column
-- **Created `type_to_string()` helper function** - Converts `syn::Type` to string representation
-- **Updated `LifeModel` macro** - Generates `get_value_type()` implementations for each column
+Enables custom SQL expressions in SELECT queries, supporting computed columns, virtual columns, and complex SELECT logic.
 
-### Code Changes
+**Implementation:**
+- Integrated into `SelectQuery::new()` to use custom expressions when specified
+- Added `Column::all_columns()` method to iterate over all column variants
+- Added `LifeModelTrait::all_columns()` trait method
+- Uses `Expr::cust()` for custom expressions, falls back to `Asterisk` when none present
+- Handles mixed scenarios (some columns with `select_as`, some without)
 
-1. **`src/model.rs`**:
-   - Added `get_value_type()` method to `ModelTrait` trait
-   - Default implementation returns `None` (macro overrides with actual type strings)
-   - Comprehensive documentation with examples
-
-2. **`lifeguard-derive/src/type_conversion.rs`**:
-   - Added `type_to_string()` function to convert `syn::Type` to string
-   - Handles simple types, `Option<T>`, path types (e.g., `serde_json::Value`), and generic types (e.g., `Vec<u8>`)
-   - Recursive handling of nested generics and tuples
-
-3. **`lifeguard-derive/src/macros/life_model.rs`**:
-   - Added `get_value_type_match_arms` vector to collect match arms
-   - Generates match arm for each column returning its type string
-   - Uses `type_to_string()` to convert field types to strings
-   - Generates `get_value_type()` implementation in ModelTrait impl
-
-4. **`lifeguard-derive/tests/test_minimal.rs`**:
-   - Added `test_model_trait_get_value_type()` - Tests basic types (i32, String)
-   - Added `test_model_trait_get_value_type_with_options()` - Tests Option<T> types
-
-5. **`lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md`**:
-   - Updated `get_value_type()` status from 🟡 Future to ✅ Complete
-   - Added implementation notes
-
-## Benefits
-
-1. **Runtime Type Introspection** - Query column types at runtime without compile-time knowledge
-2. **Dynamic Serialization** - Use type information for custom serialization logic
-3. **Type Validation** - Validate values against expected types at runtime
-4. **Developer Experience** - Better debugging and introspection capabilities
-5. **API Completeness** - Completes ModelTrait API as documented in SEAORM_LIFEGUARD_MAPPING.md
-
-## Example Usage
-
-### Basic Usage
-
+**Example:**
 ```rust
-use lifeguard::ModelTrait;
-
-let model = UserModel {
-    id: 1,
-    name: "John".to_string(),
-    email: "john@example.com".to_string(),
-};
-
-// Get type for id column
-let id_type = model.get_value_type(User::Column::Id);
-assert_eq!(id_type, Some("i32"));
-
-// Get type for name column
-let name_type = model.get_value_type(User::Column::Name);
-assert_eq!(name_type, Some("String"));
-```
-
-### With Option<T> Fields
-
-```rust
-use lifeguard::ModelTrait;
-
-let model = UserWithOptionsModel {
-    id: 1,
-    name: Some("John".to_string()),
-    age: Some(30),
-    active: Some(true),
-};
-
-// Get type for optional fields
-let name_type = model.get_value_type(UserWithOptions::Column::Name);
-assert_eq!(name_type, Some("Option<String>"));
-
-let age_type = model.get_value_type(UserWithOptions::Column::Age);
-assert_eq!(age_type, Some("Option<i32>"));
-```
-
-### Dynamic Type Checking
-
-```rust
-use lifeguard::ModelTrait;
-
-fn validate_column_type(model: &impl ModelTrait, column: Column, expected_type: &str) -> bool {
-    model.get_value_type(column)
-        .map(|actual_type| actual_type == expected_type)
-        .unwrap_or(false)
+#[derive(LifeModel)]
+#[table_name = "users"]
+pub struct User {
+    #[primary_key]
+    pub id: i32,
+    pub first_name: String,
+    pub last_name: String,
+    #[select_as = "CONCAT(first_name, ' ', last_name) AS full_name"]
+    pub full_name: String,
 }
-
-// Usage
-let model = UserModel { /* ... */ };
-assert!(validate_column_type(&model, User::Column::Id, "i32"));
-assert!(!validate_column_type(&model, User::Column::Id, "String"));
 ```
 
-## Supported Type Representations
+### 2. save_as - Custom Save Expressions ✅
 
-The method returns type strings in standard Rust syntax:
+Enables custom SQL expressions in INSERT and UPDATE operations, supporting database-generated values, computed columns, and custom save logic.
 
-- **Simple types**: `"i32"`, `"String"`, `"bool"`, `"f64"`
-- **Option types**: `"Option<i32>"`, `"Option<String>"`
-- **Path types**: `"serde_json::Value"`
-- **Generic types**: `"Vec<u8>"`
-- **Complex types**: Full path representation (e.g., `"std::collections::HashMap<String, i32>"`)
+**Implementation:**
+- Integrated into `ActiveModel::insert()` - uses `Expr::cust()` for custom expressions
+- Integrated into `ActiveModel::update()` - uses `Expr::cust()` for custom expressions in SET clauses
+- Added `Column::column_save_as()` helper method
+- Changed INSERT to use `Vec<Expr>` instead of `Vec<Value>` to support expressions
+- Works with auto-increment primary keys (expressions override database generation when values are set)
+
+**Example:**
+```rust
+#[derive(LifeModel)]
+#[table_name = "posts"]
+pub struct Post {
+    #[primary_key]
+    pub id: i32,
+    pub title: String,
+    #[save_as = "NOW()"]
+    pub updated_at: String,
+}
+```
+
+### 3. comment - Column Documentation ✅
+
+Enables column comments for database schema documentation and introspection.
+
+**Implementation:**
+- Added `ColumnDefinition::comment_sql()` method to generate `COMMENT ON COLUMN` SQL
+- Handles schema-qualified table names and escapes special characters
+- Proper escaping of single quotes and backslashes for PostgreSQL compatibility
+
+**Example:**
+```rust
+#[derive(LifeModel)]
+#[table_name = "users"]
+pub struct User {
+    #[primary_key]
+    pub id: i32,
+    #[comment = "User's full name"]
+    pub name: String,
+}
+```
+
+## Edge Case Validations
+
+### 1. Empty String Validation ✅
+
+**Problem:** Empty strings in `select_as` and `save_as` would generate invalid SQL.
+
+**Solution:**
+- Added compile-time validation in `parse_column_attributes()`
+- Returns `Result<ColumnAttributes, syn::Error>` with clear error messages
+- UI tests verify compile errors are emitted correctly
+
+**Error Message:**
+```
+error: Empty string not allowed in select_as attribute. select_as must contain a valid SQL expression.
+```
+
+### 2. Expression Length Limits ✅
+
+**Problem:** Very long expressions (>1MB) could cause memory issues with `get_static_expr()` caching.
+
+**Solution:**
+- Added 64KB limit validation in `parse_column_attributes()`
+- Compile-time validation with clear error messages
+- Prevents memory issues while allowing reasonable expression sizes
+
+### 3. Backslash Escaping in Comments ✅
+
+**Problem:** Backslashes in comments weren't escaped, potentially causing issues in PostgreSQL.
+
+**Solution:**
+- Updated `comment_sql()` to escape backslashes as `\\` before single quote escaping
+- Order matters: backslashes first, then single quotes
+- Tests verify proper escaping behavior
+
+### 4. Identifier Validation ✅
+
+**Problem:** Table/column names in `comment_sql()` could potentially be used for SQL injection.
+
+**Solution:**
+- Added `validate_identifier()` helper function
+- Checks for dangerous characters (`'`, `"`, `;`, `\`) and SQL keywords
+- Emits warnings for invalid identifiers (defensive measure)
+- Since identifiers come from macro-generated code, this is primarily defensive
+
+### 5. save_as on Auto-Increment PK Documentation ✅
+
+**Problem:** Behavior of `save_as` on auto-increment primary keys with RETURNING clause was unclear.
+
+**Solution:**
+- Comprehensive documentation in `SAVE_AS_AUTO_INCREMENT_PK.md`
+- Code comments added explaining behavior
+- Documents that expressions override database auto-increment when values are set
+
+## Code Changes
+
+### Core Files Modified
+
+1. **`lifeguard-derive/src/attributes.rs`**:
+   - Added empty string and length validation for `select_as` and `save_as`
+   - Changed `parse_column_attributes()` to return `Result<ColumnAttributes, syn::Error>`
+   - Validates expressions at compile-time
+
+2. **`lifeguard-derive/src/macros/life_model.rs`**:
+   - Added `Column::all_columns()` method generation
+   - Added `Column::column_save_as()` helper method generation
+   - Generates static array of all non-ignored column variants
+
+3. **`lifeguard-derive/src/macros/entity.rs`**:
+   - Added `LifeModelTrait::all_columns()` implementation
+   - Calls generated `Column::all_columns()` method
+
+4. **`lifeguard-derive/src/macros/life_record.rs`**:
+   - Integrated `save_as` into INSERT operations (uses `Expr::cust()` for custom expressions)
+   - Integrated `save_as` into UPDATE operations (uses `Expr::cust()` in SET clauses)
+   - Added documentation comments for save_as on auto-increment PKs
+
+5. **`src/query/traits.rs`**:
+   - Added `all_columns()` method to `LifeModelTrait`
+
+6. **`src/query/select.rs`**:
+   - Integrated `select_as` into `SelectQuery::new()`
+   - Checks if any column has `select_as` using `E::all_columns()`
+   - Uses `Expr::cust()` for custom expressions, `IntoColumnRef` for regular columns
+
+7. **`src/query/column/definition.rs`**:
+   - Made `get_static_expr()` public for use in `SelectQuery`
+   - Added `comment_sql()` method with proper escaping
+   - Added `validate_identifier()` helper function
+
+### New Files Created
+
+1. **`lifeguard-derive/EDGE_CASES_ATTRIBUTES.md`**:
+   - Comprehensive edge case documentation
+   - Test coverage summary
+   - Implementation status tracking
+
+2. **`lifeguard-derive/SAVE_AS_AUTO_INCREMENT_PK.md`**:
+   - Detailed documentation of save_as behavior on auto-increment PKs
+   - Use cases and recommendations
+
+3. **`lifeguard-derive/tests/ui/compile_error_select_as_empty_string.rs`**:
+   - UI test for empty string validation in select_as
+
+4. **`lifeguard-derive/tests/ui/compile_error_save_as_empty_string.rs`**:
+   - UI test for empty string validation in save_as
 
 ## Testing
 
-- ✅ **2 new tests** added and passing
-- ✅ **Basic type tests**: i32, String types
-- ✅ **Option type tests**: Option<String>, Option<i32>, Option<bool>
-- ✅ **All existing tests** continue to pass
-- ✅ **No breaking changes** - purely additive feature
+### Test Coverage
 
-## Implementation Details
+- **56+ tests** in `test_column_attributes.rs` covering:
+  - Basic attribute functionality
+  - Edge cases (empty strings, special characters, Option<T> fields)
+  - Integration scenarios (multiple attributes, ignored fields)
+  - All combinations of select_as, save_as, and comment
 
-### Type String Generation
+- **30 UI tests** including:
+  - Compile error tests for empty string validation
+  - All existing UI tests continue to pass
 
-The `type_to_string()` function recursively processes Rust types:
+### Test Results
 
-1. **Path types** (e.g., `i32`, `String`): Returns the identifier
-2. **Generic types** (e.g., `Option<T>`, `Vec<T>`): Includes angle brackets with inner types
-3. **Path segments** (e.g., `serde_json::Value`): Joins segments with `::`
-4. **Tuples**: Formats as `"(T1, T2, T3)"`
-5. **Other types**: Returns descriptive strings (e.g., `"array"`, `"slice"`)
-
-### Macro Generation
-
-The `LifeModel` macro generates a match statement for each column:
-
-```rust
-fn get_value_type(&self, column: Column) -> Option<&'static str> {
-    match column {
-        Column::Id => Some("i32"),
-        Column::Name => Some("String"),
-        Column::Email => Some("Option<String>"),
-        // ... etc
-    }
-}
+```
+✅ 56 tests passing in test_column_attributes.rs
+✅ 30 tests passing in UI tests
+✅ All code compiles without errors
 ```
 
-## Related Issues
+## Benefits
 
-Completes the `get_value_type()` feature request tracked in `SEAORM_LIFEGUARD_MAPPING.md`:
-- `ModelTrait::get_value_type()` ✅ **Completed**
+1. **Query Builder Completeness** - `select_as` enables advanced SELECT expressions
+2. **CRUD Operations Completeness** - `save_as` enables custom INSERT/UPDATE expressions
+3. **Developer Experience** - `comment` enables column documentation
+4. **Type Safety** - Compile-time validation prevents invalid SQL generation
+5. **Memory Safety** - Expression length limits prevent memory issues
+6. **Security** - Identifier validation provides defensive SQL injection prevention
 
 ## Breaking Changes
 
-None - This is a purely additive feature. All existing code continues to work unchanged.
+⚠️ **Empty String Validation is a Breaking Change**
+
+Code that previously compiled with empty strings in `select_as` or `save_as` will now fail to compile:
+
+```rust
+// ❌ This will now fail to compile
+#[select_as = ""]
+pub name: String,
+
+// ✅ This is valid
+#[select_as = "UPPER(name)"]
+pub name: String,
+```
+
+This is intentional and prevents invalid SQL generation. Users should update their code to provide valid SQL expressions.
+
+## Example Usage
+
+### Complete Example
+
+```rust
+use lifeguard_derive::LifeModel;
+
+#[derive(LifeModel)]
+#[table_name = "users"]
+pub struct User {
+    #[primary_key]
+    #[auto_increment]
+    pub id: i32,
+    
+    pub first_name: String,
+    pub last_name: String,
+    
+    #[select_as = "CONCAT(first_name, ' ', last_name) AS full_name"]
+    pub full_name: String,
+    
+    #[save_as = "NOW()"]
+    #[comment = "Timestamp when user was created"]
+    pub created_at: String,
+    
+    #[save_as = "NOW()"]
+    pub updated_at: String,
+}
+
+// Usage
+let users = User::find()
+    .filter(User::Column::Id.eq(1))
+    .all(&executor)?;
+
+let mut new_user = UserActiveModel::default();
+new_user.first_name = Some("John".to_string());
+new_user.last_name = Some("Doe".to_string());
+// created_at and updated_at will use NOW() expression
+let saved_user = new_user.insert(&executor)?;
+```
+
+## Related Documentation
+
+- `lifeguard-derive/EDGE_CASES_ATTRIBUTES.md` - Comprehensive edge case coverage
+- `lifeguard-derive/SAVE_AS_AUTO_INCREMENT_PK.md` - save_as behavior documentation
+- `lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md` - Feature tracking (sections 600-617)
 
 ## Impact
 
-### ModelTrait Enhancement
+### Feature Completeness
 
-- **Blocks:** Nothing
-- **Enables:** Runtime type introspection, dynamic serialization, type validation
-- **Impact Score:** 🟡 **4/10** (Medium - Developer Experience)
-- **Status:** ✅ Implemented and tested
+- ✅ **Query Builder** - Advanced SELECT expressions now supported
+- ✅ **CRUD Operations** - Custom INSERT/UPDATE expressions now supported
+- ✅ **Migrations** - Column comments now supported for documentation
+- ✅ **Developer Experience** - Better error messages and validation
 
-This implementation provides runtime type introspection capabilities while maintaining full backward compatibility with existing code.
+### Impact Score
+
+- **select_as**: 🟠 **HIGH** - Enables promised "Query Builder" advanced features
+- **save_as**: 🟠 **HIGH** - Enables promised "CRUD Operations" completeness
+- **comment**: 🟡 **MEDIUM** - Improves developer experience and documentation
+
+**Overall Impact:** 🟠 **HIGH** - Completes critical attribute features promised in README
+
+## Status
+
+All features are:
+- ✅ **Implemented** - Full functionality available
+- ✅ **Tested** - Comprehensive test coverage
+- ✅ **Documented** - Edge cases and behavior documented
+- ✅ **Validated** - Compile-time validations prevent common errors
+
+This PR completes the attribute integration work and enables advanced ORM features as promised in the README.

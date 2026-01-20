@@ -56,6 +56,7 @@ impl sea_query::IdenStatic for UserColumn {
         }
     }
 }
+lifeguard::impl_column_def_helper_for_test!(UserColumn);
 
 // Test partial model with column_name attribute using equals sign syntax
 #[derive(DerivePartialModel)]

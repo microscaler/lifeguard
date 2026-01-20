@@ -863,6 +863,47 @@ fn test_select_as_attribute() {
     assert_eq!(def_id.select_as, None);
 }
 
+#[test]
+fn test_select_as_all_columns_method() {
+    #[derive(LifeModel)]
+    #[table_name = "test_select_as_all_columns"]
+    pub struct TestSelectAsAllColumns {
+        #[primary_key]
+        pub id: i32,
+        pub first_name: String,
+        pub last_name: String,
+        #[select_as = "CONCAT(first_name, ' ', last_name) AS full_name"]
+        pub full_name: String,
+    }
+    
+    // Verify that all_columns() method is generated and returns all columns
+    let columns = <Entity as LifeModelTrait>::Column::all_columns();
+    assert_eq!(columns.len(), 4, "Should have 4 columns: id, first_name, last_name, full_name");
+    
+    // Verify that columns with select_as have the expression stored
+    let mut found_full_name = false;
+    let mut found_id = false;
+    
+    for col in columns {
+        let def = col.column_def();
+        // Check if this is the full_name column (has select_as)
+        if def.select_as == Some("CONCAT(first_name, ' ', last_name) AS full_name".to_string()) {
+            found_full_name = true;
+        }
+        // Check if this is a column without select_as (like id, first_name, or last_name)
+        if def.select_as.is_none() {
+            found_id = true; // At least one column without select_as
+        }
+    }
+    
+    assert!(found_full_name, "Should find full_name column with select_as");
+    assert!(found_id, "Should find at least one column without select_as");
+}
+
+// Note: Full integration tests for select_as in query building should be added
+// to the main lifeguard crate tests (src/query/execution.rs) where we can
+// access the query field to verify SQL generation.
+
 // ============================================================================
 // Save As (save_as)
 // ============================================================================
@@ -887,6 +928,36 @@ fn test_save_as_attribute() {
     let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
     assert_eq!(def_name.save_as, None);
 }
+
+#[test]
+fn test_save_as_column_save_as_method() {
+    #[derive(LifeModel)]
+    #[table_name = "test_save_as_method"]
+    pub struct TestSaveAsMethod {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+        #[save_as = "NOW()"]
+        pub updated_at: String,
+    }
+    
+    // Verify that column_save_as() method works
+    let updated_at_col = <Entity as LifeModelTrait>::Column::UpdatedAt;
+    let save_as_expr = updated_at_col.column_save_as();
+    assert_eq!(save_as_expr, Some("NOW()".to_string()));
+    
+    // Verify that columns without save_as return None
+    let id_col = <Entity as LifeModelTrait>::Column::Id;
+    let id_save_as = id_col.column_save_as();
+    assert_eq!(id_save_as, None);
+    
+    let name_col = <Entity as LifeModelTrait>::Column::Name;
+    let name_save_as = name_col.column_save_as();
+    assert_eq!(name_save_as, None);
+}
+
+// Note: Full integration tests for save_as in INSERT/UPDATE operations should be added
+// to the main lifeguard crate tests where we can verify SQL generation with save_as expressions.
 
 // ============================================================================
 // Comment (comment)
@@ -916,4 +987,422 @@ fn test_comment_attribute() {
     // Verify columns without comment have None
     let def_active = <Entity as LifeModelTrait>::Column::Active.column_def();
     assert_eq!(def_active.comment, None);
+}
+
+#[test]
+fn test_comment_sql_generation() {
+    use lifeguard::ColumnDefinition;
+    
+    // Test comment_sql() method
+    let col_def = ColumnDefinition {
+        comment: Some("User's full name".to_string()),
+        ..Default::default()
+    };
+    
+    let sql = col_def.comment_sql("users", "name");
+    assert_eq!(sql, Some("COMMENT ON COLUMN users.name IS 'User''s full name';".to_string()));
+    
+    // Test with schema-qualified table name
+    let sql_schema = col_def.comment_sql("public.users", "name");
+    assert_eq!(sql_schema, Some("COMMENT ON COLUMN public.users.name IS 'User''s full name';".to_string()));
+    
+    // Test with no comment
+    let col_def_no_comment = ColumnDefinition {
+        comment: None,
+        ..Default::default()
+    };
+    
+    let sql_none = col_def_no_comment.comment_sql("users", "name");
+    assert_eq!(sql_none, None);
+    
+    // Test escaping of single quotes
+    let col_def_quotes = ColumnDefinition {
+        comment: Some("User's email address (don't share)".to_string()),
+        ..Default::default()
+    };
+    
+    let sql_quotes = col_def_quotes.comment_sql("users", "email");
+    assert!(sql_quotes.is_some());
+    let sql_str = sql_quotes.unwrap();
+    // Should have escaped single quotes (doubled)
+    assert!(sql_str.contains("''"), "Should escape single quotes in comment");
+    assert!(!sql_str.contains("'don't'"), "Should not have unescaped single quotes");
+}
+
+#[test]
+fn test_comment_integration_with_life_model() {
+    #[derive(LifeModel)]
+    #[table_name = "test_comment_integration"]
+    pub struct TestCommentIntegration {
+        #[primary_key]
+        pub id: i32,
+        #[comment = "User's full name"]
+        pub name: String,
+        #[comment = "Email address for authentication"]
+        pub email: String,
+        pub active: bool, // No comment
+    }
+    
+    // Verify comments are stored in ColumnDefinition
+    let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def_name.comment, Some("User's full name".to_string()));
+    
+    let def_email = <Entity as LifeModelTrait>::Column::Email.column_def();
+    assert_eq!(def_email.comment, Some("Email address for authentication".to_string()));
+    
+    // Verify comment_sql() generates correct SQL
+    let name_sql = def_name.comment_sql("test_comment_integration", "name");
+    assert_eq!(name_sql, Some("COMMENT ON COLUMN test_comment_integration.name IS 'User''s full name';".to_string()));
+    
+    let email_sql = def_email.comment_sql("test_comment_integration", "email");
+    assert_eq!(email_sql, Some("COMMENT ON COLUMN test_comment_integration.email IS 'Email address for authentication';".to_string()));
+    
+    // Verify column without comment returns None
+    let def_active = <Entity as LifeModelTrait>::Column::Active.column_def();
+    let active_sql = def_active.comment_sql("test_comment_integration", "active");
+    assert_eq!(active_sql, None);
+}
+
+// ============================================================================
+// Edge Cases for select_as, save_as, and comment
+// ============================================================================
+
+#[test]
+fn test_select_as_all_columns_have_select_as() {
+    // Edge case: All columns have select_as expressions
+    #[derive(LifeModel)]
+    #[table_name = "test_all_select_as"]
+    pub struct TestAllSelectAs {
+        #[primary_key]
+        #[select_as = "id"]
+        pub id: i32,
+        #[select_as = "UPPER(name)"]
+        pub name: String,
+        #[select_as = "COALESCE(email, '')"]
+        pub email: String,
+    }
+    
+    // Verify all columns have select_as
+    let columns = <Entity as LifeModelTrait>::Column::all_columns();
+    assert_eq!(columns.len(), 3);
+    
+    for col in columns {
+        let def = col.column_def();
+        assert!(def.select_as.is_some(), "All columns should have select_as");
+    }
+}
+
+// Note: Empty string validation is now tested in UI tests (tests/ui/compile_error_select_as_empty_string.rs)
+// Empty strings in select_as now cause compile errors
+
+#[test]
+fn test_select_as_special_characters() {
+    // Edge case: select_as with special characters and complex SQL
+    #[derive(LifeModel)]
+    #[table_name = "test_special_select_as"]
+    pub struct TestSpecialSelectAs {
+        #[primary_key]
+        pub id: i32,
+        #[select_as = "CONCAT(first_name, ' ', last_name, ' (', email, ')') AS full_info"]
+        pub full_info: String,
+    }
+    
+    let def = <Entity as LifeModelTrait>::Column::FullInfo.column_def();
+    assert!(def.select_as.is_some());
+    let expr = def.select_as.unwrap();
+    assert!(expr.contains("CONCAT"));
+    assert!(expr.contains("' '"));
+}
+
+#[test]
+fn test_save_as_on_primary_key() {
+    // Edge case: save_as on primary key (unusual but should work)
+    #[derive(LifeModel)]
+    #[table_name = "test_save_as_pk"]
+    pub struct TestSaveAsPk {
+        #[primary_key]
+        #[save_as = "gen_random_uuid()"]
+        pub id: String,
+        pub name: String,
+    }
+    
+    let def_id = <Entity as LifeModelTrait>::Column::Id.column_def();
+    assert_eq!(def_id.save_as, Some("gen_random_uuid()".to_string()));
+    
+    let id_col = <Entity as LifeModelTrait>::Column::Id;
+    let save_as = id_col.column_save_as();
+    assert_eq!(save_as, Some("gen_random_uuid()".to_string()));
+}
+
+#[test]
+fn test_save_as_on_option_field() {
+    // Edge case: save_as on Option<T> field
+    #[derive(LifeModel)]
+    #[table_name = "test_save_as_option"]
+    pub struct TestSaveAsOption {
+        #[primary_key]
+        pub id: i32,
+        #[save_as = "NOW()"]
+        pub updated_at: Option<String>,
+    }
+    
+    let def = <Entity as LifeModelTrait>::Column::UpdatedAt.column_def();
+    assert_eq!(def.save_as, Some("NOW()".to_string()));
+    
+    // Even if value is None, save_as should still be used
+    let col = <Entity as LifeModelTrait>::Column::UpdatedAt;
+    let save_as = col.column_save_as();
+    assert_eq!(save_as, Some("NOW()".to_string()));
+}
+
+// Note: Empty string validation is now tested in UI tests (tests/ui/compile_error_save_as_empty_string.rs)
+// Empty strings in save_as now cause compile errors
+
+#[test]
+fn test_save_as_special_characters() {
+    // Edge case: save_as with complex SQL expressions
+    #[derive(LifeModel)]
+    #[table_name = "test_special_save_as"]
+    pub struct TestSpecialSaveAs {
+        #[primary_key]
+        pub id: i32,
+        #[save_as = "COALESCE(updated_at, NOW())"]
+        pub updated_at: String,
+    }
+    
+    let def = <Entity as LifeModelTrait>::Column::UpdatedAt.column_def();
+    assert!(def.save_as.is_some());
+    let expr = def.save_as.unwrap();
+    assert!(expr.contains("COALESCE"));
+}
+
+#[test]
+fn test_comment_empty_string() {
+    // Edge case: Empty string comment
+    #[derive(LifeModel)]
+    #[table_name = "test_empty_comment"]
+    pub struct TestEmptyComment {
+        #[primary_key]
+        pub id: i32,
+        #[comment = ""]
+        pub name: String,
+    }
+    
+    let def = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def.comment, Some("".to_string()));
+    
+    // Empty comment should still generate SQL (though unusual)
+    let sql = def.comment_sql("test_empty_comment", "name");
+    assert_eq!(sql, Some("COMMENT ON COLUMN test_empty_comment.name IS '';".to_string()));
+}
+
+#[test]
+fn test_comment_with_newlines() {
+    // Edge case: Comment with newlines (should be escaped or handled)
+    use lifeguard::ColumnDefinition;
+    
+    let col_def = ColumnDefinition {
+        comment: Some("Line 1\nLine 2\nLine 3".to_string()),
+        ..Default::default()
+    };
+    
+    let sql = col_def.comment_sql("users", "description");
+    assert!(sql.is_some());
+    // Newlines in SQL strings are valid, but might need special handling
+    let sql_str = sql.unwrap();
+    assert!(sql_str.contains("Line 1"));
+    assert!(sql_str.contains("Line 2"));
+}
+
+#[test]
+fn test_comment_with_backslashes() {
+    // Edge case: Comment with backslashes
+    // Backslashes are now escaped as \\ for maximum PostgreSQL compatibility
+    use lifeguard::ColumnDefinition;
+    
+    let col_def = ColumnDefinition {
+        comment: Some("Path: C:\\Users\\Documents".to_string()),
+        ..Default::default()
+    };
+    
+    let sql = col_def.comment_sql("files", "path");
+    assert!(sql.is_some());
+    let sql_str = sql.unwrap();
+    // Backslashes should be escaped (doubled)
+    assert!(sql_str.contains("C:\\\\Users\\\\Documents"), "Backslashes should be escaped");
+    assert!(sql_str.contains("COMMENT ON COLUMN"));
+    // Verify the escaped format is correct
+    assert!(!sql_str.contains("C:\\Users"), "Should not have unescaped backslashes");
+}
+
+#[test]
+fn test_comment_sql_with_special_table_name() {
+    // Edge case: Table/column names with special characters
+    use lifeguard::ColumnDefinition;
+    
+    let col_def = ColumnDefinition {
+        comment: Some("Test comment".to_string()),
+        ..Default::default()
+    };
+    
+    // Schema-qualified table name (dots are allowed for schema.table format)
+    let sql1 = col_def.comment_sql("public.users", "email");
+    assert_eq!(sql1, Some("COMMENT ON COLUMN public.users.email IS 'Test comment';".to_string()));
+    
+    // Table name with underscores (common case)
+    let sql2 = col_def.comment_sql("user_profiles", "first_name");
+    assert_eq!(sql2, Some("COMMENT ON COLUMN user_profiles.first_name IS 'Test comment';".to_string()));
+}
+
+#[test]
+fn test_comment_sql_identifier_validation() {
+    // Edge case: Test identifier validation (warnings for dangerous characters)
+    use lifeguard::ColumnDefinition;
+    
+    let col_def = ColumnDefinition {
+        comment: Some("Test comment".to_string()),
+        ..Default::default()
+    };
+    
+    // Valid identifiers should work
+    let sql_valid = col_def.comment_sql("users", "email");
+    assert!(sql_valid.is_some());
+    
+    // Invalid identifiers should still generate SQL but emit warnings
+    // (We can't easily test stderr in unit tests, but the function should handle it gracefully)
+    let sql_invalid = col_def.comment_sql("users'; DROP TABLE", "email");
+    // Function should still return SQL (defensive - doesn't break existing code)
+    // but would emit a warning in production
+    assert!(sql_invalid.is_some());
+}
+
+#[test]
+fn test_select_as_and_save_as_on_same_column() {
+    // Edge case: Both select_as and save_as on same column (should work independently)
+    #[derive(LifeModel)]
+    #[table_name = "test_both_as"]
+    pub struct TestBothAs {
+        #[primary_key]
+        pub id: i32,
+        #[select_as = "UPPER(name)"]
+        #[save_as = "LOWER(name)"]
+        pub name: String,
+    }
+    
+    let def = <Entity as LifeModelTrait>::Column::Name.column_def();
+    assert_eq!(def.select_as, Some("UPPER(name)".to_string()));
+    assert_eq!(def.save_as, Some("LOWER(name)".to_string()));
+    
+    // Both should work independently
+    let col = <Entity as LifeModelTrait>::Column::Name;
+    let select_expr = col.column_def().select_as;
+    let save_expr = col.column_save_as();
+    assert_eq!(select_expr, Some("UPPER(name)".to_string()));
+    assert_eq!(save_expr, Some("LOWER(name)".to_string()));
+}
+
+#[test]
+fn test_ignored_fields_not_in_all_columns() {
+    // Edge case: Ignored fields should not appear in all_columns()
+    #[derive(LifeModel)]
+    #[table_name = "test_ignored_all_columns"]
+    pub struct TestIgnoredAllColumns {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+        #[skip]
+        pub computed: String, // Should not be in all_columns()
+        #[skip]
+        pub virtual_field: i32, // Should not be in all_columns()
+    }
+    
+    let columns = <Entity as LifeModelTrait>::Column::all_columns();
+    // Should only have id and name, not computed or virtual_field
+    assert_eq!(columns.len(), 2);
+    
+    let column_names: Vec<String> = columns.iter()
+        .map(|c| c.column_def().column_type.clone().unwrap_or_default())
+        .collect();
+    // Verify ignored fields are not present (indirect check via column count)
+}
+
+#[test]
+fn test_multiple_select_as_expressions() {
+    // Edge case: Multiple columns with select_as
+    #[derive(LifeModel)]
+    #[table_name = "test_multiple_select_as"]
+    pub struct TestMultipleSelectAs {
+        #[primary_key]
+        pub id: i32,
+        #[select_as = "first_name"]
+        pub first: String,
+        #[select_as = "last_name"]
+        pub last: String,
+        #[select_as = "CONCAT(first_name, ' ', last_name)"]
+        pub full: String,
+        pub regular: String, // No select_as
+    }
+    
+    let columns = <Entity as LifeModelTrait>::Column::all_columns();
+    assert_eq!(columns.len(), 5);
+    
+    let mut select_as_count = 0;
+    let mut regular_count = 0;
+    
+    for col in columns {
+        let def = col.column_def();
+        if def.select_as.is_some() {
+            select_as_count += 1;
+        } else {
+            regular_count += 1;
+        }
+    }
+    
+    assert_eq!(select_as_count, 3, "Should have 3 columns with select_as");
+    assert_eq!(regular_count, 2, "Should have 2 columns without select_as (id and regular)");
+}
+
+#[test]
+fn test_multiple_save_as_expressions() {
+    // Edge case: Multiple columns with save_as
+    #[derive(LifeModel)]
+    #[table_name = "test_multiple_save_as"]
+    pub struct TestMultipleSaveAs {
+        #[primary_key]
+        pub id: i32,
+        pub name: String,
+        #[save_as = "NOW()"]
+        pub created_at: String,
+        #[save_as = "NOW()"]
+        pub updated_at: String,
+    }
+    
+    let columns = <Entity as LifeModelTrait>::Column::all_columns();
+    let mut save_as_count = 0;
+    
+    for col in columns {
+        if col.column_save_as().is_some() {
+            save_as_count += 1;
+        }
+    }
+    
+    assert_eq!(save_as_count, 2, "Should have 2 columns with save_as");
+}
+
+#[test]
+fn test_comment_very_long() {
+    // Edge case: Very long comment
+    use lifeguard::ColumnDefinition;
+    
+    let long_comment = "A".repeat(1000);
+    let col_def = ColumnDefinition {
+        comment: Some(long_comment.clone()),
+        ..Default::default()
+    };
+    
+    let sql = col_def.comment_sql("users", "description");
+    assert!(sql.is_some());
+    let sql_str = sql.unwrap();
+    assert!(sql_str.len() > 1000, "SQL should contain the long comment");
+    assert!(sql_str.contains("COMMENT ON COLUMN"));
 }

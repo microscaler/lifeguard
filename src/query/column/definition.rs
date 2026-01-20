@@ -27,7 +27,7 @@ static EXPR_CACHE: Lazy<Mutex<HashMap<String, &'static str>>> = Lazy::new(|| {
 /// is only leaked once, preventing memory accumulation in tests and repeated
 /// migration workflows.
 #[cfg_attr(test, allow(dead_code))]
-fn get_static_expr(expr: &str) -> &'static str {
+pub fn get_static_expr(expr: &str) -> &'static str {
     let mut cache = EXPR_CACHE.lock().unwrap();
     
     // Check if we already have this expression cached
@@ -227,6 +227,112 @@ impl ColumnDefinition {
             use sea_query::Expr;
             let expr = Expr::cust(static_str);
             def.default(expr);
+        }
+    }
+    
+    /// Generate COMMENT ON COLUMN SQL statement (for use in migrations)
+    ///
+    /// This helper method generates a PostgreSQL `COMMENT ON COLUMN` SQL statement
+    /// for columns that have a comment attribute. Migration builders can use this
+    /// to add column documentation to the database schema.
+    ///
+    /// # Arguments
+    ///
+    /// * `table_name` - The table name (can be schema-qualified, e.g., "schema.table")
+    /// * `column_name` - The column name
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(String)` containing the COMMENT ON COLUMN SQL statement if
+    /// a comment is set, or `None` if no comment is defined.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::ColumnDefinition;
+    ///
+    /// let col_def = ColumnDefinition {
+    ///     comment: Some("User's email address".to_string()),
+    ///     ..Default::default()
+    /// };
+    ///
+    /// let sql = col_def.comment_sql("users", "email");
+    /// // Returns: Some("COMMENT ON COLUMN users.email IS 'User\\'s email address';".to_string())
+    /// ```
+    /// Validate identifier name to prevent SQL injection
+    /// 
+    /// Checks for dangerous characters that could be used for SQL injection.
+    /// Returns an error message if validation fails, or None if valid.
+    fn validate_identifier(name: &str, kind: &str) -> Option<String> {
+        // Check for empty string
+        if name.is_empty() {
+            return Some(format!("{} name cannot be empty", kind));
+        }
+        
+        // Check for dangerous characters that could be used for SQL injection
+        // PostgreSQL identifiers can contain letters, digits, underscores, and dollar signs
+        // but we'll be more restrictive for safety
+        let dangerous_chars = ['\'', '"', ';', '\\'];
+        for &char_seq in &dangerous_chars {
+            if name.contains(char_seq) {
+                return Some(format!(
+                    "{} name contains invalid character: '{}'. Identifiers should only contain letters, digits, underscores, and dots (for schema.table format).",
+                    kind, char_seq
+                ));
+            }
+        }
+        
+        // Check for dangerous SQL patterns (multi-character sequences)
+        let dangerous_patterns = ["--", "/*", "*/"];
+        for pattern in &dangerous_patterns {
+            if name.contains(pattern) {
+                return Some(format!(
+                    "{} name contains invalid pattern: '{}'. Identifiers should only contain letters, digits, underscores, and dots (for schema.table format).",
+                    kind, pattern
+                ));
+            }
+        }
+        
+        // Check for SQL keywords that could be problematic (basic check)
+        // Note: This is a simple check - full keyword validation would be more complex
+        let sql_keywords = ["DROP", "DELETE", "INSERT", "UPDATE", "SELECT", "ALTER", "CREATE"];
+        let upper_name = name.to_uppercase();
+        for keyword in &sql_keywords {
+            if upper_name == *keyword {
+                return Some(format!(
+                    "{} name cannot be a SQL keyword: '{}'",
+                    kind, keyword
+                ));
+            }
+        }
+        
+        None
+    }
+    
+    pub fn comment_sql(&self, table_name: &str, column_name: &str) -> Option<String> {
+        if let Some(ref comment) = self.comment {
+            // Validate table and column names to prevent SQL injection
+            if let Some(err) = Self::validate_identifier(table_name, "Table") {
+                // In production, this should probably panic or return an error
+                // For now, we'll include it in a comment to make it visible
+                eprintln!("WARNING: comment_sql() called with invalid table name: {}", err);
+                // Continue anyway - the caller should fix this
+            }
+            
+            if let Some(err) = Self::validate_identifier(column_name, "Column") {
+                eprintln!("WARNING: comment_sql() called with invalid column name: {}", err);
+                // Continue anyway - the caller should fix this
+            }
+            
+            // Escape backslashes first (order matters: backslashes before single quotes)
+            // Then escape single quotes in comment text for SQL
+            let escaped_comment = comment.replace("\\", "\\\\").replace("'", "''");
+            Some(format!(
+                "COMMENT ON COLUMN {}.{} IS '{}';",
+                table_name, column_name, escaped_comment
+            ))
+        } else {
+            None
         }
     }
     

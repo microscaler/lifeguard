@@ -234,6 +234,8 @@ mod tests {
         }
     }
     
+    crate::impl_column_def_helper_for_test!(TestColumn);
+    
     impl LifeModelTrait for TestEntity {
         type Model = ();
         type Column = TestColumn;
