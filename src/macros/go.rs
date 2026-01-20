@@ -30,45 +30,13 @@ macro_rules! lifeguard_go {
     };
 }
 
-#[cfg(test)]
-mod tests {
-    use sea_orm::{DbErr, EntityTrait};
-    #[allow(unused_imports)]
-    use crate::pool::config::DatabaseConfig;
-    #[allow(unused_imports)]
-    use crate::tests_cfg::entity::prelude::*;
-    #[allow(unused_imports)]
-    use crate::tests_cfg::entity::{
-        appointments::Entity as Appointments, owners::Entity as Owners, pets::Entity as Pets,
-    };
-    #[allow(unused_imports)]
-    use crate::DbPoolManager;
-    use crate::test_pool;
-
-    #[tokio::test]
-    async fn test_lifeguard_go_macro_with_return_binding() -> Result<(), sea_orm::DbErr> {
-        use sea_orm::{DatabaseBackend, MockDatabase};
-
-        let pool = test_pool!(
-            MockDatabase::new(DatabaseBackend::Postgres)
-                .append_query_results(vec![vec![<Pets::Entity as sea_orm::EntityTrait>::Model {
-                    id: 1,
-                    name: "mocked name".to_string(),
-                    species: "Dog".to_string(),
-                    owner_id: None,
-                }]])
-        );
-
-        lifeguard_go!(pool, pet_name, {
-            let row = Pets::find_by_id(1)
-                .one(&pool)
-                .await?
-                .unwrap();
-            Ok::<_, DbErr>(row.name)
-        });
-
-        assert_eq!(pet_name?, "mocked name".to_string());
-        Ok(())
-    }
-}
+// Legacy test code archived - was using SeaORM entities from tests_cfg
+// This test will be rebuilt in Epic 03 using LifeModel/LifeRecord
+// See .archive/legacy-petstore/ for archived files
+//
+// #[cfg(test)]
+// mod tests {
+//     // Test code using archived SeaORM entities
+//     // Will be rebuilt with Lifeguard entities
+// }
 

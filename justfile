@@ -232,15 +232,15 @@ reset-and-test:
 # Examples & Utilities
 # ============================================================================
 
-# Seed database
-seed-db:
-    @echo "🌱 Seeding database..."
-    @cargo run --example seed_petshop
-
-# Seed database (heavy load)
-seed-db-heavy n:
-    @echo "🌱 Seeding database (heavy load)..."
-    @cargo run --release --example seed_petshop_heavy -- {{n}}
+# Seed database (ARCHIVED - legacy petstore example removed)
+# seed-db:
+#     @echo "🌱 Seeding database..."
+#     @cargo run --example seed_petshop
+#
+# # Seed database (heavy load) (ARCHIVED)
+# seed-db-heavy n:
+#     @echo "🌱 Seeding database (heavy load)..."
+#     @cargo run --release --example seed_petshop_heavy -- {{n}}
 
 # Run metrics server example
 metrics-server:

@@ -92,6 +92,36 @@ pub fn is_registered(version: i64) -> Result<bool, MigrationError> {
     Ok(registry.contains_key(&version))
 }
 
+/// Clear all registered migrations from the registry
+///
+/// This is useful for testing or when you need to reset the registry.
+/// **Warning:** This will remove all registered migrations. Use with caution.
+pub fn clear_registry() -> Result<(), MigrationError> {
+    let mut registry = MIGRATION_REGISTRY.lock()
+        .map_err(|e| MigrationError::InvalidFormat(format!("Failed to lock migration registry: {}", e)))?;
+    
+    registry.clear();
+    Ok(())
+}
+
+/// Remove a specific migration from the registry
+///
+/// This is useful for testing when you need to unregister a migration.
+///
+/// # Arguments
+///
+/// * `version` - The migration version to remove
+///
+/// # Returns
+///
+/// Returns `Ok(true)` if the migration was removed, `Ok(false)` if it wasn't found
+pub fn unregister_migration(version: i64) -> Result<bool, MigrationError> {
+    let mut registry = MIGRATION_REGISTRY.lock()
+        .map_err(|e| MigrationError::InvalidFormat(format!("Failed to lock migration registry: {}", e)))?;
+    
+    Ok(registry.remove(&version).is_some())
+}
+
 /// Execute a migration by version
 ///
 /// This is a helper that gets the migration and executes it.

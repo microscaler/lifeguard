@@ -63,7 +63,7 @@ pub use file::{MigrationFile, discover_migrations};
 pub use status::{MigrationStatus, PendingMigration};
 pub use migrator::Migrator;
 pub use startup::{startup_migrations, startup_migrations_with_timeout};
-pub use registry::{register_migration, get_migration, is_registered, execute_migration, MigrationDirection};
+pub use registry::{register_migration, get_migration, is_registered, execute_migration, MigrationDirection, clear_registry, unregister_migration};
 
 // Re-export for convenience
 pub use crate::LifeError;
