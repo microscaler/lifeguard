@@ -199,7 +199,7 @@ impl<E: LifeModelTrait> super::traits::PartialModelBuilder<E> for SelectQuery<E>
 mod tests {
     use super::*;
     use crate::{LifeEntityName, LifeModelTrait};
-    use sea_query::{IdenStatic, Expr, ExprTrait};
+    use sea_query::{IdenStatic, ExprTrait};
     
     // Test entity shared across all tests
     #[derive(Default)]

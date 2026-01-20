@@ -752,7 +752,7 @@ mod tests {
     use crate::relation::def::{RelationDef, RelationType};
     use crate::relation::identity::Identity;
     use crate::{LifeEntityName, LifeModelTrait};
-    use sea_query::{TableName, IntoIden, ConditionType, IdenStatic, TableRef};
+    use sea_query::{TableName, IntoIden, ConditionType, IdenStatic};
 
     #[test]
     fn test_value_to_sql_string_integers() {
@@ -1021,7 +1021,6 @@ mod tests {
     fn test_load_related_query_building_single_key() {
         // Test that load_related builds correct query with IN clause for single keys
         // This is a compile-time test to verify the function signature and query building logic
-        use sea_query::TableRef;
         
         #[derive(Default, Copy, Clone)]
         struct UserEntity;
@@ -1170,7 +1169,7 @@ mod tests {
     fn test_load_related_duplicate_primary_keys() {
         // Test that load_related handles duplicate primary keys correctly
         // Duplicate PKs should be deduplicated in the query
-        use sea_query::{TableName, IntoIden, TableRef};
+        use sea_query::{TableName, IntoIden};
         
         #[derive(Default, Copy, Clone)]
         struct UserEntity;
@@ -1492,7 +1491,6 @@ mod tests {
         // Test that find_linked() builds correct query with multiple joins
         // This is a compile-time test to verify the function signature
         use crate::relation::traits::FindLinked;
-        use sea_query::TableRef;
         
         #[derive(Default, Copy, Clone)]
         struct UserEntity;

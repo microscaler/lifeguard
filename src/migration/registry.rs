@@ -56,7 +56,7 @@ pub fn get_migration(version: i64) -> Result<Option<Box<dyn Migration + Send + S
     let registry = MIGRATION_REGISTRY.lock()
         .map_err(|e| MigrationError::InvalidFormat(format!("Failed to lock migration registry: {}", e)))?;
     
-    Ok(registry.get(&version).map(|m| {
+    Ok(registry.get(&version).map(|_m| {
         // We can't return a reference to a trait object from a Mutex guard
         // So we need to clone the migration or use a different approach
         // For now, we'll return an error indicating this needs to be implemented differently

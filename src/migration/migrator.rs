@@ -3,7 +3,7 @@
 use crate::LifeExecutor;
 use crate::migration::{
     MigrationError, MigrationRecord, MigrationStatus, MigrationFile,
-    MigrationLock, initialize_state_table, PendingMigration, SchemaManager,
+    initialize_state_table, PendingMigration, SchemaManager,
 };
 use crate::migration::file::discover_migrations;
 use chrono::Utc;
@@ -57,7 +57,7 @@ impl Migrator {
         let applied = Self::query_applied_migrations(executor)?;
         
         // Build set of applied versions for quick lookup
-        let applied_versions: std::collections::HashSet<i64> = applied.iter()
+        let _applied_versions: std::collections::HashSet<i64> = applied.iter()
             .map(|m| m.version)
             .collect();
         
@@ -119,7 +119,7 @@ impl Migrator {
     ///
     /// Returns `Ok(())` if all checksums match, or an error if any mismatch is found.
     pub fn validate_checksums(&self, executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
-        let status = self.status(executor)?;
+        let _status = self.status(executor)?;
         
         // Status already validates checksums, so if we get here, all are valid
         Ok(())
@@ -132,7 +132,7 @@ impl Migrator {
     ///
     /// # Arguments
     ///
-    /// * `executor` - The database executor (must be from a LockGuard)
+    /// * `executor` - The database executor (reference, no ownership needed!)
     /// * `manager` - The SchemaManager for executing migrations
     /// * `steps` - Number of migrations to apply (None = all pending)
     ///
@@ -201,7 +201,7 @@ impl Migrator {
     ///
     /// # Arguments
     ///
-    /// * `executor` - The database executor (will be moved into LockGuard)
+    /// * `executor` - The database executor (reference, no ownership needed!)
     /// * `steps` - Number of migrations to apply (None = all pending)
     ///
     /// # Returns
@@ -276,7 +276,7 @@ impl Migrator {
     ///
     /// # Arguments
     ///
-    /// * `executor` - The database executor (must be from a LockGuard)
+    /// * `executor` - The database executor (reference, no ownership needed!)
     /// * `steps` - Number of migrations to rollback (default: 1)
     ///
     /// # Returns
@@ -303,7 +303,7 @@ impl Migrator {
             .take(steps)
             .collect();
         
-        let rollback_count = migrations_to_rollback.len();
+        let _rollback_count = migrations_to_rollback.len();
         
         // Note: We can't create SchemaManager from a reference
         // This is a known limitation that needs to be addressed

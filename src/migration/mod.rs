@@ -59,8 +59,6 @@ pub use record::MigrationRecord;
 pub use checksum::{calculate_checksum, validate_checksum};
 pub use state_table::{create_state_table, create_state_table_index, initialize_state_table};
 pub use lock::{MigrationLockGuard, acquire_migration_lock, release_migration_lock, is_migration_lock_held};
-// Legacy exports (deprecated)
-pub use lock::{MigrationLock, LockGuard};
 pub use file::{MigrationFile, discover_migrations};
 pub use status::{MigrationStatus, PendingMigration};
 pub use migrator::Migrator;

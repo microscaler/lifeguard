@@ -48,7 +48,7 @@ impl MigrationFile {
             let name = caps.get(2).unwrap().as_str().to_string();
             
             let version = version_str.parse::<i64>()
-                .map_err(|e| MigrationError::InvalidVersion(
+                .map_err(|_e| MigrationError::InvalidVersion(
                     version_str.parse::<i64>().unwrap_or(0)
                 ))?;
             
