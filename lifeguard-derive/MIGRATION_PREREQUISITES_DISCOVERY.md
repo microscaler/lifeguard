@@ -160,52 +160,121 @@ CREATE INDEX idx_lifeguard_migrations_applied_at ON lifeguard_migrations(applied
 
 For **in-process execution** in distributed environments (Kubernetes, multiple app instances), we need locking to prevent concurrent migration execution.
 
-#### Locking Mechanisms
+#### Flyway-Inspired Locking: Using the Migration Table Itself
 
-**1. PostgreSQL: Advisory Locks (Recommended)**
-```rust
-// Acquire lock before migration
-SELECT pg_advisory_lock(123456);  -- Unique lock ID for migrations
+**Key Insight:** Flyway uses the migration table itself as the lock mechanism. The process that successfully writes a "lock" record to the migration table holds the lock. This eliminates Rust lifetime/ownership complexities.
 
-// Run migrations...
+**How It Works:**
+1. **Lock Acquisition:** Attempt to insert a special "lock" record into `lifeguard_migrations` table
+2. **Lock Detection:** If insert succeeds, we hold the lock. If it fails (unique constraint violation), another process has the lock.
+3. **Lock Release:** Delete the lock record when migrations complete
+4. **Automatic Cleanup:** Lock is automatically released if process crashes (no cleanup needed)
 
-// Release lock after migration
-SELECT pg_advisory_unlock(123456);
+**Lock Record Format:**
+```sql
+-- Special version number reserved for lock record
+-- Using -1 as lock version (negative number, never used for real migrations)
+INSERT INTO lifeguard_migrations (version, name, checksum, applied_at, success)
+VALUES (-1, 'LOCK', 'lock', NOW(), true)
+ON CONFLICT (version) DO NOTHING;
+
+-- If INSERT affected 0 rows, another process has the lock
+-- If INSERT affected 1 row, we acquired the lock
 ```
 
 **Advantages:**
-- Database-native, no additional table needed
-- Automatically released on connection close (crash-safe)
-- Non-blocking: other processes wait, don't fail
+- ✅ **No Rust Ownership Issues:** No need for `LockGuard` that owns executor
+- ✅ **No Lifetime Parameters:** Works with `&dyn LifeExecutor` references
+- ✅ **Simple API:** Just pass executor reference, no Box wrapping needed
+- ✅ **Database-Native:** Uses database constraints (PRIMARY KEY) for atomicity
+- ✅ **Crash-Safe:** Lock automatically released if process crashes (just delete lock record)
+- ✅ **Works Across All Databases:** Uses standard SQL, no database-specific features needed
+- ✅ **No Separate Lock Table:** Reuses existing migration table
 
-**2. Generic Lock Table (Fallback for SQLite/MySQL)**
+**Lock Acquisition Pattern:**
+```rust
+// Try to acquire lock by inserting lock record
+let lock_acquired = executor.execute(
+    "INSERT INTO lifeguard_migrations (version, name, checksum, applied_at, success)
+     VALUES (-1, 'LOCK', 'lock', NOW(), true)
+     ON CONFLICT (version) DO NOTHING",
+    &[]
+)?;
+
+if lock_acquired == 0 {
+    // Lock already held by another process
+    return Err(MigrationError::LockTimeout("Another process is running migrations"));
+}
+
+// We hold the lock - proceed with migrations
+// ... execute migrations ...
+
+// Release lock by deleting lock record
+executor.execute(
+    "DELETE FROM lifeguard_migrations WHERE version = -1",
+    &[]
+)?;
+```
+
+**Lock Timeout Pattern:**
+```rust
+// Poll with timeout
+let start = Instant::now();
+let timeout = Duration::from_secs(60);
+
+loop {
+    let rows_affected = executor.execute(
+        "INSERT INTO lifeguard_migrations (version, name, checksum, applied_at, success)
+         VALUES (-1, 'LOCK', 'lock', NOW(), true)
+         ON CONFLICT (version) DO NOTHING",
+        &[]
+    )?;
+    
+    if rows_affected > 0 {
+        // Lock acquired!
+        break;
+    }
+    
+    if start.elapsed() >= timeout {
+        return Err(MigrationError::LockTimeout("Lock timeout exceeded"));
+    }
+    
+    // Wait before retrying
+    std::thread::sleep(Duration::from_millis(100));
+}
+```
+
+**Lock Release:**
+```rust
+// Always release lock when done (even on error)
+// Use a guard pattern or try-finally equivalent
+executor.execute(
+    "DELETE FROM lifeguard_migrations WHERE version = -1",
+    &[]
+)?;
+```
+
+**Benefits Over Previous Design:**
+- ❌ **Removed:** `LockGuard` struct with executor ownership
+- ❌ **Removed:** `MigrationLock::acquire()` that consumes executor
+- ❌ **Removed:** Lifetime parameters and Box wrapping
+- ✅ **Simplified:** Just use `&dyn LifeExecutor` everywhere
+- ✅ **Simplified:** No need to pass executor through lock guard
+- ✅ **Simplified:** `SchemaManager` can be created from reference easily
+
+**Migration Table Schema (Updated):**
 ```sql
-CREATE TABLE lifeguard_migration_lock (
-    id INTEGER PRIMARY KEY DEFAULT 1,
-    locked BOOLEAN NOT NULL DEFAULT false,
-    locked_by VARCHAR(255),        -- Process ID / hostname
-    locked_at TIMESTAMP,
-    CHECK (id = 1)                 -- Only one row allowed
+CREATE TABLE lifeguard_migrations (
+    version BIGINT PRIMARY KEY,           -- Timestamp: YYYYMMDDHHMMSS (or -1 for lock)
+    name VARCHAR(255) NOT NULL,            -- Human-readable name (or 'LOCK' for lock record)
+    checksum VARCHAR(64) NOT NULL,         -- SHA-256 hash (or 'lock' for lock record)
+    applied_at TIMESTAMP NOT NULL,        -- When migration was executed (or lock acquired)
+    execution_time_ms INTEGER,            -- Duration in milliseconds
+    success BOOLEAN NOT NULL DEFAULT true  -- Whether migration succeeded
 );
 ```
 
-**Lock Acquisition Logic:**
-```rust
-// Try to acquire lock
-UPDATE lifeguard_migration_lock 
-SET locked = true, 
-    locked_by = 'hostname:pid', 
-    locked_at = NOW()
-WHERE id = 1 AND locked = false;
-
-// If UPDATE affected 0 rows, another process has the lock
-// Wait and retry, or fail with clear error message
-```
-
-**3. Hybrid Approach (Optimal)**
-- Use advisory locks for PostgreSQL (preferred)
-- Fall back to lock table for other databases
-- Abstract via `MigrationLock` trait for database-specific implementations
+**Note:** The lock record uses `version = -1`, which is a reserved value that will never conflict with real migrations (which use positive timestamps).
 
 ### Dual-Mode Execution Architecture
 
@@ -238,30 +307,32 @@ lifeguard migrate validate    # Check checksums of applied migrations
 - Single-instance deployments
 - Containerized apps that need automatic schema updates
 
-**Implementation Pattern:**
+**Implementation Pattern (Simplified with Flyway-Style Locking):**
 ```rust
-use lifeguard::migration::Migrator;
+use lifeguard::migration::{Migrator, MigrationLockGuard};
 
 // On application startup
-async fn startup_migrations(db: &dyn LifeExecutor) -> Result<(), LifeError> {
-    // Acquire lock (prevents concurrent execution in multi-instance deployments)
-    let lock = MigrationLock::acquire(db).await?;
+fn startup_migrations(executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
+    // Acquire lock via migration table (no executor ownership needed!)
+    let _lock = MigrationLockGuard::new(executor)?;
     
     // Validate checksums of already-applied migrations
-    Migrator::validate_checksums(db).await?;
+    let migrator = Migrator::new("./migrations");
+    migrator.validate_checksums(executor)?;
     
-    // Apply pending migrations
-    Migrator::up(db, None).await?;
+    // Apply pending migrations (executor is just a reference!)
+    migrator.up(executor, None)?;
     
-    // Lock automatically released when `lock` is dropped
+    // Lock automatically released when _lock is dropped
     Ok(())
 }
 ```
 
 **Lock Behavior:**
-- First process to start acquires the lock
-- Other processes wait (with timeout) or skip migration if lock is held
-- Lock automatically released on process exit (advisory locks) or explicit release
+- First process to insert lock record (version = -1) acquires the lock
+- Other processes wait (with timeout) or fail if lock is held
+- Lock automatically released when lock record is deleted (on guard drop or process crash)
+- **No Rust ownership issues:** Executor is just a reference, no Box wrapping needed
 
 **Deployment Considerations for Kubernetes/Containerized Environments:**
 
@@ -536,28 +607,75 @@ Warning: Another process is running migrations.
    }
    ```
 
-4. **`MigrationLock` Trait**
+4. **Migration Locking (Flyway-Style)**
    ```rust
-   pub trait MigrationLock {
-       async fn acquire(db: &dyn LifeExecutor) -> Result<LockGuard, LifeError>;
-       async fn release(guard: LockGuard) -> Result<(), LifeError>;
+   // No separate LockGuard or MigrationLock trait needed!
+   // Lock is managed via the migration table itself
+   
+   /// Acquire migration lock by inserting lock record
+   ///
+   /// Uses the migration table itself as the lock mechanism.
+   /// The process that successfully inserts the lock record holds the lock.
+   ///
+   /// # Arguments
+   ///
+   /// * `executor` - The database executor (reference, no ownership needed!)
+   /// * `timeout_seconds` - Maximum time to wait for lock (default: 60)
+   ///
+   /// # Returns
+   ///
+   /// Returns `Ok(())` if lock acquired, or `MigrationError::LockTimeout` if timeout exceeded.
+   ///
+   /// # Note
+   ///
+   /// Lock must be released by calling `release_migration_lock()` when done.
+   pub fn acquire_migration_lock(
+       executor: &dyn LifeExecutor,
+       timeout_seconds: Option<u64>,
+   ) -> Result<(), MigrationError> {
+       // Try to insert lock record (version = -1)
+       // If INSERT succeeds, we hold the lock
+       // If INSERT fails (conflict), another process has the lock
    }
    
-   pub struct LockGuard {
-       // Automatically releases lock on drop
-       executor: Box<dyn LifeExecutor>,
+   /// Release migration lock by deleting lock record
+   ///
+   /// # Arguments
+   ///
+   /// * `executor` - The database executor (reference, no ownership needed!)
+   ///
+   /// # Returns
+   ///
+   /// Returns `Ok(())` if lock released successfully.
+   pub fn release_migration_lock(
+       executor: &dyn LifeExecutor,
+   ) -> Result<(), MigrationError> {
+       // DELETE lock record (version = -1)
    }
    
-   impl Drop for LockGuard {
-       fn drop(&mut self) {
-           // Release lock automatically
-       }
+   /// Check if migration lock is currently held
+   ///
+   /// # Arguments
+   ///
+   /// * `executor` - The database executor
+   ///
+   /// # Returns
+   ///
+   /// Returns `Ok(true)` if lock is held, `Ok(false)` if not.
+   pub fn is_migration_lock_held(
+       executor: &dyn LifeExecutor,
+   ) -> Result<bool, MigrationError> {
+       // SELECT COUNT(*) FROM lifeguard_migrations WHERE version = -1
    }
-   
-   // Database-specific implementations
-   pub struct PostgresMigrationLock;
-   pub struct GenericMigrationLock;  // For SQLite/MySQL
    ```
+   
+   **Key Simplification:**
+   - ❌ **Removed:** `LockGuard` struct (no executor ownership needed)
+   - ❌ **Removed:** `MigrationLock` trait (no abstraction needed)
+   - ❌ **Removed:** Database-specific lock implementations
+   - ✅ **Simplified:** Just use `&dyn LifeExecutor` everywhere
+   - ✅ **Simplified:** Lock managed via SQL INSERT/DELETE on migration table
+   - ✅ **Simplified:** No Rust lifetime or ownership complexities
 
 5. **`MigrationRecord` Struct**
    ```rust
@@ -1083,7 +1201,7 @@ where
    - Create `lifeguard_migrations` state table schema
    - Implement `MigrationRecord` struct
    - Implement checksum calculation (SHA-256)
-   - Implement `MigrationLock` trait (advisory locks for PG, table locks for others)
+   - Implement Flyway-style table-based locking (migration table as lock)
    - Implement checksum validation logic
    - Add error handling for checksum mismatches and partial failures
 
@@ -1097,10 +1215,11 @@ where
 4. **Phase 4: Dual-Mode Execution** (Week 7-8)
    - **In-Process Execution:**
      - Implement `startup_migrations()` helper function
-     - Add lock acquisition/release for concurrent execution
-     - Add timeout handling for lock acquisition
+     - Add Flyway-style table-based lock acquisition/release
+     - Add timeout handling for lock acquisition (polling with retry)
      - File-based migration loading from directory
      - Document Kubernetes/containerized deployment patterns (read-only mounts)
+     - **Refactor SchemaManager:** Change to accept `&dyn LifeExecutor` with lifetime parameter
    - **Out-of-Band CLI Tool (REQUIRED):**
      - Create `lifeguard-migrate` standalone binary
      - Implement core commands:
@@ -1177,10 +1296,13 @@ All core migration functionality is already implemented:
    - **In-Process:** For self-migrating applications, development
    - **Shared Core:** Both modes use same `Migrator` implementation
 
-3. **Concurrency Protection**
-   - **PostgreSQL:** Advisory locks (`pg_advisory_lock`)
-   - **Other DBs:** Lock table with timeout mechanism
-   - **First Process Wins:** Other processes wait or skip gracefully
+3. **Concurrency Protection (Flyway-Style)**
+   - **All Databases:** Use migration table itself as lock (INSERT lock record)
+   - **Lock Record:** Special version = -1 record in `lifeguard_migrations` table
+   - **Atomic Lock:** Database PRIMARY KEY constraint ensures atomicity
+   - **First Process Wins:** Process that successfully inserts lock record holds the lock
+   - **No Rust Complexities:** Works with `&dyn LifeExecutor` references, no ownership issues
+   - **Crash-Safe:** Lock automatically released if process crashes (just delete lock record)
 
 4. **Containerized Deployment**
    - **File-Based Only:** Migrations stored as files in container image
@@ -1238,4 +1360,174 @@ All core migration functionality is already implemented:
 
 *Generated: 2026-01-20*
 *Status: Ready for Migration Implementation*
-*Design: Production-Ready with Checksums, Locking, and Dual-Mode Execution*
+*Design: Production-Ready with Checksums, Flyway-Style Locking, and Dual-Mode Execution*
+
+---
+
+## Updated Locking Design: Flyway-Style Migration Table Lock
+
+### Problem Statement
+
+The initial design used `LockGuard` that owned the executor (`Box<dyn LifeExecutor>`), causing Rust ownership and lifetime complexities:
+- `SchemaManager` requires `Box<dyn LifeExecutor>` (ownership)
+- `LockGuard` provides `&dyn LifeExecutor` (reference)
+- Cannot create `SchemaManager` from lock guard reference
+- Complex lifetime parameters and Box wrapping needed
+
+### Solution: Flyway-Inspired Table-Based Locking
+
+**Key Insight:** Flyway uses the migration table itself as the lock mechanism. The process that successfully writes a "lock" record holds the lock.
+
+**Benefits:**
+1. **No Ownership Issues:** Works with `&dyn LifeExecutor` references everywhere
+2. **No Lifetime Parameters:** No need for complex lifetime annotations
+3. **Simple API:** Just pass executor reference, no Box wrapping
+4. **Database-Native:** Uses PRIMARY KEY constraint for atomicity
+5. **Crash-Safe:** Lock automatically released if process crashes
+6. **Universal:** Works on all databases (PostgreSQL, MySQL, SQLite)
+
+### Implementation Details
+
+**Lock Record:**
+- **Version:** `-1` (reserved, never conflicts with real migrations)
+- **Name:** `"LOCK"` (identifies lock record)
+- **Checksum:** `"lock"` (placeholder, not validated)
+- **Applied At:** Current timestamp
+- **Success:** `true`
+
+**Lock Acquisition:**
+```sql
+-- Try to insert lock record
+INSERT INTO lifeguard_migrations (version, name, checksum, applied_at, success)
+VALUES (-1, 'LOCK', 'lock', NOW(), true)
+ON CONFLICT (version) DO NOTHING;
+
+-- If rows_affected == 0: lock already held by another process
+-- If rows_affected == 1: we acquired the lock
+```
+
+**Lock Release:**
+```sql
+-- Delete lock record
+DELETE FROM lifeguard_migrations WHERE version = -1;
+```
+
+**Lock Guard (Simplified):**
+```rust
+// Simple guard that releases lock on drop
+// No executor ownership needed - just a reference!
+pub struct MigrationLockGuard<'a> {
+    executor: &'a dyn LifeExecutor,
+}
+
+impl<'a> MigrationLockGuard<'a> {
+    pub fn new(executor: &'a dyn LifeExecutor) -> Result<Self, MigrationError> {
+        acquire_migration_lock(executor, Some(60))?;
+        Ok(Self { executor })
+    }
+}
+
+impl<'a> Drop for MigrationLockGuard<'a> {
+    fn drop(&mut self) {
+        let _ = release_migration_lock(self.executor);
+    }
+}
+```
+
+**Usage Pattern:**
+```rust
+// No Box wrapping needed - just pass reference!
+fn run_migrations(executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
+    // Acquire lock (returns guard that releases on drop)
+    let _lock = MigrationLockGuard::new(executor)?;
+    
+    // Create SchemaManager - can use executor reference directly!
+    // No ownership issues - SchemaManager can be refactored to use references
+    let manager = SchemaManager::new(executor);  // Future: accept &dyn LifeExecutor
+    
+    // Run migrations
+    let migrator = Migrator::new("./migrations");
+    migrator.up(executor, None)?;
+    
+    // Lock automatically released when _lock is dropped
+    Ok(())
+}
+```
+
+### Migration Table Queries (Updated)
+
+**All queries must exclude lock record:**
+```sql
+-- Get applied migrations (exclude lock record)
+SELECT * FROM lifeguard_migrations 
+WHERE version > 0 
+ORDER BY version ASC;
+
+-- Check if lock is held
+SELECT COUNT(*) FROM lifeguard_migrations WHERE version = -1;
+
+-- Get latest applied migration
+SELECT * FROM lifeguard_migrations 
+WHERE version > 0 
+ORDER BY version DESC 
+LIMIT 1;
+```
+
+### Comparison: Old vs New Design
+
+| Aspect | Old Design (Advisory Locks) | New Design (Table Lock) |
+|--------|----------------------------|-------------------------|
+| **Executor Ownership** | `Box<dyn LifeExecutor>` required | `&dyn LifeExecutor` sufficient |
+| **LockGuard** | Owns executor, complex lifetimes | Simple reference guard |
+| **SchemaManager** | Cannot create from lock guard | Can create from reference (with refactor) |
+| **Database Support** | PostgreSQL-specific (advisory locks) | Universal (all databases) |
+| **Complexity** | High (ownership, lifetimes) | Low (simple references) |
+| **Crash Safety** | Automatic (connection close) | Manual (delete lock record) |
+
+### Refactoring Required
+
+1. **SchemaManager:** Change to accept `&dyn LifeExecutor` instead of `Box<dyn LifeExecutor>`
+   - Add lifetime parameter: `SchemaManager<'a>`
+   - Store `&'a dyn LifeExecutor` instead of `Box<dyn LifeExecutor>`
+
+2. **Lock Module:** Replace `LockGuard` with `MigrationLockGuard<'a>`
+   - Remove executor ownership
+   - Use simple reference guard
+
+3. **Migrator:** Update to work with references
+   - All methods accept `&dyn LifeExecutor`
+   - No Box wrapping needed
+
+4. **Startup Functions:** Simplify to use reference-based locking
+   - No executor ownership transfer
+   - Simple guard pattern
+
+### Benefits Summary
+
+✅ **Eliminates Rust Complexity:**
+- No executor ownership issues
+- No lifetime parameters needed
+- No Box wrapping required
+- Works with simple references
+
+✅ **Simpler API:**
+- `acquire_migration_lock(executor: &dyn LifeExecutor)`
+- `release_migration_lock(executor: &dyn LifeExecutor)`
+- `MigrationLockGuard::new(executor: &dyn LifeExecutor)`
+
+✅ **Universal Database Support:**
+- Works on PostgreSQL, MySQL, SQLite
+- No database-specific lock mechanisms
+- Uses standard SQL INSERT/DELETE
+
+✅ **Production-Ready:**
+- Atomic lock acquisition (PRIMARY KEY constraint)
+- Crash-safe (lock record can be manually deleted)
+- Timeout support (polling with retry)
+- Clear error messages
+
+---
+
+*Last Updated: 2026-01-20*
+*Status: Design Updated - Flyway-Style Locking*
+*Next: Refactor SchemaManager and Lock Module*

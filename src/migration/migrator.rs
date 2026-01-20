@@ -3,7 +3,7 @@
 use crate::LifeExecutor;
 use crate::migration::{
     MigrationError, MigrationRecord, MigrationStatus, MigrationFile,
-    MigrationLock, initialize_state_table, PendingMigration,
+    MigrationLock, initialize_state_table, PendingMigration, SchemaManager,
 };
 use crate::migration::file::discover_migrations;
 use chrono::Utc;
@@ -133,6 +133,7 @@ impl Migrator {
     /// # Arguments
     ///
     /// * `executor` - The database executor (must be from a LockGuard)
+    /// * `manager` - The SchemaManager for executing migrations
     /// * `steps` - Number of migrations to apply (None = all pending)
     ///
     /// # Returns
@@ -141,6 +142,7 @@ impl Migrator {
     pub fn up_with_lock(
         &self,
         executor: &dyn LifeExecutor,
+        manager: &SchemaManager,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
         // Get status (validates checksums)
@@ -162,21 +164,17 @@ impl Migrator {
         for pending_migration in pending {
             let start = Instant::now();
             
-            // TODO: Execute migration
-            // The actual migration execution requires loading and instantiating the Migration trait
-            // implementation from the Rust file. This is complex and may require:
-            // 1. Compiling migrations as a separate crate and loading dynamically
-            // 2. Using a plugin system
-            // 3. Having migrations call a registration function at compile time
-            // 
-            // For now, the structure is in place. The execution logic will be implemented
-            // based on the chosen approach (likely requiring CLI tool integration or
-            // a build-time migration registration system).
-            //
-            // Example of what execution would look like:
-            // let migration = load_migration(&pending_migration.path)?;
-            // let manager = SchemaManager::new(Box::new(_lock.executor()));
-            // migration.up(&manager)?;
+            // Execute migration using the registry
+            // Note: The migration must be registered before execution
+            // This is typically done at application startup or via a build script
+            use crate::migration::registry::execute_migration;
+            use crate::migration::registry::MigrationDirection;
+            
+            execute_migration(
+                pending_migration.version,
+                manager,
+                MigrationDirection::Up,
+            )?;
             
             // Record migration in state table
             let execution_time = start.elapsed().as_millis() as i64;
@@ -218,8 +216,34 @@ impl Migrator {
         let _lock = MigrationLock::acquire(executor, Some(60))
             .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
         
-        // Apply migrations with lock held
-        self.up_with_lock(_lock.executor(), steps)
+        // Get status (validates checksums)
+        let status = self.status(_lock.executor())?;
+        
+        if status.pending.is_empty() {
+            return Ok(0);
+        }
+        
+        // Determine how many migrations to apply
+        let migrations_to_apply = steps.unwrap_or(status.pending.len());
+        let pending = status.pending.iter()
+            .take(migrations_to_apply)
+            .collect::<Vec<_>>();
+        
+        // Execute each migration
+        // Note: We can't create SchemaManager from a reference, so we need a workaround
+        // The lock guard holds the executor, but SchemaManager needs ownership
+        // TODO: Refactor SchemaManager to work with references (add lifetime parameter)
+        // For now, this is a known limitation - migrations can't be executed with the current design
+        // when using lock guards. The infrastructure is in place, but the integration needs work.
+        //
+        // Workaround: We could change LockGuard to provide a way to get the executor as Box,
+        // but then we can't release the lock properly. The real solution is to refactor SchemaManager.
+        return Err(MigrationError::InvalidFormat(
+            "Migration execution with lock guard requires SchemaManager refactoring. \
+             SchemaManager needs executor ownership, but lock guard only provides a reference. \
+             This is a known limitation that needs to be addressed."
+                .to_string()
+        ));
     }
     
     /// Rollback migrations (with lock already acquired)
@@ -258,14 +282,14 @@ impl Migrator {
         
         let rollback_count = migrations_to_rollback.len();
         
-        // Execute down() for each migration
-        // TODO: Implement actual migration execution
-        // For now, just remove from state table
-        for record in migrations_to_rollback {
-            Self::remove_migration_record(executor, record.version)?;
-        }
-        
-        Ok(rollback_count)
+        // Note: We can't create SchemaManager from a reference
+        // This is a known limitation that needs to be addressed
+        return Err(MigrationError::InvalidFormat(
+            "Migration rollback with lock guard requires SchemaManager refactoring. \
+             SchemaManager needs executor ownership, but lock guard only provides a reference. \
+             This is a known limitation that needs to be addressed."
+                .to_string()
+        ));
     }
     
     /// Rollback migrations
@@ -289,8 +313,32 @@ impl Migrator {
         let _lock = MigrationLock::acquire(executor, Some(60))
             .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
         
-        // Rollback migrations with lock held
-        self.down_with_lock(_lock.executor(), steps)
+        // Get status
+        let status = self.status(_lock.executor())?;
+        
+        if status.applied.is_empty() {
+            return Ok(0);
+        }
+        
+        // Get migrations to rollback (in reverse order - newest first)
+        let steps = steps.unwrap_or(1);
+        let mut applied = status.applied;
+        applied.sort_by_key(|m| std::cmp::Reverse(m.version));
+        
+        let migrations_to_rollback: Vec<_> = applied.iter()
+            .take(steps)
+            .collect();
+        
+        let rollback_count = migrations_to_rollback.len();
+        
+        // Note: We can't create SchemaManager from a reference
+        // This is a known limitation that needs to be addressed
+        return Err(MigrationError::InvalidFormat(
+            "Migration rollback with lock guard requires SchemaManager refactoring. \
+             SchemaManager needs executor ownership, but lock guard only provides a reference. \
+             This is a known limitation that needs to be addressed."
+                .to_string()
+        ));
     }
     
     /// Query applied migrations from the state table
