@@ -119,6 +119,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-20-02: ValueType Inconsistent Value Variants for u8, u16, u32 Between into_value() and null_value()](bugs/BUG-2026-01-20-02.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** API inconsistency / Incorrect null handling
 
+- [BUG-2026-01-20-03: type_to_string() Potential Empty Angle Brackets for Types with Only Non-Type Generics](bugs/BUG-2026-01-20-03.md)  
+  **Status:** ✅ FIXED | **Priority:** Medium | **Severity:** Code correctness / Invalid output
+
 ---
 
 ## Open Bugs
