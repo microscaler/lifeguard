@@ -1,13 +1,13 @@
 error[E0601]: `main` function not found in crate `$CRATE`
-   --> tests/ui/compile_error_try_into_model_custom_error_convert.rs:145:2
+   --> tests/ui/compile_error_try_into_model_custom_error_convert.rs:146:2
     |
-145 | }
+146 | }
     |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_try_into_model_custom_error_convert.rs`
 
 error[E0277]: the trait bound `CustomError: From<ParseIntError>` is not satisfied
-   --> tests/ui/compile_error_try_into_model_custom_error_convert.rs:140:10
+   --> tests/ui/compile_error_try_into_model_custom_error_convert.rs:141:10
     |
-140 | #[derive(DeriveTryIntoModel)]
+141 | #[derive(DeriveTryIntoModel)]
     |          ^^^^^^^^^^^^^^^^^^ the trait `From<ParseIntError>` is not implemented for `CustomError`
     |
     = note: required for `ParseIntError` to implement `Into<CustomError>`

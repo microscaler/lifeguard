@@ -1,11 +1,11 @@
 error: expected string literal
-   --> tests/ui/compile_error_try_into_model_malformed_map_from.rs:120:28
+   --> tests/ui/compile_error_try_into_model_malformed_map_from.rs:121:28
     |
-120 |     #[lifeguard(map_from = 456)]
+121 |     #[lifeguard(map_from = 456)]
     |                            ^^^
 
 error[E0601]: `main` function not found in crate `$CRATE`
-   --> tests/ui/compile_error_try_into_model_malformed_map_from.rs:122:2
+   --> tests/ui/compile_error_try_into_model_malformed_map_from.rs:123:2
     |
-122 | }
+123 | }
     |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_try_into_model_malformed_map_from.rs`

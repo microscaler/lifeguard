@@ -97,6 +97,8 @@ impl sea_query::IdenStatic for UserColumn {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(UserColumn);
+
 #[derive(Copy, Clone, Debug)]
 pub enum PostColumn {
     Id,
@@ -121,6 +123,8 @@ impl sea_query::IdenStatic for PostColumn {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(PostColumn);
+
 #[derive(Copy, Clone, Debug)]
 pub enum CommentColumn {
     Id,
@@ -144,6 +148,8 @@ impl sea_query::IdenStatic for CommentColumn {
         }
     }
 }
+
+lifeguard::impl_column_def_helper_for_test!(CommentColumn);
 
 // Test Entity (assumed to be PostEntity for this test)
 #[derive(Default, Copy, Clone)]
@@ -234,6 +240,8 @@ impl sea_query::IdenStatic for TagColumn {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(TagColumn);
+
 #[derive(Copy, Clone, Debug)]
 pub enum PostTagColumn {
     PostId,
@@ -257,6 +265,8 @@ impl sea_query::IdenStatic for PostTagColumn {
         }
     }
 }
+
+lifeguard::impl_column_def_helper_for_test!(PostTagColumn);
 
 // Test Relation enum with DeriveRelation
 #[derive(DeriveRelation)]
@@ -503,6 +513,8 @@ impl sea_query::IdenStatic for TenantColumn {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(TenantColumn);
+
 pub struct TenantModel;
 
 // Edge case tests for composite keys
@@ -604,6 +616,8 @@ impl sea_query::IdenStatic for AuthorColumn {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(AuthorColumn);
+
 #[derive(Debug, Clone)]
 pub struct AuthorModel;
 
@@ -658,6 +672,8 @@ mod belongs_to_default_test {
             }
         }
     }
+    
+    lifeguard::impl_column_def_helper_for_test!(ArticleColumn);
     
     pub struct ArticleModel;
     
@@ -884,6 +900,8 @@ mod self_referential_test {
         }
     }
     
+    lifeguard::impl_column_def_helper_for_test!(CategoryColumn);
+    
     #[derive(Debug, Clone)]
     pub struct CategoryModel;
     
@@ -970,6 +988,8 @@ mod duplicate_same_config_test {
         fn as_str(&self) -> &'static str { "id" }
     }
     
+    lifeguard::impl_column_def_helper_for_test!(Column);
+    
     #[derive(Default, Copy, Clone)]
     pub struct PostEntity;
     
@@ -1012,6 +1032,8 @@ mod duplicate_same_config_test {
             }
         }
     }
+    
+    lifeguard::impl_column_def_helper_for_test!(PostColumn);
     
     // Two variants targeting the same entity with SAME column config
     // Both should work and have def() match arms
@@ -1077,6 +1099,8 @@ mod mixed_annotated_unannotated_test {
         fn as_str(&self) -> &'static str { "id" }
     }
     
+    lifeguard::impl_column_def_helper_for_test!(Column);
+    
     #[derive(Default, Copy, Clone)]
     pub struct PostEntity;
     
@@ -1119,6 +1143,8 @@ mod mixed_annotated_unannotated_test {
             }
         }
     }
+    
+    lifeguard::impl_column_def_helper_for_test!(PostColumn);
     
     // Mixed annotated and unannotated variants
     // Annotated variant should work, unannotated variant should panic when def() is called
@@ -1197,6 +1223,8 @@ mod self_referential_no_columns_test {
             }
         }
     }
+    
+    lifeguard::impl_column_def_helper_for_test!(CategoryColumn);
     
     #[derive(Debug, Clone)]
     pub struct CategoryModel;

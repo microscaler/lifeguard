@@ -146,7 +146,10 @@ impl Default for ColumnAttributes {
 /// Extracts all column-related attributes from a field and returns them
 /// as a `ColumnAttributes` struct. Used by the `LifeModel` macro to generate
 /// `ColumnTrait::def()` implementations.
-pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
+/// 
+/// Returns an error if invalid attribute values are found (e.g., empty strings
+/// in select_as or save_as attributes).
+pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::Error> {
     let mut attrs = ColumnAttributes::default();
     
     for attr in &field.attrs {
@@ -222,7 +225,25 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
                     lit: Lit::Str(s),
                     ..
                 }) = &meta.value {
-                    attrs.select_as = Some(s.value());
+                    let value = s.value();
+                    if value.is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            &meta.value,
+                            "Empty string not allowed in select_as attribute. select_as must contain a valid SQL expression."
+                        ));
+                    }
+                    // Validate expression length to prevent memory issues with get_static_expr() caching
+                    const MAX_EXPR_LENGTH: usize = 64 * 1024; // 64KB
+                    if value.len() > MAX_EXPR_LENGTH {
+                        return Err(syn::Error::new_spanned(
+                            &meta.value,
+                            format!(
+                                "select_as expression is too long ({} bytes, max {} bytes). Very long expressions can cause memory issues with static string caching.",
+                                value.len(), MAX_EXPR_LENGTH
+                            )
+                        ));
+                    }
+                    attrs.select_as = Some(value);
                 }
             }
         } else if attr.path().is_ident("save_as") {
@@ -231,7 +252,25 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
                     lit: Lit::Str(s),
                     ..
                 }) = &meta.value {
-                    attrs.save_as = Some(s.value());
+                    let value = s.value();
+                    if value.is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            &meta.value,
+                            "Empty string not allowed in save_as attribute. save_as must contain a valid SQL expression."
+                        ));
+                    }
+                    // Validate expression length to prevent memory issues with get_static_expr() caching
+                    const MAX_EXPR_LENGTH: usize = 64 * 1024; // 64KB
+                    if value.len() > MAX_EXPR_LENGTH {
+                        return Err(syn::Error::new_spanned(
+                            &meta.value,
+                            format!(
+                                "save_as expression is too long ({} bytes, max {} bytes). Very long expressions can cause memory issues with static string caching.",
+                                value.len(), MAX_EXPR_LENGTH
+                            )
+                        ));
+                    }
+                    attrs.save_as = Some(value);
                 }
             }
         } else if attr.path().is_ident("comment") {
@@ -246,5 +285,5 @@ pub fn parse_column_attributes(field: &Field) -> ColumnAttributes {
         }
     }
     
-    attrs
+    Ok(attrs)
 }

@@ -1,13 +1,13 @@
 error[E0601]: `main` function not found in crate `$CRATE`
-   --> tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs:150:2
+   --> tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs:151:2
     |
-150 | }
+151 | }
     |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs`
 
 error[E0277]: the trait bound `mymod::LifeError: From<ParseIntError>` is not satisfied
-   --> tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs:145:10
+   --> tests/ui/compile_error_try_into_model_custom_lifeerror_from_other_module.rs:146:10
     |
-145 | #[derive(DeriveTryIntoModel)]
+146 | #[derive(DeriveTryIntoModel)]
     |          ^^^^^^^^^^^^^^^^^^ the trait `From<ParseIntError>` is not implemented for `mymod::LifeError`
     |
     = note: required for `ParseIntError` to implement `Into<mymod::LifeError>`

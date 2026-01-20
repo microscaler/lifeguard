@@ -958,10 +958,13 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl crate::query::traits::FromRow for TestModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(TestModel)
             }
+            
         }
         
         impl crate::model::ModelTrait for TestModel {
@@ -972,6 +975,7 @@ mod tests {
             fn get_primary_key_identity(&self) -> Identity { Identity::Unary("id".into()) }
             fn get_primary_key_values(&self) -> Vec<sea_query::Value> { vec![] }
         }
+        
         
         impl Related<TestEntity> for TestEntity {
             fn to() -> RelationDef {
@@ -1067,6 +1071,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum PostColumn { Id, UserId }
         
@@ -1076,6 +1082,7 @@ mod tests {
                     PostColumn::Id => "id",
                     PostColumn::UserId => "user_id",
                 }
+                
             }
         }
         
@@ -1088,10 +1095,13 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(PostColumn);
+        
         impl crate::query::traits::FromRow for PostModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(PostModel { id: 0, user_id: 0 })
             }
+            
         }
         
         impl crate::model::ModelTrait for UserModel {
@@ -1210,6 +1220,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum PostColumn { Id, UserId }
         
@@ -1231,10 +1243,13 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(PostColumn);
+        
         impl crate::query::traits::FromRow for PostModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(PostModel { id: 0, user_id: 0 })
             }
+            
         }
         
         impl crate::model::ModelTrait for UserModel {
@@ -1369,6 +1384,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(TenantColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum UserColumn { Id, TenantId }
         
@@ -1390,10 +1407,13 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         impl crate::query::traits::FromRow for UserModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(UserModel { id: 0, tenant_id: 0 })
             }
+            
         }
         
         impl crate::model::ModelTrait for TenantModel {
@@ -1540,6 +1560,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum PostColumn { Id, UserId }
         
@@ -1549,6 +1571,7 @@ mod tests {
                     PostColumn::Id => "id",
                     PostColumn::UserId => "user_id",
                 }
+                
             }
         }
         
@@ -1561,6 +1584,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(PostColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum CommentColumn { Id, PostId }
         
@@ -1570,6 +1595,7 @@ mod tests {
                     CommentColumn::Id => "id",
                     CommentColumn::PostId => "post_id",
                 }
+                
             }
         }
         
@@ -1582,10 +1608,13 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(CommentColumn);
+        
         impl crate::query::traits::FromRow for CommentModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(CommentModel { id: 0, post_id: 0 })
             }
+            
         }
         
         impl crate::model::ModelTrait for UserModel {
@@ -1777,6 +1806,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl crate::model::ModelTrait for TestModel {
             type Entity = TestEntity;
             fn get(&self, col: TestColumn) -> sea_query::Value {
@@ -1784,6 +1815,7 @@ mod tests {
                     TestColumn::Id => sea_query::Value::Int(Some(self.id)),
                     TestColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
                 }
+                
             }
             fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
@@ -1872,6 +1904,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl crate::model::ModelTrait for TestModel {
             type Entity = TestEntity;
             fn get(&self, col: TestColumn) -> sea_query::Value {
@@ -1881,6 +1915,7 @@ mod tests {
                     TestColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
                     TestColumn::UserTenantId => sea_query::Value::Int(Some(self.user_tenant_id)),
                 }
+                
             }
             fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
@@ -1972,17 +2007,21 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl crate::model::ModelTrait for TestModel {
             type Entity = TestEntity;
             fn get(&self, col: TestColumn) -> sea_query::Value {
                 match col {
                     TestColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
+                
             }
             fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
+            
             fn get_primary_key_identity(&self) -> Identity {
                 Identity::Unary("id".into())
             }
@@ -2069,6 +2108,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl crate::model::ModelTrait for TestModel {
             type Entity = TestEntity;
             fn get(&self, col: TestColumn) -> sea_query::Value {
@@ -2077,6 +2118,7 @@ mod tests {
                     TestColumn::TenantId => sea_query::Value::Int(Some(self.tenant_id)),
                     TestColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
                 }
+                
             }
             fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
@@ -2161,10 +2203,13 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestUserColumn);
+        
         impl LifeModelTrait for TestUserEntity {
             type Model = TestUserModel;
             type Column = TestUserColumn;
         }
+        
         
         #[derive(Default, Copy, Clone)]
         struct TestPostEntity;
@@ -2172,6 +2217,7 @@ mod tests {
         impl sea_query::Iden for TestPostEntity {
             fn unquoted(&self) -> &str { "posts" }
         }
+        
         
         impl LifeEntityName for TestPostEntity {
             fn table_name(&self) -> &'static str { "posts" }
@@ -2188,10 +2234,13 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestPostColumn);
+        
         impl LifeModelTrait for TestPostEntity {
             type Model = TestPostModel;
             type Column = TestPostColumn;
         }
+        
         
         #[derive(Clone, Debug)]
         struct TestUserModel;
@@ -2321,6 +2370,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum TagColumn { Id }
         
@@ -2328,14 +2379,18 @@ mod tests {
             fn unquoted(&self) -> &str { "id" }
         }
         
+        
         impl sea_query::IdenStatic for TagColumn {
             fn as_str(&self) -> &'static str { "id" }
         }
+        
+        crate::impl_column_def_helper_for_test!(TagColumn);
         
         impl crate::query::traits::FromRow for TagModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(TagModel { id: 0 })
             }
+            
         }
         
         impl ModelTrait for UserModel {
@@ -2344,6 +2399,7 @@ mod tests {
                 match col {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
+                
             }
             fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
@@ -2466,6 +2522,7 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        
         #[derive(Copy, Clone, Debug)]
         enum TagColumn { Id }
         
@@ -2473,9 +2530,13 @@ mod tests {
             fn unquoted(&self) -> &str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         impl sea_query::IdenStatic for TagColumn {
             fn as_str(&self) -> &'static str { "id" }
         }
+        
+        crate::impl_column_def_helper_for_test!(TagColumn);
         
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
@@ -2483,6 +2544,7 @@ mod tests {
                 match _col {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
+                
             }
             fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { 
                 match _col {
@@ -2490,6 +2552,7 @@ mod tests {
                         if let sea_query::Value::Int(Some(v)) = _val {
                             self.id = v;
                         }
+                        
                         Ok(())
                     }
                 }
@@ -2655,6 +2718,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum TagColumn { Id }
         
@@ -2666,12 +2731,15 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TagColumn);
+        
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
             fn get(&self, _col: UserColumn) -> sea_query::Value { 
                 match _col {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
+                
             }
             fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { 
                 match _col {
@@ -2679,6 +2747,7 @@ mod tests {
                         if let sea_query::Value::Int(Some(v)) = _val {
                             self.id = v;
                         }
+                        
                         Ok(())
                     }
                 }

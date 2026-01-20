@@ -62,6 +62,8 @@ impl sea_query::IdenStatic for Column {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(Column);
+
 #[derive(Default, Copy, Clone)]
 pub struct PostEntity;
 
@@ -107,6 +109,8 @@ impl sea_query::IdenStatic for PostColumn {
         }
     }
 }
+
+lifeguard::impl_column_def_helper_for_test!(PostColumn);
 
 // This Relation enum has two variants targeting the same entity (PostEntity)
 // with DIFFERENT column configurations:

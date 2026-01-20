@@ -96,6 +96,8 @@ impl sea_query::IdenStatic for UserColumn {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(UserColumn);
+
 #[derive(Copy, Clone, Debug)]
 pub enum PostColumn {
     Id,
@@ -120,6 +122,8 @@ impl sea_query::IdenStatic for PostColumn {
     }
 }
 
+lifeguard::impl_column_def_helper_for_test!(PostColumn);
+
 #[derive(Copy, Clone, Debug)]
 pub enum CommentColumn {
     Id,
@@ -143,6 +147,8 @@ impl sea_query::IdenStatic for CommentColumn {
         }
     }
 }
+
+lifeguard::impl_column_def_helper_for_test!(CommentColumn);
 
 // Define Related implementations (required for Linked to work)
 impl lifeguard::Related<PostEntity> for UserEntity {
@@ -255,6 +261,8 @@ mod three_hop_test {
         }
     }
     
+    lifeguard::impl_column_def_helper_for_test!(ReactionColumn);
+    
     impl LifeModelTrait for ReactionEntity {
         type Model = ();
         type Column = ReactionColumn;
@@ -338,6 +346,8 @@ mod multiple_paths_test {
             }
         }
     }
+    
+    lifeguard::impl_column_def_helper_for_test!(TagColumn);
     
     impl LifeModelTrait for TagEntity {
         type Model = ();

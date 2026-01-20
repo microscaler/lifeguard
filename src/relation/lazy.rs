@@ -274,6 +274,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(TenantColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum UserColumn { Id, TenantId }
         
@@ -295,10 +297,13 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         impl crate::query::traits::FromRow for UserModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(UserModel { id: 0, tenant_id: 0 })
             }
+            
         }
         
         impl ModelTrait for TenantModel {
@@ -425,6 +430,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum PostColumn { Id, UserId }
         
@@ -434,6 +441,7 @@ mod tests {
                     PostColumn::Id => "id",
                     PostColumn::UserId => "user_id",
                 }
+                
             }
         }
         
@@ -446,10 +454,13 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(PostColumn);
+        
         impl crate::query::traits::FromRow for PostModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(PostModel { id: 0, user_id: 0 })
             }
+            
         }
         
         impl ModelTrait for UserModel {

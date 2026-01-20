@@ -1,11 +1,11 @@
 error: expected string literal
-   --> tests/ui/compile_error_try_into_model_malformed_convert.rs:120:27
+   --> tests/ui/compile_error_try_into_model_malformed_convert.rs:121:27
     |
-120 |     #[lifeguard(convert = 123)]
+121 |     #[lifeguard(convert = 123)]
     |                           ^^^
 
 error[E0601]: `main` function not found in crate `$CRATE`
-   --> tests/ui/compile_error_try_into_model_malformed_convert.rs:122:2
+   --> tests/ui/compile_error_try_into_model_malformed_convert.rs:123:2
     |
-122 | }
+123 | }
     |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_try_into_model_malformed_convert.rs`

@@ -170,3 +170,15 @@ fn compile_error_ignore_primary_key() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/compile_error_ignore_primary_key.rs");
 }
+
+#[test]
+fn compile_error_select_as_empty_string() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_select_as_empty_string.rs");
+}
+
+#[test]
+fn compile_error_save_as_empty_string() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/ui/compile_error_save_as_empty_string.rs");
+}
