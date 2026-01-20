@@ -49,6 +49,7 @@ pub mod lock;
 pub mod file;
 pub mod status;
 pub mod migrator;
+pub mod startup;
 
 pub use error::MigrationError;
 pub use migration::Migration;
@@ -60,6 +61,7 @@ pub use lock::{MigrationLock, LockGuard};
 pub use file::{MigrationFile, discover_migrations};
 pub use status::{MigrationStatus, PendingMigration};
 pub use migrator::Migrator;
+pub use startup::{startup_migrations, startup_migrations_with_timeout};
 
 // Re-export for convenience
 pub use crate::LifeError;

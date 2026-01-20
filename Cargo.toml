@@ -12,6 +12,7 @@ readme = "README.md"
 members = [
     "lifeguard-derive",
     "lifeguard-codegen",
+    "lifeguard-migrate",
 ]
 resolver = "2"
 

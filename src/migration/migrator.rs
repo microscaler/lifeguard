@@ -125,30 +125,26 @@ impl Migrator {
         Ok(())
     }
     
-    /// Apply pending migrations
+    /// Apply pending migrations (with lock already acquired)
     ///
-    /// Discovers pending migrations, acquires a lock, validates checksums,
-    /// and executes migrations in order.
+    /// This is the internal method that actually applies migrations.
+    /// It assumes the lock has already been acquired.
     ///
     /// # Arguments
     ///
-    /// * `executor` - The database executor (will be moved into LockGuard)
+    /// * `executor` - The database executor (must be from a LockGuard)
     /// * `steps` - Number of migrations to apply (None = all pending)
     ///
     /// # Returns
     ///
     /// Returns the number of migrations applied, or an error if execution fails.
-    pub fn up(
+    pub fn up_with_lock(
         &self,
-        executor: Box<dyn LifeExecutor>,
+        executor: &dyn LifeExecutor,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
-        // Acquire migration lock
-        let _lock = MigrationLock::acquire(executor, Some(60))
-            .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
-        
         // Get status (validates checksums)
-        let status = self.status(_lock.executor())?;
+        let status = self.status(executor)?;
         
         if status.pending.is_empty() {
             return Ok(0);
@@ -193,11 +189,83 @@ impl Migrator {
                 true,
             );
             
-            Self::record_migration(_lock.executor(), &record)?;
+            Self::record_migration(executor, &record)?;
             applied_count += 1;
         }
         
         Ok(applied_count)
+    }
+    
+    /// Apply pending migrations
+    ///
+    /// Discovers pending migrations, acquires a lock, validates checksums,
+    /// and executes migrations in order.
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - The database executor (will be moved into LockGuard)
+    /// * `steps` - Number of migrations to apply (None = all pending)
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of migrations applied, or an error if execution fails.
+    pub fn up(
+        &self,
+        executor: Box<dyn LifeExecutor>,
+        steps: Option<usize>,
+    ) -> Result<usize, MigrationError> {
+        // Acquire migration lock
+        let _lock = MigrationLock::acquire(executor, Some(60))
+            .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
+        
+        // Apply migrations with lock held
+        self.up_with_lock(_lock.executor(), steps)
+    }
+    
+    /// Rollback migrations (with lock already acquired)
+    ///
+    /// This is the internal method that actually rolls back migrations.
+    /// It assumes the lock has already been acquired.
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - The database executor (must be from a LockGuard)
+    /// * `steps` - Number of migrations to rollback (default: 1)
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of migrations rolled back, or an error if execution fails.
+    pub fn down_with_lock(
+        &self,
+        executor: &dyn LifeExecutor,
+        steps: Option<usize>,
+    ) -> Result<usize, MigrationError> {
+        // Get status
+        let status = self.status(executor)?;
+        
+        if status.applied.is_empty() {
+            return Ok(0);
+        }
+        
+        // Get migrations to rollback (in reverse order - newest first)
+        let steps = steps.unwrap_or(1);
+        let mut applied = status.applied;
+        applied.sort_by_key(|m| std::cmp::Reverse(m.version));
+        
+        let migrations_to_rollback: Vec<_> = applied.iter()
+            .take(steps)
+            .collect();
+        
+        let rollback_count = migrations_to_rollback.len();
+        
+        // Execute down() for each migration
+        // TODO: Implement actual migration execution
+        // For now, just remove from state table
+        for record in migrations_to_rollback {
+            Self::remove_migration_record(executor, record.version)?;
+        }
+        
+        Ok(rollback_count)
     }
     
     /// Rollback migrations
@@ -221,32 +289,8 @@ impl Migrator {
         let _lock = MigrationLock::acquire(executor, Some(60))
             .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
         
-        // Get status
-        let status = self.status(_lock.executor())?;
-        
-        if status.applied.is_empty() {
-            return Ok(0);
-        }
-        
-        // Get migrations to rollback (in reverse order - newest first)
-        let steps = steps.unwrap_or(1);
-        let mut applied = status.applied;
-        applied.sort_by_key(|m| std::cmp::Reverse(m.version));
-        
-        let migrations_to_rollback: Vec<_> = applied.iter()
-            .take(steps)
-            .collect();
-        
-        let rollback_count = migrations_to_rollback.len();
-        
-        // Execute down() for each migration
-        // TODO: Implement actual migration execution
-        // For now, just remove from state table
-        for record in migrations_to_rollback {
-            Self::remove_migration_record(_lock.executor(), record.version)?;
-        }
-        
-        Ok(rollback_count)
+        // Rollback migrations with lock held
+        self.down_with_lock(_lock.executor(), steps)
     }
     
     /// Query applied migrations from the state table

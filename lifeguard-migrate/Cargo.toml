@@ -1,0 +1,31 @@
+[package]
+name = "lifeguard-migrate"
+version = "0.1.0"
+edition = "2021"
+description = "Migration CLI tool for Lifeguard ORM"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/microscaler/lifeguard"
+
+[[bin]]
+name = "lifeguard-migrate"
+path = "src/main.rs"
+
+[dependencies]
+# CLI argument parsing
+clap = { version = "4.5", features = ["derive"] }
+# Lifeguard core library
+lifeguard = { path = "../", version = "0.1.0" }
+# Environment variable handling
+dotenv = "0.15"
+# Logging
+log = "0.4"
+env_logger = "0.11"
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+# Configuration file parsing
+toml = "0.8"
+# Pretty printing
+colored = "2.1"
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
