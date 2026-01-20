@@ -108,3 +108,7 @@ pub use value::{
 
 // Re-export transaction types for convenience
 pub use transaction::{Transaction, TransactionError, IsolationLevel};
+
+// Migration system - Epic 03
+pub mod migration;
+pub use migration::{Migration, SchemaManager, MigrationError};

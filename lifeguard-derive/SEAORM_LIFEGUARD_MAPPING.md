@@ -43,25 +43,25 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 |-------------|----------------|--------|-------|
 | `DeriveEntity` | `DeriveEntity` | ✅ Implemented | Generates Entity, EntityName, Iden, IdenStatic, LifeModelTrait. Used for nested expansion from LifeModel |
 | `DeriveEntityModel` | `LifeModel` | ✅ Implemented | Combined macro (Entity + Model + Column + PrimaryKey + FromRow + ModelTrait) |
-| `DeriveModel` | ❌ Not Needed | ✅ By Design | LifeModel generates Model struct + ModelTrait impl directly. No separate DeriveModel needed (unlike DeriveEntity which is used for nested expansion of unit struct) |
-| `DeriveModelEx` | ❌ Missing | 🔴 **Future** | Complex model with relational fields |
-| `DeriveActiveModel` | ❌ Missing | 🔴 **Future** | ActiveModel struct (our `LifeRecord` is different) |
-| `DeriveActiveModelEx` | ❌ Missing | 🔴 **Future** | Complex ActiveModel with relational fields |
-| `DeriveColumn` | ❌ Not Needed | ✅ By Design | LifeModel generates Column enum + Iden/IdenStatic impls directly |
-| `DerivePrimaryKey` | ❌ Not Needed | ✅ By Design | LifeModel generates PrimaryKey enum directly |
-| `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel |
-| `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
-| `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel |
 | `FromQueryResult` | `FromRow` | ✅ Implemented | Separate derive (matches SeaORM pattern) |
 | `DeriveRelation` | ✅ Implemented | ✅ **Complete** | Relation enum with Related trait implementations - Full implementation with composite key support, default column inference, compile-time error checking, duplicate impl deduplication, and `def()` method generation for Relation enum (allows `Relation::Posts.def()` pattern matching SeaORM) |
 | `DeriveRelatedEntity` | ✅ Implemented | ✅ **Complete** | RelatedEntity enum - Generated automatically by DeriveRelation macro |
-| `DeriveLinked` | ✅ Implemented | ✅ **Complete** | Linked enum with Linked trait implementations - Generates `Linked<I, T>` trait implementations from enum variants, reducing boilerplate for multi-hop relationship queries. Supports 2-hop, 3-hop, arbitrary-length paths, self-referential chains, and module-qualified paths. **Competitive advantage:** SeaORM doesn't have this feature |
-| `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation |
-| `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
 | `DerivePartialModel` | ✅ Implemented | ✅ **Complete** | PartialModelTrait and FromRow implementation - Generates selected_columns() and FromRow from struct fields with column_name attribute support |
-| `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types |
-| `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum |
-| `DeriveIden` | ❌ Missing | 🟡 **Future** | Iden trait helper |
+| `DeriveLinked` | ✅ Implemented | ✅ **Complete** | Linked enum with Linked trait implementations - Generates `Linked<I, T>` trait implementations from enum variants, reducing boilerplate for multi-hop relationship queries. Supports 2-hop, 3-hop, arbitrary-length paths, self-referential chains, and module-qualified paths. **Competitive advantage:** SeaORM doesn't have this feature |
+| `DeriveModel` | ❌ Not Needed | ✅ By Design | LifeModel generates Model struct + ModelTrait impl directly. No separate DeriveModel needed (unlike DeriveEntity which is used for nested expansion of unit struct) |
+| `DeriveModelEx` | ❌ Missing | 🔴 **Future** | Complex model with relational fields - **Not needed for migrations** |
+| `DeriveActiveModel` | ❌ Missing | 🔴 **Future** | ActiveModel struct (our `LifeRecord` is different) - **Not needed for migrations** |
+| `DeriveActiveModelEx` | ❌ Missing | 🔴 **Future** | Complex ActiveModel with relational fields - **Not needed for migrations** |
+| `DeriveColumn` | ❌ Not Needed | ✅ By Design | LifeModel generates Column enum + Iden/IdenStatic impls directly |
+| `DerivePrimaryKey` | ❌ Not Needed | ✅ By Design | LifeModel generates PrimaryKey enum directly |
+| `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel - **Not needed for migrations** |
+| `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
+| `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel - **Not needed for migrations** |
+| `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation - **Nice-to-have, not a blocker for migrations** |
+| `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
+| `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types - **Not needed for migrations** |
+| `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum - **Not needed for migrations** |
+| `DeriveIden` | ❌ Missing | 🟡 **Future** | Iden trait helper - **Not needed (LifeModel already generates Iden/IdenStatic)** |
 
 **Lifeguard-Specific:**
 - `LifeRecord` - ✅ Implemented (simplified version, generates Record struct with Option<T> fields)
@@ -362,10 +362,21 @@ This design simplifies the API while maintaining the same functionality.
 - `TryFromU64` for primary key conversions
 
 #### Migration Support
-**Status:** 🟡 Future  
+**Status:** ✅ **READY FOR IMPLEMENTATION**  
+**Current State:**
+- ✅ All core migration infrastructure is implemented
+- ✅ Phase 1 attributes (`default_expr`, `renamed_from`, `schema_name`) are complete
+- ✅ `ColumnDefinition::to_column_def()` - Converts to SeaQuery ColumnDef for migrations
+- ✅ `ColumnDefinition::apply_default_expr()` - Applies default SQL expressions
+- ✅ `ColumnDefinition::comment_sql()` - Generates COMMENT ON COLUMN SQL
+- ✅ Type mapping for all common column types
+- ✅ Entity metadata (`table_name()`, `schema_name()`, `all_columns()`)
+
+**Note:** The missing derive macros listed above are **NOT prerequisites** for migrations. See `MIGRATION_PREREQUISITES_DISCOVERY.md` for detailed analysis.
+
 **Future State:**
-- `DeriveMigrationName` - Generate migration names
-- Integration with migration tools
+- `DeriveMigrationName` - Generate migration names (nice-to-have, not a blocker)
+- Migration CLI tool - Integration with migration tools
 
 #### JSON Support
 **Status:** ✅ Core Feature (Always Enabled)  
