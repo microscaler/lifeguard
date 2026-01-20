@@ -198,6 +198,44 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
         // The macro can override this with a more efficient implementation
         extract_value_by_column_name(self, column_name)
     }
+    
+    /// Get the Rust type string for a column
+    ///
+    /// This method returns the Rust type string representation for a given column.
+    /// It's useful for runtime type introspection, dynamic serialization, and type validation.
+    ///
+    /// # Arguments
+    ///
+    /// * `column` - The column to get the type for
+    ///
+    /// # Returns
+    ///
+    /// `Some(&'static str)` containing the Rust type string (e.g., `"i32"`, `"String"`, `"Option<i32>"`),
+    /// or `None` if the column type is unknown.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::ModelTrait;
+    ///
+    /// let model = UserModel { id: 1, name: "John".to_string(), email: Some("john@example.com".to_string()) };
+    /// let id_type = model.get_value_type(User::Column::Id);
+    /// // Returns: Some("i32")
+    ///
+    /// let email_type = model.get_value_type(User::Column::Email);
+    /// // Returns: Some("Option<String>")
+    /// ```
+    ///
+    /// # Implementation Note
+    ///
+    /// The default implementation returns `None`. The `LifeModel` macro generates
+    /// implementations that return the actual Rust type strings for each column.
+    fn get_value_type(&self, column: <Self::Entity as LifeModelTrait>::Column) -> Option<&'static str> {
+        // Default implementation returns None
+        // The macro will override this with actual type strings
+        let _ = column;
+        None
+    }
 }
 
 /// Error type for ModelTrait operations

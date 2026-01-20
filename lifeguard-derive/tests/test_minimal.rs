@@ -1503,6 +1503,57 @@ mod tests {
     }
 
     #[test]
+    fn test_model_trait_get_value_type() {
+        // Test ModelTrait::get_value_type() method
+        let model = UserModel {
+            id: 1,
+            name: "Test User".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        // Test getting type for id column (i32)
+        let id_type = model.get_value_type(Column::Id);
+        assert_eq!(id_type, Some("i32"), "Expected type 'i32' for id column");
+        
+        // Test getting type for name column (String)
+        let name_type = model.get_value_type(Column::Name);
+        assert_eq!(name_type, Some("String"), "Expected type 'String' for name column");
+        
+        // Test getting type for email column (String)
+        let email_type = model.get_value_type(Column::Email);
+        assert_eq!(email_type, Some("String"), "Expected type 'String' for email column");
+    }
+
+    #[test]
+    fn test_model_trait_get_value_type_with_options() {
+        // Test get_value_type() with Option<T> fields
+        use crate::option_tests::*;
+        
+        let model = UserWithOptionsModel {
+            id: 1,
+            name: Some("Test User".to_string()),
+            age: Some(30),
+            active: Some(true),
+        };
+        
+        // Test getting type for id column (i32)
+        let id_type = model.get_value_type(crate::option_tests::Column::Id);
+        assert_eq!(id_type, Some("i32"), "Expected type 'i32' for id column");
+        
+        // Test getting type for name column (Option<String>)
+        let name_type = model.get_value_type(crate::option_tests::Column::Name);
+        assert_eq!(name_type, Some("Option<String>"), "Expected type 'Option<String>' for name column");
+        
+        // Test getting type for age column (Option<i32>)
+        let age_type = model.get_value_type(crate::option_tests::Column::Age);
+        assert_eq!(age_type, Some("Option<i32>"), "Expected type 'Option<i32>' for age column");
+        
+        // Test getting type for active column (Option<bool>)
+        let active_type = model.get_value_type(crate::option_tests::Column::Active);
+        assert_eq!(active_type, Some("Option<bool>"), "Expected type 'Option<bool>' for active column");
+    }
+
+    #[test]
     fn test_model_trait_set_null_for_non_option() {
         // Test that setting None value for non-Option field returns error
         let mut model = UserModel {
