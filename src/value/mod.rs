@@ -18,6 +18,9 @@ pub mod try_getable;
 pub mod tuple;
 pub mod u64;
 
+#[cfg(test)]
+mod integration_tests;
+
 pub use types::ValueType;
 pub use try_getable::{TryGetable, TryGetableMany, ValueExtractionError};
 pub use tuple::{IntoValueTuple, FromValueTuple};

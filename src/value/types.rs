@@ -375,29 +375,225 @@ impl<T: ValueType> ValueType for Option<T> {
 mod tests {
     use super::*;
     
+    // Integer type tests
+    
+    #[test]
+    fn test_i8_value_type() {
+        let value = 42i8.into_value();
+        assert!(matches!(value, Value::TinyInt(Some(42))));
+        let extracted = <i8 as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(42i8));
+        
+        // Test null
+        let null = <i8 as ValueType>::null_value();
+        assert!(matches!(null, Value::TinyInt(None)));
+        let extracted = <i8 as ValueType>::from_value(null);
+        assert_eq!(extracted, None);
+    }
+    
+    #[test]
+    fn test_i16_value_type() {
+        let value = 42i16.into_value();
+        assert!(matches!(value, Value::SmallInt(Some(42))));
+        let extracted = <i16 as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(42i16));
+        
+        // Test null
+        let null = <i16 as ValueType>::null_value();
+        assert!(matches!(null, Value::SmallInt(None)));
+    }
+    
     #[test]
     fn test_i32_value_type() {
         let value = 42i32.into_value();
         assert!(matches!(value, Value::Int(Some(42))));
-        
-        let extracted = ValueType::from_value(value);
+        let extracted = <i32 as ValueType>::from_value(value);
         assert_eq!(extracted, Some(42i32));
+        
+        // Test null
+        let null = <i32 as ValueType>::null_value();
+        assert!(matches!(null, Value::Int(None)));
     }
+    
+    #[test]
+    fn test_i64_value_type() {
+        let value = 42i64.into_value();
+        assert!(matches!(value, Value::BigInt(Some(42))));
+        let extracted = <i64 as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(42i64));
+        
+        // Test null
+        let null = <i64 as ValueType>::null_value();
+        assert!(matches!(null, Value::BigInt(None)));
+    }
+    
+    #[test]
+    fn test_u8_value_type() {
+        let value = 42u8.into_value();
+        assert!(matches!(value, Value::SmallInt(Some(42))));
+        let extracted = <u8 as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(42u8));
+        
+        // Test null
+        let null = <u8 as ValueType>::null_value();
+        assert!(matches!(null, Value::TinyUnsigned(None)));
+        
+        // Test TinyUnsigned variant
+        let tiny_unsigned = Value::TinyUnsigned(Some(42u8));
+        let extracted = <u8 as ValueType>::from_value(tiny_unsigned);
+        assert_eq!(extracted, Some(42u8));
+    }
+    
+    #[test]
+    fn test_u16_value_type() {
+        let value = 42u16.into_value();
+        assert!(matches!(value, Value::Int(Some(42))));
+        let extracted = <u16 as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(42u16));
+        
+        // Test null
+        let null = <u16 as ValueType>::null_value();
+        assert!(matches!(null, Value::SmallUnsigned(None)));
+        
+        // Test SmallUnsigned variant
+        let small_unsigned = Value::SmallUnsigned(Some(42u16));
+        let extracted = <u16 as ValueType>::from_value(small_unsigned);
+        assert_eq!(extracted, Some(42u16));
+    }
+    
+    #[test]
+    fn test_u32_value_type() {
+        let value = 42u32.into_value();
+        assert!(matches!(value, Value::BigInt(Some(42))));
+        let extracted = <u32 as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(42u32));
+        
+        // Test null
+        let null = <u32 as ValueType>::null_value();
+        assert!(matches!(null, Value::Unsigned(None)));
+        
+        // Test Unsigned variant
+        let unsigned = Value::Unsigned(Some(42u32));
+        let extracted = <u32 as ValueType>::from_value(unsigned);
+        assert_eq!(extracted, Some(42u32));
+    }
+    
+    #[test]
+    fn test_u64_value_type() {
+        let value = 42u64.into_value();
+        assert!(matches!(value, Value::BigUnsigned(Some(42))));
+        let extracted = <u64 as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(42u64));
+        
+        // Test null
+        let null = <u64 as ValueType>::null_value();
+        assert!(matches!(null, Value::BigUnsigned(None)));
+    }
+    
+    // Floating point tests
+    
+    #[test]
+    fn test_f32_value_type() {
+        let value = 3.14f32.into_value();
+        assert!(matches!(value, Value::Float(Some(v)) if (v - 3.14).abs() < f32::EPSILON));
+        let extracted = <f32 as ValueType>::from_value(value);
+        assert!(extracted.map(|v: f32| (v - 3.14).abs() < f32::EPSILON).unwrap_or(false));
+        
+        // Test null
+        let null = <f32 as ValueType>::null_value();
+        assert!(matches!(null, Value::Float(None)));
+    }
+    
+    #[test]
+    fn test_f64_value_type() {
+        let value = 3.14f64.into_value();
+        assert!(matches!(value, Value::Double(Some(v)) if (v - 3.14).abs() < f64::EPSILON));
+        let extracted = <f64 as ValueType>::from_value(value);
+        assert!(extracted.map(|v: f64| (v - 3.14).abs() < f64::EPSILON).unwrap_or(false));
+        
+        // Test null
+        let null = <f64 as ValueType>::null_value();
+        assert!(matches!(null, Value::Double(None)));
+    }
+    
+    // Boolean tests
+    
+    #[test]
+    fn test_bool_value_type() {
+        let value = true.into_value();
+        assert!(matches!(value, Value::Bool(Some(true))));
+        let extracted = <bool as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(true));
+        
+        let value = false.into_value();
+        assert!(matches!(value, Value::Bool(Some(false))));
+        let extracted = <bool as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(false));
+        
+        // Test null
+        let null = <bool as ValueType>::null_value();
+        assert!(matches!(null, Value::Bool(None)));
+    }
+    
+    // String tests
     
     #[test]
     fn test_string_value_type() {
         let value = "hello".to_string().into_value();
         assert!(matches!(value, Value::String(Some(ref s)) if s == "hello"));
-        
-        let extracted = ValueType::from_value(value);
+        let extracted = <String as ValueType>::from_value(value);
         assert_eq!(extracted, Some("hello".to_string()));
+        
+        // Test empty string
+        let empty = String::new().into_value();
+        let extracted = <String as ValueType>::from_value(empty);
+        assert_eq!(extracted, Some(String::new()));
+        
+        // Test null
+        let null = <String as ValueType>::null_value();
+        assert!(matches!(null, Value::String(None)));
     }
     
+    // Binary tests
+    
     #[test]
-    fn test_option_value_type() {
+    fn test_vec_u8_value_type() {
+        let value = vec![1u8, 2u8, 3u8].into_value();
+        assert!(matches!(value, Value::Bytes(Some(ref v)) if v == &vec![1u8, 2u8, 3u8]));
+        let extracted = <Vec<u8> as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(vec![1u8, 2u8, 3u8]));
+        
+        // Test empty vec
+        let empty = Vec::<u8>::new().into_value();
+        let extracted = <Vec<u8> as ValueType>::from_value(empty);
+        assert_eq!(extracted, Some(Vec::<u8>::new()));
+        
+        // Test null
+        let null = <Vec<u8> as ValueType>::null_value();
+        assert!(matches!(null, Value::Bytes(None)));
+    }
+    
+    // JSON tests
+    
+    #[test]
+    fn test_json_value_type() {
+        let json = serde_json::json!({"key": "value"});
+        let value = json.clone().into_value();
+        assert!(matches!(value, Value::Json(Some(_))));
+        let extracted = <serde_json::Value as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(json));
+        
+        // Test null
+        let null = <serde_json::Value as ValueType>::null_value();
+        assert!(matches!(null, Value::Json(None)));
+    }
+    
+    // Option<T> tests for all types
+    
+    #[test]
+    fn test_option_i32_value_type() {
         let value = Some(42i32).into_value();
         assert!(matches!(value, Value::Int(Some(42))));
-        
         let extracted = <Option<i32> as ValueType>::from_value(value);
         assert_eq!(extracted, Some(Some(42i32)));
         
@@ -405,23 +601,129 @@ mod tests {
         let none_value = Value::Int(None);
         let extracted = <Option<i32> as ValueType>::from_value(none_value);
         assert_eq!(extracted, Some(None));
+        
+        // Test type mismatch
+        let wrong_type = Value::String(Some("hello".to_string()));
+        let extracted = <Option<i32> as ValueType>::from_value(wrong_type);
+        assert_eq!(extracted, None);
     }
     
     #[test]
-    fn test_bool_value_type() {
-        let value = true.into_value();
+    fn test_option_string_value_type() {
+        let value = Some("hello".to_string()).into_value();
+        assert!(matches!(value, Value::String(Some(ref s)) if s == "hello"));
+        let extracted = <Option<String> as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(Some("hello".to_string())));
+        
+        // Test None case
+        let none_value = Value::String(None);
+        let extracted = <Option<String> as ValueType>::from_value(none_value);
+        assert_eq!(extracted, Some(None));
+    }
+    
+    #[test]
+    fn test_option_bool_value_type() {
+        let value = Some(true).into_value();
         assert!(matches!(value, Value::Bool(Some(true))));
+        let extracted = <Option<bool> as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(Some(true)));
         
-        let extracted = ValueType::from_value(value);
-        assert_eq!(extracted, Some(true));
+        // Test None case
+        let none_value = Value::Bool(None);
+        let extracted = <Option<bool> as ValueType>::from_value(none_value);
+        assert_eq!(extracted, Some(None));
     }
     
     #[test]
-    fn test_f64_value_type() {
-        let value = 3.14f64.into_value();
-        assert!(matches!(value, Value::Double(Some(v)) if (v - 3.14).abs() < f64::EPSILON));
+    fn test_option_vec_u8_value_type() {
+        let value = Some(vec![1u8, 2u8, 3u8]).into_value();
+        assert!(matches!(value, Value::Bytes(Some(_))));
+        let extracted = <Option<Vec<u8>> as ValueType>::from_value(value);
+        assert_eq!(extracted, Some(Some(vec![1u8, 2u8, 3u8])));
         
-        let extracted = <f64 as ValueType>::from_value(value);
-        assert!(extracted.map(|v: f64| (v - 3.14).abs() < f64::EPSILON).unwrap_or(false));
+        // Test None case
+        let none_value = Value::Bytes(None);
+        let extracted = <Option<Vec<u8>> as ValueType>::from_value(none_value);
+        assert_eq!(extracted, Some(None));
+    }
+    
+    // Type mismatch tests
+    
+    #[test]
+    fn test_type_mismatch_i32_from_string() {
+        let wrong_type = Value::String(Some("hello".to_string()));
+        let extracted = <i32 as ValueType>::from_value(wrong_type);
+        assert_eq!(extracted, None);
+    }
+    
+    #[test]
+    fn test_type_mismatch_string_from_int() {
+        let wrong_type = Value::Int(Some(42));
+        let extracted = <String as ValueType>::from_value(wrong_type);
+        assert_eq!(extracted, None);
+    }
+    
+    #[test]
+    fn test_type_mismatch_bool_from_int() {
+        let wrong_type = Value::Int(Some(42));
+        let extracted = <bool as ValueType>::from_value(wrong_type);
+        assert_eq!(extracted, None);
+    }
+    
+    // Boundary value tests
+    
+    #[test]
+    fn test_i8_boundary_values() {
+        let min = i8::MIN.into_value();
+        let extracted = <i8 as ValueType>::from_value(min);
+        assert_eq!(extracted, Some(i8::MIN));
+        
+        let max = i8::MAX.into_value();
+        let extracted = <i8 as ValueType>::from_value(max);
+        assert_eq!(extracted, Some(i8::MAX));
+    }
+    
+    #[test]
+    fn test_i64_boundary_values() {
+        let min = i64::MIN.into_value();
+        let extracted = <i64 as ValueType>::from_value(min);
+        assert_eq!(extracted, Some(i64::MIN));
+        
+        let max = i64::MAX.into_value();
+        let extracted = <i64 as ValueType>::from_value(max);
+        assert_eq!(extracted, Some(i64::MAX));
+    }
+    
+    #[test]
+    fn test_u64_boundary_values() {
+        let max = u64::MAX.into_value();
+        let extracted = <u64 as ValueType>::from_value(max);
+        assert_eq!(extracted, Some(u64::MAX));
+    }
+    
+    #[test]
+    fn test_f32_special_values() {
+        // Test NaN
+        let nan = f32::NAN.into_value();
+        let extracted = <f32 as ValueType>::from_value(nan);
+        assert!(extracted.map(|v: f32| v.is_nan()).unwrap_or(false));
+        
+        // Test infinity
+        let inf = f32::INFINITY.into_value();
+        let extracted = <f32 as ValueType>::from_value(inf);
+        assert!(extracted.map(|v: f32| v.is_infinite()).unwrap_or(false));
+    }
+    
+    #[test]
+    fn test_f64_special_values() {
+        // Test NaN
+        let nan = f64::NAN.into_value();
+        let extracted = <f64 as ValueType>::from_value(nan);
+        assert!(extracted.map(|v: f64| v.is_nan()).unwrap_or(false));
+        
+        // Test infinity
+        let inf = f64::INFINITY.into_value();
+        let extracted = <f64 as ValueType>::from_value(inf);
+        assert!(extracted.map(|v: f64| v.is_infinite()).unwrap_or(false));
     }
 }

@@ -262,6 +262,8 @@ impl<T: TryGetable> TryGetableMany for T {}
 mod tests {
     use super::*;
     
+    // Basic TryGetable tests
+    
     #[test]
     fn test_try_get_success() {
         let value = Value::Int(Some(42));
@@ -294,6 +296,188 @@ mod tests {
         assert_eq!(result, Ok(None));
     }
     
+    // Integer type tests
+    
+    #[test]
+    fn test_try_get_i8() {
+        let value = Value::TinyInt(Some(42));
+        let result: Result<i8, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+        
+        let null = Value::TinyInt(None);
+        let result: Result<i8, _> = TryGetable::try_get(null);
+        assert!(matches!(result, Err(ValueExtractionError::NullValue)));
+    }
+    
+    #[test]
+    fn test_try_get_i16() {
+        let value = Value::SmallInt(Some(42));
+        let result: Result<i16, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    #[test]
+    fn test_try_get_i64() {
+        let value = Value::BigInt(Some(42));
+        let result: Result<i64, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    // Unsigned type tests with conversion logic
+    
+    #[test]
+    fn test_try_get_u8_from_tiny_unsigned() {
+        let value = Value::TinyUnsigned(Some(42u8));
+        let result: Result<u8, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    #[test]
+    fn test_try_get_u8_from_small_int() {
+        let value = Value::SmallInt(Some(42i16));
+        let result: Result<u8, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    #[test]
+    fn test_try_get_u8_overflow() {
+        let value = Value::SmallInt(Some(256i16)); // > u8::MAX
+        let result: Result<u8, _> = TryGetable::try_get(value);
+        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+    }
+    
+    #[test]
+    fn test_try_get_u16_from_small_unsigned() {
+        let value = Value::SmallUnsigned(Some(42u16));
+        let result: Result<u16, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    #[test]
+    fn test_try_get_u16_from_int() {
+        let value = Value::Int(Some(42i32));
+        let result: Result<u16, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    #[test]
+    fn test_try_get_u16_overflow() {
+        let value = Value::Int(Some(65536i32)); // > u16::MAX
+        let result: Result<u16, _> = TryGetable::try_get(value);
+        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+    }
+    
+    #[test]
+    fn test_try_get_u32_from_unsigned() {
+        let value = Value::Unsigned(Some(42u32));
+        let result: Result<u32, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    #[test]
+    fn test_try_get_u32_from_big_int() {
+        let value = Value::BigInt(Some(42i64));
+        let result: Result<u32, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    #[test]
+    fn test_try_get_u32_overflow() {
+        let value = Value::BigInt(Some(4294967296i64)); // > u32::MAX
+        let result: Result<u32, _> = TryGetable::try_get(value);
+        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+    }
+    
+    #[test]
+    fn test_try_get_u64() {
+        let value = Value::BigUnsigned(Some(42u64));
+        let result: Result<u64, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(42));
+    }
+    
+    // Floating point tests
+    
+    #[test]
+    fn test_try_get_f32() {
+        let value = Value::Float(Some(3.14f32));
+        let result: Result<f32, _> = TryGetable::try_get(value);
+        assert!((result.unwrap() - 3.14).abs() < f32::EPSILON);
+    }
+    
+    #[test]
+    fn test_try_get_f64() {
+        let value = Value::Double(Some(3.14f64));
+        let result: Result<f64, _> = TryGetable::try_get(value);
+        assert!((result.unwrap() - 3.14).abs() < f64::EPSILON);
+    }
+    
+    // Boolean tests
+    
+    #[test]
+    fn test_try_get_bool() {
+        let value = Value::Bool(Some(true));
+        let result: Result<bool, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(true));
+        
+        let value = Value::Bool(Some(false));
+        let result: Result<bool, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(false));
+    }
+    
+    // String tests
+    
+    #[test]
+    fn test_try_get_string() {
+        let value = Value::String(Some("hello".to_string()));
+        let result: Result<String, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok("hello".to_string()));
+    }
+    
+    // Binary tests
+    
+    #[test]
+    fn test_try_get_vec_u8() {
+        let value = Value::Bytes(Some(vec![1u8, 2u8, 3u8]));
+        let result: Result<Vec<u8>, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(vec![1u8, 2u8, 3u8]));
+    }
+    
+    // JSON tests
+    
+    #[test]
+    fn test_try_get_json() {
+        let json = serde_json::json!({"key": "value"});
+        let value = Value::Json(Some(Box::new(json.clone())));
+        let result: Result<serde_json::Value, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(json));
+    }
+    
+    // Option<T> tests
+    
+    #[test]
+    fn test_try_get_option_i32() {
+        let value = Value::Int(Some(42));
+        let result: Result<Option<i32>, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(Some(42)));
+        
+        let null = Value::Int(None);
+        let result: Result<Option<i32>, _> = TryGetable::try_get(null);
+        assert_eq!(result, Ok(None));
+    }
+    
+    #[test]
+    fn test_try_get_option_string() {
+        let value = Value::String(Some("hello".to_string()));
+        let result: Result<Option<String>, _> = TryGetable::try_get(value);
+        assert_eq!(result, Ok(Some("hello".to_string())));
+        
+        let null = Value::String(None);
+        let result: Result<Option<String>, _> = TryGetable::try_get(null);
+        assert_eq!(result, Ok(None));
+    }
+    
+    // TryGetableMany tests
+    
     #[test]
     fn test_try_get_many() {
         let values = vec![
@@ -317,6 +501,17 @@ mod tests {
     }
     
     #[test]
+    fn test_try_get_many_with_type_mismatch() {
+        let values = vec![
+            Value::Int(Some(1)),
+            Value::String(Some("hello".to_string())),
+            Value::Int(Some(3)),
+        ];
+        let result: Result<Vec<i32>, _> = TryGetableMany::try_get_many(values);
+        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+    }
+    
+    #[test]
     fn test_try_get_many_opt() {
         let values = vec![
             Value::Int(Some(1)),
@@ -325,5 +520,52 @@ mod tests {
         ];
         let result: Result<Vec<Option<i32>>, _> = TryGetableMany::try_get_many_opt(values);
         assert_eq!(result, Ok(vec![Some(1), None, Some(3)]));
+    }
+    
+    #[test]
+    fn test_try_get_many_empty() {
+        let values: Vec<Value> = vec![];
+        let result: Result<Vec<i32>, _> = TryGetableMany::try_get_many(values);
+        assert_eq!(result, Ok(vec![]));
+    }
+    
+    #[test]
+    fn test_try_get_many_mixed_types() {
+        let values = vec![
+            Value::String(Some("a".to_string())),
+            Value::String(Some("b".to_string())),
+            Value::String(Some("c".to_string())),
+        ];
+        let result: Result<Vec<String>, _> = TryGetableMany::try_get_many(values);
+        assert_eq!(result, Ok(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+    }
+    
+    // Error message tests
+    
+    #[test]
+    fn test_error_message_null_value() {
+        let value = Value::Int(None);
+        let result: Result<i32, _> = TryGetable::try_get(value);
+        match result {
+            Err(ValueExtractionError::NullValue) => {
+                // Error message should be clear
+                let msg = format!("{}", ValueExtractionError::NullValue);
+                assert!(msg.contains("null") || msg.contains("Null"));
+            }
+            _ => panic!("Expected NullValue error"),
+        }
+    }
+    
+    #[test]
+    fn test_error_message_type_mismatch() {
+        let value = Value::String(Some("hello".to_string()));
+        let result: Result<i32, _> = TryGetable::try_get(value);
+        match result {
+            Err(ValueExtractionError::TypeMismatch { expected, actual }) => {
+                assert!(expected.contains("Int"));
+                assert!(actual.contains("String"));
+            }
+            _ => panic!("Expected TypeMismatch error"),
+        }
     }
 }
