@@ -164,7 +164,7 @@ impl ValueType for u8 {
     }
     
     fn null_value() -> Value {
-        Value::TinyUnsigned(None)
+        Value::SmallInt(None)
     }
 }
 
@@ -184,7 +184,7 @@ impl ValueType for u16 {
     }
     
     fn null_value() -> Value {
-        Value::SmallUnsigned(None)
+        Value::Int(None)
     }
 }
 
@@ -204,7 +204,7 @@ impl ValueType for u32 {
     }
     
     fn null_value() -> Value {
-        Value::Unsigned(None)
+        Value::BigInt(None)
     }
 }
 
@@ -434,14 +434,19 @@ mod tests {
         let extracted = <u8 as ValueType>::from_value(value);
         assert_eq!(extracted, Some(42u8));
         
-        // Test null
+        // Test null - should match what into_value() produces (SmallInt)
         let null = <u8 as ValueType>::null_value();
-        assert!(matches!(null, Value::TinyUnsigned(None)));
+        assert!(matches!(null, Value::SmallInt(None)));
         
-        // Test TinyUnsigned variant
+        // Test TinyUnsigned variant (still supported for backward compatibility)
         let tiny_unsigned = Value::TinyUnsigned(Some(42u8));
         let extracted = <u8 as ValueType>::from_value(tiny_unsigned);
         assert_eq!(extracted, Some(42u8));
+        
+        // Test TinyUnsigned(None) is still recognized as null
+        let tiny_unsigned_none = Value::TinyUnsigned(None);
+        let extracted = <u8 as ValueType>::from_value(tiny_unsigned_none);
+        assert_eq!(extracted, None);
     }
     
     #[test]
@@ -451,14 +456,19 @@ mod tests {
         let extracted = <u16 as ValueType>::from_value(value);
         assert_eq!(extracted, Some(42u16));
         
-        // Test null
+        // Test null - should match what into_value() produces (Int)
         let null = <u16 as ValueType>::null_value();
-        assert!(matches!(null, Value::SmallUnsigned(None)));
+        assert!(matches!(null, Value::Int(None)));
         
-        // Test SmallUnsigned variant
+        // Test SmallUnsigned variant (still supported for backward compatibility)
         let small_unsigned = Value::SmallUnsigned(Some(42u16));
         let extracted = <u16 as ValueType>::from_value(small_unsigned);
         assert_eq!(extracted, Some(42u16));
+        
+        // Test SmallUnsigned(None) is still recognized as null
+        let small_unsigned_none = Value::SmallUnsigned(None);
+        let extracted = <u16 as ValueType>::from_value(small_unsigned_none);
+        assert_eq!(extracted, None);
     }
     
     #[test]
@@ -468,14 +478,19 @@ mod tests {
         let extracted = <u32 as ValueType>::from_value(value);
         assert_eq!(extracted, Some(42u32));
         
-        // Test null
+        // Test null - should match what into_value() produces (BigInt)
         let null = <u32 as ValueType>::null_value();
-        assert!(matches!(null, Value::Unsigned(None)));
+        assert!(matches!(null, Value::BigInt(None)));
         
-        // Test Unsigned variant
+        // Test Unsigned variant (still supported for backward compatibility)
         let unsigned = Value::Unsigned(Some(42u32));
         let extracted = <u32 as ValueType>::from_value(unsigned);
         assert_eq!(extracted, Some(42u32));
+        
+        // Test Unsigned(None) is still recognized as null
+        let unsigned_none = Value::Unsigned(None);
+        let extracted = <u32 as ValueType>::from_value(unsigned_none);
+        assert_eq!(extracted, None);
     }
     
     #[test]
@@ -725,5 +740,48 @@ mod tests {
         let inf = f64::INFINITY.into_value();
         let extracted = <f64 as ValueType>::from_value(inf);
         assert!(extracted.map(|v: f64| v.is_infinite()).unwrap_or(false));
+    }
+    
+    // Tests for Option<u8>, Option<u16>, Option<u32> null handling
+    // These verify the fix for inconsistent Value variants between into_value() and null_value()
+    
+    #[test]
+    fn test_option_u8_null_handling() {
+        // Test that Option<u8>::from_value() correctly handles Value::SmallInt(None)
+        // which is what into_value() produces for None (via null_value())
+        let none_value = <Option<u8> as ValueType>::into_value(None);
+        let extracted = <Option<u8> as ValueType>::from_value(none_value);
+        assert_eq!(extracted, Some(None), "Option<u8>::from_value() should handle null correctly");
+        
+        // Test that Value::SmallInt(None) is recognized as null
+        let small_int_none = Value::SmallInt(None);
+        let extracted = <Option<u8> as ValueType>::from_value(small_int_none);
+        assert_eq!(extracted, Some(None), "Value::SmallInt(None) should be recognized as null for Option<u8>");
+    }
+    
+    #[test]
+    fn test_option_u16_null_handling() {
+        // Test that Option<u16>::from_value() correctly handles Value::Int(None)
+        let none_value = <Option<u16> as ValueType>::into_value(None);
+        let extracted = <Option<u16> as ValueType>::from_value(none_value);
+        assert_eq!(extracted, Some(None), "Option<u16>::from_value() should handle null correctly");
+        
+        // Test that Value::Int(None) is recognized as null
+        let int_none = Value::Int(None);
+        let extracted = <Option<u16> as ValueType>::from_value(int_none);
+        assert_eq!(extracted, Some(None), "Value::Int(None) should be recognized as null for Option<u16>");
+    }
+    
+    #[test]
+    fn test_option_u32_null_handling() {
+        // Test that Option<u32>::from_value() correctly handles Value::BigInt(None)
+        let none_value = <Option<u32> as ValueType>::into_value(None);
+        let extracted = <Option<u32> as ValueType>::from_value(none_value);
+        assert_eq!(extracted, Some(None), "Option<u32>::from_value() should handle null correctly");
+        
+        // Test that Value::BigInt(None) is recognized as null
+        let big_int_none = Value::BigInt(None);
+        let extracted = <Option<u32> as ValueType>::from_value(big_int_none);
+        assert_eq!(extracted, Some(None), "Value::BigInt(None) should be recognized as null for Option<u32>");
     }
 }

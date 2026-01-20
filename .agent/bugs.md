@@ -116,6 +116,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-20-01: TryGetable Returns TypeMismatch Instead of ConversionError for Negative Values](bugs/BUG-2026-01-20-01.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** API inconsistency / Incorrect error type
 
+- [BUG-2026-01-20-02: ValueType Inconsistent Value Variants for u8, u16, u32 Between into_value() and null_value()](bugs/BUG-2026-01-20-02.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** API inconsistency / Incorrect null handling
+
 ---
 
 ## Open Bugs
