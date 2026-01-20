@@ -7,15 +7,33 @@ use std::fmt::Display;
 
 /// SchemaManager provides methods for performing schema operations in migrations
 ///
-/// This struct wraps a `LifeExecutor` and provides convenient methods for
+/// This struct wraps a `LifeExecutor` reference and provides convenient methods for
 /// common schema operations like creating tables, adding columns, creating indexes, etc.
-pub struct SchemaManager {
-    executor: Box<dyn LifeExecutor>,
+///
+/// Uses a lifetime parameter to work with executor references, eliminating Rust ownership
+/// complexities and allowing use with lock guards.
+pub struct SchemaManager<'a> {
+    executor: &'a dyn LifeExecutor,
 }
 
-impl SchemaManager {
-    /// Create a new SchemaManager with the given executor
-    pub fn new(executor: Box<dyn LifeExecutor>) -> Self {
+impl<'a> SchemaManager<'a> {
+    /// Create a new SchemaManager with the given executor reference
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - The database executor (reference, no ownership needed!)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use lifeguard::{LifeExecutor, migration::SchemaManager};
+    ///
+    /// fn example(executor: &dyn LifeExecutor) {
+    ///     let manager = SchemaManager::new(executor);
+    ///     // Use manager...
+    /// }
+    /// ```
+    pub fn new(executor: &'a dyn LifeExecutor) -> Self {
         Self { executor }
     }
     
@@ -175,8 +193,8 @@ impl SchemaManager {
     }
     
     /// Get a reference to the underlying executor
-    pub fn executor(&self) -> &dyn LifeExecutor {
-        self.executor.as_ref()
+    pub fn executor(&self) -> &'a dyn LifeExecutor {
+        self.executor
     }
     
     /// Create a table from a LifeModel entity

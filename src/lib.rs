@@ -113,5 +113,6 @@ pub use transaction::{Transaction, TransactionError, IsolationLevel};
 pub mod migration;
 pub use migration::{
     Migration, SchemaManager, MigrationError, MigrationRecord, MigrationStatus,
-    Migrator, MigrationLock, LockGuard, startup_migrations, startup_migrations_with_timeout,
+    Migrator, MigrationLockGuard, startup_migrations, startup_migrations_with_timeout,
+    acquire_migration_lock, release_migration_lock, is_migration_lock_held,
 };

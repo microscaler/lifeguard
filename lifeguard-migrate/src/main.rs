@@ -109,17 +109,17 @@ fn main() {
         }
     };
     
-    let executor: Box<dyn LifeExecutor> = Box::new(MayPostgresExecutor::new(client));
+    let executor = MayPostgresExecutor::new(client);
     let migrator = Migrator::new(&cli.migrations_dir);
     
-    // Execute command
+    // Execute command (executor is just a reference now - no Box needed!)
     let result = match cli.command {
-        Commands::Status => handle_status(&migrator, executor.as_ref()),
-        Commands::Up { steps, dry_run } => handle_up(&migrator, executor, steps, dry_run),
-        Commands::Down { steps, dry_run } => handle_down(&migrator, executor, steps, dry_run),
-        Commands::Validate => handle_validate(&migrator, executor.as_ref()),
+        Commands::Status => handle_status(&migrator, &executor),
+        Commands::Up { steps, dry_run } => handle_up(&migrator, &executor, steps, dry_run),
+        Commands::Down { steps, dry_run } => handle_down(&migrator, &executor, steps, dry_run),
+        Commands::Validate => handle_validate(&migrator, &executor),
         Commands::Generate { name } => handle_generate(&cli.migrations_dir, &name),
-        Commands::Info { version } => handle_info(&migrator, executor.as_ref(), version),
+        Commands::Info { version } => handle_info(&migrator, &executor, version),
     };
     
     match result {
@@ -178,12 +178,12 @@ fn handle_status(migrator: &Migrator, executor: &dyn LifeExecutor) -> Result<(),
 
 fn handle_up(
     migrator: &Migrator,
-    executor: Box<dyn LifeExecutor>,
+    executor: &dyn LifeExecutor,
     steps: Option<usize>,
     dry_run: bool,
 ) -> Result<(), MigrationError> {
     if dry_run {
-        let status = migrator.status(executor.as_ref())?;
+        let status = migrator.status(executor)?;
         if status.pending.is_empty() {
             println!("No pending migrations to apply");
             return Ok(());
@@ -211,12 +211,12 @@ fn handle_up(
 
 fn handle_down(
     migrator: &Migrator,
-    executor: Box<dyn LifeExecutor>,
+    executor: &dyn LifeExecutor,
     steps: usize,
     dry_run: bool,
 ) -> Result<(), MigrationError> {
     if dry_run {
-        let status = migrator.status(executor.as_ref())?;
+        let status = migrator.status(executor)?;
         if status.applied.is_empty() {
             println!("No applied migrations to rollback");
             return Ok(());

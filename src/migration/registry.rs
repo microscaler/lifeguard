@@ -106,23 +106,9 @@ pub fn is_registered(version: i64) -> Result<bool, MigrationError> {
 /// # Returns
 ///
 /// Returns `Ok(())` if execution succeeded, or an error otherwise
-/// Execute a migration by version
-///
-/// This is a helper that gets the migration and executes it.
-/// The migration must be registered first.
-///
-/// # Arguments
-///
-/// * `version` - The migration version
-/// * `manager` - The SchemaManager for executing DDL
-/// * `direction` - Whether to run `up()` or `down()`
-///
-/// # Returns
-///
-/// Returns `Ok(())` if execution succeeded, or an error otherwise
 pub fn execute_migration(
     version: i64,
-    manager: &crate::migration::SchemaManager,
+    manager: &crate::migration::SchemaManager<'_>,
     direction: MigrationDirection,
 ) -> Result<(), MigrationError> {
     

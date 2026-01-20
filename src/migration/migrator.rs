@@ -142,7 +142,7 @@ impl Migrator {
     pub fn up_with_lock(
         &self,
         executor: &dyn LifeExecutor,
-        manager: &SchemaManager,
+        manager: &SchemaManager<'_>,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
         // Get status (validates checksums)
@@ -209,15 +209,16 @@ impl Migrator {
     /// Returns the number of migrations applied, or an error if execution fails.
     pub fn up(
         &self,
-        executor: Box<dyn LifeExecutor>,
+        executor: &dyn LifeExecutor,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
-        // Acquire migration lock
-        let _lock = MigrationLock::acquire(executor, Some(60))
-            .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
+        use crate::migration::lock::MigrationLockGuard;
+        
+        // Acquire migration lock (Flyway-style: uses migration table itself)
+        let _lock = MigrationLockGuard::new(executor, Some(60))?;
         
         // Get status (validates checksums)
-        let status = self.status(_lock.executor())?;
+        let status = self.status(executor)?;
         
         if status.pending.is_empty() {
             return Ok(0);
@@ -229,21 +230,43 @@ impl Migrator {
             .take(migrations_to_apply)
             .collect::<Vec<_>>();
         
+        // Create SchemaManager with executor reference (no ownership needed!)
+        let manager = SchemaManager::new(executor);
+        
         // Execute each migration
-        // Note: We can't create SchemaManager from a reference, so we need a workaround
-        // The lock guard holds the executor, but SchemaManager needs ownership
-        // TODO: Refactor SchemaManager to work with references (add lifetime parameter)
-        // For now, this is a known limitation - migrations can't be executed with the current design
-        // when using lock guards. The infrastructure is in place, but the integration needs work.
-        //
-        // Workaround: We could change LockGuard to provide a way to get the executor as Box,
-        // but then we can't release the lock properly. The real solution is to refactor SchemaManager.
-        return Err(MigrationError::InvalidFormat(
-            "Migration execution with lock guard requires SchemaManager refactoring. \
-             SchemaManager needs executor ownership, but lock guard only provides a reference. \
-             This is a known limitation that needs to be addressed."
-                .to_string()
-        ));
+        let mut applied_count = 0;
+        
+        for pending_migration in pending {
+            let start = Instant::now();
+            
+            // Execute migration using the registry
+            // Note: The migration must be registered before execution
+            // This is typically done at application startup or via a build script
+            use crate::migration::registry::execute_migration;
+            use crate::migration::registry::MigrationDirection;
+            
+            execute_migration(
+                pending_migration.version,
+                &manager,
+                MigrationDirection::Up,
+            )?;
+            
+            // Record migration in state table
+            let execution_time = start.elapsed().as_millis() as i64;
+            let record = MigrationRecord::new(
+                pending_migration.version,
+                pending_migration.name.clone(),
+                pending_migration.checksum.clone(),
+                Utc::now(),
+                Some(execution_time),
+                true,
+            );
+            
+            Self::record_migration(executor, &record)?;
+            applied_count += 1;
+        }
+        
+        Ok(applied_count)
     }
     
     /// Rollback migrations (with lock already acquired)
@@ -298,7 +321,7 @@ impl Migrator {
     ///
     /// # Arguments
     ///
-    /// * `executor` - The database executor
+    /// * `executor` - The database executor (reference, no ownership needed!)
     /// * `steps` - Number of migrations to rollback (default: 1)
     ///
     /// # Returns
@@ -306,15 +329,16 @@ impl Migrator {
     /// Returns the number of migrations rolled back, or an error if execution fails.
     pub fn down(
         &self,
-        executor: Box<dyn LifeExecutor>,
+        executor: &dyn LifeExecutor,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
-        // Acquire migration lock
-        let _lock = MigrationLock::acquire(executor, Some(60))
-            .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
+        use crate::migration::lock::MigrationLockGuard;
+        
+        // Acquire migration lock (Flyway-style: uses migration table itself)
+        let _lock = MigrationLockGuard::new(executor, Some(60))?;
         
         // Get status
-        let status = self.status(_lock.executor())?;
+        let status = self.status(executor)?;
         
         if status.applied.is_empty() {
             return Ok(0);
@@ -331,21 +355,36 @@ impl Migrator {
         
         let rollback_count = migrations_to_rollback.len();
         
-        // Note: We can't create SchemaManager from a reference
-        // This is a known limitation that needs to be addressed
-        return Err(MigrationError::InvalidFormat(
-            "Migration rollback with lock guard requires SchemaManager refactoring. \
-             SchemaManager needs executor ownership, but lock guard only provides a reference. \
-             This is a known limitation that needs to be addressed."
-                .to_string()
-        ));
+        // Create SchemaManager with executor reference (no ownership needed!)
+        let manager = SchemaManager::new(executor);
+        
+        // Execute down() for each migration (in reverse order - newest first)
+        use crate::migration::registry::execute_migration;
+        use crate::migration::registry::MigrationDirection;
+        
+        for record in migrations_to_rollback {
+            // Execute rollback
+            execute_migration(
+                record.version,
+                &manager,
+                MigrationDirection::Down,
+            )?;
+            
+            // Remove from state table
+            Self::remove_migration_record(executor, record.version)?;
+        }
+        
+        Ok(rollback_count)
     }
     
     /// Query applied migrations from the state table
+    ///
+    /// Excludes the lock record (version = -1) from results.
     fn query_applied_migrations(executor: &dyn LifeExecutor) -> Result<Vec<MigrationRecord>, MigrationError> {
         let sql = r#"
             SELECT version, name, checksum, applied_at, execution_time_ms, success
             FROM lifeguard_migrations
+            WHERE version > 0
             ORDER BY version ASC
         "#;
         

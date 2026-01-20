@@ -1,7 +1,7 @@
 //! In-process migration execution helpers
 
-use crate::{LifeExecutor, LifeError};
-use crate::migration::{Migrator, MigrationError, MigrationLock, LockGuard};
+use crate::LifeExecutor;
+use crate::migration::{Migrator, MigrationError, lock::MigrationLockGuard};
 
 /// Run migrations on application startup
 ///
@@ -14,7 +14,7 @@ use crate::migration::{Migrator, MigrationError, MigrationLock, LockGuard};
 ///
 /// # Arguments
 ///
-/// * `executor` - The database executor (will be moved into LockGuard)
+/// * `executor` - The database executor (reference, no ownership needed!)
 /// * `migrations_dir` - Path to the migrations directory
 /// * `timeout_seconds` - Maximum time to wait for lock acquisition (default: 60)
 ///
@@ -27,7 +27,7 @@ use crate::migration::{Migrator, MigrationError, MigrationLock, LockGuard};
 ///
 /// # Behavior
 ///
-/// - **First process wins:** The first process to start acquires the lock and runs migrations
+/// - **First process wins:** The first process to insert lock record acquires the lock
 /// - **Other processes wait:** Other processes wait for the lock to be released (with timeout)
 /// - **Fail-fast:** If migrations fail, the application should not start
 ///
@@ -40,42 +40,40 @@ use crate::migration::{Migrator, MigrationError, MigrationLock, LockGuard};
 ///     let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")?;
 ///     let executor = MayPostgresExecutor::new(client);
 ///     
-///     // Run migrations on startup
-///     startup_migrations(Box::new(executor), "./migrations", None)?;
+///     // Run migrations on startup (executor is just a reference!)
+///     startup_migrations(&executor, "./migrations", None)?;
 ///     
 ///     // Continue with application startup...
 ///     Ok(())
 /// }
 /// ```
 pub fn startup_migrations(
-    executor: Box<dyn LifeExecutor>,
+    executor: &dyn LifeExecutor,
     migrations_dir: impl AsRef<std::path::Path>,
     timeout_seconds: Option<u64>,
 ) -> Result<(), MigrationError> {
-    // Acquire migration lock
+    // Acquire migration lock (Flyway-style: uses migration table itself)
     // This prevents concurrent execution in multi-instance deployments (e.g., Kubernetes)
-    let _lock = MigrationLock::acquire(executor, timeout_seconds)
-        .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
+    let _lock = MigrationLockGuard::new(executor, timeout_seconds)?;
     
     // Create migrator
     let migrator = Migrator::new(migrations_dir);
     
     // Validate checksums of already-applied migrations
     // This ensures migration files haven't been modified after deployment
-    migrator.validate_checksums(_lock.executor())?;
+    migrator.validate_checksums(executor)?;
     
-    // Apply pending migrations
-    // Note: We can't use up_with_lock because SchemaManager needs executor ownership
-    // but we only have a reference from the lock guard. This is a known design limitation.
-    // TODO: Refactor SchemaManager to accept &dyn LifeExecutor (with lifetime parameter)
-    // For now, migrations can be executed via the CLI tool or by calling up() directly
-    // (which acquires its own lock)
-    return Err(MigrationError::InvalidFormat(
-        "Migration execution with lock guard requires SchemaManager refactoring. \
-         SchemaManager needs executor ownership, but lock guard only provides a reference. \
-         Use Migrator::up() directly (which acquires its own lock) or the CLI tool instead."
-            .to_string()
-    ));
+    // Apply pending migrations (executor is just a reference - no ownership needed!)
+    let applied = migrator.up(executor, None)?;
+    
+    if applied > 0 {
+        log::info!("Applied {} migration(s) on startup", applied);
+    } else {
+        log::debug!("No pending migrations to apply");
+    }
+    
+    // Lock is automatically released when _lock is dropped
+    Ok(())
 }
 
 /// Run migrations with custom timeout and error handling
@@ -83,31 +81,25 @@ pub fn startup_migrations(
 /// Similar to `startup_migrations()`, but allows custom timeout and
 /// returns more detailed error information.
 pub fn startup_migrations_with_timeout(
-    executor: Box<dyn LifeExecutor>,
+    executor: &dyn LifeExecutor,
     migrations_dir: impl AsRef<std::path::Path>,
     timeout_seconds: u64,
 ) -> Result<usize, MigrationError> {
-    let _lock = MigrationLock::acquire(executor, Some(timeout_seconds))
-        .map_err(|e| MigrationError::LockTimeout(format!("{}", e)))?;
+    // Acquire migration lock (Flyway-style: uses migration table itself)
+    let _lock = MigrationLockGuard::new(executor, Some(timeout_seconds))?;
     
     let migrator = Migrator::new(migrations_dir);
-    migrator.validate_checksums(_lock.executor())?;
+    migrator.validate_checksums(executor)?;
     
-    // Apply pending migrations
-    // Note: We can't use up_with_lock because it requires SchemaManager which needs ownership
-    // For now, we'll release the lock and let up() acquire it again
-    // This is inefficient but works. TODO: Refactor to avoid double lock acquisition
-    drop(_lock); // Release lock so up() can acquire it
+    // Apply pending migrations (executor is just a reference - no ownership needed!)
+    let applied = migrator.up(executor, None)?;
     
-    // Re-acquire executor - we need to get it from somewhere
-    // Actually, we can't do this because we don't have the original executor anymore
-    // The lock guard consumed it.
-    //
-    // Real solution: Change the design. For now, return an error indicating this needs to be fixed
-    return Err(MigrationError::InvalidFormat(
-        "startup_migrations_with_timeout: Cannot execute migrations with current design. \
-         SchemaManager requires executor ownership, but lock guard only provides a reference. \
-         This needs to be refactored."
-            .to_string()
-    ));
+    if applied > 0 {
+        log::info!("Applied {} migration(s) on startup", applied);
+    } else {
+        log::debug!("No pending migrations to apply");
+    }
+    
+    // Lock is automatically released when _lock is dropped
+    Ok(applied)
 }
