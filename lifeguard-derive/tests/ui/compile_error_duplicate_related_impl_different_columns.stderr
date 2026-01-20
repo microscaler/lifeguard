@@ -12,13 +12,13 @@ error: Multiple relations target the same entity `PostEntity` with different col
        The macro would silently discard the second configuration, leading to incorrect queries.
 
        Solution: Use different target entities, or ensure all relations to the same entity use identical column configurations.
-   --> tests/ui/compile_error_duplicate_related_impl_different_columns.rs:132:5
+   --> tests/ui/compile_error_duplicate_related_impl_different_columns.rs:136:5
     |
-132 |     EditedPosts,
+136 |     EditedPosts,
     |     ^^^^^^^^^^^
 
 error[E0601]: `main` function not found in crate `$CRATE`
-   --> tests/ui/compile_error_duplicate_related_impl_different_columns.rs:133:2
+   --> tests/ui/compile_error_duplicate_related_impl_different_columns.rs:137:2
     |
-133 | }
+137 | }
     |  ^ consider adding a `main` function to `$DIR/tests/ui/compile_error_duplicate_related_impl_different_columns.rs`

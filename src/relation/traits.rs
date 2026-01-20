@@ -697,6 +697,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl LifeEntityName for TestEntity {
             fn table_name(&self) -> &'static str {
                 "test_entities"
@@ -740,13 +742,18 @@ mod tests {
         impl IdenStatic for TestColumn {
             fn as_str(&self) -> &'static str { "id" }
         }
+        
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl LifeEntityName for TestEntity {
             fn table_name(&self) -> &'static str { "test_entities" }
         }
+        
         impl LifeModelTrait for TestEntity {
             type Model = ();
             type Column = TestColumn;
         }
+        
         impl RelationTrait for TestEntity {}
         
         let entity = TestEntity;
@@ -813,6 +820,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         impl IdenStatic for PostColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -821,6 +830,8 @@ mod tests {
                 }
             }
         }
+        
+        crate::impl_column_def_helper_for_test!(PostColumn);
         
         impl LifeEntityName for UserEntity {
             fn table_name(&self) -> &'static str { "users" }
@@ -992,22 +1003,27 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestUserColumn);
+        
         impl Iden for TestUser {
             fn unquoted(&self) -> &str {
                 "users"
             }
+            
         }
         
         impl LifeEntityName for TestUser {
             fn table_name(&self) -> &'static str {
                 "users"
             }
+            
         }
         
         impl LifeModelTrait for TestUser {
             type Model = ();
             type Column = TestUserColumn;
         }
+        
         
         #[derive(Default, Copy, Clone)]
         struct TestPost;
@@ -1021,22 +1037,27 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestPostColumn);
+        
         impl Iden for TestPost {
             fn unquoted(&self) -> &str {
                 "posts"
             }
+            
         }
         
         impl LifeEntityName for TestPost {
             fn table_name(&self) -> &'static str {
                 "posts"
             }
+            
         }
         
         impl LifeModelTrait for TestPost {
             type Model = ();
             type Column = TestPostColumn;
         }
+        
         
         #[derive(Default, Copy, Clone)]
         struct TestComment;
@@ -1050,22 +1071,27 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestCommentColumn);
+        
         impl Iden for TestComment {
             fn unquoted(&self) -> &str {
                 "comments"
             }
+            
         }
         
         impl LifeEntityName for TestComment {
             fn table_name(&self) -> &'static str {
                 "comments"
             }
+            
         }
         
         impl LifeModelTrait for TestComment {
             type Model = ();
             type Column = TestCommentColumn;
         }
+        
         
         impl Linked<TestPost, TestComment> for TestUser {
             fn via() -> Vec<RelationDef> {
@@ -1182,6 +1208,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum PostColumn { Id, UserId }
         
@@ -1191,6 +1219,7 @@ mod tests {
                     PostColumn::Id => "id",
                     PostColumn::UserId => "user_id",
                 }
+                
             }
         }
         
@@ -1203,6 +1232,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(PostColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum CommentColumn { Id, PostId }
         
@@ -1212,6 +1243,7 @@ mod tests {
                     CommentColumn::Id => "id",
                     CommentColumn::PostId => "post_id",
                 }
+                
             }
         }
         
@@ -1224,17 +1256,21 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(CommentColumn);
+        
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
             fn get(&self, col: UserColumn) -> sea_query::Value {
                 match col {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
+                
             }
             fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
+            
             fn get_primary_key_identity(&self) -> Identity {
                 Identity::Unary("id".into())
             }
@@ -1388,6 +1424,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(UserColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum PostColumn { Id, UserId }
         
@@ -1409,6 +1447,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(PostColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum CommentColumn { Id, PostId }
         
@@ -1418,6 +1458,7 @@ mod tests {
                     CommentColumn::Id => "id",
                     CommentColumn::PostId => "post_id",
                 }
+                
             }
         }
         
@@ -1430,6 +1471,8 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(CommentColumn);
+        
         #[derive(Copy, Clone, Debug)]
         enum ReactionColumn { Id, CommentId }
         
@@ -1439,6 +1482,7 @@ mod tests {
                     ReactionColumn::Id => "id",
                     ReactionColumn::CommentId => "comment_id",
                 }
+                
             }
         }
         
@@ -1451,17 +1495,21 @@ mod tests {
             }
         }
         
+        crate::impl_column_def_helper_for_test!(ReactionColumn);
+        
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
             fn get(&self, col: UserColumn) -> sea_query::Value {
                 match col {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
+                
             }
             fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
+            
             fn get_primary_key_identity(&self) -> Identity {
                 Identity::Unary("id".into())
             }
@@ -1586,6 +1634,8 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(TestColumn);
+        
         impl sea_query::Iden for IntermediateEntity {
             fn unquoted(&self) -> &str { "intermediate" }
         }
@@ -1593,6 +1643,7 @@ mod tests {
         impl sea_query::Iden for TargetEntity {
             fn unquoted(&self) -> &str { "target" }
         }
+        
         
         impl LifeEntityName for IntermediateEntity {
             fn table_name(&self) -> &'static str { "intermediate" }
@@ -1609,10 +1660,13 @@ mod tests {
             fn as_str(&self) -> &'static str { "id" }
         }
         
+        crate::impl_column_def_helper_for_test!(IntermediateColumn);
+        
         impl LifeModelTrait for IntermediateEntity {
             type Model = ();
             type Column = IntermediateColumn;
         }
+        
         
         impl LifeEntityName for TargetEntity {
             fn table_name(&self) -> &'static str { "target" }
@@ -1625,14 +1679,18 @@ mod tests {
             fn unquoted(&self) -> &str { "id" }
         }
         
+        
         impl IdenStatic for TargetColumn {
             fn as_str(&self) -> &'static str { "id" }
         }
+        
+        crate::impl_column_def_helper_for_test!(TargetColumn);
         
         impl LifeModelTrait for TargetEntity {
             type Model = ();
             type Column = TargetColumn;
         }
+        
         
         impl ModelTrait for TestModel {
             type Entity = TestEntity;
@@ -1642,6 +1700,7 @@ mod tests {
             fn get_primary_key_identity(&self) -> Identity { Identity::Unary("id".into()) }
             fn get_primary_key_values(&self) -> Vec<sea_query::Value> { vec![] }
         }
+        
         
         impl super::Linked<IntermediateEntity, TargetEntity> for TestEntity {
             fn via() -> Vec<RelationDef> {

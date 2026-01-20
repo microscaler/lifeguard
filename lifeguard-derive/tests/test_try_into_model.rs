@@ -53,6 +53,7 @@ impl sea_query::IdenStatic for UserColumn {
         }
     }
 }
+lifeguard::impl_column_def_helper_for_test!(UserColumn);
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UserModel {

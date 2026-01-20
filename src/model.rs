@@ -306,6 +306,8 @@ mod tests {
         }
     }
 
+    crate::impl_column_def_helper_for_test!(TestColumn);
+
     #[derive(Copy, Clone, Debug, Default)]
     struct TestEntity;
 
@@ -627,6 +629,8 @@ mod get_by_column_name_tests {
         impl IdenStatic for TestColumn {
             fn as_str(&self) -> &'static str { "id" }
         }
+        
+        crate::impl_column_def_helper_for_test!(TestColumn);
         
         impl ModelTrait for TestModel {
             type Entity = TestEntity;

@@ -108,6 +108,8 @@ mod numeric_tests {
         }
     }
     
+    lifeguard::impl_column_def_helper_for_test!(Column);
+    
     // Manual Entity for numeric testing
     #[derive(Copy, Clone, Debug, Default)]
     pub struct Entity;
@@ -352,6 +354,8 @@ mod option_numeric_tests {
         }
     }
     
+    lifeguard::impl_column_def_helper_for_test!(Column);
+    
     // Manual Entity for Option numeric testing
     #[derive(Copy, Clone, Debug, Default)]
     pub struct Entity;
@@ -584,6 +588,8 @@ mod json_tests {
             }
         }
     }
+    
+    lifeguard::impl_column_def_helper_for_test!(Column);
     
     // Manual Entity for JSON testing
     #[derive(Copy, Clone, Debug, Default)]

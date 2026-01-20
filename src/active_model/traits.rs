@@ -493,6 +493,8 @@ mod tests {
         fn as_str(&self) -> &'static str { "id" }
     }
     
+    crate::impl_column_def_helper_for_test!(TestColumn);
+    
     #[derive(Copy, Clone, Debug, Default)]
     struct TestEntity;
     
