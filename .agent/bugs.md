@@ -125,6 +125,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-20-04: select_as Integration Uses Wrong Method to Get Column Definition](bugs/BUG-2026-01-20-04.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Silent failure - select_as expressions never used
 
+- [BUG-2026-01-20-05: Migration Lock Deadlock in startup_migrations](bugs/BUG-2026-01-20-05.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Deadlock / Timeout
+
 ---
 
 ## Open Bugs

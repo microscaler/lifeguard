@@ -63,8 +63,15 @@ pub fn startup_migrations(
     // This ensures migration files haven't been modified after deployment
     migrator.validate_checksums(executor)?;
     
+    // Create SchemaManager for migration execution
+    // Note: We use up_with_lock() instead of up() since we already hold the lock
+    // Calling up() would attempt to acquire the lock again, causing a deadlock
+    use crate::migration::SchemaManager;
+    let manager = SchemaManager::new(executor);
+    
     // Apply pending migrations (executor is just a reference - no ownership needed!)
-    let applied = migrator.up(executor, None)?;
+    // Use up_with_lock() since lock is already held by MigrationLockGuard
+    let applied = migrator.up_with_lock(executor, &manager, None)?;
     
     if applied > 0 {
         log::info!("Applied {} migration(s) on startup", applied);
@@ -91,8 +98,15 @@ pub fn startup_migrations_with_timeout(
     let migrator = Migrator::new(migrations_dir);
     migrator.validate_checksums(executor)?;
     
+    // Create SchemaManager for migration execution
+    // Note: We use up_with_lock() instead of up() since we already hold the lock
+    // Calling up() would attempt to acquire the lock again, causing a deadlock
+    use crate::migration::SchemaManager;
+    let manager = SchemaManager::new(executor);
+    
     // Apply pending migrations (executor is just a reference - no ownership needed!)
-    let applied = migrator.up(executor, None)?;
+    // Use up_with_lock() since lock is already held by MigrationLockGuard
+    let applied = migrator.up_with_lock(executor, &manager, None)?;
     
     if applied > 0 {
         log::info!("Applied {} migration(s) on startup", applied);
