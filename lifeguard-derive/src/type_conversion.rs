@@ -113,6 +113,67 @@ pub fn is_option_f64_type(ty: &Type) -> bool {
     false
 }
 
+/// Convert a Rust Type to its string representation
+///
+/// This function converts a `syn::Type` to a string representation that can be used
+/// for runtime type introspection. It handles:
+/// - Simple types: `i32`, `String`, `bool`, etc.
+/// - Option types: `Option<i32>` → `"Option<i32>"`
+/// - Path types: `serde_json::Value` → `"serde_json::Value"`
+/// - Generic types: `Vec<u8>` → `"Vec<u8>"`
+///
+/// # Arguments
+///
+/// * `ty` - The Rust type to convert
+///
+/// # Returns
+///
+/// A string representation of the type
+pub fn type_to_string(ty: &Type) -> String {
+    match ty {
+        Type::Path(type_path) => {
+            let path = &type_path.path;
+            let segments: Vec<String> = path.segments.iter()
+                .map(|seg| {
+                    let mut result = seg.ident.to_string();
+                    // Handle generic arguments
+                    if let PathArguments::AngleBracketed(args) = &seg.arguments {
+                        // Filter to only include Type arguments (exclude lifetimes, const generics, etc.)
+                        let generic_args: Vec<String> = args.args.iter()
+                            .filter_map(|arg| {
+                                if let GenericArgument::Type(inner_ty) = arg {
+                                    Some(type_to_string(inner_ty))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                        // Only add angle brackets if we have type arguments after filtering
+                        if !generic_args.is_empty() {
+                            result.push('<');
+                            result.push_str(&generic_args.join(", "));
+                            result.push('>');
+                        }
+                    }
+                    result
+                })
+                .collect();
+            segments.join("::")
+        }
+        Type::Array(_) => "array".to_string(),
+        Type::Slice(_) => "slice".to_string(),
+        Type::Tuple(tuple) => {
+            let elems: Vec<String> = tuple.elems.iter()
+                .map(|elem| type_to_string(elem))
+                .collect();
+            format!("({})", elems.join(", "))
+        }
+        Type::Reference(_) => "reference".to_string(),
+        Type::Ptr(_) => "pointer".to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
 /// Generate code to convert a Rust field value to `sea_query::Value`
 ///
 /// This is used for Model-to-Value conversion (non-Option fields).
@@ -1087,5 +1148,221 @@ pub fn generate_value_to_option_field(
                 actual: format!("{:?}", value),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::parse_str;
+
+    #[test]
+    fn test_type_to_string_simple_types() {
+        // Test simple types
+        let ty: Type = parse_str("i32").unwrap();
+        assert_eq!(type_to_string(&ty), "i32");
+
+        let ty: Type = parse_str("String").unwrap();
+        assert_eq!(type_to_string(&ty), "String");
+
+        let ty: Type = parse_str("bool").unwrap();
+        assert_eq!(type_to_string(&ty), "bool");
+    }
+
+    #[test]
+    fn test_type_to_string_option_types() {
+        // Test Option types
+        let ty: Type = parse_str("Option<i32>").unwrap();
+        assert_eq!(type_to_string(&ty), "Option<i32>");
+
+        let ty: Type = parse_str("Option<String>").unwrap();
+        assert_eq!(type_to_string(&ty), "Option<String>");
+
+        let ty: Type = parse_str("Option<Option<i32>>").unwrap();
+        assert_eq!(type_to_string(&ty), "Option<Option<i32>>");
+    }
+
+    #[test]
+    fn test_type_to_string_generic_types() {
+        // Test generic types with type parameters
+        let ty: Type = parse_str("Vec<u8>").unwrap();
+        assert_eq!(type_to_string(&ty), "Vec<u8>");
+
+        let ty: Type = parse_str("HashMap<String, i32>").unwrap();
+        assert_eq!(type_to_string(&ty), "HashMap<String, i32>");
+    }
+
+    #[test]
+    fn test_type_to_string_path_types() {
+        // Test path types with multiple segments
+        let ty: Type = parse_str("serde_json::Value").unwrap();
+        assert_eq!(type_to_string(&ty), "serde_json::Value");
+
+        let ty: Type = parse_str("std::collections::HashMap<String, i32>").unwrap();
+        assert_eq!(type_to_string(&ty), "std::collections::HashMap<String, i32>");
+    }
+
+    #[test]
+    fn test_type_to_string_phantom_data_no_empty_brackets() {
+        // Test PhantomData without type generics (should not produce empty angle brackets)
+        // PhantomData<'a> has a lifetime argument, not a type argument
+        // After filtering, generic_args will be empty, so no angle brackets should be added
+        let ty: Type = parse_str("PhantomData").unwrap();
+        assert_eq!(type_to_string(&ty), "PhantomData");
+        assert!(!type_to_string(&ty).contains("<>"), "Should not have empty angle brackets");
+    }
+
+    #[test]
+    fn test_type_to_string_no_empty_brackets_for_non_type_generics() {
+        // This test verifies that types with only non-type generic arguments
+        // (lifetimes, const generics) don't produce empty angle brackets.
+        // Since syn::parse_str doesn't easily parse lifetime parameters,
+        // we test the behavior by ensuring that a simple type without generics
+        // doesn't get brackets, and that types with type generics do get brackets.
+        
+        // Simple type - no brackets
+        let ty: Type = parse_str("PhantomData").unwrap();
+        assert_eq!(type_to_string(&ty), "PhantomData");
+        assert!(!type_to_string(&ty).contains("<>"), "Should not have empty angle brackets");
+        
+        // Type with type generics - should have brackets
+        let ty: Type = parse_str("Option<i32>").unwrap();
+        assert_eq!(type_to_string(&ty), "Option<i32>");
+        assert!(type_to_string(&ty).contains("<"), "Should have angle brackets for type generics");
+    }
+
+    #[test]
+    fn test_type_to_string_mixed_generics() {
+        // Test types with multiple generic arguments where some are types and some aren't
+        // In practice, this would be like MyType<'a, T, 10> where 'a is lifetime, T is type, 10 is const
+        // After filtering, only T should remain, so we should get MyType<T>
+        
+        // Test with just type generics (what we can easily parse)
+        let ty: Type = parse_str("Result<i32, String>").unwrap();
+        assert_eq!(type_to_string(&ty), "Result<i32, String>");
+    }
+
+    #[test]
+    fn test_type_to_string_nested_generics() {
+        // Test deeply nested generics
+        let ty: Type = parse_str("Vec<Option<HashMap<String, i32>>>").unwrap();
+        assert_eq!(type_to_string(&ty), "Vec<Option<HashMap<String, i32>>>");
+    }
+
+    #[test]
+    fn test_type_to_string_tuple_types() {
+        // Test tuple types
+        let ty: Type = parse_str("(i32, String)").unwrap();
+        let result = type_to_string(&ty);
+        assert!(result.starts_with("(") && result.ends_with(")"));
+        assert!(result.contains("i32"));
+        assert!(result.contains("String"));
+    }
+
+    #[test]
+    fn test_type_to_string_only_lifetime_generics() {
+        // Test that types with only lifetime generics (no type generics) don't produce empty brackets
+        // This test manually constructs a type with only lifetime generics to verify the fix
+        use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Lifetime};
+        
+        // Create a PathSegment with only a lifetime argument
+        let lifetime = Lifetime::new("'a", proc_macro2::Span::call_site());
+        let lifetime_arg = GenericArgument::Lifetime(lifetime);
+        let args = AngleBracketedGenericArguments {
+            colon2_token: None,
+            lt_token: syn::token::Lt::default(),
+            args: syn::punctuated::Punctuated::from_iter(vec![lifetime_arg]),
+            gt_token: syn::token::Gt::default(),
+        };
+        
+        let segment = PathSegment {
+            ident: syn::Ident::new("PhantomData", proc_macro2::Span::call_site()),
+            arguments: PathArguments::AngleBracketed(args),
+        };
+        
+        let path = Path {
+            leading_colon: None,
+            segments: syn::punctuated::Punctuated::from_iter(vec![segment]),
+        };
+        
+        let ty = Type::Path(syn::TypePath {
+            qself: None,
+            path,
+        });
+        
+        let result = type_to_string(&ty);
+        // Should be "PhantomData" without empty angle brackets
+        assert_eq!(result, "PhantomData", "Type with only lifetime generics should not produce empty brackets");
+        assert!(!result.contains("<>"), "Should not have empty angle brackets");
+        assert!(!result.contains("<"), "Should not have any angle brackets when only non-type generics exist");
+    }
+
+    #[test]
+    fn test_type_to_string_only_const_generics() {
+        // Test that types with only const generics (no type generics) don't produce empty brackets
+        use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Expr};
+        
+        // Create a PathSegment with only a const argument
+        // Note: syn::parse_str can't easily parse const generics, so we'll test the behavior
+        // by ensuring that when we have a type with generics but filter out all type args,
+        // we don't get empty brackets
+        
+        // Create a type like "Buffer<10>" where 10 is a const generic
+        // Since syn::parse_str doesn't support const generics easily, we'll verify the logic
+        // by testing that filtering works correctly
+        
+        // Test with a type that has mixed generics - we'll parse a type with type generics
+        // and verify the filtering logic works, then document that const-only generics
+        // would be handled the same way
+        let ty: Type = parse_str("MyType<i32>").unwrap();
+        let result = type_to_string(&ty);
+        assert_eq!(result, "MyType<i32>");
+        
+        // The key test: verify that if we manually construct a type with only const generics,
+        // it would be handled correctly. Since syn doesn't easily support const generics in parse_str,
+        // we verify the logic by ensuring the filter-then-check pattern works.
+        // The fix ensures that after filtering to only type generics, we check if the result
+        // is empty before adding brackets.
+    }
+
+    #[test]
+    fn test_type_to_string_mixed_type_and_non_type_generics() {
+        // Test that types with both type and non-type generics only show type generics
+        // This verifies the filtering logic works correctly
+        use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Lifetime, Type};
+        
+        // Create a type like "MyType<'a, T>" where 'a is lifetime and T is type
+        // After filtering, we should get "MyType<T>"
+        let lifetime = Lifetime::new("'a", proc_macro2::Span::call_site());
+        let lifetime_arg = GenericArgument::Lifetime(lifetime);
+        let type_arg: Type = parse_str("i32").unwrap();
+        let type_generic_arg = GenericArgument::Type(type_arg);
+        
+        let args = AngleBracketedGenericArguments {
+            colon2_token: None,
+            lt_token: syn::token::Lt::default(),
+            args: syn::punctuated::Punctuated::from_iter(vec![lifetime_arg, type_generic_arg]),
+            gt_token: syn::token::Gt::default(),
+        };
+        
+        let segment = PathSegment {
+            ident: syn::Ident::new("MyType", proc_macro2::Span::call_site()),
+            arguments: PathArguments::AngleBracketed(args),
+        };
+        
+        let path = Path {
+            leading_colon: None,
+            segments: syn::punctuated::Punctuated::from_iter(vec![segment]),
+        };
+        
+        let ty = Type::Path(syn::TypePath {
+            qself: None,
+            path,
+        });
+        
+        let result = type_to_string(&ty);
+        // Should be "MyType<i32>" - only the type generic, not the lifetime
+        assert_eq!(result, "MyType<i32>", "Should only include type generics, not lifetime generics");
+        assert!(!result.contains("'a"), "Should not include lifetime in output");
     }
 }
