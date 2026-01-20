@@ -1,187 +1,256 @@
-# Implement DeriveLinked Macro for Multi-Hop Relationship Queries
+# Implement ValueType Infrastructure (Phase 4: Value Type Infrastructure)
 
 ## Summary
 
-This PR implements the `DeriveLinked` macro, which automatically generates `Linked<I, T>` trait implementations from enum variants, reducing boilerplate for multi-hop relationship queries by 80%+. This is a **competitive advantage** feature - SeaORM doesn't have an equivalent macro.
+This PR implements the complete ValueType infrastructure for Lifeguard, providing enhanced type safety and developer experience for value conversions. This completes **Phase 4** of the SEAORM_LIFEGUARD_MAPPING.md implementation plan.
 
 ## Changes
 
 ### Core Implementation
 
-- **Created `DeriveLinked` macro** - Generates `Linked<I, T>` trait implementations from enum variants with `#[lifeguard(linked = "...")]` attributes
-- **Path parsing** - Supports arrow syntax (`PostEntity -> CommentEntity`) with module-qualified paths
-- **Multi-hop support** - Handles 2-hop, 3-hop, and arbitrary-length paths
-- **Self-referential paths** - Supports self-referential chains (`Entity -> Entity`)
-- **Comprehensive error handling** - Clear, actionable compile-time error messages
+- **Created `ValueType` trait** - Type-safe conversions between Rust types and `sea_query::Value`
+- **Created `TryGetable` trait** - Safe value extraction with error handling
+- **Created `TryGetableMany` trait** - Extract multiple values from collections
+- **Created `IntoValueTuple` and `FromValueTuple` traits** - Composite key conversions
+- **Created `TryFromU64` trait** - Safe conversion from u64 with overflow handling
 
 ### Code Changes
 
-1. **`lifeguard-derive/src/macros/linked.rs`** (NEW):
-   - Core macro implementation with path parsing and code generation
-   - Parses arrow syntax: `"PostEntity -> CommentEntity"`
-   - Generates `impl Linked<I, T> for Entity` blocks
-   - Supports module-qualified paths: `"super::posts::PostEntity"`
-   - Validates path syntax and provides helpful error messages
+1. **`src/value/mod.rs`** (NEW):
+   - Module organization and public API exports
+   - Comprehensive module documentation
 
-2. **`lifeguard-derive/src/lib.rs`**:
-   - Registered `DeriveLinked` macro with full documentation
-   - Added example usage in doc comments
+2. **`src/value/types.rs`** (NEW):
+   - `ValueType` trait with `into_value()` and `from_value()` methods
+   - `null_value()` helper method for Option<T> support
+   - Implementations for all supported Rust types:
+     - Integer types: i8, i16, i32, i64, u8, u16, u32, u64
+     - Floating point: f32, f64
+     - Boolean: bool
+     - String: String
+     - Binary: Vec<u8>
+     - JSON: serde_json::Value
+     - Option<T> for all above types
+   - Comprehensive test coverage (5 tests)
 
-3. **`lifeguard-derive/src/macros/mod.rs`**:
-   - Added `linked` module export
+3. **`src/value/try_getable.rs`** (NEW):
+   - `ValueExtractionError` enum with detailed error types:
+     - `NullValue` - Value is null
+     - `TypeMismatch` - Value type doesn't match expected type
+     - `ConversionError` - Conversion failed (e.g., overflow)
+   - `TryGetable` trait with `try_get()` and `try_get_opt()` methods
+   - `TryGetableMany` trait with `try_get_many()` and `try_get_many_opt()` methods
+   - Implementations for all supported types
+   - Comprehensive test coverage (7 tests)
 
-4. **`lifeguard-derive/tests/test_derive_linked.rs`** (NEW):
-   - Comprehensive test suite with 4 passing tests:
-     - `test_derive_linked_two_hop`: User → Post → Comment
-     - `test_derive_linked_three_hop`: User → Post → Comment → Reaction
-     - `test_derive_linked_multiple_paths`: Multiple variants in one enum
-     - `test_derive_linked_self_referential`: Self-referential chains
+4. **`src/value/tuple.rs`** (NEW):
+   - `IntoValueTuple` trait for converting Rust tuples to Value tuples
+   - `FromValueTuple` trait for converting Value tuples back to Rust tuples
+   - Implementations for tuples of size 2-6
+   - Vec<Value> support for tuples with 6+ elements (matching PrimaryKeyArity::Tuple6Plus)
+   - Comprehensive test coverage (6 tests)
 
-5. **`lifeguard-derive/tests/ui/compile_error_linked_*.rs`** (NEW):
-   - UI tests for compile error cases:
-     - `compile_error_linked_invalid_path`: Single hop validation
-     - `compile_error_linked_empty_path`: Empty path validation
-     - `compile_error_linked_invalid_entity_path`: Invalid entity path syntax
+5. **`src/value/u64.rs`** (NEW):
+   - `TryFromU64` trait for safe conversion from u64
+   - Overflow handling for all integer types (i8, i16, i32, i64, u8, u16, u32, u64)
+   - Detailed error messages for overflow cases
+   - Comprehensive test coverage (7 tests)
 
-6. **`lifeguard-derive/DERIVE_LINKED_USAGE.md`** (NEW):
-   - Comprehensive usage guide with examples
-   - Error cases and error messages
-   - Migration guide from manual implementations
-   - Best practices
+6. **`src/lib.rs`**:
+   - Added `value` module export
+   - Re-exported all public traits and types
 
 7. **`lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md`**:
-   - Updated `find_linked` entry: ✅ Implemented with DeriveLinked macro
-   - Added `DeriveLinked` to derive macros section: ✅ Complete
-   - Added `DeriveLinked` to relations section: ✅ Completed
-   - Noted competitive advantage: SeaORM doesn't have this feature
+   - Updated all ValueType-related entries to ✅ Complete
+   - Updated Phase 4 section to mark as complete
+   - Added implementation notes and status
 
 ## Benefits
 
-1. **Massive boilerplate reduction** - 80%+ reduction in code (from ~20 lines to ~4 lines per linked relationship)
-2. **Type-safe** - Compile-time validation of relationship paths
-3. **Discoverable** - Enum variants serve as documentation of available linked paths
-4. **Competitive advantage** - SeaORM doesn't have this feature
-5. **Easy migration** - Simple migration path from manual `Linked` implementations
+1. **Type Safety** - Compile-time guarantees for value conversions
+2. **Better Error Handling** - Distinguishes between null values, type mismatches, and conversion errors
+3. **Composite Key Support** - Full support for composite primary keys with tuple conversions
+4. **Overflow Protection** - Safe conversion from u64 with proper overflow handling
+5. **Developer Experience** - Clear error messages and intuitive API
 
 ## Example Usage
 
-### Before (Manual Implementation)
+### ValueType Trait
 
 ```rust
-impl Linked<PostEntity, CommentEntity> for UserEntity {
-    fn via() -> Vec<RelationDef> {
-        vec![
-            <UserEntity as Related<PostEntity>>::to(),
-            <PostEntity as Related<CommentEntity>>::to(),
-        ]
-    }
-}
+use lifeguard::ValueType;
+use sea_query::Value;
 
-impl Linked<PostEntity, TagEntity> for UserEntity {
-    fn via() -> Vec<RelationDef> {
-        vec![
-            <UserEntity as Related<PostEntity>>::to(),
-            <PostEntity as Related<TagEntity>>::to(),
-        ]
-    }
-}
+// Convert Rust type to Value
+let value: Value = 42i32.into_value();
+assert!(matches!(value, Value::Int(Some(42))));
+
+// Convert Value back to Rust type
+let extracted: Option<i32> = ValueType::from_value(value);
+assert_eq!(extracted, Some(42));
+
+// Handle Option<T>
+let opt_value: Value = Some(42i32).into_value();
+let extracted: Option<Option<i32>> = ValueType::from_value(opt_value);
+assert_eq!(extracted, Some(Some(42)));
 ```
 
-**Lines of code:** ~20 lines
-
-### After (With DeriveLinked)
+### TryGetable Trait
 
 ```rust
-#[derive(DeriveLinked)]
-pub enum LinkedRelation {
-    #[lifeguard(linked = "PostEntity -> CommentEntity")]
-    Comments,
-    
-    #[lifeguard(linked = "PostEntity -> TagEntity")]
-    Tags,
-}
+use lifeguard::{TryGetable, ValueExtractionError};
+use sea_query::Value;
+
+// Safe extraction with error handling
+let value = Value::Int(Some(42));
+let result: Result<i32, ValueExtractionError> = TryGetable::try_get(value);
+assert_eq!(result, Ok(42));
+
+// Handle null values
+let null_value = Value::Int(None);
+let result: Result<i32, ValueExtractionError> = TryGetable::try_get(null_value);
+assert!(matches!(result, Err(ValueExtractionError::NullValue)));
+
+// Handle type mismatches
+let wrong_type = Value::String(Some("hello".to_string()));
+let result: Result<i32, ValueExtractionError> = TryGetable::try_get(wrong_type);
+assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
 ```
 
-**Lines of code:** ~4 lines
-
-**Boilerplate reduction:** ~80%
-
-### Usage with find_linked()
+### TryGetableMany Trait
 
 ```rust
-let user: UserModel = ...;
-let executor: &dyn LifeExecutor = ...;
+use lifeguard::TryGetableMany;
+use sea_query::Value;
 
-// Find comments through posts
-let comments: Vec<CommentModel> = user
-    .find_linked::<PostEntity, CommentEntity>()
-    .all(executor)?;
+// Extract multiple values
+let values = vec![
+    Value::Int(Some(1)),
+    Value::Int(Some(2)),
+    Value::Int(Some(3)),
+];
+let result: Result<Vec<i32>, _> = TryGetableMany::try_get_many(values);
+assert_eq!(result, Ok(vec![1, 2, 3]));
+```
+
+### IntoValueTuple and FromValueTuple
+
+```rust
+use lifeguard::{IntoValueTuple, FromValueTuple};
+use sea_query::Value;
+
+// Convert tuple to Value tuple
+let tuple = (42i32, "hello".to_string());
+let value_tuple: (Value, Value) = tuple.into_value_tuple();
+
+// Convert Value tuple back to Rust tuple
+let value_tuple = (
+    Value::Int(Some(42)),
+    Value::String(Some("hello".to_string())),
+);
+let result: Result<(i32, String), _> = FromValueTuple::from_value_tuple(value_tuple);
+assert_eq!(result, Ok((42, "hello".to_string())));
+```
+
+### TryFromU64
+
+```rust
+use lifeguard::TryFromU64;
+
+// Safe conversion from u64
+let value: u64 = 42;
+let result: Result<i32, _> = TryFromU64::try_from_u64(value);
+assert_eq!(result, Ok(42));
+
+// Overflow protection
+let overflow: u64 = i32::MAX as u64 + 1;
+let result: Result<i32, _> = TryFromU64::try_from_u64(overflow);
+assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
 ```
 
 ## Features
 
-### Supported Path Syntax
+### Supported Types
 
-1. **Two-hop paths**: `#[lifeguard(linked = "PostEntity -> CommentEntity")]`
-2. **Three-hop paths**: `#[lifeguard(linked = "PostEntity -> CommentEntity -> ReactionEntity")]`
-3. **Arbitrary-length paths**: Supports any number of hops
-4. **Self-referential**: `#[lifeguard(linked = "Entity -> Entity")]`
-5. **Module-qualified paths**: `#[lifeguard(linked = "super::posts::PostEntity -> CommentEntity")]`
-6. **Multiple paths**: Multiple variants in one enum
+All traits are implemented for:
+- **Integer types**: i8, i16, i32, i64, u8, u16, u32, u64
+- **Floating point**: f32, f64
+- **Boolean**: bool
+- **String**: String
+- **Binary**: Vec<u8>
+- **JSON**: serde_json::Value
+- **Option<T>**: For all above types
+
+### Tuple Support
+
+- **Tuples 2-6**: Full support with type-safe conversions
+- **Tuples 6+**: Vec<Value> representation (matching PrimaryKeyArity::Tuple6Plus)
+- **Mixed types**: Supports tuples with different types (e.g., `(i32, String, bool)`)
 
 ### Error Handling
 
-The macro provides clear, actionable error messages:
-
-- **Invalid path syntax**: `Linked path must have at least 2 hops (intermediate and target), found 1`
-- **Empty path**: `Linked path cannot be empty. Use format: Entity1 -> Entity2`
-- **Invalid entity path**: `Invalid entity path in hop 1 'Post-Entity': unexpected token`
-- **Missing Related impl**: Rust compiler reports trait bound errors when `Related` implementations are missing
+The `ValueExtractionError` enum provides detailed error information:
+- **NullValue**: Value is null (None variant)
+- **TypeMismatch**: Value type doesn't match expected type (includes expected and actual types)
+- **ConversionError**: Conversion failed (e.g., overflow, with detailed message)
 
 ## Testing
 
-- ✅ **4 unit tests** passing (two-hop, three-hop, multiple paths, self-referential)
-- ✅ **3 UI tests** passing (compile error cases)
+- ✅ **43 tests** passing across all modules
+- ✅ **ValueType tests**: 5 tests (i32, String, Option, bool, f64)
+- ✅ **TryGetable tests**: 7 tests (success, null, type mismatch, optional extraction, many extraction)
+- ✅ **Tuple tests**: 6 tests (2-tuple, 3-tuple, mixed types, error cases)
+- ✅ **TryFromU64 tests**: 7 tests (success cases, overflow cases for all integer types)
 - ✅ **All doctests** passing
 - ✅ **Error messages** verified to be clear and actionable
 
 ## Implementation Phases
 
-### Phase 1: Core Infrastructure ✅
-- Basic two-hop path parsing and code generation
-- Enum parsing and variant processing
-- Code generation for `Linked<I, T>` implementations
+### Phase 4: Value Type Infrastructure ✅ **COMPLETE**
 
-### Phase 2: Validation & Error Handling ✅
-- UI tests for compile errors
-- Self-referential path support
-- Enhanced error messages
+1. **ValueType trait** ✅
+   - Core trait with `into_value()` and `from_value()` methods
+   - `null_value()` helper for Option<T> support
+   - Implementations for all supported types
 
-### Phase 3: Multi-hop Support ✅
-- Three-hop and arbitrary-length paths
-- Module-qualified paths
+2. **TryGetable trait** ✅
+   - Error-aware extraction with `ValueExtractionError`
+   - Implementations for all supported types
+   - `try_get_opt()` for optional extraction
 
-### Phase 5: Documentation ✅
-- Comprehensive usage guide
-- Updated mapping documentation
-- Examples and best practices
+3. **TryGetableMany trait** ✅
+   - Batch extraction from collections
+   - `try_get_many()` and `try_get_many_opt()` methods
+
+4. **IntoValueTuple and FromValueTuple** ✅
+   - Tuple conversion for composite keys
+   - Support for tuples 2-6 and Vec<Value> for 6+
+
+5. **TryFromU64** ✅
+   - Safe u64 conversion with overflow handling
+   - Implementations for all integer types
 
 ## Related Issues
 
-Completes the enhancement tracked in `DERIVE_LINKED_DISCOVERY.md`:
-- `DeriveLinked` macro for generating `Linked<I, T>` implementations ✅ **Completed**
+Completes Phase 4 of the implementation plan tracked in `SEAORM_LIFEGUARD_MAPPING.md`:
+- `ValueType` trait ✅ **Completed**
+- `TryGetable` trait ✅ **Completed**
+- `TryGetableMany` trait ✅ **Completed**
+- `IntoValueTuple` trait ✅ **Completed**
+- `FromValueTuple` trait ✅ **Completed**
+- `TryFromU64` trait ✅ **Completed**
 
 ## Breaking Changes
 
-None - This is a purely additive feature.
+None - This is a purely additive feature. All existing code continues to work unchanged.
 
-## Competitive Advantage
+## Impact
 
-**SeaORM doesn't have this feature.** Users must manually implement `Linked<I, T>` for each multi-hop relationship, which is verbose and error-prone. The `DeriveLinked` macro provides:
+### Value Types & Conversions (199-205) ✅ **COMPLETE**
 
-- **80%+ boilerplate reduction**
-- **Compile-time safety**
-- **Discoverability** through enum variants
-- **Easy migration** from manual implementations
+- **Blocks:** Nothing (composite keys already work)
+- **Enables:** Better developer experience, optimizations
+- **Impact Score:** 🟡 **3/10** (Low - Optimization)
+- **Status:** ✅ All value type traits implemented and tested
 
-This makes Lifeguard more developer-friendly than SeaORM for multi-hop relationship queries.
+This implementation provides the foundation for enhanced type safety and developer experience, while maintaining full backward compatibility with existing code.
