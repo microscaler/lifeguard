@@ -352,7 +352,7 @@ impl Migration for Migration {{
         {}
     }}
     
-    fn up(&self, manager: &SchemaManager) -> Result<(), LifeError> {{
+    fn up(&self, manager: &SchemaManager<'_>) -> Result<(), LifeError> {{
         // TODO: Implement migration logic
         // Example:
         // let table = Table::create()
@@ -363,7 +363,7 @@ impl Migration for Migration {{
         Ok(())
     }}
     
-    fn down(&self, manager: &SchemaManager) -> Result<(), LifeError> {{
+    fn down(&self, manager: &SchemaManager<'_>) -> Result<(), LifeError> {{
         // TODO: Implement rollback logic
         // Example:
         // let table = Table::drop().table("example").to_owned();
@@ -709,7 +709,7 @@ mod tests {
                 .map(|e| e.unwrap().file_name())
                 .collect();
             // Should have 2 files now (original + new)
-            assert!(files.len() >= 1, "Should have at least the original file");
+            assert_eq!(files.len(), 2, "Should have exactly 2 files (original + new)");
         }
     }
 

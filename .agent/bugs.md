@@ -137,6 +137,12 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-20-08: Name-Value Attributes Not Parsed in parse_column_attributes](bugs/BUG-2026-01-20-08.md)  
   **Status:** ✅ FIXED | **Priority:** Critical | **Severity:** Silent failure - All name-value attributes return None, breaking SQL generation
 
+- [BUG-2026-01-20-09: Incorrect File Count Assertion in test_handle_generate_fails_when_file_exists](bugs/BUG-2026-01-20-09.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Test correctness - Test would pass even when second file isn't created
+
+- [BUG-2026-01-21-01: Migration Template Method Signatures Don't Match Migration Trait](bugs/BUG-2026-01-21-01.md)  
+  **Status:** ✅ FIXED | **Priority:** Critical | **Severity:** Compilation error - Generated migration files fail to compile
+
 ---
 
 ## Open Bugs
