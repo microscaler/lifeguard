@@ -83,7 +83,15 @@ fn test_chart_of_accounts_sql_generation() {
     println!("Column definitions:");
     for col in columns {
         let col_def = col.def();
-        println!("  {}: column_type={:?}, nullable={}", col.as_str(), col_def.column_type, col_def.nullable);
+        println!("  {}: column_type={:?}, nullable={}, default_value={:?}, default_expr={:?}, unique={}, foreign_key={:?}", 
+            col.as_str(), 
+            col_def.column_type, 
+            col_def.nullable,
+            col_def.default_value,
+            col_def.default_expr,
+            col_def.unique,
+            col_def.foreign_key
+        );
     }
     
     // Generate SQL
