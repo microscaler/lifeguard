@@ -937,25 +937,134 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
         // Generate FromRow field extraction
         let column_name_str = column_name.as_str();
+        
+        // Determine nullability from Option<T> or #[nullable] attribute
+        let is_nullable = col_attrs.is_nullable || extract_option_inner_type(field_type).is_some();
+        
         let get_expr = {
-            // Handle unsigned integer types
-            let is_unsigned = match field_type {
+            // Check for special types that need custom handling
+            // First, extract the inner type if it's Option<T>
+            let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
+            
+            // Get type name string for comparison
+            let type_name = match inner_type {
                 syn::Type::Path(syn::TypePath {
                     path: syn::Path { segments, .. },
                     ..
                 }) => {
-                    if let Some(segment) = segments.first() {
-                        let ident_str = segment.ident.to_string();
-                        matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
-                    } else {
-                        false
+                    // Get full type path (e.g., "uuid::Uuid", "chrono::NaiveDateTime")
+                    let mut path_parts = Vec::new();
+                    for segment in segments {
+                        path_parts.push(segment.ident.to_string());
+                    }
+                    path_parts.join("::")
+                }
+                _ => String::new(),
+            };
+            
+            // Check if this is uuid::Uuid or chrono::NaiveDateTime
+            let (is_uuid, is_naive_datetime) = match inner_type {
+                syn::Type::Path(syn::TypePath {
+                    path: syn::Path { segments, .. },
+                    ..
+                }) => {
+                    let last_seg = segments.last().map(|s| s.ident.to_string());
+                    let is_uuid = last_seg.as_ref().map(|s| s == "Uuid").unwrap_or(false) ||
+                                  type_name.contains("Uuid");
+                    let is_naive_datetime = last_seg.as_ref().map(|s| s == "NaiveDateTime").unwrap_or(false) ||
+                                           type_name.contains("NaiveDateTime");
+                    (is_uuid, is_naive_datetime)
+                }
+                _ => (false, false),
+            };
+            
+            // Handle uuid::Uuid - get as string and parse
+            // Note: We avoid using ? operator here to help with type inference
+            if is_uuid {
+                if is_nullable {
+                    quote! {
+                        {
+                            let uuid_str: Option<String> = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            match uuid_str {
+                                None => None,
+                                Some(s) => {
+                                    match uuid::Uuid::parse_str(&s) {
+                                        Ok(u) => Some(u),
+                                        Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    quote! {
+                        {
+                            let uuid_str: String = row.get(#column_name_str)?;
+                            uuid::Uuid::parse_str(&uuid_str)
+                                .map_err(|_| may_postgres::Error::__private_api_timeout())?
+                        }
                     }
                 }
-                _ => false,
-            };
+            }
+            // Handle chrono::NaiveDateTime - get as string and parse
+            else if is_naive_datetime {
+                if is_nullable {
+                    quote! {
+                        {
+                            let dt_str: Option<String> = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            match dt_str {
+                                None => None,
+                                Some(s) => {
+                                    let dt = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.f")
+                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S"))
+                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f"))
+                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S"));
+                                    match dt {
+                                        Ok(d) => Some(d),
+                                        Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    quote! {
+                        {
+                            let dt_str: String = row.get(#column_name_str)?;
+                            chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S%.f")
+                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S"))
+                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S%.f"))
+                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S"))
+                                .map_err(|_| may_postgres::Error::__private_api_timeout())?
+                        }
+                    }
+                }
+            }
+            // Handle unsigned integer types
+            else {
+                let is_unsigned = match field_type {
+                    syn::Type::Path(syn::TypePath {
+                        path: syn::Path { segments, .. },
+                        ..
+                    }) => {
+                        if let Some(segment) = segments.first() {
+                            let ident_str = segment.ident.to_string();
+                            matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                };
 
-            if is_unsigned {
-                let signed_type = match field_type {
+                if is_unsigned {
+                    let signed_type = match field_type {
                     syn::Type::Path(syn::TypePath {
                         path: syn::Path { segments, .. },
                         ..
@@ -974,15 +1083,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     _ => quote! { i32 },
                 };
 
-                quote! {
-                    {
-                        let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
-                        val as #field_type
+                    quote! {
+                        {
+                            let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
+                            val as #field_type
+                        }
                     }
-                }
-            } else {
-                quote! {
-                    row.try_get::<&str, #field_type>(#column_name_str)?
+                } else {
+                    quote! {
+                        row.try_get::<&str, #field_type>(#column_name_str)?
+                    }
                 }
             }
         };

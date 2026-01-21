@@ -21,6 +21,10 @@ resolver = "2"
 name = "query_builder"
 path = "examples/query_builder_example.rs"
 
+[[example]]
+name = "test_sql_generation"
+path = "examples/test_sql_generation.rs"
+
 
 [dependencies]
 # Coroutine runtime

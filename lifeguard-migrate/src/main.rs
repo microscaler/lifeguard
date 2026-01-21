@@ -3,6 +3,9 @@
 //! Command-line interface for managing database migrations in Lifeguard applications.
 //! Supports both CLI execution and integration with CI/CD pipelines.
 
+// Re-export from library
+pub use lifeguard_migrate::sql_generator;
+
 use clap::{Parser, Subcommand};
 use lifeguard::{connect, MayPostgresExecutor, LifeExecutor};
 use lifeguard::migration::{Migrator, MigrationError};
