@@ -483,3 +483,189 @@ if registry_not_found() {
 **NO FALLBACK**: The tool must fail if compiled entities cannot be accessed. There is no fallback mechanism. This ensures production safety and prevents schema drift.
 
 Since users always have Lifeguard as a dependency and their entities are already compiled as part of their project, we must leverage that compilation context to ensure migrations match exactly what the application uses.
+
+---
+
+## Entity Registry Implementation Details
+
+### Overview
+
+This section details the technical implementation of the registry-based approach for the migration tool. The registry allows the CLI tool to access compiled entities without hardcoding them.
+
+### Technical Challenge
+
+Proc-macros in Rust run in isolation and cannot easily share state across compilation units. Each macro expansion is independent. We need a mechanism to collect all entities during compilation and make them accessible to the CLI tool.
+
+### Solution: Build Script + Entity Discovery
+
+**Hybrid Approach**: Combine build script entity discovery with generated registry module.
+
+### Architecture
+
+1. **Build Script**: Scans source directories for entities
+2. **Registry Generation**: Creates registry module with entity includes
+3. **Registry Module**: Contains all entities accessible via `LifeModelTrait`
+4. **CLI Tool**: Loads registry and uses compiled entities
+
+### Implementation Strategy
+
+#### Phase 1: Entity Discovery
+
+Build script (`build.rs`) scans user's source directory for entities:
+
+```rust
+// In user's build.rs
+use lifeguard_migrate::build_script;
+
+fn main() {
+    let source_dir = std::path::Path::new("src");
+    let entities = build_script::discover_entities(source_dir)?;
+    
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let registry_path = std::path::Path::new(&out_dir).join("entity_registry.rs");
+    
+    build_script::generate_registry_module(&entities, &registry_path)?;
+    
+    // Tell Cargo to include the generated file
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rustc-env=ENTITY_REGISTRY_PATH={}", registry_path.display());
+}
+```
+
+#### Phase 2: Entity Discovery Algorithm
+
+The `discover_entities()` function:
+1. Recursively scans source directory for `*.rs` files
+2. Checks each file for `#[derive(LifeModel)]` pattern
+3. Extracts entity information (struct name, table name, file path)
+4. Returns list of discovered entities
+
+**Simple String Parsing** (not full AST parsing):
+- Looks for `#[derive(LifeModel)]` in file content
+- Extracts struct name from following lines
+- Extracts table name from `#[table_name = "..."]` attribute
+- Calculates module path from file location
+
+#### Phase 3: Registry Module Generation
+
+The `generate_registry_module()` function generates:
+
+```rust
+// Auto-generated - DO NOT EDIT
+pub mod entity_registry {
+    use lifeguard::LifeModelTrait;
+    
+    // Group entities by service path
+    pub mod accounting_general_ledger {
+        #[path = "src/accounting/general_ledger/chart_of_accounts.rs"]
+        pub mod chart_of_accounts;
+        
+        #[path = "src/accounting/general_ledger/account.rs"]
+        pub mod account;
+        // ... more entities
+    }
+    
+    /// Get all registered entities
+    pub fn all_entities() -> Vec<Box<dyn LifeModelTrait>> {
+        vec![
+            Box::new(accounting_general_ledger::chart_of_accounts::Entity::default()),
+            Box::new(accounting_general_ledger::account::Entity::default()),
+            // ... more entities
+        ]
+    }
+}
+```
+
+#### Phase 4: CLI Tool Access
+
+CLI tool loads the registry from compiled artifacts:
+
+```rust
+// In user's project (compiled with registry)
+use entity_registry::entity_registry;
+
+// CLI tool can access
+for entity in entity_registry::all_entities() {
+    let table_def = entity.table_definition();
+    generate_sql(entity, table_def)?;
+}
+```
+
+### Build Script Helper Functions
+
+The `lifeguard-migrate` crate provides helper functions in `build_script` module:
+
+- `discover_entities(source_dir: &Path) -> Result<Vec<EntityInfo>>`
+  - Recursively scans for entities
+  - Returns entity information
+
+- `generate_registry_module(entities: &[EntityInfo], output_path: &Path) -> Result<()>`
+  - Generates registry module with entity includes
+  - Groups entities by service path
+  - Creates `all_entities()` function
+
+### Entity Information Structure
+
+```rust
+pub struct EntityInfo {
+    pub table_name: String,
+    pub struct_name: String,
+    pub file_path: PathBuf,
+    pub module_path: String,
+}
+```
+
+### User Integration
+
+Users add a simple `build.rs` to their project:
+
+```rust
+// build.rs
+use lifeguard_migrate::build_script;
+use std::env;
+use std::path::Path;
+
+fn main() {
+    let source_dir = Path::new("src");
+    let entities = build_script::discover_entities(source_dir)
+        .expect("Failed to discover entities");
+    
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let registry_path = Path::new(&out_dir).join("entity_registry.rs");
+    
+    build_script::generate_registry_module(&entities, &registry_path)
+        .expect("Failed to generate registry");
+    
+    println!("cargo:rerun-if-changed=src");
+}
+```
+
+Then include the registry in their `lib.rs` or `main.rs`:
+
+```rust
+// In lib.rs or main.rs
+#[path = concat!(env!("OUT_DIR"), "/entity_registry.rs")]
+mod entity_registry;
+```
+
+### Advantages of This Approach
+
+1. **Uses Compiled Entities**: Registry module is compiled as part of user's project
+2. **Type-Safe**: Leverages existing compilation and type system
+3. **Automatic Discovery**: Build script finds entities automatically
+4. **No Hardcoding**: No need to manually list entities
+5. **Service Grouping**: Entities grouped by directory structure
+6. **Incremental Updates**: Registry regenerates when entities change
+
+### Limitations
+
+1. **Build Script Required**: Users must add `build.rs` to their project
+2. **Simple Parsing**: Uses string matching, not full AST parsing (but entities are still compiled)
+3. **Path Resolution**: Requires correct path resolution for `#[path = "..."]` includes
+
+### Future Enhancements
+
+- Auto-detect and generate `build.rs` for users
+- Support for multiple source directories
+- Configuration via `Cargo.toml` metadata
+- Better error messages for missing entities
