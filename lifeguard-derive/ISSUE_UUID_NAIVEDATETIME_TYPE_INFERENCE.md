@@ -1,8 +1,10 @@
 # Issue: Type Inference Error with UUID/NaiveDateTime in LifeModel Macro
 
+## Status: ✅ RESOLVED
+
 ## Problem
 
-When using `uuid::Uuid` or `chrono::NaiveDateTime` types in `LifeModel` entities, the compiler fails with:
+When using `uuid::Uuid` or `chrono::NaiveDateTime` types in `LifeModel` entities, the compiler failed with:
 
 ```
 error[E0284]: type annotations needed
@@ -11,32 +13,41 @@ error[E0284]: type annotations needed
 18 |     #[derive(LifeModel)]
    |              ^^^^^^^^^ cannot infer type
    |
-  = note: cannot satisfy `<_ as Try>::Residual == _`
+  = note: cannot satisfy <_ as Try>::Residual == _`
 ```
 
 ## Root Cause
 
-The `?` operator in the generated `FromRow` implementation cannot infer the error type conversion when parsing UUID/NaiveDateTime from strings. This is particularly problematic with `Option<uuid::Uuid>` and `Option<chrono::NaiveDateTime>`.
+The `?` operator in the generated `FromRow` implementation could not infer the error type conversion when parsing UUID/NaiveDateTime from strings. This was particularly problematic with `Option<uuid::Uuid>` and `Option<chrono::NaiveDateTime>`.
 
-## Attempted Solutions
+## Solution
 
-1. Using explicit `match` expressions with early returns
-2. Using `transpose()` with explicit type annotations
-3. Using `if let` with explicit Result handling
-4. Separating the Result creation from the `?` operator
+Replaced `?` operator with explicit `match` expressions that use early returns:
 
-None of these approaches resolved the type inference issue.
+```rust
+// For nullable UUID
+let uuid_str: Option<String> = match row.try_get(#column_name_str) {
+    Ok(v) => v,
+    Err(e) => return Err(e),
+};
+match uuid_str {
+    None => None,
+    Some(s) => {
+        match uuid::Uuid::parse_str(&s) {
+            Ok(u) => Some(u),
+            Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+        }
+    }
+}
+```
 
-## Workaround
+This avoids the type inference issue by explicitly handling all error cases with early returns instead of relying on the `?` operator's type inference.
 
-Temporarily use `String` types instead of `uuid::Uuid` and `chrono::NaiveDateTime` until this issue is resolved.
+## Key Changes
 
-## Next Steps
-
-1. Investigate if `may_postgres::Error::__private_api_timeout()` is the correct way to create errors
-2. Consider using a different error creation method
-3. Review the macro structure to see if the issue is with how `get_expr` is used
-4. Consider separating UUID/NaiveDateTime handling into a helper function or trait
+1. Changed `row.get()` to `row.try_get()` for non-nullable UUID/NaiveDateTime (since `get()` doesn't return a `Result`)
+2. Used explicit `match` expressions with early returns instead of `?` operator
+3. Applied the same pattern to both nullable and non-nullable cases
 
 ## Related Files
 

@@ -979,7 +979,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             };
             
             // Handle uuid::Uuid - get as string and parse
-            // Note: We avoid using ? operator here to help with type inference
+            // Note: We use explicit error handling to avoid type inference issues with ?
             if is_uuid {
                 if is_nullable {
                     quote! {
@@ -1002,9 +1002,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 } else {
                     quote! {
                         {
-                            let uuid_str: String = row.get(#column_name_str)?;
-                            uuid::Uuid::parse_str(&uuid_str)
-                                .map_err(|_| may_postgres::Error::__private_api_timeout())?
+                            let uuid_str: String = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            match uuid::Uuid::parse_str(&uuid_str) {
+                                Ok(u) => u,
+                                Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                            }
                         }
                     }
                 }
@@ -1036,12 +1041,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 } else {
                     quote! {
                         {
-                            let dt_str: String = row.get(#column_name_str)?;
-                            chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S%.f")
+                            let dt_str: String = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            let dt = chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S%.f")
                                 .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S"))
                                 .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S%.f"))
-                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S"))
-                                .map_err(|_| may_postgres::Error::__private_api_timeout())?
+                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S"));
+                            match dt {
+                                Ok(d) => d,
+                                Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                            }
                         }
                     }
                 }
