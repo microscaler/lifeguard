@@ -65,6 +65,7 @@ pub use query::{
     ColumnTrait, ColumnDefinition,
     PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
     ModelManager, StoredProcedure,
+    TableDefinition, IndexDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules

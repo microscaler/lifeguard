@@ -29,3 +29,7 @@ toml = "0.8"
 colored = "2.1"
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+# Temporary directory for tests
+tempfile = "3.10"

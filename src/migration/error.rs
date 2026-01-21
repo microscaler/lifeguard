@@ -32,6 +32,8 @@ pub enum MigrationError {
     InvalidVersion(i64),
     /// Missing migration file
     MissingFile { version: i64, name: String },
+    /// Migration file already exists
+    FileAlreadyExists { path: String },
 }
 
 impl std::fmt::Display for MigrationError {
@@ -89,6 +91,17 @@ impl std::fmt::Display for MigrationError {
                     "Applied migration file not found: m{}_{}.rs\n\
                      Suggestion: Ensure all migration files are present in migrations directory",
                     version, name
+                )
+            }
+            MigrationError::FileAlreadyExists { path } => {
+                write!(
+                    f,
+                    "Migration file already exists: {}\n\
+                     This can happen if:\n\
+                     - Two migrations are generated within the same second with the same name\n\
+                     - A migration file with this name already exists\n\
+                     Suggestion: Use a different migration name or wait a second before generating again",
+                    path
                 )
             }
         }

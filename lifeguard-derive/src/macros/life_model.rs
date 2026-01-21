@@ -51,6 +51,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let schema_lit = syn::LitStr::new(s, struct_name.span());
         quote! { #[schema_name = #schema_lit] }
     });
+    
+    // Parse table-level attributes (composite_unique, index, check, table_comment)
+    let table_attrs = match attributes::parse_table_attributes(&input.attrs) {
+        Ok(attrs) => attrs,
+        Err(e) => return e.to_compile_error().into(),
+    };
 
     // Extract fields
     let fields = match &input.data {
@@ -87,6 +93,73 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut model_fields = Vec::new();
     let mut from_row_fields = Vec::new();
     let mut iden_impls = Vec::new();
+    
+    // Generate table definition expression
+    let table_comment_expr = table_attrs.table_comment.as_ref().map(|tc| {
+        let tc_lit = syn::LitStr::new(tc, struct_name.span());
+        quote! { Some(#tc_lit.to_string()) }
+    }).unwrap_or_else(|| quote! { None });
+    
+    // Generate composite unique constraints
+    let composite_unique_expr = if table_attrs.composite_unique.is_empty() {
+        quote! { Vec::new() }
+    } else {
+        let unique_vecs: Vec<_> = table_attrs.composite_unique.iter().map(|cols| {
+            let col_lits: Vec<_> = cols.iter().map(|c| {
+                let c_lit = syn::LitStr::new(c, struct_name.span());
+                quote! { #c_lit.to_string() }
+            }).collect();
+            quote! { vec![#(#col_lits),*] }
+        }).collect();
+        quote! { vec![#(#unique_vecs),*] }
+    };
+    
+    // Generate index definitions
+    let indexes_expr = if table_attrs.indexes.is_empty() {
+        quote! { Vec::new() }
+    } else {
+        let index_defs: Vec<_> = table_attrs.indexes.iter().map(|(name, cols, unique, where_clause)| {
+            let name_lit = syn::LitStr::new(name, struct_name.span());
+            let col_lits: Vec<_> = cols.iter().map(|c| {
+                let c_lit = syn::LitStr::new(c, struct_name.span());
+                quote! { #c_lit.to_string() }
+            }).collect();
+            let unique_lit = syn::LitBool::new(*unique, struct_name.span());
+            let where_expr = where_clause.as_ref().map(|w| {
+                let w_lit = syn::LitStr::new(w, struct_name.span());
+                quote! { Some(#w_lit.to_string()) }
+            }).unwrap_or_else(|| quote! { None });
+            quote! {
+                lifeguard::IndexDefinition {
+                    name: #name_lit.to_string(),
+                    columns: vec![#(#col_lits),*],
+                    unique: #unique_lit,
+                    partial_where: #where_expr,
+                }
+            }
+        }).collect();
+        quote! { vec![#(#index_defs),*] }
+    };
+    
+    // Generate CHECK constraints
+    let check_constraints_expr = if table_attrs.check_constraints.is_empty() {
+        quote! { Vec::new() }
+    } else {
+        let check_lits: Vec<_> = table_attrs.check_constraints.iter().map(|c| {
+            let c_lit = syn::LitStr::new(c, struct_name.span());
+            quote! { #c_lit.to_string() }
+        }).collect();
+        quote! { vec![#(#check_lits),*] }
+    };
+    
+    let table_definition_expr = quote! {
+        lifeguard::TableDefinition {
+            table_comment: #table_comment_expr,
+            composite_unique: #composite_unique_expr,
+            indexes: #indexes_expr,
+            check_constraints: #check_constraints_expr,
+        }
+    };
     let mut model_get_match_arms = Vec::new();
     let mut model_set_match_arms = Vec::new();
     let mut get_by_column_name_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
@@ -959,6 +1032,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             quote! { Some(#c_lit.to_string()) }
         }).unwrap_or_else(|| quote! { None });
         
+        let foreign_key_expr = col_attrs.foreign_key.as_ref().map(|fk| {
+            let fk_lit = syn::LitStr::new(fk, field_name.span());
+            quote! { Some(#fk_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let check_expr = col_attrs.check.as_ref().map(|c| {
+            let c_lit = syn::LitStr::new(c, field_name.span());
+            quote! { Some(#c_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
         // Extract boolean attributes for use in quote! macro
         let is_unique_attr = col_attrs.is_unique;
         let is_indexed_attr = col_attrs.is_indexed;
@@ -977,6 +1060,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 unique: #is_unique_attr,
                 indexed: #is_indexed_attr,
                 auto_increment: #is_auto_increment_attr,
+                foreign_key: #foreign_key_expr,
+                check: #check_expr,
             },
         });
         
@@ -1317,6 +1402,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // Table name constant (for convenience, matches Entity::table_name())
         impl Entity {
             pub const TABLE_NAME: &'static str = #table_name_lit;
+            
+            /// Get table definition metadata (for entity-driven migrations)
+            ///
+            /// Returns table-level metadata including composite unique constraints,
+            /// indexes, CHECK constraints, and table comments.
+            pub fn table_definition() -> lifeguard::TableDefinition {
+                #table_definition_expr
+            }
         }
 
         // NOTE: LifeEntityName, Iden, IdenStatic, Default, and LifeModelTrait are all

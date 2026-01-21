@@ -7,13 +7,18 @@ use serde_json::Value;
 
 #[derive(LifeModel)]
 #[table_name = "accounts"]
+#[table_comment = "Individual accounts linked to chart of accounts"]
+#[index = "idx_accounts_chart_of_account_id(chart_of_account_id)"]
+#[index = "idx_accounts_code(code)"]
+#[index = "idx_accounts_account_type(account_type)"]
+#[index = "idx_accounts_is_active(is_active)"]
+#[index = "idx_accounts_currency_code(currency_code)"]
 pub struct Account {
     #[primary_key]
     pub id: uuid::Uuid,
     
     // Foreign key to chart_of_accounts
-    // TODO: Need foreign_key attribute support
-    // #[foreign_key = "chart_of_accounts(id) ON DELETE RESTRICT"]
+    #[foreign_key = "chart_of_accounts(id) ON DELETE RESTRICT"]
     #[indexed]
     pub chart_of_account_id: uuid::Uuid,
     
@@ -54,8 +59,3 @@ pub struct Account {
     #[default_expr = "CURRENT_TIMESTAMP"]
     pub updated_at: chrono::NaiveDateTime,
 }
-
-// Missing features identified:
-// 1. Foreign key constraints (chart_of_account_id references chart_of_accounts(id) ON DELETE RESTRICT)
-// 2. Index definitions (CREATE INDEX statements)
-// 3. Table comments (COMMENT ON TABLE)

@@ -89,7 +89,35 @@ pub fn acquire_migration_lock(
     let start = Instant::now();
     let timeout = Duration::from_secs(timeout_seconds);
     
+    // Set a per-query timeout to prevent hanging queries
+    // Use a shorter timeout per attempt (5 seconds) to detect hanging queries quickly
+    // The overall timeout is still enforced by the loop
+    // Note: statement_timeout is session-level, so this affects all subsequent queries
+    // We'll reset it after acquiring the lock
+    let query_timeout_seconds = 5u64;
+    let set_timeout_sql = format!("SET statement_timeout = '{}s'", query_timeout_seconds);
+    
+    // Set query timeout for this session
+    // This ensures individual queries don't hang indefinitely
+    // PostgreSQL will cancel queries that exceed this timeout
+    let _ = executor.execute(&set_timeout_sql, &[]);
+    
     loop {
+        // CRITICAL: Check overall timeout BEFORE attempting query
+        // This prevents infinite loops if queries hang indefinitely
+        // Even with statement_timeout, network issues or database locks can cause hangs
+        if start.elapsed() >= timeout {
+            // Reset timeout before returning error
+            let _ = executor.execute("RESET statement_timeout", &[]);
+            return Err(MigrationError::LockTimeout(format!(
+                "Failed to acquire migration lock within {} seconds. \
+                 Another process may be running migrations. \
+                 If this persists, check for stuck migration processes or manually delete \
+                 the lock record: DELETE FROM lifeguard_migrations WHERE version = {}",
+                timeout_seconds, LOCK_VERSION
+            )));
+        }
+        
         // Try to insert lock record
         // ON CONFLICT DO NOTHING ensures atomicity via PRIMARY KEY constraint
         let sql = format!(
@@ -101,26 +129,44 @@ pub fn acquire_migration_lock(
             LOCK_VERSION
         );
         
-        let rows_affected = executor.execute(&sql, &[])
-            .map_err(|e| MigrationError::Database(e.into()))?;
+        // Execute with timeout protection
+        // If this query hangs, PostgreSQL will cancel it after query_timeout_seconds
+        // We also check timeout before each attempt to catch cases where query never returns
+        let rows_affected = match executor.execute(&sql, &[]) {
+            Ok(rows) => rows,
+            Err(e) => {
+                // Check if error is due to timeout
+                let error_msg = format!("{}", e);
+                if error_msg.contains("timeout") || error_msg.contains("canceling statement") {
+                    // Query timed out - check overall timeout and retry if needed
+                    if start.elapsed() >= timeout {
+                        let _ = executor.execute("RESET statement_timeout", &[]);
+                        return Err(MigrationError::LockTimeout(format!(
+                            "Failed to acquire migration lock within {} seconds due to query timeout. \
+                             Database may be slow or unresponsive. \
+                             If this persists, check for stuck migration processes or manually delete \
+                             the lock record: DELETE FROM lifeguard_migrations WHERE version = {}",
+                            timeout_seconds, LOCK_VERSION
+                        )));
+                    }
+                    // Query timed out but overall timeout not exceeded - retry
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+                // Other database error - reset timeout and propagate it
+                let _ = executor.execute("RESET statement_timeout", &[]);
+                return Err(MigrationError::Database(e.into()));
+            }
+        };
         
         if rows_affected > 0 {
             // Lock acquired! We successfully inserted the lock record
+            // Reset statement_timeout to default (unlimited) so it doesn't affect other operations
+            let _ = executor.execute("RESET statement_timeout", &[]);
             return Ok(());
         }
         
         // Lock already held by another process
-        // Check timeout
-        if start.elapsed() >= timeout {
-            return Err(MigrationError::LockTimeout(format!(
-                "Failed to acquire migration lock within {} seconds. \
-                 Another process may be running migrations. \
-                 If this persists, check for stuck migration processes or manually delete \
-                 the lock record: DELETE FROM lifeguard_migrations WHERE version = {}",
-                timeout_seconds, LOCK_VERSION
-            )));
-        }
-        
         // Wait before retrying (100ms)
         std::thread::sleep(Duration::from_millis(100));
     }

@@ -128,6 +128,12 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-20-05: Migration Lock Deadlock in startup_migrations](bugs/BUG-2026-01-20-05.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Deadlock / Timeout
 
+- [BUG-2026-01-20-06: Migration File Overwrite Risk in handle_generate](bugs/BUG-2026-01-20-06.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Data Loss - Migration files could be silently overwritten
+
+- [BUG-2026-01-20-07: Migration Test Hanging on Lock Acquisition](bugs/BUG-2026-01-20-07.md)  
+  **Status:** 🔴 OPEN | **Priority:** Critical | **Severity:** Test hangs indefinitely - blocks CI/CD
+
 ---
 
 ## Open Bugs

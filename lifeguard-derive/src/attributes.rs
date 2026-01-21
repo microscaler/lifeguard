@@ -117,6 +117,10 @@ pub struct ColumnAttributes {
     pub select_as: Option<String>,
     pub save_as: Option<String>,
     pub comment: Option<String>,
+    /// Foreign key constraint (e.g., "chart_of_accounts(id) ON DELETE SET NULL")
+    pub foreign_key: Option<String>,
+    /// CHECK constraint expression (column-level)
+    pub check: Option<String>,
 }
 
 impl Default for ColumnAttributes {
@@ -137,6 +141,8 @@ impl Default for ColumnAttributes {
             select_as: None,
             save_as: None,
             comment: None,
+            foreign_key: None,
+            check: None,
         }
     }
 }
@@ -282,8 +288,148 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                     attrs.comment = Some(s.value());
                 }
             }
+        } else if attr.path().is_ident("foreign_key") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.foreign_key = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("check") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.check = Some(s.value());
+                }
+            }
         }
     }
     
     Ok(attrs)
+}
+
+/// Table-level attributes for entity definitions
+#[derive(Debug, Clone, Default)]
+pub struct TableAttributes {
+    /// Table comment/documentation
+    pub table_comment: Option<String>,
+    /// Composite unique constraints (each entry is a vector of column names)
+    pub composite_unique: Vec<Vec<String>>,
+    /// Index definitions (name, columns, unique, partial_where)
+    pub indexes: Vec<(String, Vec<String>, bool, Option<String>)>,
+    /// Table-level CHECK constraints
+    pub check_constraints: Vec<String>,
+}
+
+/// Parse table-level attributes from struct attributes
+#[allow(dead_code)] // Used by macro expansion
+pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, syn::Error> {
+    let mut table_attrs = TableAttributes::default();
+    
+    for attr in attrs {
+        if attr.path().is_ident("table_comment") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    table_attrs.table_comment = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("composite_unique") {
+            // Parse array of column names: #[composite_unique = ["col1", "col2"]]
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Array(array_expr) = &meta.value {
+                    let mut columns = Vec::new();
+                    for elem in &array_expr.elems {
+                        if let syn::Expr::Lit(ExprLit {
+                            lit: Lit::Str(s),
+                            ..
+                        }) = elem {
+                            columns.push(s.value());
+                        }
+                    }
+                    if !columns.is_empty() {
+                        table_attrs.composite_unique.push(columns);
+                    }
+                }
+            }
+        } else if attr.path().is_ident("index") {
+            // Parse index definition: #[index = "name(columns) WHERE condition"]
+            // Format: "idx_name(col1, col2) WHERE col1 IS NOT NULL"
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    let index_def = parse_index_definition(&s.value())?;
+                    table_attrs.indexes.push(index_def);
+                }
+            }
+        } else if attr.path().is_ident("check") {
+            // Table-level CHECK constraint
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    table_attrs.check_constraints.push(s.value());
+                }
+            }
+        }
+    }
+    
+    Ok(table_attrs)
+}
+
+/// Parse index definition string
+/// Format: "idx_name(col1, col2) WHERE col1 IS NOT NULL"
+/// Returns: (name, columns, unique, partial_where)
+#[allow(dead_code)] // Used by parse_table_attributes
+fn parse_index_definition(def: &str) -> Result<(String, Vec<String>, bool, Option<String>), syn::Error> {
+    let def = def.trim();
+    let mut unique = false;
+    
+    // Check for UNIQUE prefix
+    let def = if def.starts_with("UNIQUE ") {
+        unique = true;
+        &def[7..]
+    } else {
+        def
+    };
+    
+    // Parse: "idx_name(col1, col2) WHERE condition"
+    let where_pos = def.find(" WHERE ");
+    let (index_part, where_clause) = if let Some(pos) = where_pos {
+        (def[..pos].trim(), Some(def[pos + 7..].trim().to_string()))
+    } else {
+        (def, None)
+    };
+    
+    // Parse: "idx_name(col1, col2)"
+    let paren_pos = index_part.find('(');
+    if let Some(pos) = paren_pos {
+        let name = index_part[..pos].trim().to_string();
+        let columns_str = &index_part[pos + 1..];
+        let columns_str = columns_str.strip_suffix(')')
+            .ok_or_else(|| syn::Error::new_spanned(
+                &def,
+                "Invalid index definition: missing closing parenthesis"
+            ))?;
+        
+        let columns: Vec<String> = columns_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        
+        Ok((name, columns, unique, where_clause))
+    } else {
+        // No columns specified - single column index
+        Ok((index_part.to_string(), Vec::new(), unique, where_clause))
+    }
 }

@@ -7,6 +7,14 @@ use serde_json::Value;
 
 #[derive(LifeModel)]
 #[table_name = "journal_entries"]
+#[table_comment = "Double-entry journal entries"]
+#[check = "total_debit = total_credit"]
+#[index = "idx_journal_entries_entry_number(entry_number)"]
+#[index = "idx_journal_entries_entry_date(entry_date)"]
+#[index = "idx_journal_entries_status(status)"]
+#[index = "idx_journal_entries_source(source_type, source_id)"]
+#[index = "idx_journal_entries_fiscal_period_id(fiscal_period_id)"]
+#[index = "idx_journal_entries_company_id(company_id)"]
 pub struct JournalEntry {
     #[primary_key]
     pub id: uuid::Uuid,
@@ -67,9 +75,3 @@ pub struct JournalEntry {
     
     pub updated_by: Option<uuid::Uuid>,
 }
-
-// Missing features identified:
-// 1. CHECK constraint: total_debit = total_credit (CONSTRAINT check_balanced_entry)
-// 2. Composite index: (source_type, source_id)
-// 3. Index definitions (CREATE INDEX statements)
-// 4. Table comments (COMMENT ON TABLE)
