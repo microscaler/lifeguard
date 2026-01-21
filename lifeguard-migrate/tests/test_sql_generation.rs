@@ -171,7 +171,11 @@ fn test_chart_of_accounts_sql_generation() {
         .join("migrations")
         .join("original");
     
-    let original_file = migrations_dir.join("20240120120000_create_chart_of_accounts.sql");
+    // Updated path to reflect service-based organization
+    let original_file = migrations_dir
+        .join("accounting")
+        .join("general-ledger")
+        .join("20240120120000_create_chart_of_accounts.sql");
     
     if !original_file.exists() {
         eprintln!("Warning: Original migration file not found: {:?}", original_file);
@@ -207,13 +211,18 @@ fn test_chart_of_accounts_sql_generation() {
 #[test]
 fn test_load_original_migrations() {
     // Test that we can load the original migration files
+    // Note: Migrations are now organized by service (accounting/general-ledger/)
     let migrations_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .join("migrations")
         .join("original");
     
-    let chart_of_accounts_file = migrations_dir.join("20240120120000_create_chart_of_accounts.sql");
+    // Updated path to reflect service-based organization
+    let chart_of_accounts_file = migrations_dir
+        .join("accounting")
+        .join("general-ledger")
+        .join("20240120120000_create_chart_of_accounts.sql");
     
     assert!(
         chart_of_accounts_file.exists(),
