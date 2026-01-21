@@ -2,6 +2,38 @@
 -- Version: 20240120120000
 -- Description: Creates the chart of accounts structure for the accounting system
 
+-- Journal Entries: Double-entry bookkeeping records
+CREATE TABLE IF NOT EXISTS journal_entries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entry_number VARCHAR(50) NOT NULL UNIQUE,
+    entry_date DATE NOT NULL,
+    description TEXT NOT NULL,
+    reference_number VARCHAR(100), -- External reference (invoice number, etc.)
+    source_type VARCHAR(50), -- MANUAL, INVOICE, PAYMENT, ADJUSTMENT, etc.
+    source_id UUID, -- Reference to source document
+    fiscal_period_id UUID, -- Reference to fiscal period
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT', -- DRAFT, POSTED, REVERSED
+    posted_at TIMESTAMP,
+    posted_by UUID, -- User who posted the entry
+    total_debit NUMERIC(19, 4) NOT NULL DEFAULT 0,
+    total_credit NUMERIC(19, 4) NOT NULL DEFAULT 0,
+    currency_code VARCHAR(3) NOT NULL DEFAULT 'USD',
+    company_id UUID, -- Multi-company support
+    metadata JSONB,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID,
+    updated_by UUID,
+    CONSTRAINT check_balanced_entry CHECK (total_debit = total_credit)
+);
+
+CREATE INDEX idx_journal_entries_entry_number ON journal_entries(entry_number);
+CREATE INDEX idx_journal_entries_entry_date ON journal_entries(entry_date);
+CREATE INDEX idx_journal_entries_status ON journal_entries(status);
+CREATE INDEX idx_journal_entries_source ON journal_entries(source_type, source_id);
+CREATE INDEX idx_journal_entries_fiscal_period_id ON journal_entries(fiscal_period_id);
+CREATE INDEX idx_journal_entries_company_id ON journal_entries(company_id);
+
 -- Chart of Accounts: Hierarchical structure for organizing accounts
 CREATE TABLE IF NOT EXISTS chart_of_accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -44,38 +76,6 @@ CREATE INDEX idx_accounts_account_type ON accounts(account_type);
 CREATE INDEX idx_accounts_is_active ON accounts(is_active);
 CREATE INDEX idx_accounts_currency_code ON accounts(currency_code);
 
--- Journal Entries: Double-entry bookkeeping records
-CREATE TABLE IF NOT EXISTS journal_entries (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entry_number VARCHAR(50) NOT NULL UNIQUE,
-    entry_date DATE NOT NULL,
-    description TEXT NOT NULL,
-    reference_number VARCHAR(100), -- External reference (invoice number, etc.)
-    source_type VARCHAR(50), -- MANUAL, INVOICE, PAYMENT, ADJUSTMENT, etc.
-    source_id UUID, -- Reference to source document
-    fiscal_period_id UUID, -- Reference to fiscal period
-    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT', -- DRAFT, POSTED, REVERSED
-    posted_at TIMESTAMP,
-    posted_by UUID, -- User who posted the entry
-    total_debit NUMERIC(19, 4) NOT NULL DEFAULT 0,
-    total_credit NUMERIC(19, 4) NOT NULL DEFAULT 0,
-    currency_code VARCHAR(3) NOT NULL DEFAULT 'USD',
-    company_id UUID, -- Multi-company support
-    metadata JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by UUID,
-    updated_by UUID,
-    CONSTRAINT check_balanced_entry CHECK (total_debit = total_credit)
-);
-
-CREATE INDEX idx_journal_entries_entry_number ON journal_entries(entry_number);
-CREATE INDEX idx_journal_entries_entry_date ON journal_entries(entry_date);
-CREATE INDEX idx_journal_entries_status ON journal_entries(status);
-CREATE INDEX idx_journal_entries_source ON journal_entries(source_type, source_id);
-CREATE INDEX idx_journal_entries_fiscal_period_id ON journal_entries(fiscal_period_id);
-CREATE INDEX idx_journal_entries_company_id ON journal_entries(company_id);
-
 -- Journal Entry Lines: Individual debit/credit lines in a journal entry
 CREATE TABLE IF NOT EXISTS journal_entry_lines (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -91,10 +91,7 @@ CREATE TABLE IF NOT EXISTS journal_entry_lines (
     base_credit_amount NUMERIC(19, 4), -- Base currency amount
     metadata JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT check_debit_or_credit CHECK (
-        (debit_amount > 0 AND credit_amount = 0) OR 
-        (debit_amount = 0 AND credit_amount > 0)
-    )
+    CONSTRAINT check_debit_or_credit CHECK ((debit_amount > 0 AND credit_amount = 0) OR (debit_amount = 0 AND credit_amount > 0))
 );
 
 CREATE INDEX idx_journal_entry_lines_journal_entry_id ON journal_entry_lines(journal_entry_id);

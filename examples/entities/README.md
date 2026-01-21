@@ -1,56 +1,54 @@
-# Entity Examples for Migration Generation
+# Entity Definitions
 
-This directory contains Lifeguard entity definitions that match the SQL migrations in `../../migrations/original/`.
+This directory contains Lifeguard entity definitions organized by service, matching the RERP OpenAPI accounting service structure.
 
-## Purpose
+## Directory Structure
 
-These entities are used to "dog food" (test) Lifeguard's entity-driven migration generation capabilities. They help identify:
-1. What features are missing
-2. What works correctly
-3. What needs enhancement
+```
+examples/entities/
+└── accounting/
+    ├── general-ledger/      # Chart of accounts, accounts, journal entries
+    ├── invoice/             # Invoices and invoice lines
+    ├── accounts-receivable/ # Customer invoices, AR payments, aging
+    └── accounts-payable/    # Vendor invoices, AP payments, aging
+```
 
-## Entities
+## Service Mapping
 
-### Implemented
-- `chart_of_accounts.rs` - Chart of Accounts (hierarchical structure)
-- `account.rs` - Individual accounts
-- `journal_entry.rs` - Journal entries (double-entry bookkeeping)
+### General Ledger (`accounting/general-ledger/`)
+Core accounting entities:
+- `chart_of_accounts.rs` - Hierarchical chart of accounts structure
+- `account.rs` - Individual accounts linked to chart of accounts
+- `journal_entry.rs` - Double-entry journal entries
+- `journal_entry_line.rs` - Individual debit/credit lines in journal entries
+- `account_balance.rs` - Denormalized account balances for performance
 
-### TODO
-- `journal_entry_line.rs` - Journal entry lines (debit/credit)
-- `account_balance.rs` - Account balances (denormalized)
-- `invoice.rs` - Invoices
-- `invoice_line.rs` - Invoice lines
-- `customer_invoice.rs` - Customer invoices (AR)
-- `vendor_invoice.rs` - Vendor invoices (AP)
-- `ar_payment.rs` - AR payments
-- `ap_payment.rs` - AP payments
-- And more...
+### Invoice (`accounting/invoice/`)
+Invoice management:
+- `invoice.rs` - Customer and vendor invoices
+- `invoice_line.rs` - Line items on invoices
 
-## Missing Features Identified
+### Accounts Receivable (`accounting/accounts-receivable/`)
+AR management:
+- `customer_invoice.rs` - Customer-facing invoices with AR tracking
+- `ar_payment.rs` - Customer payments
+- `ar_payment_application.rs` - Links payments to specific invoices
+- `ar_aging.rs` - Aging analysis for accounts receivable
 
-See `../../lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md` section 12 for complete documentation.
-
-### Critical Blockers (🔴)
-1. **Foreign Key Constraints** - `#[foreign_key = "table(column) ON DELETE action"]`
-2. **CHECK Constraints** - `#[check = "expression"]`
-3. **Composite Unique Constraints** - `#[composite_unique = ["col1", "col2"]]`
-4. **Index Definitions** - `#[index = "name(columns) WHERE condition"]`
-
-### Nice-to-Have (🟡)
-5. **Table Comments** - `#[table_comment = "..."]`
+### Accounts Payable (`accounting/accounts-payable/`)
+AP management:
+- `vendor_invoice.rs` - Vendor invoices with AP tracking
+- `ap_payment.rs` - Vendor payments
+- `ap_payment_application.rs` - Links payments to specific vendor invoices
+- `ap_aging.rs` - Aging analysis for accounts payable
 
 ## Usage
 
-These entities are not meant to be compiled/run directly. They serve as:
-1. **Documentation** - Show what we want to support
-2. **Test Cases** - Identify gaps in the tooling
-3. **Reference** - Guide implementation of missing features
+Entities are automatically discovered by the `lifeguard-migrate generate-from-entities` command, which recursively scans all `.rs` files in this directory structure.
 
-## Next Steps
+## RERP Integration
 
-1. Implement missing features in `lifeguard-derive`
-2. Update entities to use new attributes
-3. Generate SQL migrations from entities
-4. Compare generated SQL with `migrations/original/`
-5. Iterate until they match
+This structure matches the RERP OpenAPI accounting service organization (`../rerp/openapi/accounting/`), allowing for:
+- Direct mapping between OpenAPI schemas and Lifeguard entities
+- Service-based organization for BRRTRouter integration
+- Clear separation of concerns by accounting domain

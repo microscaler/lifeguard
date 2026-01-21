@@ -18,8 +18,9 @@ pub struct TableDefinition {
     /// Each entry is: (index_name, columns, unique, partial_where)
     pub indexes: Vec<IndexDefinition>,
     /// Table-level CHECK constraints
-    /// Each entry is a CHECK constraint expression
-    pub check_constraints: Vec<String>,
+    /// Each entry is a tuple of (constraint_name, expression)
+    /// If constraint_name is None, a default name will be generated from the table name
+    pub check_constraints: Vec<(Option<String>, String)>,
 }
 
 impl Default for TableDefinition {
@@ -28,7 +29,7 @@ impl Default for TableDefinition {
             table_comment: None,
             composite_unique: Vec::new(),
             indexes: Vec::new(),
-            check_constraints: Vec::new(),
+            check_constraints: Vec::new(), // Vec<(Option<String>, String)>
         }
     }
 }

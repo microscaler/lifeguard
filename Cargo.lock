@@ -998,11 +998,13 @@ dependencies = [
  "protobuf 3.7.2",
  "rand 0.8.5",
  "regex",
+ "rust_decimal",
  "sea-query",
  "serde",
  "serde_json",
  "sha2",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

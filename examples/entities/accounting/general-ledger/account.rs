@@ -7,6 +7,7 @@ use serde_json::Value;
 
 #[derive(LifeModel)]
 #[table_name = "accounts"]
+#[skip_from_row]  // Skip FromRow generation - types don't implement FromSql yet
 #[table_comment = "Individual accounts linked to chart of accounts"]
 #[index = "idx_accounts_chart_of_account_id(chart_of_account_id)"]
 #[index = "idx_accounts_code(code)"]
@@ -51,6 +52,7 @@ pub struct Account {
     
     pub description: Option<String>,
     
+    #[column_type = "JSONB"]
     pub metadata: Option<Value>, // JSONB
     
     #[default_expr = "CURRENT_TIMESTAMP"]

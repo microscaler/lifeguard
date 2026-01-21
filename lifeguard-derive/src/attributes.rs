@@ -327,7 +327,11 @@ pub struct TableAttributes {
     /// Index definitions (name, columns, unique, partial_where)
     pub indexes: Vec<(String, Vec<String>, bool, Option<String>)>,
     /// Table-level CHECK constraints
-    pub check_constraints: Vec<String>,
+    /// Each entry is a tuple of (constraint_name, expression)
+    /// If constraint_name is None, a default name will be generated from the table name
+    pub check_constraints: Vec<(Option<String>, String)>,
+    /// Skip FromRow generation (useful for SQL generation when types don't implement FromSql)
+    pub skip_from_row: bool,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -336,7 +340,10 @@ pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, sy
     let mut table_attrs = TableAttributes::default();
     
     for attr in attrs {
-        if attr.path().is_ident("table_comment") {
+        if attr.path().is_ident("skip_from_row") {
+            // Skip FromRow generation - useful for SQL generation when types don't implement FromSql
+            table_attrs.skip_from_row = true;
+        } else if attr.path().is_ident("table_comment") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
                     lit: Lit::Str(s),
@@ -346,18 +353,17 @@ pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, sy
                 }
             }
         } else if attr.path().is_ident("composite_unique") {
-            // Parse array of column names: #[composite_unique = ["col1", "col2"]]
+            // Parse comma-separated column names: #[composite_unique = "col1, col2, col3"]
             if let Ok(meta) = attr.meta.require_name_value() {
-                if let syn::Expr::Array(array_expr) = &meta.value {
-                    let mut columns = Vec::new();
-                    for elem in &array_expr.elems {
-                        if let syn::Expr::Lit(ExprLit {
-                            lit: Lit::Str(s),
-                            ..
-                        }) = elem {
-                            columns.push(s.value());
-                        }
-                    }
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    let columns: Vec<String> = s.value()
+                        .split(',')
+                        .map(|col| col.trim().to_string())
+                        .filter(|col| !col.is_empty())
+                        .collect();
                     if !columns.is_empty() {
                         table_attrs.composite_unique.push(columns);
                     }
@@ -377,12 +383,29 @@ pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, sy
             }
         } else if attr.path().is_ident("check") {
             // Table-level CHECK constraint
+            // Format: #[check = "name: expression"] or #[check = "expression"]
+            // If "name:" prefix is present, use it as the constraint name
+            // Otherwise, generate a default name from the table name
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
                     lit: Lit::Str(s),
                     ..
                 }) = &meta.value {
-                    table_attrs.check_constraints.push(s.value());
+                    let value = s.value();
+                    // Check if format is "name: expression"
+                    if let Some(colon_pos) = value.find(':') {
+                        let name = value[..colon_pos].trim().to_string();
+                        let expr = value[colon_pos + 1..].trim().to_string();
+                        if !name.is_empty() && !expr.is_empty() {
+                            table_attrs.check_constraints.push((Some(name), expr));
+                        } else {
+                            // Invalid format, treat as expression only
+                            table_attrs.check_constraints.push((None, value));
+                        }
+                    } else {
+                        // No name specified, use expression only
+                        table_attrs.check_constraints.push((None, value));
+                    }
                 }
             }
         }

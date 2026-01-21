@@ -44,7 +44,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 /// - `LifeModelTrait` implementation (via nested DeriveEntity)
 ///
 /// See `lifeguard-derive/tests/test_minimal.rs` for usage examples.
-#[proc_macro_derive(LifeModel, attributes(table_name, schema_name, primary_key, column_name, column_type, default_value, default_expr, renamed_from, select_as, save_as, comment, unique, indexed, nullable, auto_increment, enum_name, skip, table_comment, index, foreign_key, check, composite_unique))]
+#[proc_macro_derive(LifeModel, attributes(table_name, schema_name, primary_key, column_name, column_type, default_value, default_expr, renamed_from, select_as, save_as, comment, unique, indexed, nullable, auto_increment, enum_name, skip, table_comment, index, foreign_key, check, composite_unique, skip_from_row))]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     macros::derive_life_model(input)
 }

@@ -53,9 +53,35 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
                 return Some("TIMESTAMP".to_string());
             }
             
+            // Check for NaiveDate - last segment is "NaiveDate"
+            if last_ident == "NaiveDate" {
+                return Some("DATE".to_string());
+            }
+            
             // Check for String - last segment is "String"
             if last_ident == "String" {
                 return Some("TEXT".to_string());
+            }
+            
+            // Check for Value (serde_json::Value) - last segment is "Value"
+            // When imported as `use serde_json::Value;`, the path is just "Value"
+            // When fully qualified, it's "serde_json::Value" (2 segments)
+            if last_ident == "Value" {
+                // Check if this is serde_json::Value by looking at the path
+                // If it's 2 segments and first is "serde_json", it's definitely JSONB
+                // If it's 1 segment (just "Value"), it might be imported, so we'll assume JSONB
+                // (entities should use #[column_type = "JSONB"] if this is wrong)
+                if segments.len() == 2 {
+                    if let Some(first_seg) = segments.first() {
+                        if first_seg.ident == "serde_json" {
+                            return Some("JSONB".to_string());
+                        }
+                    }
+                } else if segments.len() == 1 {
+                    // Single segment "Value" - likely imported serde_json::Value
+                    // We'll assume JSONB (can be overridden with #[column_type])
+                    return Some("JSONB".to_string());
+                }
             }
         }
         
@@ -194,11 +220,15 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let check_constraints_expr = if table_attrs.check_constraints.is_empty() {
         quote! { Vec::new() }
     } else {
-        let check_lits: Vec<_> = table_attrs.check_constraints.iter().map(|c| {
-            let c_lit = syn::LitStr::new(c, struct_name.span());
-            quote! { #c_lit.to_string() }
+        let check_tuples: Vec<_> = table_attrs.check_constraints.iter().map(|(name, expr)| {
+            let expr_lit = syn::LitStr::new(expr, struct_name.span());
+            let name_expr = name.as_ref().map(|n| {
+                let n_lit = syn::LitStr::new(n, struct_name.span());
+                quote! { Some(#n_lit.to_string()) }
+            }).unwrap_or_else(|| quote! { None });
+            quote! { (#name_expr, #expr_lit.to_string()) }
         }).collect();
-        quote! { vec![#(#check_lits),*] }
+        quote! { vec![#(#check_tuples),*] }
     };
     
     let table_definition_expr = quote! {
@@ -1478,6 +1508,25 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Generate FromRow implementation conditionally
+    let from_row_impl = if table_attrs.skip_from_row {
+        quote! {
+            // FromRow generation skipped (skip_from_row attribute set)
+            // This is useful for SQL generation when types don't implement FromSql
+        }
+    } else {
+        quote! {
+            #[automatically_derived]
+            impl lifeguard::FromRow for #model_name {
+                fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                    Ok(Self {
+                        #(#from_row_fields)*
+                    })
+                }
+            }
+        }
+    };
+
     // Generate Entity with nested DeriveEntity (like SeaORM)
     // This triggers nested expansion where DeriveEntity generates LifeModelTrait
     let expanded = quote! {
@@ -1617,14 +1666,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         }
 
         // STEP 6: Generate FromRow implementation (automatic, no separate derive needed)
-        #[automatically_derived]
-        impl lifeguard::FromRow for #model_name {
-            fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
-                Ok(Self {
-                    #(#from_row_fields)*
-                })
-            }
-        }
+        // Skip if skip_from_row attribute is set (useful for SQL generation)
+        #from_row_impl
 
         // STEP 7: Generate ModelTrait implementation
         // NOTE: We use Column directly instead of Entity::Column to avoid E0223 errors

@@ -424,49 +424,124 @@ fn handle_generate_from_entities(
     use lifeguard::LifeModelTrait;
     
     let timestamp = Utc::now().format("%Y%m%d%H%M%S").to_string();
-    let output_file = output_dir.join(format!("{}_generated_from_entities.sql", timestamp));
     
-    let mut sql_content = String::new();
-    sql_content.push_str(&format!("-- Migration: Generated from Lifeguard entities\n"));
-    sql_content.push_str(&format!("-- Version: {}\n", timestamp));
-    sql_content.push_str(&format!("-- Generated: {}\n\n", Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
-    sql_content.push_str("-- This migration was automatically generated from entity definitions.\n");
-    sql_content.push_str("-- DO NOT EDIT MANUALLY - regenerate from entities instead.\n\n");
+    // Group entities by service path for organized output
+    use std::collections::HashMap;
+    let mut entities_by_service: HashMap<Option<String>, Vec<&entity_loader::EntityInfo>> = HashMap::new();
     
-    // Generate SQL for each entity based on table name
-    // Note: Currently only ChartOfAccount is supported due to FromSql constraints
-    // Other entities will be added once their types support FromSql
     for entity_info in &entities {
-        match entity_info.table_name.as_str() {
+        entities_by_service
+            .entry(entity_info.service_path.clone())
+            .or_insert_with(Vec::new)
+            .push(entity_info);
+    }
+    
+    // Generate SQL files per service
+    for (service_path, service_entities) in entities_by_service {
+        // Determine output file path based on service
+        let service_output_dir = if let Some(ref service) = service_path {
+            output_dir.join(service)
+        } else {
+            output_dir.clone()
+        };
+        
+        // Create service-specific output directory
+        if !service_output_dir.exists() {
+            fs::create_dir_all(&service_output_dir)?;
+        }
+        
+        let output_file = service_output_dir.join(format!("{}_generated_from_entities.sql", timestamp));
+        
+        let mut sql_content = String::new();
+        sql_content.push_str(&format!("-- Migration: Generated from Lifeguard entities\n"));
+        if let Some(ref service) = service_path {
+            sql_content.push_str(&format!("-- Service: {}\n", service));
+        }
+        sql_content.push_str(&format!("-- Version: {}\n", timestamp));
+        sql_content.push_str(&format!("-- Generated: {}\n\n", Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
+        sql_content.push_str("-- This migration was automatically generated from entity definitions.\n");
+        sql_content.push_str("-- DO NOT EDIT MANUALLY - regenerate from entities instead.\n\n");
+        
+        // Generate SQL for each entity in this service
+        for entity_info in service_entities {
+        let result = match entity_info.table_name.as_str() {
             "chart_of_accounts" => {
-                // Access Entity via the struct - Entity is generated in the same module
                 use entities::chart_of_accounts::Entity;
                 let table_def = Entity::table_definition();
-                match sql_generator::generate_create_table_sql::<Entity>(table_def) {
-                    Ok(sql) => {
-                        sql_content.push_str(&format!("-- Table: {}\n", entity_info.table_name));
-                        sql_content.push_str(&sql);
-                        sql_content.push_str("\n\n");
-                        println!("   ✅ Generated SQL for {}", entity_info.table_name);
-                    }
-                    Err(e) => {
-                        eprintln!("   ❌ Failed to generate SQL for {}: {}", entity_info.table_name, e);
-                    }
-                }
+                sql_generator::generate_create_table_sql::<Entity>(table_def)
             }
-            "accounts" | "journal_entries" => {
-                println!("   ⚠️  Skipping {} - entity uses types not yet supported for compilation (serde_json::Value, rust_decimal::Decimal, etc.)", entity_info.table_name);
-                println!("      SQL generation for these entities will be added once FromSql support is implemented");
+            "accounts" => {
+                use entities::account::Entity;
+                let table_def = Entity::table_definition();
+                sql_generator::generate_create_table_sql::<Entity>(table_def)
+            }
+            "journal_entries" => {
+                use entities::journal_entry::Entity;
+                let table_def = Entity::table_definition();
+                sql_generator::generate_create_table_sql::<Entity>(table_def)
+            }
+            "journal_entry_lines" => {
+                use entities::journal_entry_line::Entity;
+                let table_def = Entity::table_definition();
+                sql_generator::generate_create_table_sql::<Entity>(table_def)
+            }
+            "account_balances" => {
+                use entities::account_balance::Entity;
+                let table_def = Entity::table_definition();
+                sql_generator::generate_create_table_sql::<Entity>(table_def)
             }
             _ => {
                 println!("   ⚠️  Unknown entity table: {} (skipping)", entity_info.table_name);
+                continue;
             }
+        };
+        
+        match result {
+            Ok(mut sql) => {
+                // Special handling for account_balances: add generated column
+                if entity_info.table_name == "account_balances" {
+                    // Find the position to insert net_balance (after credit_balance, before currency_code)
+                    // We need to find the line with credit_balance and insert after it
+                    if let Some(pos) = sql.find("credit_balance NUMERIC(19, 4)") {
+                        // Find the end of the credit_balance line (including the comma)
+                        if let Some(line_end) = sql[pos..].find('\n') {
+                            let line_start = pos;
+                            let line_end_pos = pos + line_end;
+                            let line = &sql[line_start..line_end_pos];
+                            // Check if line already ends with a comma
+                            let needs_comma = !line.trim_end().ends_with(',');
+                            let insert_pos = line_end_pos;
+                            let generated_col = if needs_comma {
+                                ",\n    net_balance NUMERIC(19, 4) NOT NULL GENERATED ALWAYS AS (debit_balance - credit_balance) STORED,"
+                            } else {
+                                "\n    net_balance NUMERIC(19, 4) NOT NULL GENERATED ALWAYS AS (debit_balance - credit_balance) STORED,"
+                            };
+                            sql.insert_str(insert_pos, generated_col);
+                        }
+                    }
+                }
+                
+                sql_content.push_str(&format!("-- Table: {}\n", entity_info.table_name));
+                sql_content.push_str(&sql);
+                sql_content.push_str("\n\n");
+                println!("   ✅ Generated SQL for {}", entity_info.table_name);
+            }
+            Err(e) => {
+                eprintln!("   ❌ Failed to generate SQL for {}: {}", entity_info.table_name, e);
+            }
+        }
+        }
+        
+        // Write the complete SQL file for this service
+        fs::write(&output_file, sql_content)?;
+        if let Some(ref service) = service_path {
+            println!("✅ Generated SQL migration for {}: {}", service, output_file.display());
+        } else {
+            println!("✅ Generated SQL migration: {}", output_file.display());
         }
     }
     
-    fs::write(&output_file, sql_content)?;
-    
-    println!("\n✅ Generated SQL migration: {}", output_file.display());
+    println!("✅ Success");
     
     Ok(())
 }

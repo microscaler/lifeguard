@@ -7,8 +7,9 @@ use serde_json::Value;
 
 #[derive(LifeModel)]
 #[table_name = "journal_entries"]
+#[skip_from_row]  // Skip FromRow generation - types don't implement FromSql yet
 #[table_comment = "Double-entry journal entries"]
-#[check = "total_debit = total_credit"]
+#[check = "balanced_entry: total_debit = total_credit"]
 #[index = "idx_journal_entries_entry_number(entry_number)"]
 #[index = "idx_journal_entries_entry_date(entry_date)"]
 #[index = "idx_journal_entries_status(status)"]

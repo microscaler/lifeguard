@@ -11,9 +11,11 @@ pub struct EntityInfo {
     pub name: String,
     pub table_name: String,
     pub file_path: PathBuf,
+    /// Service path relative to entities directory (e.g., "accounting/general-ledger")
+    pub service_path: Option<String>,
 }
 
-/// Load entity information from a directory
+/// Load entity information from a directory (recursively)
 pub fn load_entities(entities_dir: &PathBuf) -> Result<Vec<EntityInfo>, Box<dyn std::error::Error>> {
     let mut entities = Vec::new();
     
@@ -21,12 +23,26 @@ pub fn load_entities(entities_dir: &PathBuf) -> Result<Vec<EntityInfo>, Box<dyn 
         return Err(format!("Entities directory does not exist: {}", entities_dir.display()).into());
     }
     
-    // Read all .rs files in the entities directory
-    for entry in fs::read_dir(entities_dir)? {
+    // Recursively read all .rs files in the entities directory and subdirectories
+    load_entities_recursive(entities_dir, entities_dir, &mut entities)?;
+    
+    Ok(entities)
+}
+
+/// Recursively load entities from directory and subdirectories
+fn load_entities_recursive(
+    entities_dir: &PathBuf,
+    current_dir: &PathBuf,
+    entities: &mut Vec<EntityInfo>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in fs::read_dir(current_dir)? {
         let entry = entry?;
         let path = entry.path();
         
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
+        if path.is_dir() {
+            // Recursively search subdirectories
+            load_entities_recursive(entities_dir, &path, entities)?;
+        } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
             // Skip README and other non-entity files
             let file_name = path.file_name().unwrap().to_string_lossy();
             if file_name == "README.md" || file_name.starts_with("IMPLEMENTATION") || file_name.starts_with("MIGRATION") {
@@ -42,15 +58,31 @@ pub fn load_entities(entities_dir: &PathBuf) -> Result<Vec<EntityInfo>, Box<dyn 
             // Extract table name from file content (look for #[table_name = "..."] or use entity name)
             let table_name = extract_table_name(&path)?;
             
+            // Extract service path relative to entities_dir
+            // e.g., if entities_dir is "examples/entities" and path is "examples/entities/accounting/general-ledger/chart_of_accounts.rs"
+            // then service_path is "accounting/general-ledger"
+            let service_path = path
+                .parent()
+                .and_then(|parent| parent.strip_prefix(entities_dir).ok())
+                .and_then(|rel_path| {
+                    let rel_str = rel_path.to_string_lossy().to_string();
+                    if rel_str.is_empty() {
+                        None
+                    } else {
+                        Some(rel_str)
+                    }
+                });
+            
             entities.push(EntityInfo {
                 name: entity_name,
                 table_name,
                 file_path: path,
+                service_path,
             });
         }
     }
     
-    Ok(entities)
+    Ok(())
 }
 
 /// Extract table name from entity file

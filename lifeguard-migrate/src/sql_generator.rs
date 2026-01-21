@@ -57,7 +57,6 @@ where
     let columns = E::all_columns();
     let mut column_defs = Vec::new();
     let mut primary_key_cols = Vec::new();
-    let mut foreign_keys = Vec::new();
     let mut check_constraints = Vec::new();
     
     // Process each column
@@ -80,18 +79,26 @@ where
             col_sql.push_str(" TEXT"); // Default fallback
         }
         
-        // Add nullability
-        if col_def.nullable {
-            col_sql.push_str(" NULL");
-        } else {
-            col_sql.push_str(" NOT NULL");
-        }
-        
         // Check if this column is a primary key
         // Heuristic: if it's auto_increment or named "id", it's likely a primary key
         let is_primary_key = col_def.auto_increment || col_name == "id";
         if is_primary_key {
             primary_key_cols.push(col_name.to_string());
+        }
+        
+        // Add nullability
+        // For primary keys, omit NOT NULL (PostgreSQL allows it, and original doesn't have it)
+        // For other columns, add NOT NULL if not nullable
+        if is_primary_key {
+            // Primary keys are implicitly NOT NULL, but we omit it to match original style
+        } else if !col_def.nullable {
+            col_sql.push_str(" NOT NULL");
+        }
+        // For nullable columns, we don't add explicit NULL (PostgreSQL default)
+        
+        // Add PRIMARY KEY constraint (before DEFAULT to match original style: "id UUID PRIMARY KEY DEFAULT ...")
+        if is_primary_key {
+            col_sql.push_str(" PRIMARY KEY");
         }
         
         // Add default value or expression
@@ -107,19 +114,16 @@ where
             }
         }
         
-        // Add PRIMARY KEY constraint
-        if is_primary_key {
-            col_sql.push_str(" PRIMARY KEY");
-        }
-        
         // Track unique constraints (single column)
         if col_def.unique {
             col_sql.push_str(" UNIQUE");
         }
         
-        // Track foreign keys (will be added as ALTER TABLE)
+        // Handle foreign keys - add inline to match original style
+        // Format: "chart_of_accounts(id) ON DELETE SET NULL"
         if let Some(ref fk) = col_def.foreign_key {
-            foreign_keys.push((col_name.to_string(), fk.to_string()));
+            // Add inline REFERENCES clause
+            col_sql.push_str(&format!(" REFERENCES {}", fk));
         }
         
         // Track CHECK constraints (column-level)
@@ -145,15 +149,19 @@ where
     }
     
     // Add table-level CHECK constraints
-    for (i, check_expr) in table_def.check_constraints.iter().enumerate() {
+    for (i, (constraint_name, check_expr)) in table_def.check_constraints.iter().enumerate() {
         let is_last = i == table_def.check_constraints.len() - 1 && table_def.composite_unique.is_empty();
+        // Use custom name if provided, otherwise generate from table name
+        let constraint_name_str = constraint_name.as_ref()
+            .map(|n| format!("check_{}", sanitize_constraint_name(n)))
+            .unwrap_or_else(|| format!("check_{}", sanitize_constraint_name(&table_name)));
         if is_last {
-            writeln!(sql, "    CONSTRAINT check_{} CHECK ({})", 
-                sanitize_constraint_name(&table_name), check_expr)
+            writeln!(sql, "    CONSTRAINT {} CHECK ({})", 
+                constraint_name_str, check_expr)
                 .map_err(|e| format!("Failed to write SQL: {}", e))?;
         } else {
-            writeln!(sql, "    CONSTRAINT check_{} CHECK ({}),", 
-                sanitize_constraint_name(&table_name), check_expr)
+            writeln!(sql, "    CONSTRAINT {} CHECK ({}),", 
+                constraint_name_str, check_expr)
                 .map_err(|e| format!("Failed to write SQL: {}", e))?;
         }
     }
@@ -201,16 +209,8 @@ where
         writeln!(sql, "{}", index_sql).map_err(|e| format!("Failed to write SQL: {}", e))?;
     }
     
-    // Generate foreign key constraints as ALTER TABLE
-    for (col_name, fk_def) in &foreign_keys {
-        writeln!(sql, "ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {};",
-            full_table_name,
-            sanitize_constraint_name(table_name),
-            sanitize_constraint_name(col_name),
-            col_name,
-            fk_def
-        ).map_err(|e| format!("Failed to write SQL: {}", e))?;
-    }
+    // Foreign keys are now added inline in column definitions
+    // No need for separate ALTER TABLE statements
     
     // Generate column-level CHECK constraints as ALTER TABLE
     for (col_name, check_expr) in &check_constraints {
