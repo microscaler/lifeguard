@@ -54,6 +54,10 @@ This means we can leverage:
 
 **REQUIREMENT**: The migration tool MUST use the same compiled entities that the backend application uses. This is non-negotiable. Only approaches that use compiled entities are acceptable.
 
+## Acceptable Approaches (Using Compiled Entities)
+
+**Note**: The following two options both use compiled entities. Metadata parsing (parsing source files without compilation) has been completely rejected and will not be implemented.
+
 ### Option A: Cargo Build Script Integration
 
 **Core Idea**: Use a Cargo build script that discovers entities at build time, generates a registry module, and compiles it as part of the user's project.
@@ -97,7 +101,7 @@ This means we can leverage:
 
 **Note**: This approach requires users to add a build script to their `Cargo.toml`, which may be acceptable for an integrated tool.
 
-### Option B: Proc-Macro with Registry Pattern
+### Option B: Proc-Macro Registry Pattern (Primary Recommendation)
 
 **Core Idea**: Use a proc-macro that automatically registers entities when they're compiled, building a registry at compile time.
 
@@ -357,12 +361,14 @@ Error: Entity compilation failed
 
 ### Migration Path
 
-1. **Phase 1**: Implement Option B (Proc-Macro Registry) - primary approach
-2. **Phase 2**: Implement Option A (Cargo Build Script) - alternative if needed
+1. **Phase 1**: Implement Option B (Proc-Macro Registry) - primary approach using compiled entities
+2. **Phase 2**: Implement Option A (Cargo Build Script) - alternative approach using compiled entities (if Option B has technical challenges)
 3. **Phase 3**: Add config file support
 4. **Phase 4**: Update CLI with new modes
 5. **Phase 5**: Deprecate old hardcoded approach
 6. **Phase 6**: Remove hardcoded entity matching
+
+**Note**: Both Option A and Option B use compiled entities. Metadata parsing is completely rejected and will not be implemented.
 
 ### Benefits
 
@@ -392,13 +398,13 @@ Error: Entity compilation failed
 
 ## Alternative: Keep Current Approach but Make It Dynamic
 
-If Option A is too complex, we could:
+The current hardcoded approach can be improved by:
 
 1. **Remove hardcoded match statement** - Use a registry pattern
 2. **Dynamic module loading** - Use `include!()` macro with generated code
 3. **Build script** - Generate `entities.rs` from discovered files
 
-However, this still requires compilation and is less elegant than Option A.
+This aligns with Option A (Cargo Build Script) approach and ensures migrations use compiled entities.
 
 ## Implementation Strategy
 
