@@ -159,6 +159,9 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
     let mut attrs = ColumnAttributes::default();
     
     for attr in &field.attrs {
+        // Get attribute path as string for debugging
+        let path_str = attr.path().get_ident().map(|i| i.to_string());
+        
         if attr.path().is_ident("primary_key") {
             attrs.is_primary_key = true;
         } else if attr.path().is_ident("column_name") {
@@ -172,23 +175,13 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
             }
         } else if attr.path().is_ident("column_type") {
             // Parse name-value attribute: #[column_type = "VARCHAR(255)"]
-            // Match on Meta directly to see what we're getting
-            match &attr.meta {
-                syn::Meta::NameValue(meta_nv) => {
-                    if let syn::Expr::Lit(ExprLit {
-                        lit: Lit::Str(s),
-                        ..
-                    }) = &meta_nv.value {
-                        attrs.column_type = Some(s.value());
-                    }
-                }
-                syn::Meta::List(_) => {
-                    // List format: #[column_type("VARCHAR(255)")]
-                    // Not supported, but don't error
-                }
-                syn::Meta::Path(_) => {
-                    // Path format: #[column_type]
-                    // Not supported, but don't error
+            // Use the exact same pattern as extract_column_name which works
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value {
+                    attrs.column_type = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("default_value") {

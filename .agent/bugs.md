@@ -134,6 +134,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-20-07: Migration Test Hanging on Lock Acquisition](bugs/BUG-2026-01-20-07.md)  
   **Status:** 🔴 OPEN | **Priority:** Critical | **Severity:** Test hangs indefinitely - blocks CI/CD
 
+- [BUG-2026-01-20-08: Name-Value Attributes Not Parsed in parse_column_attributes](bugs/BUG-2026-01-20-08.md)  
+  **Status:** ✅ FIXED | **Priority:** Critical | **Severity:** Silent failure - All name-value attributes return None, breaking SQL generation
+
 ---
 
 ## Open Bugs

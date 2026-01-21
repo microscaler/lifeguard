@@ -72,9 +72,10 @@ fn test_column_type_attribute() {
     let def = <Entity as LifeModelTrait>::Column::Count.column_def();
     assert_eq!(def.column_type, Some("BIGINT".to_string()));
     
-    // Verify default (no column_type attribute)
+    // Verify default (no column_type attribute) - type inference should run
     let def = <Entity as LifeModelTrait>::Column::Id.column_def();
-    assert_eq!(def.column_type, None);
+    // With type inference, i32 should map to INTEGER
+    assert_eq!(def.column_type, Some("INTEGER".to_string()));
 }
 
 #[test]
