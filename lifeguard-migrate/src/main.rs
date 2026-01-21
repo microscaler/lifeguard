@@ -6,6 +6,9 @@
 // Re-export from library
 pub use lifeguard_migrate::sql_generator;
 
+mod entity_loader;
+mod entities;
+
 use clap::{Parser, Subcommand};
 use lifeguard::{connect, MayPostgresExecutor, LifeExecutor};
 use lifeguard::migration::{Migrator, MigrationError};
@@ -73,6 +76,17 @@ enum Commands {
         name: String,
     },
     
+    /// Generate SQL migrations from entity definitions
+    GenerateFromEntities {
+        /// Output directory for generated SQL files (default: migrations/generated)
+        #[arg(long, default_value = "migrations/generated")]
+        output_dir: PathBuf,
+        
+        /// Entities directory (default: examples/entities)
+        #[arg(long, default_value = "examples/entities")]
+        entities_dir: PathBuf,
+    },
+    
     /// Show detailed migration information
     Info {
         /// Show information for a specific migration version
@@ -93,36 +107,51 @@ fn main() {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     }
     
-    // Get database URL
-    let database_url = cli.database_url
-        .or_else(|| std::env::var("LIFEGUARD_DATABASE_URL").ok())
-        .or_else(|| std::env::var("DATABASE_URL").ok())
-        .ok_or_else(|| {
-            eprintln!("Error: Database URL not provided. Use --database-url or set LIFEGUARD_DATABASE_URL or DATABASE_URL environment variable.");
-            process::exit(1);
-        })
-        .unwrap();
+    // Check if command needs database connection
+    let needs_db = !matches!(cli.command, Commands::GenerateFromEntities { .. } | Commands::Generate { .. });
     
-    // Connect to database
-    let client = match connect(&database_url) {
-        Ok(client) => client,
-        Err(e) => {
-            eprintln!("Error connecting to database: {}", e);
-            process::exit(1);
-        }
-    };
-    
-    let executor = MayPostgresExecutor::new(client);
-    let migrator = Migrator::new(&cli.migrations_dir);
-    
-    // Execute command (executor is just a reference now - no Box needed!)
+    // Execute command (some commands don't need database connection)
     let result = match cli.command {
-        Commands::Status => handle_status(&migrator, &executor),
-        Commands::Up { steps, dry_run } => handle_up(&migrator, &executor, steps, dry_run),
-        Commands::Down { steps, dry_run } => handle_down(&migrator, &executor, steps, dry_run),
-        Commands::Validate => handle_validate(&migrator, &executor),
+        Commands::GenerateFromEntities { output_dir, entities_dir } => {
+            // This command doesn't need database connection
+            match handle_generate_from_entities(&output_dir, &entities_dir) {
+                Ok(()) => Ok(()),
+                Err(e) => Err(MigrationError::InvalidFormat(e.to_string())),
+            }
+        },
         Commands::Generate { name } => handle_generate(&cli.migrations_dir, &name),
-        Commands::Info { version } => handle_info(&migrator, &executor, version),
+        _ => {
+            // All other commands need database connection
+            let database_url = cli.database_url
+                .or_else(|| std::env::var("LIFEGUARD_DATABASE_URL").ok())
+                .or_else(|| std::env::var("DATABASE_URL").ok())
+                .ok_or_else(|| {
+                    eprintln!("Error: Database URL not provided. Use --database-url or set LIFEGUARD_DATABASE_URL or DATABASE_URL environment variable.");
+                    process::exit(1);
+                })
+                .unwrap();
+            
+            // Connect to database
+            let client = match connect(&database_url) {
+                Ok(client) => client,
+                Err(e) => {
+                    eprintln!("Error connecting to database: {}", e);
+                    process::exit(1);
+                }
+            };
+            
+            let executor = MayPostgresExecutor::new(client);
+            let migrator = Migrator::new(&cli.migrations_dir);
+            
+            match cli.command {
+                Commands::Status => handle_status(&migrator, &executor),
+                Commands::Up { steps, dry_run } => handle_up(&migrator, &executor, steps, dry_run),
+                Commands::Down { steps, dry_run } => handle_down(&migrator, &executor, steps, dry_run),
+                Commands::Validate => handle_validate(&migrator, &executor),
+                Commands::Info { version } => handle_info(&migrator, &executor, version),
+                _ => unreachable!(),
+            }
+        },
     };
     
     match result {
@@ -355,6 +384,89 @@ impl Migration for Migration {{
     
     println!("✅ Generated migration: {}", filepath.display());
     println!("   Edit the file to implement up() and down() methods");
+    
+    Ok(())
+}
+
+fn handle_generate_from_entities(
+    output_dir: &PathBuf,
+    entities_dir: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use entity_loader::load_entities;
+    use std::fs;
+    use chrono::Utc;
+    
+    println!("🔍 Loading entities from: {}", entities_dir.display());
+    
+    // Load entities
+    let entities = load_entities(entities_dir)?;
+    
+    if entities.is_empty() {
+        println!("⚠️  No entities found in {}", entities_dir.display());
+        return Ok(());
+    }
+    
+    println!("📋 Found {} entity(ies):", entities.len());
+    for entity in &entities {
+        println!("   - {} (table: {})", entity.name, entity.table_name);
+    }
+    
+    // Create output directory if it doesn't exist
+    if !output_dir.exists() {
+        fs::create_dir_all(output_dir)?;
+        println!("📁 Created output directory: {}", output_dir.display());
+    }
+    
+    println!("\n🔨 Generating SQL migrations...");
+    
+    // Generate SQL for each entity
+    use lifeguard_migrate::sql_generator;
+    use lifeguard::LifeModelTrait;
+    
+    let timestamp = Utc::now().format("%Y%m%d%H%M%S").to_string();
+    let output_file = output_dir.join(format!("{}_generated_from_entities.sql", timestamp));
+    
+    let mut sql_content = String::new();
+    sql_content.push_str(&format!("-- Migration: Generated from Lifeguard entities\n"));
+    sql_content.push_str(&format!("-- Version: {}\n", timestamp));
+    sql_content.push_str(&format!("-- Generated: {}\n\n", Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
+    sql_content.push_str("-- This migration was automatically generated from entity definitions.\n");
+    sql_content.push_str("-- DO NOT EDIT MANUALLY - regenerate from entities instead.\n\n");
+    
+    // Generate SQL for each entity based on table name
+    // Note: Currently only ChartOfAccount is supported due to FromSql constraints
+    // Other entities will be added once their types support FromSql
+    for entity_info in &entities {
+        match entity_info.table_name.as_str() {
+            "chart_of_accounts" => {
+                // Access Entity via the struct - Entity is generated in the same module
+                use entities::chart_of_accounts::Entity;
+                let table_def = Entity::table_definition();
+                match sql_generator::generate_create_table_sql::<Entity>(table_def) {
+                    Ok(sql) => {
+                        sql_content.push_str(&format!("-- Table: {}\n", entity_info.table_name));
+                        sql_content.push_str(&sql);
+                        sql_content.push_str("\n\n");
+                        println!("   ✅ Generated SQL for {}", entity_info.table_name);
+                    }
+                    Err(e) => {
+                        eprintln!("   ❌ Failed to generate SQL for {}: {}", entity_info.table_name, e);
+                    }
+                }
+            }
+            "accounts" | "journal_entries" => {
+                println!("   ⚠️  Skipping {} - entity uses types not yet supported for compilation (serde_json::Value, rust_decimal::Decimal, etc.)", entity_info.table_name);
+                println!("      SQL generation for these entities will be added once FromSql support is implemented");
+            }
+            _ => {
+                println!("   ⚠️  Unknown entity table: {} (skipping)", entity_info.table_name);
+            }
+        }
+    }
+    
+    fs::write(&output_file, sql_content)?;
+    
+    println!("\n✅ Generated SQL migration: {}", output_file.display());
     
     Ok(())
 }

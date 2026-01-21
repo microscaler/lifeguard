@@ -158,10 +158,10 @@ impl Default for ColumnAttributes {
 pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::Error> {
     let mut attrs = ColumnAttributes::default();
     
+    // Debug: Check if attributes are being seen
+    // For now, just process them normally
+    
     for attr in &field.attrs {
-        // Get attribute path as string for debugging
-        let path_str = attr.path().get_ident().map(|i| i.to_string());
-        
         if attr.path().is_ident("primary_key") {
             attrs.is_primary_key = true;
         } else if attr.path().is_ident("column_name") {
