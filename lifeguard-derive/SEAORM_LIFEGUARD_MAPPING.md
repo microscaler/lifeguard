@@ -226,6 +226,11 @@ This design simplifies the API while maintaining the same functionality.
 | `#[sea_orm(save_as = "...")]` | `#[save_as = "..."]` | ✅ Implemented | Custom save expression - Metadata stored in ColumnDefinition, ready for CRUD operations integration |
 | `#[sea_orm(renamed_from = "...")]` | `#[renamed_from = "..."]` | ✅ Implemented | Column renamed from - LifeModel macro generates ColumnTrait::def() with renamed_from metadata for migration workflows |
 | `#[sea_orm(comment = "...")]` | `#[comment = "..."]` | ✅ Implemented | Column comment - Metadata stored in ColumnDefinition for documentation and schema introspection |
+| `#[sea_orm(foreign_key = "...")]` | ❌ Missing | 🔴 **Migration Blocker** | Foreign key constraint - **CRITICAL for entity-driven migrations** - Need to support `foreign_key = "table(column) ON DELETE action"` |
+| `#[sea_orm(check = "...")]` | ❌ Missing | 🔴 **Migration Blocker** | CHECK constraint - **CRITICAL for entity-driven migrations** - Need to support table-level and column-level CHECK constraints |
+| `#[sea_orm(composite_unique = [...])]` | ❌ Missing | 🔴 **Migration Blocker** | Composite unique constraint - **CRITICAL for entity-driven migrations** - Need to support multi-column unique constraints |
+| `#[sea_orm(table_comment = "...")]` | ❌ Missing | 🟡 **Migration Enhancement** | Table comment (COMMENT ON TABLE) - **Nice-to-have for migrations** - Metadata for documentation |
+| `#[sea_orm(index = "...")]` | ❌ Missing | 🔴 **Migration Blocker** | Custom index definition - **CRITICAL for entity-driven migrations** - Need to support composite indexes, partial indexes, unique indexes |
 
 ---
 
@@ -1140,3 +1145,103 @@ impl UserFunctions for User {
 - 📋 **Recommended:** Implement Model Managers (already promised) for better DX
 
 **Both features are fully deliverable via ORM patterns**, and Lifeguard already has the foundation (raw SQL, query builder, type-safe models) to support them.
+
+---
+
+## 12. Migration Generation Requirements (Entity-Driven Migrations)
+
+### Missing Features for Entity-Driven Migration Generation
+
+When building entities to generate SQL migrations, the following features are **critical blockers**:
+
+#### 🔴 Critical Blockers (Must Have)
+
+1. **Foreign Key Constraints**
+   - **Status:** ❌ Missing
+   - **Required For:** All entities with relationships (chart_of_accounts.parent_id, accounts.chart_of_account_id, etc.)
+   - **SQL Example:** `FOREIGN KEY (parent_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL`
+   - **Proposed Attribute:** `#[foreign_key = "table(column) ON DELETE action"]`
+   - **Actions Needed:**
+     - Add `foreign_key` attribute parsing to LifeModel macro
+     - Store foreign key metadata in ColumnDefinition
+     - Generate FOREIGN KEY constraints in migration SQL generation
+     - Support ON DELETE actions: RESTRICT, CASCADE, SET NULL, NO ACTION
+
+2. **CHECK Constraints**
+   - **Status:** ❌ Missing
+   - **Required For:** Business logic validation (journal_entries.total_debit = total_credit, journal_entry_lines debit OR credit, etc.)
+   - **SQL Example:** `CONSTRAINT check_balanced_entry CHECK (total_debit = total_credit)`
+   - **Proposed Attribute:** `#[check = "expression"]` (table-level) or `#[check = "expression"]` (column-level)
+   - **Actions Needed:**
+     - Add `check` attribute parsing to LifeModel macro
+     - Store CHECK constraint metadata (table-level vs column-level)
+     - Generate CHECK constraints in migration SQL generation
+     - Support complex expressions (multiple columns, operators, functions)
+
+3. **Composite Unique Constraints**
+   - **Status:** ❌ Missing
+   - **Required For:** Multi-column unique constraints (account_balances: account_id, fiscal_period_id, balance_date, currency_code, company_id)
+   - **SQL Example:** `UNIQUE(account_id, fiscal_period_id, balance_date, currency_code, company_id)`
+   - **Proposed Attribute:** `#[composite_unique = ["column1", "column2", ...]]` (table-level)
+   - **Actions Needed:**
+     - Add `composite_unique` attribute parsing to LifeModel macro
+     - Store composite unique metadata
+     - Generate UNIQUE constraints in migration SQL generation
+
+4. **Index Definitions**
+   - **Status:** ❌ Missing (partial - `#[indexed]` exists but only for single columns)
+   - **Required For:** Composite indexes, partial indexes, unique indexes
+   - **SQL Example:** `CREATE INDEX idx_journal_entries_source ON journal_entries(source_type, source_id)`
+   - **SQL Example (Partial):** `CREATE INDEX idx_invoices_customer_id ON invoices(customer_id) WHERE customer_id IS NOT NULL`
+   - **Proposed Attribute:** `#[index = "name(columns) WHERE condition"]` (table-level)
+   - **Actions Needed:**
+     - Add `index` attribute parsing to LifeModel macro
+     - Store index metadata (name, columns, unique, partial WHERE clause)
+     - Generate CREATE INDEX statements in migration SQL generation
+     - Support composite indexes, partial indexes, unique indexes
+
+#### 🟡 Nice-to-Have (Enhancements)
+
+5. **Table Comments**
+   - **Status:** ❌ Missing
+   - **Required For:** Documentation (COMMENT ON TABLE)
+   - **SQL Example:** `COMMENT ON TABLE chart_of_accounts IS 'Hierarchical chart of accounts structure'`
+   - **Proposed Attribute:** `#[table_comment = "..."]` (table-level)
+   - **Actions Needed:**
+     - Add `table_comment` attribute parsing to LifeModel macro
+     - Store table comment metadata
+     - Generate COMMENT ON TABLE statements in migration SQL generation
+
+### Current Entity Examples (Dog Fooding)
+
+Entities created in `examples/entities/` demonstrate these gaps:
+
+1. **chart_of_accounts.rs** - Missing: foreign key (self-reference), indexes, table comment
+2. **account.rs** - Missing: foreign key (to chart_of_accounts), indexes, table comment
+3. **journal_entry.rs** - Missing: CHECK constraint (total_debit = total_credit), composite index, table comment
+
+### Implementation Priority
+
+**Phase 1 (Critical for Migration Generation):**
+1. Foreign key constraints
+2. CHECK constraints
+3. Composite unique constraints
+4. Index definitions
+
+**Phase 2 (Enhancements):**
+5. Table comments
+
+### Migration SQL Generation Requirements
+
+The migration generator needs to:
+1. **Read entity definitions** - Parse `#[derive(LifeModel)]` structs
+2. **Extract metadata** - Collect all column attributes, foreign keys, constraints, indexes
+3. **Compare with previous state** - Diff current entities vs previous snapshot
+4. **Generate SQL** - Create CREATE TABLE, ALTER TABLE, CREATE INDEX, etc. statements
+5. **Handle relationships** - Generate foreign keys in correct order (dependencies)
+
+### Related Documentation
+
+- `../migrations/README.md` - Migration strategy and entity-driven generation process
+- `../migrations/original/` - Reference SQL migrations to match
+- `../docs/MIGRATION_PROCESS_DIAGRAMS.md` - Migration process architecture
