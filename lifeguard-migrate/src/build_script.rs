@@ -240,6 +240,8 @@ pub fn generate_registry_module(
             let module_name = snake_case(&entity.struct_name);
             
             // Calculate relative path from output directory to entity file
+            // For build scripts, the registry is in OUT_DIR and entities are in src/
+            // We need to calculate relative path from OUT_DIR to the entity file
             let relative_path = pathdiff::diff_paths(&entity.file_path, output_dir)
                 .ok_or_else(|| format!("Failed to calculate relative path from {:?} to {:?}", 
                     output_dir, entity.file_path))?;

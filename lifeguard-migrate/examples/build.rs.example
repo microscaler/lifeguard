@@ -1,46 +1,55 @@
 //! Example build.rs for entity registry generation
 //!
-//! Copy this file to your project root as `build.rs` and add to your Cargo.toml:
+//! Copy this file to your project root as `build.rs` and add to Cargo.toml:
 //!
 //! ```toml
 //! [package]
 //! build = "build.rs"
-//!
-//! [build-dependencies]
-//! lifeguard-migrate = { path = "path/to/lifeguard-migrate", version = "0.1.0" }
 //! ```
 //!
-//! This build script will:
-//! 1. Discover all entities in your src/ directory
-//! 2. Generate an entity_registry.rs module in OUT_DIR
-//! 3. Make the registry available to your application
+//! Make sure `lifeguard-migrate` is in your dependencies:
+//!
+//! ```toml
+//! [dependencies]
+//! lifeguard-migrate = { path = "../path/to/lifeguard-migrate", version = "0.1.0" }
+//! ```
 
+use lifeguard_migrate::build_script;
 use std::env;
 use std::path::Path;
 
 fn main() {
-    // Discover entities in src/ directory
+    // Discover entities in source directory
     let source_dir = Path::new("src");
-    let entities = lifeguard_migrate::build_script::discover_entities(source_dir)
-        .expect("Failed to discover entities");
     
-    if entities.is_empty() {
-        println!("cargo:warning=No entities found in src/ directory");
-        return;
-    }
-    
-    println!("cargo:warning=Found {} entities", entities.len());
-    
-    // Generate registry module in OUT_DIR
-    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
-    let registry_path = Path::new(&out_dir).join("entity_registry.rs");
-    
-    lifeguard_migrate::build_script::generate_registry_module(&entities, &registry_path)
-        .expect("Failed to generate entity registry");
-    
-    // Tell Cargo to rerun if source files change
     println!("cargo:rerun-if-changed=src");
     
-    // Tell Cargo about the generated file
-    println!("cargo:rustc-env=ENTITY_REGISTRY_PATH={}", registry_path.display());
+    let entities = match build_script::discover_entities(source_dir) {
+        Ok(entities) => {
+            if entities.is_empty() {
+                println!("cargo:warning=No entities found in src/ directory");
+                return;
+            }
+            println!("cargo:warning=Discovered {} entities", entities.len());
+            entities
+        }
+        Err(e) => {
+            println!("cargo:warning=Failed to discover entities: {}", e);
+            return;
+        }
+    };
+    
+    // Generate registry module in OUT_DIR
+    let out_dir = env::var("OUT_DIR")
+        .expect("OUT_DIR environment variable not set");
+    let registry_path = Path::new(&out_dir).join("entity_registry.rs");
+    
+    match build_script::generate_registry_module(&entities, &registry_path) {
+        Ok(()) => {
+            println!("cargo:warning=Generated entity registry at {:?}", registry_path);
+        }
+        Err(e) => {
+            println!("cargo:warning=Failed to generate registry: {}", e);
+        }
+    }
 }
