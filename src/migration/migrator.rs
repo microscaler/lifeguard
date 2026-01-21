@@ -56,11 +56,6 @@ impl Migrator {
         // Query applied migrations from database
         let applied = Self::query_applied_migrations(executor)?;
         
-        // Build set of applied versions for quick lookup
-        let _applied_versions: std::collections::HashSet<i64> = applied.iter()
-            .map(|m| m.version)
-            .collect();
-        
         // Build set of file versions for quick lookup
         let file_versions: std::collections::HashSet<i64> = migration_files.iter()
             .map(|f| f.version)

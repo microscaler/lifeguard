@@ -143,6 +143,12 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-21-01: Migration Template Method Signatures Don't Match Migration Trait](bugs/BUG-2026-01-21-01.md)  
   **Status:** ✅ FIXED | **Priority:** Critical | **Severity:** Compilation error - Generated migration files fail to compile
 
+- [BUG-2026-01-21-02: Unused _applied_versions Variable in Migrator::status](bugs/BUG-2026-01-21-02.md)  
+  **Status:** ✅ FIXED | **Priority:** Low | **Severity:** Code quality - Dead code
+
+- [BUG-2026-01-21-03: Unused needs_db Variable in lifeguard-migrate main.rs](bugs/BUG-2026-01-21-03.md)  
+  **Status:** ✅ FIXED | **Priority:** Low | **Severity:** Code quality - Dead code
+
 ---
 
 ## Open Bugs

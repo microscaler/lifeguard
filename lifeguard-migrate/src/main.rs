@@ -110,6 +110,20 @@ fn main() {
     // Check if command needs database connection
     let needs_db = !matches!(cli.command, Commands::GenerateFromEntities { .. } | Commands::Generate { .. });
     
+    // Validate database URL early for commands that need it
+    let database_url = if needs_db {
+        Some(cli.database_url
+            .or_else(|| std::env::var("LIFEGUARD_DATABASE_URL").ok())
+            .or_else(|| std::env::var("DATABASE_URL").ok())
+            .ok_or_else(|| {
+                eprintln!("Error: Database URL not provided. Use --database-url or set LIFEGUARD_DATABASE_URL or DATABASE_URL environment variable.");
+                process::exit(1);
+            })
+            .unwrap())
+    } else {
+        None
+    };
+    
     // Execute command (some commands don't need database connection)
     let result = match cli.command {
         Commands::GenerateFromEntities { output_dir, entities_dir } => {
@@ -122,17 +136,10 @@ fn main() {
         Commands::Generate { name } => handle_generate(&cli.migrations_dir, &name),
         _ => {
             // All other commands need database connection
-            let database_url = cli.database_url
-                .or_else(|| std::env::var("LIFEGUARD_DATABASE_URL").ok())
-                .or_else(|| std::env::var("DATABASE_URL").ok())
-                .ok_or_else(|| {
-                    eprintln!("Error: Database URL not provided. Use --database-url or set LIFEGUARD_DATABASE_URL or DATABASE_URL environment variable.");
-                    process::exit(1);
-                })
-                .unwrap();
+            let db_url = database_url.expect("Database URL should be validated above");
             
             // Connect to database
-            let client = match connect(&database_url) {
+            let client = match connect(&db_url) {
                 Ok(client) => client,
                 Err(e) => {
                     eprintln!("Error connecting to database: {}", e);

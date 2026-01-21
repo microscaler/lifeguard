@@ -123,8 +123,17 @@ fn extract_struct_name(content: &str) -> Result<Option<String>, Box<dyn std::err
                 if struct_line.starts_with("pub struct ") || struct_line.starts_with("struct ") {
                     // Extract struct name
                     let parts: Vec<&str> = struct_line.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        let name = parts[1];
+                    // Handle both "pub struct Name" and "struct Name"
+                    let name_index = if parts.len() >= 3 && parts[0] == "pub" && parts[1] == "struct" {
+                        2  // "pub struct Name" -> use index 2
+                    } else if parts.len() >= 2 && parts[0] == "struct" {
+                        1  // "struct Name" -> use index 1
+                    } else {
+                        continue; // Invalid format
+                    };
+                    
+                    if name_index < parts.len() {
+                        let name = parts[name_index];
                         // Remove generics if present
                         let name = name.split('<').next().unwrap_or(name);
                         // Remove braces if present
