@@ -44,95 +44,17 @@ This means we can leverage:
 
 ## Proposed Architecture
 
-### Option A: Metadata-Based SQL Generation (Recommended)
+**REJECTED APPROACH**: Metadata-based parsing (parsing source files without compilation) is **EXPLICITLY REJECTED** and will not be implemented because:
+- ❌ **CRITICAL**: May produce different SQL than what compiled entities would generate
+- ❌ Type inference may differ between parsing and compilation
+- ❌ Edge cases handled by macro system may be missed
+- ❌ Cannot guarantee migrations match what the application uses
+- ❌ Risk of schema drift between generated migrations and runtime behavior
+- ❌ **Will not be implemented in any form**
 
-**Core Idea**: Parse Rust source files to extract entity metadata, then generate SQL directly from metadata without requiring entity compilation.
+**REQUIREMENT**: The migration tool MUST use the same compiled entities that the backend application uses. This is non-negotiable. Only approaches that use compiled entities are acceptable.
 
-#### Advantages
-- ✅ Fully generic - works with any entities
-- ✅ Fast - no compilation step required
-- ✅ Works even if user's project has compilation errors (only needs valid syntax)
-- ✅ Can run independently of user's build process
-- ✅ Simple implementation - just parsing, no complex build integration
-
-#### Disadvantages
-- ❌ Must reimplement attribute parsing logic (though syn makes this straightforward)
-- ❌ May miss edge cases that the macro system handles automatically
-- ❌ Doesn't leverage existing compiled entity types
-
-#### Implementation Approach
-
-1. **Enhanced Entity Parser** (`entity_parser.rs`)
-   - Parse `#[derive(LifeModel)]` structs from source files using `syn`
-   - Extract all attributes: `#[table_name]`, `#[column_type]`, `#[primary_key]`, etc.
-   - Build `EntityMetadata` structure with all information needed for SQL generation
-   - Reuse the same parsing logic from `lifeguard-derive` where possible
-
-2. **Metadata-Driven SQL Generator** (`metadata_sql_generator.rs`)
-   - Accept `EntityMetadata` instead of requiring `LifeModelTrait`
-   - Generate SQL from metadata structures
-   - Same output quality as current approach
-   - Can share logic with existing `sql_generator.rs`
-
-3. **Dynamic Entity Discovery**
-   - Scan directory tree for `*.rs` files
-   - Identify entities by `#[derive(LifeModel)]` attribute
-   - Extract metadata without compilation
-
-#### Data Structures
-
-```rust
-// Entity metadata extracted from source
-pub struct EntityMetadata {
-    pub struct_name: String,
-    pub table_name: String,
-    pub schema_name: Option<String>,
-    pub table_comment: Option<String>,
-    pub columns: Vec<ColumnMetadata>,
-    pub primary_keys: Vec<String>,
-    pub indexes: Vec<IndexMetadata>,
-    pub composite_unique: Vec<Vec<String>>,
-    pub check_constraints: Vec<CheckConstraintMetadata>,
-    pub foreign_keys: Vec<ForeignKeyMetadata>,
-}
-
-pub struct ColumnMetadata {
-    pub name: String,
-    pub rust_type: String,
-    pub column_type: Option<String>,  // From #[column_type]
-    pub nullable: bool,
-    pub default_value: Option<String>,
-    pub default_expr: Option<String>,
-    pub unique: bool,
-    pub indexed: bool,
-    pub auto_increment: bool,
-    pub foreign_key: Option<String>,
-    pub check: Option<String>,
-}
-
-pub struct IndexMetadata {
-    pub name: String,
-    pub columns: Vec<String>,
-    pub unique: bool,
-    pub partial_where: Option<String>,
-}
-```
-
-#### Workflow
-
-```
-1. User runs: lifeguard-migrate generate-from-entities --source-dir ./src/entities --output-dir ./migrations
-2. Tool scans --source-dir recursively for *.rs files
-3. For each file:
-   a. Parse Rust AST to find #[derive(LifeModel)] structs
-   b. Extract all attributes and field metadata
-   c. Build EntityMetadata structure
-4. Group entities by service path (from directory structure)
-5. Generate SQL from metadata for each entity
-6. Write SQL files to output directory preserving service structure
-```
-
-### Option B: Cargo Build Script Integration
+### Option A: Cargo Build Script Integration
 
 **Core Idea**: Use a Cargo build script that discovers entities at build time, generates a registry module, and compiles it as part of the user's project.
 
@@ -175,7 +97,7 @@ pub struct IndexMetadata {
 
 **Note**: This approach requires users to add a build script to their `Cargo.toml`, which may be acceptable for an integrated tool.
 
-### Option C: Proc-Macro with Registry Pattern
+### Option B: Proc-Macro with Registry Pattern
 
 **Core Idea**: Use a proc-macro that automatically registers entities when they're compiled, building a registry at compile time.
 
@@ -211,73 +133,37 @@ pub struct IndexMetadata {
 
 **Note**: This is the most elegant solution but requires changes to the derive macro system.
 
-## Recommended Solution: Option A (Metadata-Based) with Option C as Future Enhancement
+## Recommended Solution: Option B (Proc-Macro Registry) as Primary, Option A as Alternative
 
-**Primary Recommendation**: Option A (Metadata-Based) for immediate implementation because:
-- ✅ Fastest to implement
-- ✅ No changes needed to existing codebase
-- ✅ Works immediately with any project structure
-- ✅ No user configuration required
-- ✅ Can be enhanced later with Option C
+**Critical Requirement**: The migration tool MUST use the same compiled entities that the backend application uses. This ensures:
+- ✅ Migrations match the actual runtime behavior
+- ✅ Type inference and edge cases are handled correctly
+- ✅ No discrepancies between generated SQL and application code
+- ✅ Same "depth of usage" as the application
 
-**Future Enhancement**: Option C (Proc-Macro Registry) for long-term because:
-- ✅ Most elegant and automatic
-- ✅ Leverages existing compilation
-- ✅ Type-safe and uses existing SQL generator
-- ✅ Zero configuration for users
+**Primary Recommendation**: Option B (Proc-Macro Registry) because:
+- ✅ Uses the exact same compiled entities as the application
+- ✅ Automatic - no user configuration needed
+- ✅ Type-safe and leverages existing compilation
+- ✅ Zero risk of generating different SQL than what the app uses
 
-**Hybrid Approach**: Start with Option A, then add Option C as an optimization that can be enabled via feature flag or automatic detection.
+**Alternative**: Option A (Cargo Build Script) if Option B is not feasible:
+- ✅ Still uses compiled entities (same as application)
+- ✅ Requires build script setup but ensures correctness
+- ✅ Can use existing SQL generator without modification
+
+**REJECTED**: Metadata Parsing (parsing source files without compilation):
+- ❌ **EXPLICITLY REJECTED** - May produce different SQL than compiled entities
+- ❌ Type inference differences between parsing and compilation
+- ❌ Edge cases may be missed
+- ❌ Cannot guarantee migrations match what the application uses
+- ❌ **Will not be implemented in any form**
+
+**NO FALLBACK MECHANISM**: The tool MUST FAIL if it cannot access compiled entities. There is no fallback to parsing. This ensures migrations always match what the application uses.
 
 ### Implementation Plan
 
-#### Phase 1: Enhanced Entity Parser
-
-**File**: `lifeguard-migrate/src/entity_parser.rs`
-
-```rust
-//! Entity parser that extracts metadata from Rust source files
-//! without requiring compilation.
-
-use syn::{File, ItemStruct, Attribute, Field};
-use std::path::PathBuf;
-
-pub struct EntityParser;
-
-impl EntityParser {
-    /// Parse a Rust source file and extract entity metadata
-    pub fn parse_file(file_path: &PathBuf) -> Result<Vec<EntityMetadata>, ParseError> {
-        // 1. Read file content
-        // 2. Parse with syn crate
-        // 3. Find #[derive(LifeModel)] structs
-        // 4. Extract all attributes
-        // 5. Build EntityMetadata
-    }
-    
-    /// Extract table name from attributes
-    fn extract_table_name(attrs: &[Attribute]) -> Option<String> { }
-    
-    /// Extract column metadata from field
-    fn extract_column_metadata(field: &Field) -> ColumnMetadata { }
-    
-    /// Extract table-level attributes
-    fn extract_table_attributes(attrs: &[Attribute]) -> TableAttributes { }
-}
-```
-
-#### Phase 2: Metadata SQL Generator
-
-**File**: `lifeguard-migrate/src/metadata_sql_generator.rs`
-
-```rust
-//! SQL generator that works from EntityMetadata instead of LifeModelTrait
-
-pub fn generate_sql_from_metadata(
-    metadata: &EntityMetadata
-) -> Result<String, String> {
-    // Similar logic to current sql_generator.rs
-    // but works from metadata structures instead of trait methods
-}
-```
+**Note**: All implementation phases use compiled entities only. No metadata parsing will be implemented.
 
 #### Phase 3: CLI Enhancements
 
@@ -308,7 +194,7 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
         
-        /// Verbose output - show detailed parsing information
+        /// Verbose output - show detailed entity processing information
         #[arg(long)]
         verbose: bool,
     },
@@ -357,17 +243,17 @@ exclude_dirs = ["target", ".git", "node_modules"]
 
 ### Execution Modes
 
-#### Mode 1: Oneshot Execution
+#### Mode 1: Registry-Based Execution (Default)
 
 ```bash
 lifeguard-migrate generate-from-entities \
-    --source-dir ./src/entities \
     --output-dir ./migrations/generated
 ```
 
 **Behavior**:
-- Scans `--source-dir` recursively for entities
-- Groups by directory structure (service path)
+- Loads entity registry from compiled artifacts
+- Uses compiled entities via registry
+- Groups by service path from entity metadata
 - Writes SQL files to `--output-dir` preserving structure
 
 #### Mode 2: Config-Based Execution
@@ -378,9 +264,10 @@ lifeguard-migrate generate-from-entities --config ./lifeguard-migrate.toml
 
 **Behavior**:
 - Reads config file
-- For each service in `entity_source_tree`:
-  - Discover entities in source directory
-  - Generate SQL
+- Loads entity registry from compiled artifacts
+- For each service in config:
+  - Filter entities by service path
+  - Generate SQL from compiled entities
   - Write to corresponding `migration_output_tree` directory
 - If service not in mapping, use `default_output_dir`
 
@@ -394,26 +281,27 @@ lifeguard-migrate generate-from-entities \
 
 **Behavior**:
 - Only process entities for specified service
+- Uses compiled entities from registry
 - Useful for incremental updates
 
 ### Entity Discovery Algorithm
 
+**Using Compiled Entities (Option B - Proc-Macro Registry)**:
 ```
-1. Start at source directory (or config-specified directories)
-2. Recursively scan for *.rs files
-3. For each .rs file:
-   a. Parse with syn crate
-   b. Look for structs with #[derive(LifeModel)]
-   c. Extract:
-      - Struct name
-      - #[table_name] attribute → table_name
-      - #[schema_name] attribute → schema_name
-      - #[table_comment] attribute → table_comment
-      - All fields → columns
-      - Field attributes → column metadata
-      - Table-level attributes → indexes, constraints
-4. Build EntityMetadata for each discovered entity
-5. Group by service path (directory structure relative to source root)
+1. Entities are automatically registered during compilation via proc-macro
+2. Registry module is generated containing all registered entities
+3. Tool loads registry and iterates over registered entities
+4. Uses existing SQL generator with LifeModelTrait implementations
+5. Groups by service path from entity metadata
+```
+
+**Using Compiled Entities (Option A - Build Script)**:
+```
+1. Build script scans source directories for entities
+2. Generates registry module with #[path = "..."] includes
+3. Registry is compiled as part of user's project
+4. Tool loads registry and uses compiled entities
+5. Uses existing SQL generator with LifeModelTrait implementations
 ```
 
 ### Error Handling & UX Improvements
@@ -421,11 +309,17 @@ lifeguard-migrate generate-from-entities \
 #### Clear Error Messages
 
 ```rust
-// Instead of: "Unknown entity table: xyz (skipping)"
-// Provide:
-Error: Failed to parse entity in src/entities/user.rs:42:5
-  └─ Missing #[table_name] attribute on struct User
-  └─ Hint: Add #[table_name = "users"] above the struct definition
+// If registry not found:
+Error: Compiled entities registry not found
+  └─ The migration tool requires access to compiled entities
+  └─ Ensure your project builds successfully: cargo build
+  └─ If using Option A (build script), ensure build.rs is configured correctly
+  └─ If using Option B (proc-macro), ensure lifeguard-derive is up to date
+
+// If entity compilation fails:
+Error: Entity compilation failed
+  └─ Cannot generate migrations from entities with compilation errors
+  └─ Fix compilation errors first, then regenerate migrations
 ```
 
 #### Validation
@@ -439,33 +333,32 @@ Error: Failed to parse entity in src/entities/user.rs:42:5
 #### Progress Indicators
 
 ```
-🔍 Discovering entities...
-   📁 Scanning ./src/entities...
-   ✅ Found 12 entity files
+🔍 Loading entity registry...
+   ✅ Registry found: 12 entities registered
 
-📋 Parsing entities...
-   ✅ chart_of_accounts.rs → ChartOfAccount (table: chart_of_accounts)
-   ✅ account.rs → Account (table: accounts)
-   ⚠️  user.rs → Warning: No primary key found
-   ❌ invalid.rs → Error: Missing #[table_name] attribute
+📋 Processing compiled entities...
+   ✅ ChartOfAccount (table: chart_of_accounts)
+   ✅ Account (table: accounts)
+   ✅ JournalEntry (table: journal_entries)
+   ✅ JournalEntryLine (table: journal_entry_lines)
+   ✅ AccountBalance (table: account_balances)
 
-🔨 Generating SQL...
+🔨 Generating SQL from compiled entities...
    ✅ Generated SQL for chart_of_accounts
    ✅ Generated SQL for accounts
-   ⏭️  Skipped user (has errors)
-   ⏭️  Skipped invalid (has errors)
+   ✅ Generated SQL for journal_entries
+   ✅ Generated SQL for journal_entry_lines
+   ✅ Generated SQL for account_balances
 
 📊 Summary:
-   ✅ 10 entities processed successfully
-   ⚠️  1 entity with warnings
-   ❌ 1 entity with errors
-   📁 4 SQL files written to ./migrations/generated
+   ✅ 5 entities processed successfully
+   📁 1 SQL file written to ./migrations/generated/accounting/general-ledger
 ```
 
 ### Migration Path
 
-1. **Phase 1**: Implement metadata parser (can coexist with current approach)
-2. **Phase 2**: Implement metadata SQL generator
+1. **Phase 1**: Implement Option B (Proc-Macro Registry) - primary approach
+2. **Phase 2**: Implement Option A (Cargo Build Script) - alternative if needed
 3. **Phase 3**: Add config file support
 4. **Phase 4**: Update CLI with new modes
 5. **Phase 5**: Deprecate old hardcoded approach
@@ -473,30 +366,29 @@ Error: Failed to parse entity in src/entities/user.rs:42:5
 
 ### Benefits
 
-1. **Generic**: Works with any entities without code changes
-2. **Fast**: No compilation step required (faster than Option B/C)
-3. **Flexible**: Multiple execution modes
-4. **User-Friendly**: Clear errors, progress indicators, validation
-5. **Maintainable**: No hardcoded entity lists
-6. **Extensible**: Easy to add new features (e.g., diff generation, validation rules)
-7. **Works with Broken Builds**: Can generate migrations even if user's project has compilation errors (only needs valid syntax)
-8. **No User Configuration**: Works out of the box without requiring build script setup
+1. **CRITICAL**: Uses exact same compiled entities as the application
+2. **Type-Safe**: Leverages existing compilation and type system
+3. **Guaranteed Correctness**: Migrations match runtime behavior
+4. **Flexible**: Multiple execution modes
+5. **User-Friendly**: Clear errors, progress indicators, validation
+6. **Maintainable**: No hardcoded entity lists
+7. **Extensible**: Easy to add new features (e.g., diff generation, validation rules)
+8. **Zero Schema Drift**: Cannot produce different SQL than what the app uses
 
 ### Dependencies
 
-- `syn` - Rust AST parsing
 - `toml` - Config file parsing (already in Cargo.toml)
-- `walkdir` - Recursive directory traversal (or use std::fs)
+- Standard Rust compilation (entities must compile)
 
 ### Testing Strategy
 
-1. **Unit Tests**: Test parser with various entity definitions
-2. **Integration Tests**: Test full workflow with sample entities
+1. **Unit Tests**: Test registry generation and access
+2. **Integration Tests**: Test full workflow with compiled entities
 3. **Edge Cases**: 
    - Entities with all attribute types
    - Nested modules
    - Multiple entities per file
-   - Invalid syntax handling
+   - Compilation errors (tool must fail gracefully)
 
 ## Alternative: Keep Current Approach but Make It Dynamic
 
@@ -510,57 +402,78 @@ However, this still requires compilation and is less elegant than Option A.
 
 ## Implementation Strategy
 
-### Phase 1: Option A (Metadata-Based) - Immediate
+### Phase 1: Option B (Proc-Macro Registry) - Primary Implementation
 
 **Why Start Here**:
-- Fastest path to a working solution
-- No changes to existing codebase needed
-- Works with any project structure
-- Can be implemented and tested independently
-
-**Implementation Steps**:
-1. Add `syn` dependency for Rust AST parsing
-2. Implement entity parser that extracts metadata from source files
-3. Create metadata-based SQL generator
-4. Update CLI with new execution modes
-5. Add config file support
-
-### Phase 2: Option C (Proc-Macro Registry) - Future Enhancement
-
-**Why Add Later**:
-- More elegant long-term solution
-- Leverages existing compilation
-- Can use existing SQL generator without modification
-- Automatic - no discovery needed
+- **CRITICAL**: Ensures migrations match what the application actually uses
+- Uses the exact same compiled entities as the backend
+- Most elegant and automatic solution
+- Zero risk of schema drift
 
 **Implementation Steps**:
 1. Enhance `lifeguard-derive` to support entity registration
 2. Generate registry module during compilation
-3. Update CLI to use registry when available
-4. Fall back to Option A if registry not found
+3. Update CLI to require registry (fail if not found)
+4. Use existing SQL generator with compiled entities
 
-### Hybrid Approach
+### Phase 2: Option A (Cargo Build Script) - Alternative Implementation
 
-The tool can support both approaches:
-- **Automatic Detection**: Check if registry exists (Option C), fall back to parsing (Option A)
-- **User Choice**: Allow `--use-registry` flag to force registry mode
-- **Best of Both**: Use registry when available (faster, type-safe), use parsing as fallback (works always)
+**Why Add as Alternative**:
+- Provides same guarantee as Option B (uses compiled entities)
+- Can be implemented if Option B has technical challenges
+- Still ensures migrations match application code
+
+**Implementation Steps**:
+1. Create build script infrastructure
+2. Implement entity discovery in build script
+3. Generate registry module
+4. Update CLI to use registry (fail if not found)
+
+### Critical Design Decision: NO FALLBACK, NO PARSING
+
+**The tool MUST fail if it cannot access compiled entities**. There is no fallback mechanism. This ensures:
+- Migrations always match what the application uses
+- No silent schema drift
+- Clear error messages guide users to fix the issue
+- Production safety is maintained
+- **Metadata parsing is explicitly rejected and will not be implemented**
+
+**Error Handling**:
+```rust
+// Pseudo-code
+if registry_not_found() {
+    return Err(MigrationError::CompiledEntitiesRequired {
+        hint: "Entities must be compiled. Ensure your project builds successfully. \
+               The migration tool requires access to compiled entities to ensure \
+               migrations match what your application uses."
+    });
+}
+// No fallback - fail fast and clearly
+```
 
 ## Recommendation
 
-**Implement Option A (Metadata-Based) first** because:
-- ✅ Fully generic solution
-- ✅ Fast implementation path
-- ✅ Better UX than current hardcoded approach
-- ✅ More maintainable long-term
-- ✅ Can be implemented incrementally
-- ✅ Works even when user's project has compilation errors
-- ✅ No user configuration required
+**CRITICAL INSIGHT**: Migrations must use the same compiled entities that the backend application uses. This is non-negotiable for production safety.
 
-**Plan Option C (Proc-Macro Registry) as future enhancement** because:
+**Primary Implementation: Option B (Proc-Macro Registry)** because:
+- ✅ **CRITICAL**: Uses exact same compiled entities as the application
+- ✅ Guarantees migrations match runtime behavior
+- ✅ Automatic - no user configuration needed
+- ✅ Type-safe and leverages existing compilation
+- ✅ Zero risk of schema drift
 - ✅ Most elegant long-term solution
-- ✅ Leverages existing compilation context
-- ✅ Can be added without breaking changes
-- ✅ Provides automatic entity discovery
 
-The parsing approach is well-established (syn crate is mature) and the SQL generation logic can be adapted to work from metadata structures. Since users always have Lifeguard as a dependency, we can also leverage that context for future optimizations.
+**Alternative: Option A (Cargo Build Script)** if Option B has technical challenges:
+- ✅ Still uses compiled entities (same guarantee)
+- ✅ Requires build script setup but ensures correctness
+- ✅ Can use existing SQL generator without modification
+
+**EXPLICITLY REJECTED: Metadata Parsing**:
+- ❌ **WILL NOT BE IMPLEMENTED** - May produce different SQL than compiled entities
+- ❌ Cannot guarantee migrations match what the application uses
+- ❌ Risk of schema drift
+- ❌ **Completely rejected in any form**
+
+**NO FALLBACK**: The tool must fail if compiled entities cannot be accessed. There is no fallback mechanism. This ensures production safety and prevents schema drift.
+
+Since users always have Lifeguard as a dependency and their entities are already compiled as part of their project, we must leverage that compilation context to ensure migrations match exactly what the application uses.
