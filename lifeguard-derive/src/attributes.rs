@@ -159,9 +159,6 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
     let mut attrs = ColumnAttributes::default();
     
     for attr in &field.attrs {
-        // Debug: print attribute path to see what we're matching
-        let attr_path = attr.path().get_ident().map(|i| i.to_string());
-        
         if attr.path().is_ident("primary_key") {
             attrs.is_primary_key = true;
         } else if attr.path().is_ident("column_name") {
@@ -175,7 +172,7 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
             }
         } else if attr.path().is_ident("column_type") {
             // Parse name-value attribute: #[column_type = "VARCHAR(255)"]
-            // In syn 2.0, we can match on Meta directly
+            // Match on Meta directly to see what we're getting
             match &attr.meta {
                 syn::Meta::NameValue(meta_nv) => {
                     if let syn::Expr::Lit(ExprLit {
@@ -185,16 +182,13 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                         attrs.column_type = Some(s.value());
                     }
                 }
-                _ => {
-                    // Fallback: try require_name_value() for compatibility
-                    if let Ok(meta) = attr.meta.require_name_value() {
-                        if let syn::Expr::Lit(ExprLit {
-                            lit: Lit::Str(s),
-                            ..
-                        }) = &meta.value {
-                            attrs.column_type = Some(s.value());
-                        }
-                    }
+                syn::Meta::List(_) => {
+                    // List format: #[column_type("VARCHAR(255)")]
+                    // Not supported, but don't error
+                }
+                syn::Meta::Path(_) => {
+                    // Path format: #[column_type]
+                    // Not supported, but don't error
                 }
             }
         } else if attr.path().is_ident("default_value") {
