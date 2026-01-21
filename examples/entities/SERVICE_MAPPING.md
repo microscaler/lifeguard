@@ -1,22 +1,26 @@
 # Entity Service Mapping
 
-This document maps Lifeguard entities to RERP OpenAPI accounting services, enabling service-based organization for BRRTRouter integration.
+This document maps Lifeguard entities to service domains, demonstrating how a 3rd party project organizes entities.
 
 ## Service Structure
 
-The entity files are organized to match the RERP OpenAPI accounting service structure (`../rerp/openapi/accounting/`):
+The entity files are organized as a Rust library crate:
 
 ```
-examples/entities/accounting/
-├── general-ledger/      # Core accounting entities
+examples/entities/src/accounting/
+├── general_ledger/      # Core accounting entities
 ├── invoice/             # Invoice management
-├── accounts-receivable/ # AR management
-└── accounts-payable/    # AP management
+├── accounts_receivable/ # AR management
+└── accounts_payable/    # AP management
 ```
+
+Note: This uses Rust module naming conventions (snake_case) rather than directory-style paths.
 
 ## Entity to Service Mapping
 
-### General Ledger (`accounting/general-ledger/`)
+### General Ledger (`accounting::general_ledger`)
+
+**Module Path:** `src/accounting/general_ledger/`
 
 **Migration:** `20240120120000_create_chart_of_accounts.sql`
 
@@ -28,9 +32,11 @@ examples/entities/accounting/
 | `journal_entry_line.rs` | `journal_entry_lines` | Individual debit/credit lines in journal entries |
 | `account_balance.rs` | `account_balances` | Denormalized account balances for performance |
 
-**RERP Service:** `general-ledger/`
+**Rust Import:** `use accounting_entities::accounting::general_ledger::*;`
 
-### Invoice (`accounting/invoice/`)
+### Invoice (`accounting::invoice`)
+
+**Module Path:** `src/accounting/invoice/`
 
 **Migration:** `20240120130000_create_invoices.sql`
 
@@ -39,11 +45,13 @@ examples/entities/accounting/
 | `invoice.rs` | `invoices` | Customer and vendor invoices |
 | `invoice_line.rs` | `invoice_lines` | Line items on invoices |
 
-**RERP Service:** `invoice/`
+**Rust Import:** `use accounting_entities::accounting::invoice::*;`
 
 **Status:** ⚠️ Not yet implemented (entities need to be created)
 
-### Accounts Receivable (`accounting/accounts-receivable/`)
+### Accounts Receivable (`accounting::accounts_receivable`)
+
+**Module Path:** `src/accounting/accounts_receivable/`
 
 **Migration:** `20240120140000_create_accounts_receivable.sql`
 
@@ -54,11 +62,13 @@ examples/entities/accounting/
 | `ar_payment_application.rs` | `ar_payment_applications` | Links payments to specific invoices |
 | `ar_aging.rs` | `ar_agings` | Aging analysis for accounts receivable |
 
-**RERP Service:** `accounts-receivable/`
+**Rust Import:** `use accounting_entities::accounting::accounts_receivable::*;`
 
 **Status:** ⚠️ Not yet implemented (entities need to be created)
 
-### Accounts Payable (`accounting/accounts-payable/`)
+### Accounts Payable (`accounting::accounts_payable`)
+
+**Module Path:** `src/accounting/accounts_payable/`
 
 **Migration:** `20240120150000_create_accounts_payable.sql`
 
@@ -69,7 +79,7 @@ examples/entities/accounting/
 | `ap_payment_application.rs` | `ap_payment_applications` | Links payments to specific vendor invoices |
 | `ap_aging.rs` | `ap_agings` | Aging analysis for accounts payable |
 
-**RERP Service:** `accounts-payable/`
+**Rust Import:** `use accounting_entities::accounting::accounts_payable::*;`
 
 **Status:** ⚠️ Not yet implemented (entities need to be created)
 
@@ -80,20 +90,30 @@ examples/entities/accounting/
 - ⚠️ **Accounts Receivable**: 0/4 entities
 - ⚠️ **Accounts Payable**: 0/4 entities
 
-## RERP Integration
+## Migration Tool Integration
 
-This structure enables:
+This structure demonstrates how `lifeguard-migrate` works with 3rd party projects:
 
-1. **Service-based Entity Discovery**: Entities are organized by service, matching RERP OpenAPI structure
-2. **BRRTRouter Integration**: Each service directory can map directly to RERP API endpoints
+1. **Service-based Entity Discovery**: Entities are organized by service domain
+2. **Rust Module Structure**: Uses standard Rust module organization (snake_case)
 3. **Clear Separation**: Accounting domains are clearly separated for maintainability
 4. **Scalability**: New services can be added following the same pattern
 
-## Usage
+## Usage with lifeguard-migrate
 
-The `lifeguard-migrate generate-from-entities` command automatically discovers all entities recursively, regardless of their service directory location. This allows:
+The `lifeguard-migrate generate-from-entities` command automatically discovers all entities recursively:
 
-- Entities to be organized by service
-- Multiple services to coexist
-- Easy addition of new services
-- Service-specific documentation and metadata
+```bash
+# From lifeguard project root
+lifeguard-migrate generate-from-entities \
+    --source-dir ./examples/entities/src \
+    --output-dir ./migrations/generated
+```
+
+The tool will:
+- Recursively scan `src/` for `*.rs` files
+- Discover all `#[derive(LifeModel)]` structs
+- Extract metadata and generate SQL migrations
+- Preserve service structure in output directory
+
+This demonstrates that the migration tool works with any Rust project structure, not just specific patterns.
