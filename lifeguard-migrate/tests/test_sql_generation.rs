@@ -5,6 +5,8 @@
 
 // Use the library crate
 use lifeguard_migrate::sql_generator;
+use lifeguard::{LifeModelTrait, ColumnTrait};
+use sea_query::IdenStatic;
 use std::fs;
 use std::path::PathBuf;
 
@@ -75,6 +77,14 @@ fn test_chart_of_accounts_sql_generation() {
     use test_entities::Entity;
     
     let table_def = Entity::table_definition();
+    
+    // Debug: Print column definitions to see what types are inferred
+    let columns = Entity::all_columns();
+    println!("Column definitions:");
+    for col in columns {
+        let col_def = col.def();
+        println!("  {}: column_type={:?}, nullable={}", col.as_str(), col_def.column_type, col_def.nullable);
+    }
     
     // Generate SQL
     let generated_sql = sql_generator::generate_create_table_sql::<Entity>(table_def)

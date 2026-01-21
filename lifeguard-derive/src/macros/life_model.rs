@@ -39,52 +39,38 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
         path: syn::Path { segments, .. },
         ..
     }) = inner_type {
-        // Get the last segment (e.g., "Uuid", "NaiveDateTime", "String")
+        // Get the last segment identifier (most specific type name)
         if let Some(last_seg) = segments.last() {
-            let type_name = last_seg.ident.to_string();
+            let last_ident = last_seg.ident.to_string();
             
-            // Check for UUID - look for "Uuid" in last segment or "uuid" in any segment
-            if type_name == "Uuid" {
+            // Check for UUID - last segment is "Uuid"
+            if last_ident == "Uuid" {
                 return Some("UUID".to_string());
             }
-            // Also check if any segment is "uuid" (for uuid::Uuid)
-            for seg in segments.iter() {
-                if seg.ident.to_string() == "uuid" {
-                    return Some("UUID".to_string());
-                }
-            }
             
-            // Check for NaiveDateTime
-            if type_name == "NaiveDateTime" {
+            // Check for NaiveDateTime - last segment is "NaiveDateTime"
+            if last_ident == "NaiveDateTime" {
                 return Some("TIMESTAMP".to_string());
             }
-            // Also check if any segment is "chrono" (for chrono::NaiveDateTime)
-            for seg in segments.iter() {
-                if seg.ident.to_string() == "chrono" {
-                    return Some("TIMESTAMP".to_string());
-                }
-            }
             
-            // Check for String
-            if type_name == "String" {
+            // Check for String - last segment is "String"
+            if last_ident == "String" {
                 return Some("TEXT".to_string());
             }
-            
-            // Check for integer types - check first segment for primitive types
+        }
+        
+        // Check for integer types - primitive types are single-segment
+        if segments.len() == 1 {
             if let Some(first_seg) = segments.first() {
-                let first_name = first_seg.ident.to_string();
-                match first_name.as_str() {
+                let first_ident = first_seg.ident.to_string();
+                match first_ident.as_str() {
                     "i8" | "i16" | "i32" => return Some("INTEGER".to_string()),
                     "i64" => return Some("BIGINT".to_string()),
                     "u8" | "u16" | "u32" => return Some("INTEGER".to_string()),
                     "u64" => return Some("BIGINT".to_string()),
+                    "bool" => return Some("BOOLEAN".to_string()),
                     _ => {}
                 }
-            }
-            
-            // Check for bool (single segment type)
-            if type_name == "bool" && segments.len() == 1 {
-                return Some("BOOLEAN".to_string());
             }
         }
     }
