@@ -1053,6 +1053,7 @@ dependencies = [
  "lifeguard-derive",
  "log",
  "may_postgres",
+ "pathdiff",
  "rust_decimal",
  "sea-query",
  "serde",

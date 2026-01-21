@@ -38,6 +38,8 @@ serde_json = "1.0"
 rust_decimal = "1.33"
 # SQL query builder (for IdenStatic)
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
+# Path manipulation for relative paths
+pathdiff = "0.2"
 # Lifeguard derive (needed for entities)
 lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
 # Postgres driver (needed for macro expansion - FromRow uses may_postgres::Row)
