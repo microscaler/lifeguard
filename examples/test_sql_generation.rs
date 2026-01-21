@@ -3,18 +3,11 @@
 //! This example demonstrates generating SQL from Lifeguard entities and comparing
 //! with the original SQL migrations.
 
-mod entities {
-    pub mod chart_of_accounts;
-    pub mod account;
-    pub mod journal_entry;
-}
+// Note: This example is disabled because:
+// 1. sql_generator is in lifeguard-migrate and examples don't have access to it
+// 2. Entities have been moved to examples/entities/ which is a separate crate
+// Use lifeguard-migrate tests instead.
 
-use entities::chart_of_accounts::ChartOfAccount;
-use entities::account::Account;
-use entities::journal_entry::JournalEntry;
-use lifeguard::LifeModelTrait;
-// Note: This example is disabled because sql_generator is in lifeguard-migrate
-// and examples don't have access to it. Use lifeguard-migrate tests instead.
 use std::fs;
 use std::path::PathBuf;
 
@@ -38,92 +31,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn test_chart_of_accounts() -> Result<(), Box<dyn std::error::Error>> {
-    // Get table definition from entity
-    let table_def = <ChartOfAccount as LifeModelTrait>::Entity::table_definition();
-    
     // Note: SQL generation is disabled in examples - use lifeguard-migrate tests instead
     println!("⚠️  SQL generation test disabled in examples - use lifeguard-migrate tests");
-    return Ok(());
-    
-    // Generate SQL (disabled)
-    // let generated_sql = sql_generator::generate_create_table_sql::<ChartOfAccount>(table_def)?;
-    
-    println!("Generated SQL:");
-    println!("{}", generated_sql);
-    
-    // Load original SQL
-    let original_sql = load_original_sql("20240120120000_create_chart_of_accounts.sql")?;
-    
-    // Extract chart_of_accounts table definition from original
-    let original_table_sql = extract_table_sql(&original_sql, "chart_of_accounts")?;
-    
-    println!("\nOriginal SQL (chart_of_accounts table):");
-    println!("{}", original_table_sql);
-    
-    // Compare (normalized)
-    let generated_normalized = normalize_sql(&generated_sql);
-    let original_normalized = normalize_sql(&original_table_sql);
-    
-    if generated_normalized == original_normalized {
-        println!("\n✅ Generated SQL matches original!");
-    } else {
-        println!("\n❌ Generated SQL differs from original!");
-        println!("\nDifferences:");
-        compare_sql(&generated_normalized, &original_normalized);
-    }
-    
+    println!("   This example cannot access entities or sql_generator");
     Ok(())
 }
 
 fn test_account() -> Result<(), Box<dyn std::error::Error>> {
     println!("⚠️  SQL generation test disabled in examples - use lifeguard-migrate tests");
     Ok(())
-    
-    println!("Generated SQL:");
-    println!("{}", generated_sql);
-    
-    let original_sql = load_original_sql("20240120120000_create_chart_of_accounts.sql")?;
-    let original_table_sql = extract_table_sql(&original_sql, "accounts")?;
-    
-    println!("\nOriginal SQL (accounts table):");
-    println!("{}", original_table_sql);
-    
-    let generated_normalized = normalize_sql(&generated_sql);
-    let original_normalized = normalize_sql(&original_table_sql);
-    
-    if generated_normalized == original_normalized {
-        println!("\n✅ Generated SQL matches original!");
-    } else {
-        println!("\n❌ Generated SQL differs from original!");
-        compare_sql(&generated_normalized, &original_normalized);
-    }
-    
-    Ok(())
 }
 
 fn test_journal_entry() -> Result<(), Box<dyn std::error::Error>> {
     println!("⚠️  SQL generation test disabled in examples - use lifeguard-migrate tests");
-    Ok(())
-    
-    println!("Generated SQL:");
-    println!("{}", generated_sql);
-    
-    let original_sql = load_original_sql("20240120120000_create_chart_of_accounts.sql")?;
-    let original_table_sql = extract_table_sql(&original_sql, "journal_entries")?;
-    
-    println!("\nOriginal SQL (journal_entries table):");
-    println!("{}", original_table_sql);
-    
-    let generated_normalized = normalize_sql(&generated_sql);
-    let original_normalized = normalize_sql(&original_table_sql);
-    
-    if generated_normalized == original_normalized {
-        println!("\n✅ Generated SQL matches original!");
-    } else {
-        println!("\n❌ Generated SQL differs from original!");
-        compare_sql(&generated_normalized, &original_normalized);
-    }
-    
     Ok(())
 }
 

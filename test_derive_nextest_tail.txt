@@ -1,0 +1,200 @@
+[32;1m        PASS[0m [   0.017s] ( 14/334) [35;1mlifeguard-derive[0m [36mutils::tests[0m[36m::[0m[34;1mtest_pascal_case[0m
+[32;1m        PASS[0m [   0.019s] ( 15/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_boolean_with_default[0m
+[32;1m        PASS[0m [   0.019s] ( 16/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_tuple_types[0m
+[32;1m        PASS[0m [   0.018s] ( 17/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_auto_increment_with_unique[0m
+[32;1m        PASS[0m [   0.022s] ( 18/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_simple_types[0m
+[32;1m        PASS[0m [   0.022s] ( 19/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_all_attributes_combined[0m
+[32;1m        PASS[0m [   0.023s] ( 20/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_auto_increment_attribute[0m
+[32;1m        PASS[0m [   0.020s] ( 21/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_generation[0m
+[32;1m        PASS[0m [   0.016s] ( 22/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_with_backslashes[0m
+[32;1m        PASS[0m [   0.020s] ( 23/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_with_special_table_name[0m
+[32;1m        PASS[0m [   0.023s] ( 24/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_empty_string[0m
+[32;1m        PASS[0m [   0.023s] ( 25/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_column_type_with_default_value[0m
+[32;1m        PASS[0m [   0.022s] ( 26/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_integration_with_life_model[0m
+[32;1m        PASS[0m [   0.020s] ( 27/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_identifier_validation[0m
+[32;1m        PASS[0m [   0.024s] ( 28/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_attribute[0m
+[32;1m        PASS[0m [   0.023s] ( 29/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_very_long[0m
+[32;1m        PASS[0m [   0.026s] ( 30/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_with_newlines[0m
+[32;1m        PASS[0m [   0.014s] ( 31/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_value_attribute[0m
+[35;1m  TRY 1 FAIL[0m [   0.015s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 2/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.016s] ( 32/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_empty_string_default_value[0m
+[32;1m        PASS[0m [   0.016s] ( 33/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignore_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 34/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_composite_primary_key_with_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 35/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_enum_name_attribute[0m
+[32;1m        PASS[0m [   0.020s] ( 36/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_expr_with_other_attributes[0m
+[32;1m        PASS[0m [   0.022s] ( 37/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_expr_attribute[0m
+[32;1m        PASS[0m [   0.016s] ( 38/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignore_with_other_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 39/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignored_fields_not_in_all_columns[0m
+[32;1m        PASS[0m [   0.016s] ( 40/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_indexed_attribute[0m
+[35;1m  TRY 2 FAIL[0m [   0.014s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 3/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.015s] ( 41/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_fields_different_attributes[0m
+[32;1m        PASS[0m [   0.016s] ( 42/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_long_enum_name[0m
+[32;1m        PASS[0m [   0.016s] ( 43/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_save_as_expressions[0m
+[32;1m        PASS[0m [   0.013s] ( 44/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_nullable_attribute[0m
+[32;1m        PASS[0m [   0.020s] ( 45/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_json_type_with_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 46/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_select_as_expressions[0m
+[32;1m        PASS[0m [   0.019s] ( 47/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_non_option_with_nullable_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 48/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_numeric_types_with_attributes[0m
+[32;1m        PASS[0m [   0.018s] ( 49/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_option_type_automatically_nullable[0m
+[35;1m  TRY 3 FAIL[0m [   0.018s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 4/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.015s] ( 50/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_renamed_from_with_other_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 51/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_primary_key_with_auto_increment[0m
+[32;1m        PASS[0m [   0.019s] ( 52/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_option_type_with_nullable_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 53/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_renamed_from_attribute[0m
+[32;1m        PASS[0m [   0.015s] ( 54/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_column_save_as_method[0m
+[32;1m        PASS[0m [   0.019s] ( 55/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_attribute[0m
+[32;1m        PASS[0m [   0.016s] ( 56/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_on_option_field[0m
+[32;1m        PASS[0m [   0.014s] ( 57/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_on_primary_key[0m
+[32;1m        PASS[0m [   0.011s] ( 58/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_attribute[0m
+[31;1m  TRY 4 FAIL[0m [   0.011s] ( 59/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[31;1m [0m [31;1mstdout[0m [31;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[31;1m [0m [31;1mstderr[0m [31;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[31;1m  Cancelling[0m due to [31;1mtest failure[0m: [1m9[0m tests still running
+[32;1m        PASS[0m [   0.013s] ( 60/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_special_characters[0m
+[32;1m        PASS[0m [   0.014s] ( 61/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_without_attribute[0m
+[32;1m        PASS[0m [   0.013s] ( 62/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_all_columns_method[0m
+[32;1m        PASS[0m [   0.015s] ( 63/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_custom_schema[0m
+[32;1m        PASS[0m [   0.014s] ( 64/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_all_columns_have_select_as[0m
+[32;1m        PASS[0m [   0.011s] ( 65/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_and_save_as_on_same_column[0m
+[32;1m        PASS[0m [   0.012s] ( 66/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_attribute[0m
+[32;1m        PASS[0m [   0.010s] ( 67/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_special_characters[0m
+[32;1m        PASS[0m [   0.011s] ( 68/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_special_characters_in_column_type[0m
+────────────
+[31;1m     Summary[0m [   0.134s] [1m68[0m/[1m334[0m tests run: [1m67[0m [32;1mpassed[0m, [1m1[0m [31;1mfailed[0m, [1m0[0m [33;1mskipped[0m
+[31;1m  TRY 4 FAIL[0m [   0.011s] ( 59/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[31;1m [0m [31;1mstdout[0m [31;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[31;1m [0m [31;1mstderr[0m [31;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[33;1mwarning[0m: [1m266[0m/[1m334[0m tests were not run due to [33;1mtest failure[0m (run with [1m--no-fail-fast[0m to run all tests, or run with [1m--max-fail[0m)
+[31;1merror[0m: test run failed
+Build Failed: Command "cd lifeguard-derive && cargo nextest run --all-features" failed: exit status 100
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
