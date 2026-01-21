@@ -29,6 +29,69 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
     None
 }
 
+/// Infer SQL type from Rust type for automatic column type mapping
+fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
+    // Extract inner type if it's Option<T>
+    let inner_type = extract_option_inner_type(ty).unwrap_or(ty);
+    
+    // Check if this is a path type (e.g., uuid::Uuid, chrono::NaiveDateTime)
+    if let Type::Path(syn::TypePath {
+        path: syn::Path { segments, .. },
+        ..
+    }) = inner_type {
+        // Get the last segment (e.g., "Uuid", "NaiveDateTime", "String")
+        if let Some(last_seg) = segments.last() {
+            let type_name = last_seg.ident.to_string();
+            
+            // Check for UUID - look for "Uuid" in last segment or "uuid" in any segment
+            if type_name == "Uuid" {
+                return Some("UUID".to_string());
+            }
+            // Also check if any segment is "uuid" (for uuid::Uuid)
+            for seg in segments.iter() {
+                if seg.ident.to_string() == "uuid" {
+                    return Some("UUID".to_string());
+                }
+            }
+            
+            // Check for NaiveDateTime
+            if type_name == "NaiveDateTime" {
+                return Some("TIMESTAMP".to_string());
+            }
+            // Also check if any segment is "chrono" (for chrono::NaiveDateTime)
+            for seg in segments.iter() {
+                if seg.ident.to_string() == "chrono" {
+                    return Some("TIMESTAMP".to_string());
+                }
+            }
+            
+            // Check for String
+            if type_name == "String" {
+                return Some("TEXT".to_string());
+            }
+            
+            // Check for integer types - check first segment for primitive types
+            if let Some(first_seg) = segments.first() {
+                let first_name = first_seg.ident.to_string();
+                match first_name.as_str() {
+                    "i8" | "i16" | "i32" => return Some("INTEGER".to_string()),
+                    "i64" => return Some("BIGINT".to_string()),
+                    "u8" | "u16" | "u32" => return Some("INTEGER".to_string()),
+                    "u64" => return Some("BIGINT".to_string()),
+                    _ => {}
+                }
+            }
+            
+            // Check for bool (single segment type)
+            if type_name == "bool" && segments.len() == 1 {
+                return Some("BOOLEAN".to_string());
+            }
+        }
+    }
+    
+    None
+}
+
 /// Derive macro for `LifeModel` - generates Entity, Model, Column, PrimaryKey, and FromRow
 ///
 /// This macro follows SeaORM's pattern exactly:
@@ -1118,10 +1181,22 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let is_nullable = col_attrs.is_nullable || extract_option_inner_type(field_type).is_some();
         
         // Build ColumnDefinition struct literal
-        let column_type_expr = col_attrs.column_type.as_ref().map(|ct| {
+        // If column_type is not explicitly provided, infer it from Rust type
+        let column_type_expr = if col_attrs.column_type.is_some() {
+            // Use explicit column_type if provided
+            let ct = col_attrs.column_type.as_ref().unwrap();
             let ct_lit = syn::LitStr::new(ct, field_name.span());
             quote! { Some(#ct_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        } else {
+            // Infer SQL type from Rust type
+            let inferred_type = infer_sql_type_from_rust_type(field_type);
+            if let Some(sql_type) = inferred_type {
+                let sql_type_lit = syn::LitStr::new(&sql_type, field_name.span());
+                quote! { Some(#sql_type_lit.to_string()) }
+            } else {
+                quote! { None }
+            }
+        };
         
         let default_value_expr = col_attrs.default_value.as_ref().map(|dv| {
             let dv_lit = syn::LitStr::new(dv, field_name.span());
