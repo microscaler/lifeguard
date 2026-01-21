@@ -617,27 +617,36 @@ pub struct EntityInfo {
 
 ### User Integration
 
-Users add a simple `build.rs` to their project:
+Users add a simple `build.rs` to their project (see `examples/build.rs.example` for full example):
 
 ```rust
 // build.rs
-use lifeguard_migrate::build_script;
 use std::env;
 use std::path::Path;
 
 fn main() {
     let source_dir = Path::new("src");
-    let entities = build_script::discover_entities(source_dir)
+    let entities = lifeguard_migrate::build_script::discover_entities(source_dir)
         .expect("Failed to discover entities");
     
-    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let registry_path = Path::new(&out_dir).join("entity_registry.rs");
     
-    build_script::generate_registry_module(&entities, &registry_path)
+    lifeguard_migrate::build_script::generate_registry_module(&entities, &registry_path)
         .expect("Failed to generate registry");
     
     println!("cargo:rerun-if-changed=src");
 }
+```
+
+Add to `Cargo.toml`:
+
+```toml
+[package]
+build = "build.rs"
+
+[build-dependencies]
+lifeguard-migrate = { path = "path/to/lifeguard-migrate", version = "0.1.0" }
 ```
 
 Then include the registry in their `lib.rs` or `main.rs`:
@@ -646,6 +655,15 @@ Then include the registry in their `lib.rs` or `main.rs`:
 // In lib.rs or main.rs
 #[path = concat!(env!("OUT_DIR"), "/entity_registry.rs")]
 mod entity_registry;
+
+// Use the registry
+use entity_registry::entity_registry;
+
+// Generate SQL for all entities
+let sql_results = entity_registry::generate_sql_for_all()?;
+for (table_name, sql) in sql_results {
+    println!("Table: {}\n{}", table_name, sql);
+}
 ```
 
 ### Advantages of This Approach
