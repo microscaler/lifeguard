@@ -69,6 +69,10 @@ pub struct ColumnDefinition {
     pub indexed: bool,
     /// Whether the column is auto-increment
     pub auto_increment: bool,
+    /// Foreign key constraint (e.g., "chart_of_accounts(id) ON DELETE SET NULL")
+    pub foreign_key: Option<String>,
+    /// CHECK constraint expression (column-level)
+    pub check: Option<String>,
 }
 
 impl Default for ColumnDefinition {
@@ -85,6 +89,8 @@ impl Default for ColumnDefinition {
             unique: false,
             indexed: false,
             auto_increment: false,
+            foreign_key: None,
+            check: None,
         }
     }
 }
@@ -405,6 +411,8 @@ impl ColumnDefinition {
             unique: is_primary_key, // Primary keys are typically unique
             indexed: is_primary_key, // Primary keys are typically indexed
             auto_increment: is_auto_increment,
+            foreign_key: None,
+            check: None,
         }
     }
 }
@@ -427,6 +435,8 @@ mod tests {
         assert_eq!(def.unique, false);
         assert_eq!(def.indexed, false);
         assert_eq!(def.auto_increment, false);
+        assert_eq!(def.foreign_key, None);
+        assert_eq!(def.check, None);
     }
 
     #[test]
@@ -443,6 +453,8 @@ mod tests {
             unique: true,
             indexed: true,
             auto_increment: false,
+            foreign_key: None,
+            check: None,
         };
         
         assert_eq!(def.column_type, Some("String".to_string()));
@@ -469,6 +481,8 @@ mod tests {
             unique: false,
             indexed: false,
             auto_increment: true,
+            foreign_key: None,
+            check: None,
         };
         
         // Test that to_column_def compiles and works
@@ -496,6 +510,8 @@ mod tests {
             unique: false,
             indexed: false,
             auto_increment: false,
+            foreign_key: None,
+            check: None,
         };
         
         struct TestColumn;

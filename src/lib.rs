@@ -40,7 +40,7 @@ pub mod metrics;
 // pub mod pool;
 
 // Test helpers - Epic 01 Story 08
-#[cfg(test)]
+// Available for integration tests
 pub mod test_helpers;
 
 // Entity tests will be rebuilt in Epic 03
@@ -65,6 +65,7 @@ pub use query::{
     ColumnTrait, ColumnDefinition,
     PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
     ModelManager, StoredProcedure,
+    TableDefinition, IndexDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules
@@ -108,3 +109,11 @@ pub use value::{
 
 // Re-export transaction types for convenience
 pub use transaction::{Transaction, TransactionError, IsolationLevel};
+
+// Migration system - Epic 03
+pub mod migration;
+pub use migration::{
+    Migration, SchemaManager, MigrationError, MigrationRecord, MigrationStatus,
+    Migrator, MigrationLockGuard, startup_migrations, startup_migrations_with_timeout,
+    acquire_migration_lock, release_migration_lock, is_migration_lock_held,
+};

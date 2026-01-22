@@ -72,9 +72,10 @@ fn test_column_type_attribute() {
     let def = <Entity as LifeModelTrait>::Column::Count.column_def();
     assert_eq!(def.column_type, Some("BIGINT".to_string()));
     
-    // Verify default (no column_type attribute)
+    // Verify default (no column_type attribute) - type inference should run
     let def = <Entity as LifeModelTrait>::Column::Id.column_def();
-    assert_eq!(def.column_type, None);
+    // With type inference, i32 should map to INTEGER
+    assert_eq!(def.column_type, Some("INTEGER".to_string()));
 }
 
 #[test]
@@ -481,8 +482,9 @@ fn test_default_column_definition() {
     }
     
     // Verify default values when no attributes are specified
+    // Note: Type inference now automatically infers types (i32 -> INTEGER, String -> TEXT)
     let def_id = <Entity as LifeModelTrait>::Column::Id.column_def();
-    assert_eq!(def_id.column_type, None);
+    assert_eq!(def_id.column_type, Some("INTEGER".to_string())); // i32 is inferred as INTEGER
     assert_eq!(def_id.nullable, false);
     assert_eq!(def_id.default_value, None);
     assert_eq!(def_id.unique, false);
@@ -490,7 +492,7 @@ fn test_default_column_definition() {
     assert_eq!(def_id.auto_increment, false);
     
     let def_name = <Entity as LifeModelTrait>::Column::Name.column_def();
-    assert_eq!(def_name.column_type, None);
+    assert_eq!(def_name.column_type, Some("TEXT".to_string())); // String is inferred as TEXT
     assert_eq!(def_name.nullable, false);
     
     let enum_name = <Entity as LifeModelTrait>::Column::Name.column_enum_type_name();

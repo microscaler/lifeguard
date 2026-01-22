@@ -29,6 +29,81 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
     None
 }
 
+/// Infer SQL type from Rust type for automatic column type mapping
+fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
+    // Extract inner type if it's Option<T>
+    let inner_type = extract_option_inner_type(ty).unwrap_or(ty);
+    
+    // Check if this is a path type (e.g., uuid::Uuid, chrono::NaiveDateTime)
+    if let Type::Path(syn::TypePath {
+        path: syn::Path { segments, .. },
+        ..
+    }) = inner_type {
+        // Get the last segment identifier (most specific type name)
+        if let Some(last_seg) = segments.last() {
+            let last_ident = last_seg.ident.to_string();
+            
+            // Check for UUID - last segment is "Uuid"
+            if last_ident == "Uuid" {
+                return Some("UUID".to_string());
+            }
+            
+            // Check for NaiveDateTime - last segment is "NaiveDateTime"
+            if last_ident == "NaiveDateTime" {
+                return Some("TIMESTAMP".to_string());
+            }
+            
+            // Check for NaiveDate - last segment is "NaiveDate"
+            if last_ident == "NaiveDate" {
+                return Some("DATE".to_string());
+            }
+            
+            // Check for String - last segment is "String"
+            if last_ident == "String" {
+                return Some("TEXT".to_string());
+            }
+            
+            // Check for Value (serde_json::Value) - last segment is "Value"
+            // When imported as `use serde_json::Value;`, the path is just "Value"
+            // When fully qualified, it's "serde_json::Value" (2 segments)
+            if last_ident == "Value" {
+                // Check if this is serde_json::Value by looking at the path
+                // If it's 2 segments and first is "serde_json", it's definitely JSONB
+                // If it's 1 segment (just "Value"), it might be imported, so we'll assume JSONB
+                // (entities should use #[column_type = "JSONB"] if this is wrong)
+                if segments.len() == 2 {
+                    if let Some(first_seg) = segments.first() {
+                        if first_seg.ident == "serde_json" {
+                            return Some("JSONB".to_string());
+                        }
+                    }
+                } else if segments.len() == 1 {
+                    // Single segment "Value" - likely imported serde_json::Value
+                    // We'll assume JSONB (can be overridden with #[column_type])
+                    return Some("JSONB".to_string());
+                }
+            }
+        }
+        
+        // Check for integer types - primitive types are single-segment
+        if segments.len() == 1 {
+            if let Some(first_seg) = segments.first() {
+                let first_ident = first_seg.ident.to_string();
+                match first_ident.as_str() {
+                    "i8" | "i16" | "i32" => return Some("INTEGER".to_string()),
+                    "i64" => return Some("BIGINT".to_string()),
+                    "u8" | "u16" | "u32" => return Some("INTEGER".to_string()),
+                    "u64" => return Some("BIGINT".to_string()),
+                    "bool" => return Some("BOOLEAN".to_string()),
+                    _ => {}
+                }
+            }
+        }
+    }
+    
+    None
+}
+
 /// Derive macro for `LifeModel` - generates Entity, Model, Column, PrimaryKey, and FromRow
 ///
 /// This macro follows SeaORM's pattern exactly:
@@ -51,6 +126,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let schema_lit = syn::LitStr::new(s, struct_name.span());
         quote! { #[schema_name = #schema_lit] }
     });
+    
+    // Parse table-level attributes (composite_unique, index, check, table_comment)
+    let table_attrs = match attributes::parse_table_attributes(&input.attrs) {
+        Ok(attrs) => attrs,
+        Err(e) => return e.to_compile_error().into(),
+    };
 
     // Extract fields
     let fields = match &input.data {
@@ -87,6 +168,77 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut model_fields = Vec::new();
     let mut from_row_fields = Vec::new();
     let mut iden_impls = Vec::new();
+    
+    // Generate table definition expression
+    let table_comment_expr = table_attrs.table_comment.as_ref().map(|tc| {
+        let tc_lit = syn::LitStr::new(tc, struct_name.span());
+        quote! { Some(#tc_lit.to_string()) }
+    }).unwrap_or_else(|| quote! { None });
+    
+    // Generate composite unique constraints
+    let composite_unique_expr = if table_attrs.composite_unique.is_empty() {
+        quote! { Vec::new() }
+    } else {
+        let unique_vecs: Vec<_> = table_attrs.composite_unique.iter().map(|cols| {
+            let col_lits: Vec<_> = cols.iter().map(|c| {
+                let c_lit = syn::LitStr::new(c, struct_name.span());
+                quote! { #c_lit.to_string() }
+            }).collect();
+            quote! { vec![#(#col_lits),*] }
+        }).collect();
+        quote! { vec![#(#unique_vecs),*] }
+    };
+    
+    // Generate index definitions
+    let indexes_expr = if table_attrs.indexes.is_empty() {
+        quote! { Vec::new() }
+    } else {
+        let index_defs: Vec<_> = table_attrs.indexes.iter().map(|(name, cols, unique, where_clause)| {
+            let name_lit = syn::LitStr::new(name, struct_name.span());
+            let col_lits: Vec<_> = cols.iter().map(|c| {
+                let c_lit = syn::LitStr::new(c, struct_name.span());
+                quote! { #c_lit.to_string() }
+            }).collect();
+            let unique_lit = syn::LitBool::new(*unique, struct_name.span());
+            let where_expr = where_clause.as_ref().map(|w| {
+                let w_lit = syn::LitStr::new(w, struct_name.span());
+                quote! { Some(#w_lit.to_string()) }
+            }).unwrap_or_else(|| quote! { None });
+            quote! {
+                lifeguard::IndexDefinition {
+                    name: #name_lit.to_string(),
+                    columns: vec![#(#col_lits),*],
+                    unique: #unique_lit,
+                    partial_where: #where_expr,
+                }
+            }
+        }).collect();
+        quote! { vec![#(#index_defs),*] }
+    };
+    
+    // Generate CHECK constraints
+    let check_constraints_expr = if table_attrs.check_constraints.is_empty() {
+        quote! { Vec::new() }
+    } else {
+        let check_tuples: Vec<_> = table_attrs.check_constraints.iter().map(|(name, expr)| {
+            let expr_lit = syn::LitStr::new(expr, struct_name.span());
+            let name_expr = name.as_ref().map(|n| {
+                let n_lit = syn::LitStr::new(n, struct_name.span());
+                quote! { Some(#n_lit.to_string()) }
+            }).unwrap_or_else(|| quote! { None });
+            quote! { (#name_expr, #expr_lit.to_string()) }
+        }).collect();
+        quote! { vec![#(#check_tuples),*] }
+    };
+    
+    let table_definition_expr = quote! {
+        lifeguard::TableDefinition {
+            table_comment: #table_comment_expr,
+            composite_unique: #composite_unique_expr,
+            indexes: #indexes_expr,
+            check_constraints: #check_constraints_expr,
+        }
+    };
     let mut model_get_match_arms = Vec::new();
     let mut model_set_match_arms = Vec::new();
     let mut get_by_column_name_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
@@ -864,25 +1016,145 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
         // Generate FromRow field extraction
         let column_name_str = column_name.as_str();
+        
+        // Determine nullability from Option<T> or #[nullable] attribute
+        let is_nullable = col_attrs.is_nullable || extract_option_inner_type(field_type).is_some();
+        
         let get_expr = {
-            // Handle unsigned integer types
-            let is_unsigned = match field_type {
+            // Check for special types that need custom handling
+            // First, extract the inner type if it's Option<T>
+            let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
+            
+            // Get type name string for comparison
+            let type_name = match inner_type {
                 syn::Type::Path(syn::TypePath {
                     path: syn::Path { segments, .. },
                     ..
                 }) => {
-                    if let Some(segment) = segments.first() {
-                        let ident_str = segment.ident.to_string();
-                        matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
-                    } else {
-                        false
+                    // Get full type path (e.g., "uuid::Uuid", "chrono::NaiveDateTime")
+                    let mut path_parts = Vec::new();
+                    for segment in segments {
+                        path_parts.push(segment.ident.to_string());
+                    }
+                    path_parts.join("::")
+                }
+                _ => String::new(),
+            };
+            
+            // Check if this is uuid::Uuid or chrono::NaiveDateTime
+            let (is_uuid, is_naive_datetime) = match inner_type {
+                syn::Type::Path(syn::TypePath {
+                    path: syn::Path { segments, .. },
+                    ..
+                }) => {
+                    let last_seg = segments.last().map(|s| s.ident.to_string());
+                    let is_uuid = last_seg.as_ref().map(|s| s == "Uuid").unwrap_or(false) ||
+                                  type_name.contains("Uuid");
+                    let is_naive_datetime = last_seg.as_ref().map(|s| s == "NaiveDateTime").unwrap_or(false) ||
+                                           type_name.contains("NaiveDateTime");
+                    (is_uuid, is_naive_datetime)
+                }
+                _ => (false, false),
+            };
+            
+            // Handle uuid::Uuid - get as string and parse
+            // Note: We use explicit error handling to avoid type inference issues with ?
+            if is_uuid {
+                if is_nullable {
+                    quote! {
+                        {
+                            let uuid_str: Option<String> = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            match uuid_str {
+                                None => None,
+                                Some(s) => {
+                                    match uuid::Uuid::parse_str(&s) {
+                                        Ok(u) => Some(u),
+                                        Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    quote! {
+                        {
+                            let uuid_str: String = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            match uuid::Uuid::parse_str(&uuid_str) {
+                                Ok(u) => u,
+                                Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                            }
+                        }
                     }
                 }
-                _ => false,
-            };
+            }
+            // Handle chrono::NaiveDateTime - get as string and parse
+            else if is_naive_datetime {
+                if is_nullable {
+                    quote! {
+                        {
+                            let dt_str: Option<String> = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            match dt_str {
+                                None => None,
+                                Some(s) => {
+                                    let dt = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.f")
+                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S"))
+                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f"))
+                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S"));
+                                    match dt {
+                                        Ok(d) => Some(d),
+                                        Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    quote! {
+                        {
+                            let dt_str: String = match row.try_get(#column_name_str) {
+                                Ok(v) => v,
+                                Err(e) => return Err(e),
+                            };
+                            let dt = chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S%.f")
+                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S"))
+                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S%.f"))
+                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S"));
+                            match dt {
+                                Ok(d) => d,
+                                Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle unsigned integer types
+            else {
+                let is_unsigned = match field_type {
+                    syn::Type::Path(syn::TypePath {
+                        path: syn::Path { segments, .. },
+                        ..
+                    }) => {
+                        if let Some(segment) = segments.first() {
+                            let ident_str = segment.ident.to_string();
+                            matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                };
 
-            if is_unsigned {
-                let signed_type = match field_type {
+                if is_unsigned {
+                    let signed_type = match field_type {
                     syn::Type::Path(syn::TypePath {
                         path: syn::Path { segments, .. },
                         ..
@@ -901,15 +1173,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     _ => quote! { i32 },
                 };
 
-                quote! {
-                    {
-                        let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
-                        val as #field_type
+                    quote! {
+                        {
+                            let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
+                            val as #field_type
+                        }
                     }
-                }
-            } else {
-                quote! {
-                    row.try_get::<&str, #field_type>(#column_name_str)?
+                } else {
+                    quote! {
+                        row.try_get::<&str, #field_type>(#column_name_str)?
+                    }
                 }
             }
         };
@@ -924,10 +1197,22 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let is_nullable = col_attrs.is_nullable || extract_option_inner_type(field_type).is_some();
         
         // Build ColumnDefinition struct literal
-        let column_type_expr = col_attrs.column_type.as_ref().map(|ct| {
+        // If column_type is not explicitly provided, infer it from Rust type
+        let column_type_expr = if col_attrs.column_type.is_some() {
+            // Use explicit column_type if provided
+            let ct = col_attrs.column_type.as_ref().unwrap();
             let ct_lit = syn::LitStr::new(ct, field_name.span());
             quote! { Some(#ct_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        } else {
+            // Infer SQL type from Rust type
+            let inferred_type = infer_sql_type_from_rust_type(field_type);
+            if let Some(sql_type) = inferred_type {
+                let sql_type_lit = syn::LitStr::new(&sql_type, field_name.span());
+                quote! { Some(#sql_type_lit.to_string()) }
+            } else {
+                quote! { None }
+            }
+        };
         
         let default_value_expr = col_attrs.default_value.as_ref().map(|dv| {
             let dv_lit = syn::LitStr::new(dv, field_name.span());
@@ -959,6 +1244,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             quote! { Some(#c_lit.to_string()) }
         }).unwrap_or_else(|| quote! { None });
         
+        let foreign_key_expr = col_attrs.foreign_key.as_ref().map(|fk| {
+            let fk_lit = syn::LitStr::new(fk, field_name.span());
+            quote! { Some(#fk_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
+        let check_expr = col_attrs.check.as_ref().map(|c| {
+            let c_lit = syn::LitStr::new(c, field_name.span());
+            quote! { Some(#c_lit.to_string()) }
+        }).unwrap_or_else(|| quote! { None });
+        
         // Extract boolean attributes for use in quote! macro
         let is_unique_attr = col_attrs.is_unique;
         let is_indexed_attr = col_attrs.is_indexed;
@@ -977,6 +1272,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 unique: #is_unique_attr,
                 indexed: #is_indexed_attr,
                 auto_increment: #is_auto_increment_attr,
+                foreign_key: #foreign_key_expr,
+                check: #check_expr,
             },
         });
         
@@ -1211,6 +1508,25 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Generate FromRow implementation conditionally
+    let from_row_impl = if table_attrs.skip_from_row {
+        quote! {
+            // FromRow generation skipped (skip_from_row attribute set)
+            // This is useful for SQL generation when types don't implement FromSql
+        }
+    } else {
+        quote! {
+            #[automatically_derived]
+            impl lifeguard::FromRow for #model_name {
+                fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                    Ok(Self {
+                        #(#from_row_fields)*
+                    })
+                }
+            }
+        }
+    };
+
     // Generate Entity with nested DeriveEntity (like SeaORM)
     // This triggers nested expansion where DeriveEntity generates LifeModelTrait
     let expanded = quote! {
@@ -1317,6 +1633,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // Table name constant (for convenience, matches Entity::table_name())
         impl Entity {
             pub const TABLE_NAME: &'static str = #table_name_lit;
+            
+            /// Get table definition metadata (for entity-driven migrations)
+            ///
+            /// Returns table-level metadata including composite unique constraints,
+            /// indexes, CHECK constraints, and table comments.
+            pub fn table_definition() -> lifeguard::TableDefinition {
+                #table_definition_expr
+            }
         }
 
         // NOTE: LifeEntityName, Iden, IdenStatic, Default, and LifeModelTrait are all
@@ -1342,14 +1666,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         }
 
         // STEP 6: Generate FromRow implementation (automatic, no separate derive needed)
-        #[automatically_derived]
-        impl lifeguard::FromRow for #model_name {
-            fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
-                Ok(Self {
-                    #(#from_row_fields)*
-                })
-            }
-        }
+        // Skip if skip_from_row attribute is set (useful for SQL generation)
+        #from_row_impl
 
         // STEP 7: Generate ModelTrait implementation
         // NOTE: We use Column directly instead of Entity::Column to avoid E0223 errors

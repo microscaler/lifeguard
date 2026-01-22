@@ -1,0 +1,4092 @@
+
+Initial Build
+
+Initial Build
+
+Initial Build
+
+Initial Build
+
+Initial Build
+
+Initial Build
+
+Initial Build
+
+1 File Changed: [src/lib.rs]
+
+1 File Changed: [src/lib.rs]
+
+1 File Changed: [src/lib.rs]
+
+1 File Changed: [src/lib.rs]
+
+1 File Changed: [src/lib.rs]
+
+1 File Changed: [src/lib.rs]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+2 Files Changed: [Cargo.lock lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+2 Files Changed: [lifeguard-derive/src/attributes.rs lifeguard-derive/src/macros/life_model.rs]
+
+2 Files Changed: [lifeguard-derive/src/attributes.rs lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.lock]
+
+2 Files Changed: [Cargo.lock Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [Cargo.toml]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [Cargo.toml]
+
+2 Files Changed: [Cargo.toml lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+2 Files Changed: [lifeguard-derive/src/attributes.rs lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+2 Files Changed: [Cargo.lock lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+2 Files Changed: [Cargo.lock lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/lib.rs]
+
+1 File Changed: [lifeguard-derive/src/lib.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+2 Files Changed: [Cargo.lock lifeguard-derive/src/macros/life_model.rs]
+
+2 Files Changed: [Cargo.lock lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+2 Files Changed: [Cargo.lock lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+3 Files Changed: [lifeguard-derive/src/attributes.rs lifeguard-derive/src/lib.rs lifeguard-derive/src/macros/life_model.rs]
+
+3 Files Changed: [lifeguard-derive/src/attributes.rs lifeguard-derive/src/lib.rs lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+2 Files Changed: [lifeguard-derive/src/attributes.rs src/query/table/definition.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+2 Files Changed: [Cargo.lock lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [lifeguard-derive/src/attributes.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+1 File Changed: [src/query/table/definition.rs]
+
+2 Files Changed: [lifeguard-derive/src/attributes.rs lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+4 Files Changed: [Cargo.lock lifeguard-derive/src/attributes.rs lifeguard-derive/src/macros/life_model.rs src/query/table/definition.rs]
+
+warning: struct `TestSaveAsMethod` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:937:16
+    |
+937 |     pub struct TestSaveAsMethod {
+    |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestComment` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:971:16
+    |
+971 |     pub struct TestComment {
+    |                ^^^^^^^^^^^
+
+warning: struct `TestCommentIntegration` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1037:16
+     |
+1037 |     pub struct TestCommentIntegration {
+     |                ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestAllSelectAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1076:16
+     |
+1076 |     pub struct TestAllSelectAs {
+     |                ^^^^^^^^^^^^^^^
+
+warning: struct `TestSpecialSelectAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1104:16
+     |
+1104 |     pub struct TestSpecialSelectAs {
+     |                ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestSaveAsPk` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1123:16
+     |
+1123 |     pub struct TestSaveAsPk {
+     |                ^^^^^^^^^^^^
+
+warning: struct `TestSaveAsOption` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1143:16
+     |
+1143 |     pub struct TestSaveAsOption {
+     |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestSpecialSaveAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1167:16
+     |
+1167 |     pub struct TestSpecialSaveAs {
+     |                ^^^^^^^^^^^^^^^^^
+
+warning: struct `TestEmptyComment` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1185:16
+     |
+1185 |     pub struct TestEmptyComment {
+     |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestBothAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1285:16
+     |
+1285 |     pub struct TestBothAs {
+     |                ^^^^^^^^^^
+
+warning: struct `TestIgnoredAllColumns` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1310:16
+     |
+1310 |     pub struct TestIgnoredAllColumns {
+     |                ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestMultipleSelectAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1335:16
+     |
+1335 |     pub struct TestMultipleSelectAs {
+     |                ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestMultipleSaveAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1371:16
+     |
+1371 |     pub struct TestMultipleSaveAs {
+     |                ^^^^^^^^^^^^^^^^^^
+
+warning: `lifeguard-derive` (test "test_minimal") generated 48 warnings (1 duplicate) (run `cargo fix --test "test_minimal"` to apply 21 suggestions)
+warning: `lifeguard-derive` (test "test_column_attributes") generated 51 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.16s
+────────────
+[32;1m Nextest run[0m ID [1me6ab2d86-9034-4351-9685-a3a45513bff9[0m with nextest profile: [1mdefault[0m
+[32;1m    Starting[0m [1m334[0m tests across [1m11[0m binaries
+[32;1m        PASS[0m [   0.013s] (  1/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_mixed_generics[0m
+[32;1m        PASS[0m [   0.013s] (  2/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_nested_generics[0m
+[32;1m        PASS[0m [   0.013s] (  3/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_path_types[0m
+[32;1m        PASS[0m [   0.013s] (  4/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_only_lifetime_generics[0m
+[32;1m        PASS[0m [   0.013s] (  5/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_phantom_data_no_empty_brackets[0m
+[32;1m        PASS[0m [   0.013s] (  6/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_generic_types[0m
+[32;1m        PASS[0m [   0.013s] (  7/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_only_const_generics[0m
+[32;1m        PASS[0m [   0.013s] (  8/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_option_types[0m
+[32;1m        PASS[0m [   0.013s] (  9/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_no_empty_brackets_for_non_type_generics[0m
+[32;1m        PASS[0m [   0.019s] ( 10/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_mixed_type_and_non_type_generics[0m
+[32;1m        PASS[0m [   0.014s] ( 11/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_simple_types[0m
+[32;1m        PASS[0m [   0.013s] ( 12/334) [35;1mlifeguard-derive[0m [36mutils::tests[0m[36m::[0m[34;1mtest_camel_case[0m
+[32;1m        PASS[0m [   0.014s] ( 13/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_auto_increment_attribute[0m
+[32;1m        PASS[0m [   0.014s] ( 14/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_all_attributes_combined[0m
+[32;1m        PASS[0m [   0.014s] ( 15/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_column_type_attribute[0m
+[32;1m        PASS[0m [   0.014s] ( 16/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_tuple_types[0m
+[32;1m        PASS[0m [   0.018s] ( 17/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_boolean_with_default[0m
+[32;1m        PASS[0m [   0.016s] ( 18/334) [35;1mlifeguard-derive[0m [36mutils::tests[0m[36m::[0m[34;1mtest_snake_case[0m
+[32;1m        PASS[0m [   0.017s] ( 19/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_auto_increment_with_unique[0m
+[32;1m        PASS[0m [   0.020s] ( 20/334) [35;1mlifeguard-derive[0m [36mutils::tests[0m[36m::[0m[34;1mtest_pascal_case[0m
+[32;1m        PASS[0m [   0.012s] ( 21/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_column_type_with_default_value[0m
+[32;1m        PASS[0m [   0.011s] ( 22/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_empty_string[0m
+[32;1m        PASS[0m [   0.011s] ( 23/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_identifier_validation[0m
+[32;1m        PASS[0m [   0.012s] ( 24/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_integration_with_life_model[0m
+[32;1m        PASS[0m [   0.012s] ( 25/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_generation[0m
+[32;1m        PASS[0m [   0.011s] ( 26/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_with_special_table_name[0m
+[32;1m        PASS[0m [   0.011s] ( 27/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_with_backslashes[0m
+[32;1m        PASS[0m [   0.016s] ( 28/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_attribute[0m
+[32;1m        PASS[0m [   0.013s] ( 29/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_very_long[0m
+[32;1m        PASS[0m [   0.010s] ( 30/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_with_newlines[0m
+[35;1m  TRY 1 FAIL[0m [   0.012s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 2/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.014s] ( 31/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_expr_attribute[0m
+[32;1m        PASS[0m [   0.014s] ( 32/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_value_attribute[0m
+[32;1m        PASS[0m [   0.016s] ( 33/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_composite_primary_key_with_attributes[0m
+[32;1m        PASS[0m [   0.015s] ( 34/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_enum_name_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 35/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_expr_with_other_attributes[0m
+[32;1m        PASS[0m [   0.014s] ( 36/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignore_attribute[0m
+[32;1m        PASS[0m [   0.018s] ( 37/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_empty_string_default_value[0m
+[32;1m        PASS[0m [   0.015s] ( 38/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignore_with_other_attributes[0m
+[32;1m        PASS[0m [   0.015s] ( 39/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignored_fields_not_in_all_columns[0m
+[35;1m  TRY 2 FAIL[0m [   0.015s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 3/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.016s] ( 40/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_indexed_attribute[0m
+[32;1m        PASS[0m [   0.013s] ( 41/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_fields_different_attributes[0m
+[32;1m        PASS[0m [   0.013s] ( 42/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_save_as_expressions[0m
+[32;1m        PASS[0m [   0.016s] ( 43/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_json_type_with_attributes[0m
+[32;1m        PASS[0m [   0.012s] ( 44/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_non_option_with_nullable_attribute[0m
+[32;1m        PASS[0m [   0.011s] ( 45/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_nullable_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 46/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_long_enum_name[0m
+[32;1m        PASS[0m [   0.014s] ( 47/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_select_as_expressions[0m
+[32;1m        PASS[0m [   0.013s] ( 48/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_numeric_types_with_attributes[0m
+[35;1m  TRY 3 FAIL[0m [   0.011s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[32;1m        PASS[0m [   0.009s] ( 49/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_option_type_with_nullable_attribute[0m
+[35;1m   RETRY 4/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.010s] ( 50/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_option_type_automatically_nullable[0m
+[32;1m        PASS[0m [   0.009s] ( 51/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_attribute[0m
+[32;1m        PASS[0m [   0.010s] ( 52/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_primary_key_with_auto_increment[0m
+[32;1m        PASS[0m [   0.011s] ( 53/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_renamed_from_with_other_attributes[0m
+[32;1m        PASS[0m [   0.012s] ( 54/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_renamed_from_attribute[0m
+[32;1m        PASS[0m [   0.011s] ( 55/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_column_save_as_method[0m
+[32;1m        PASS[0m [   0.013s] ( 56/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_on_primary_key[0m
+[32;1m        PASS[0m [   0.014s] ( 57/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_on_option_field[0m
+[32;1m        PASS[0m [   0.009s] ( 58/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_attribute[0m
+[32;1m        PASS[0m [   0.010s] ( 59/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_custom_schema[0m
+[31;1m  TRY 4 FAIL[0m [   0.011s] ( 60/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[31;1m [0m [31;1mstdout[0m [31;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[31;1m [0m [31;1mstderr[0m [31;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[31;1m  Cancelling[0m due to [31;1mtest failure[0m: [1m9[0m tests still running
+[32;1m        PASS[0m [   0.012s] ( 61/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_without_attribute[0m
+[32;1m        PASS[0m [   0.012s] ( 62/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_special_characters[0m
+[32;1m        PASS[0m [   0.011s] ( 63/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_all_columns_have_select_as[0m
+[32;1m        PASS[0m [   0.010s] ( 64/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_and_save_as_on_same_column[0m
+[32;1m        PASS[0m [   0.009s] ( 65/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_attribute[0m
+[32;1m        PASS[0m [   0.013s] ( 66/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_all_columns_method[0m
+[32;1m        PASS[0m [   0.010s] ( 67/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_special_characters[0m
+[32;1m        PASS[0m [   0.009s] ( 68/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_special_characters_in_column_type[0m
+[32;1m        PASS[0m [   0.009s] ( 69/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_sql_function_default_value[0m
+────────────
+[31;1m     Summary[0m [   0.105s] [1m69[0m/[1m334[0m tests run: [1m68[0m [32;1mpassed[0m, [1m1[0m [31;1mfailed[0m, [1m0[0m [33;1mskipped[0m
+[31;1m  TRY 4 FAIL[0m [   0.011s] ( 60/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[31;1m [0m [31;1mstdout[0m [31;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[31;1m [0m [31;1mstderr[0m [31;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[33;1mwarning[0m: [1m265[0m/[1m334[0m tests were not run due to [33;1mtest failure[0m (run with [1m--no-fail-fast[0m to run all tests, or run with [1m--max-fail[0m)
+[31;1merror[0m: test run failed
+Build Failed: Command "cd lifeguard-derive && cargo nextest run --all-features" failed: exit status 100
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+Running cmd: cd lifeguard-derive && cargo nextest run --all-features
+   Compiling lifeguard-derive v0.1.0 (/Users/casibbald/Workspace/microscaler/lifeguard/lifeguard-derive)
+   Compiling lifeguard v0.1.0 (/Users/casibbald/Workspace/microscaler/lifeguard)
+warning: unused imports: `AngleBracketedGenericArguments`, `Expr`, `GenericArgument`, `PathArguments`, `PathSegment`, and `Path`
+    --> lifeguard-derive/src/type_conversion.rs:1303:19
+     |
+1303 |         use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Expr};
+     |                   ^^^^^^^^^^^  ^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^
+     |
+     = note: `#[warn(unused_imports)]` on by default
+
+error: expected item after attributes
+  --> lifeguard-derive/tests/test_minimal.rs:11:10
+   |
+11 | #[derive(LifeModel, LifeRecord)]
+   |          ^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+  --> lifeguard-derive/tests/test_minimal.rs:11:10
+   |
+11 | #[derive(LifeModel, LifeRecord)]
+   |          ^^^^^^^^^
+
+error: expected item after attributes
+  --> lifeguard-derive/tests/test_minimal.rs:25:14
+   |
+25 |     #[derive(LifeModel, LifeRecord)]
+   |              ^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+  --> lifeguard-derive/tests/test_minimal.rs:25:14
+   |
+25 |     #[derive(LifeModel, LifeRecord)]
+   |              ^^^^^^^^^
+
+warning: unused import: `relation::Linked`
+ --> lifeguard-derive/tests/test_derive_linked.rs:7:17
+  |
+7 | use lifeguard::{relation::Linked, RelationDef, LifeModelTrait, LifeEntityName};
+  |                 ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error: expected item after attributes
+  --> lifeguard-derive/tests/test_minimal.rs:41:14
+   |
+41 |     #[derive(LifeModel, LifeRecord)]
+   |              ^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+  --> lifeguard-derive/tests/test_minimal.rs:41:14
+   |
+41 |     #[derive(LifeModel, LifeRecord)]
+   |              ^^^^^^^^^
+
+error: expected item after attributes
+  --> lifeguard-derive/tests/test_column_attributes.rs:34:14
+   |
+34 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_minimal.rs:846:18
+    |
+846 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_minimal.rs:846:18
+    |
+846 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_minimal.rs:879:18
+    |
+879 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_minimal.rs:879:18
+    |
+879 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+
+warning: `lifeguard-derive` (lib test) generated 1 warning (run `cargo fix --lib -p lifeguard-derive --tests` to apply 1 suggestion)
+error: proc-macro derive produced unparsable tokens
+  --> lifeguard-derive/tests/test_column_attributes.rs:34:14
+   |
+34 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^
+
+error: expected item after attributes
+  --> lifeguard-derive/tests/test_column_attributes.rs:57:14
+   |
+57 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+  --> lifeguard-derive/tests/test_column_attributes.rs:57:14
+   |
+57 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^
+
+error: expected item after attributes
+  --> lifeguard-derive/tests/test_column_attributes.rs:83:14
+   |
+83 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^
+   |
+   = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+  --> lifeguard-derive/tests/test_column_attributes.rs:83:14
+   |
+83 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:113:14
+    |
+113 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:113:14
+    |
+113 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_minimal.rs:903:18
+    |
+903 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_minimal.rs:903:18
+    |
+903 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:135:14
+    |
+135 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_minimal.rs:934:18
+    |
+934 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_minimal.rs:934:18
+    |
+934 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_minimal.rs:966:18
+    |
+966 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_minimal.rs:966:18
+    |
+966 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1021:18
+     |
+1021 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1021:18
+     |
+1021 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1083:18
+     |
+1083 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1083:18
+     |
+1083 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:135:14
+    |
+135 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:157:14
+    |
+157 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:157:14
+    |
+157 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:178:14
+    |
+178 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1107:18
+     |
+1107 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1107:18
+     |
+1107 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:178:14
+    |
+178 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+warning: unused imports: `Related` and `RelationDef`
+   --> lifeguard-derive/tests/test_derive_relation.rs:957:21
+    |
+957 |     use lifeguard::{Related, RelationDef};
+    |                     ^^^^^^^  ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Related` and `RelationDef`
+    --> lifeguard-derive/tests/test_derive_relation.rs:1068:21
+     |
+1068 |     use lifeguard::{Related, RelationDef};
+     |                     ^^^^^^^  ^^^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:203:14
+    |
+203 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `RelationDef`
+    --> lifeguard-derive/tests/test_derive_relation.rs:1180:21
+     |
+1180 |     use lifeguard::{RelationDef, LifeEntityName, LifeModelTrait};
+     |                     ^^^^^^^^^^^
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:203:14
+    |
+203 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1133:18
+     |
+1133 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1133:18
+     |
+1133 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:222:14
+    |
+222 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:222:14
+    |
+222 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:238:14
+    |
+238 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:238:14
+    |
+238 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:258:14
+    |
+258 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:258:14
+    |
+258 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1161:18
+     |
+1161 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1161:18
+     |
+1161 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1191:18
+     |
+1191 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1191:18
+     |
+1191 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:274:14
+    |
+274 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:274:14
+    |
+274 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:291:14
+    |
+291 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:291:14
+    |
+291 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:308:14
+    |
+308 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:308:14
+    |
+308 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1241:18
+     |
+1241 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1241:18
+     |
+1241 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:336:14
+    |
+336 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:336:14
+    |
+336 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1282:18
+     |
+1282 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:355:14
+    |
+355 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:355:14
+    |
+355 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1282:18
+     |
+1282 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:1330:18
+     |
+1330 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:1330:18
+     |
+1330 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:370:14
+    |
+370 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:370:14
+    |
+370 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:390:14
+    |
+390 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:390:14
+    |
+390 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:405:14
+    |
+405 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:405:14
+    |
+405 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:424:14
+    |
+424 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: structure field `fullName` should have a snake case name
+   --> lifeguard-derive/tests/test_partial_model_column_name_equals.rs:103:9
+    |
+103 |     pub fullName: String,  // camelCase - should convert to "full_name"
+    |         ^^^^^^^^ help: convert the identifier to snake case: `full_name`
+    |
+    = note: `#[warn(non_snake_case)]` on by default
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:424:14
+    |
+424 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:475:14
+    |
+475 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:475:14
+    |
+475 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:202:14
+    |
+202 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:294:14
+    |
+294 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:507:14
+    |
+507 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:507:14
+    |
+507 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:380:14
+    |
+380 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:428:14
+    |
+428 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:533:14
+    |
+533 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:533:14
+    |
+533 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:561:14
+    |
+561 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:561:14
+    |
+561 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:585:14
+    |
+585 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:585:14
+    |
+585 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:606:14
+    |
+606 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:606:14
+    |
+606 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:637:14
+    |
+637 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:637:14
+    |
+637 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:665:14
+    |
+665 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:665:14
+    |
+665 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:3493:18
+     |
+3493 |         #[derive(LifeModel, LifeRecord)]
+     |                  ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:3493:18
+     |
+3493 |         #[derive(LifeModel, LifeRecord)]
+     |                  ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:691:14
+    |
+691 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:691:14
+    |
+691 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:721:14
+    |
+721 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:721:14
+    |
+721 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:740:14
+    |
+740 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:740:14
+    |
+740 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:758:14
+    |
+758 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:758:14
+    |
+758 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:779:14
+    |
+779 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:779:14
+    |
+779 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:821:14
+    |
+821 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_minimal.rs:3622:22
+     |
+3622 |             #[derive(LifeModel, LifeRecord)]
+     |                      ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_minimal.rs:3622:22
+     |
+3622 |             #[derive(LifeModel, LifeRecord)]
+     |                      ^^^^^^^^^
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:821:14
+    |
+821 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:847:14
+    |
+847 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:847:14
+    |
+847 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:869:14
+    |
+869 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:869:14
+    |
+869 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:914:14
+    |
+914 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:914:14
+    |
+914 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:935:14
+    |
+935 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:935:14
+    |
+935 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+   --> lifeguard-derive/tests/test_column_attributes.rs:969:14
+    |
+969 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+    |
+    = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+   --> lifeguard-derive/tests/test_column_attributes.rs:969:14
+    |
+969 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1035:14
+     |
+1035 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1035:14
+     |
+1035 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1074:14
+     |
+1074 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1074:14
+     |
+1074 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1102:14
+     |
+1102 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1102:14
+     |
+1102 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1121:14
+     |
+1121 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1121:14
+     |
+1121 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1141:14
+     |
+1141 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1141:14
+     |
+1141 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1165:14
+     |
+1165 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1165:14
+     |
+1165 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1183:14
+     |
+1183 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1183:14
+     |
+1183 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1283:14
+     |
+1283 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1283:14
+     |
+1283 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1308:14
+     |
+1308 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1308:14
+     |
+1308 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1333:14
+     |
+1333 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1333:14
+     |
+1333 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+error: expected item after attributes
+    --> lifeguard-derive/tests/test_column_attributes.rs:1369:14
+     |
+1369 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+     |
+     = note: this error originates in the derive macro `LifeModel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: proc-macro derive produced unparsable tokens
+    --> lifeguard-derive/tests/test_column_attributes.rs:1369:14
+     |
+1369 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^
+
+warning: unused variable: `rel_def_user`
+   --> lifeguard-derive/tests/test_derive_relation.rs:334:9
+    |
+334 |     let rel_def_user: RelationDef = Relation::User.def();
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_rel_def_user`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variants `Id` and `AuthorId` are never constructed
+   --> lifeguard-derive/tests/test_derive_relation.rs:654:9
+    |
+653 |     pub enum ArticleColumn {
+    |              ------------- variants in this enum
+654 |         Id,
+    |         ^^
+655 |         AuthorId, // Foreign key to AuthorEntity
+    |         ^^^^^^^^
+    |
+    = note: `ArticleColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` on by default
+
+warning: enum `Relation` is never used
+   --> lifeguard-derive/tests/test_derive_relation.rs:682:14
+    |
+682 |     pub enum Relation {
+    |              ^^^^^^^^
+
+warning: enum `Relation` is never used
+   --> lifeguard-derive/tests/test_derive_relation.rs:912:14
+    |
+912 |     pub enum Relation {
+    |              ^^^^^^^^
+
+warning: variants `Id` and `UserId` are never constructed
+    --> lifeguard-derive/tests/test_derive_relation.rs:1014:9
+     |
+1013 |     pub enum PostColumn {
+     |              ---------- variants in this enum
+1014 |         Id,
+     |         ^^
+1015 |         UserId,
+     |         ^^^^^^
+     |
+     = note: `PostColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `Id` and `UserId` are never constructed
+    --> lifeguard-derive/tests/test_derive_relation.rs:1125:9
+     |
+1124 |     pub enum PostColumn {
+     |              ---------- variants in this enum
+1125 |         Id,
+     |         ^^
+1126 |         UserId,
+     |         ^^^^^^
+     |
+     = note: `PostColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variant `ParentId` is never constructed
+    --> lifeguard-derive/tests/test_derive_relation.rs:1206:9
+     |
+1204 |     pub enum CategoryColumn {
+     |              -------------- variant in this enum
+1205 |         Id,
+1206 |         ParentId, // Foreign key to parent category
+     |         ^^^^^^^^
+     |
+     = note: `CategoryColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+error[E0432]: unresolved imports `super::PrimaryKey`, `super::UserModel`
+   --> lifeguard-derive/tests/test_minimal.rs:715:33
+    |
+715 |     use super::{Entity, Column, PrimaryKey, UserModel, UserRecord};
+    |                                 ^^^^^^^^^^  ^^^^^^^^^ no `UserModel` in the root
+    |                                 |
+    |                                 no `PrimaryKey` in the root
+
+error[E0432]: unresolved import `super::UserModel`
+    --> lifeguard-derive/tests/test_minimal.rs:2358:25
+     |
+2358 |     use super::{Entity, UserModel, UserRecord};
+     |                         ^^^^^^^^^ no `UserModel` in the root
+
+error[E0432]: unresolved import `super::option_tests::UserWithOptionsModel`
+    --> lifeguard-derive/tests/test_minimal.rs:1613:68
+     |
+1613 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^
+     |                                                                    |
+     |                                                                    no `UserWithOptionsModel` in `option_tests`
+     |                                                                    help: a similar name exists in the module: `UserWithOptions`
+
+error[E0432]: unresolved import `super::option_tests::UserWithOptionsModel`
+    --> lifeguard-derive/tests/test_minimal.rs:1647:68
+     |
+1647 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^
+     |                                                                    |
+     |                                                                    no `UserWithOptionsModel` in `option_tests`
+     |                                                                    help: a similar name exists in the module: `UserWithOptions`
+
+error[E0432]: unresolved import `super::option_tests::UserWithOptionsModel`
+    --> lifeguard-derive/tests/test_minimal.rs:1681:68
+     |
+1681 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^
+     |                                                                    |
+     |                                                                    no `UserWithOptionsModel` in `option_tests`
+     |                                                                    help: a similar name exists in the module: `UserWithOptions`
+
+error[E0432]: unresolved import `super::option_tests::UserWithOptionsModel`
+    --> lifeguard-derive/tests/test_minimal.rs:1709:68
+     |
+1709 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^
+     |                                                                    |
+     |                                                                    no `UserWithOptionsModel` in `option_tests`
+     |                                                                    help: a similar name exists in the module: `UserWithOptions`
+
+error[E0432]: unresolved import `super::option_tests::UserWithOptionsModel`
+    --> lifeguard-derive/tests/test_minimal.rs:2881:68
+     |
+2881 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^
+     |                                                                    |
+     |                                                                    no `UserWithOptionsModel` in `option_tests`
+     |                                                                    help: a similar name exists in the module: `UserWithOptions`
+
+error[E0432]: unresolved import `super::option_tests::UserWithOptionsModel`
+    --> lifeguard-derive/tests/test_minimal.rs:2967:68
+     |
+2967 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^
+     |                                                                    |
+     |                                                                    no `UserWithOptionsModel` in `option_tests`
+     |                                                                    help: a similar name exists in the module: `UserWithOptions`
+
+error[E0432]: unresolved import `super::option_tests::UserWithOptionsModel`
+    --> lifeguard-derive/tests/test_minimal.rs:2990:68
+     |
+2990 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                                                    ^^^^^^^^^^^^^^^^^^^^
+     |                                                                    |
+     |                                                                    no `UserWithOptionsModel` in `option_tests`
+     |                                                                    help: a similar name exists in the module: `UserWithOptions`
+
+error[E0412]: cannot find type `TestAutoIncrementModel` in this scope
+  --> lifeguard-derive/tests/test_column_attributes.rs:34:14
+   |
+34 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestColumnTypeModel` in this scope
+  --> lifeguard-derive/tests/test_column_attributes.rs:57:14
+   |
+57 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestDefaultValueModel` in this scope
+  --> lifeguard-derive/tests/test_column_attributes.rs:83:14
+   |
+83 |     #[derive(LifeModel)]
+   |              ^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestUniqueModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:113:14
+    |
+113 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestIndexedModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:135:14
+    |
+135 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestEnumNameModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:157:14
+    |
+157 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestNullableModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:178:14
+    |
+178 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestOptionNullableModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:203:14
+    |
+203 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestOptionWithNullableModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:222:14
+    |
+222 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestNonOptionNullableModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:238:14
+    |
+238 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestAutoIncrementUniqueModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:258:14
+    |
+258 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestUniqueIndexedModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:274:14
+    |
+274 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestColumnTypeDefaultModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:291:14
+    |
+291 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestAllAttributesModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:308:14
+    |
+308 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestPkAutoIncrementModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:336:14
+    |
+336 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestEmptyDefaultModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:355:14
+    |
+355 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSqlDefaultModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:370:14
+    |
+370 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestLongEnumModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:390:14
+    |
+390 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSpecialCharsModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:405:14
+    |
+405 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestMultipleFieldsModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:424:14
+    |
+424 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestDefaultsModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:475:14
+    |
+475 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestCompositePkModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:507:14
+    |
+507 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestNumericModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:533:14
+    |
+533 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestBooleanModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:561:14
+    |
+561 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestJsonModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:585:14
+    |
+585 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestDefaultExprModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:606:14
+    |
+606 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestDefaultExprCombinedModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:637:14
+    |
+637 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestRenamedFromModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:665:14
+    |
+665 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestRenamedFromCombinedModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:691:14
+    |
+691 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `UserModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:721:14
+    |
+721 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `UserModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:740:14
+    |
+740 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `OrderModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:758:14
+    |
+758 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestIgnoreModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:779:14
+    |
+779 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestIgnoreCombinedModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:821:14
+    |
+821 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSelectAsModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:847:14
+    |
+847 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSelectAsAllColumnsModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:869:14
+    |
+869 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSaveAsModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:914:14
+    |
+914 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSaveAsMethodModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:935:14
+    |
+935 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestCommentModel` in this scope
+   --> lifeguard-derive/tests/test_column_attributes.rs:969:14
+    |
+969 |     #[derive(LifeModel)]
+    |              ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestCommentIntegrationModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1035:14
+     |
+1035 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestAllSelectAsModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1074:14
+     |
+1074 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSpecialSelectAsModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1102:14
+     |
+1102 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSaveAsPkModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1121:14
+     |
+1121 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSaveAsOptionModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1141:14
+     |
+1141 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestSpecialSaveAsModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1165:14
+     |
+1165 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestEmptyCommentModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1183:14
+     |
+1183 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestBothAsModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1283:14
+     |
+1283 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestIgnoredAllColumnsModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1308:14
+     |
+1308 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestMultipleSelectAsModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1333:14
+     |
+1333 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `TestMultipleSaveAsModel` in this scope
+    --> lifeguard-derive/tests/test_column_attributes.rs:1369:14
+     |
+1369 |     #[derive(LifeModel)]
+     |              ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `lifeguard-derive` (test "test_partial_model_column_name_equals") generated 1 warning
+warning: `lifeguard-derive` (test "test_derive_linked") generated 5 warnings (run `cargo fix --test "test_derive_linked"` to apply 1 suggestion)
+error[E0412]: cannot find type `UserModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:11:10
+   |
+11 | #[derive(LifeModel, LifeRecord)]
+   |          ^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `UserModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:13:12
+   |
+13 | pub struct User {
+   |            ^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `UserModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:13:12
+   |
+13 | pub struct User {
+   |            ^^^^ not found in this scope
+
+error[E0412]: cannot find type `UserWithOptionsModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:25:14
+   |
+25 |     #[derive(LifeModel, LifeRecord)]
+   |              ^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `UserWithOptionsModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:27:16
+   |
+27 |     pub struct UserWithOptions {
+   |                ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `UserWithOptionsModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:27:16
+   |
+27 |     pub struct UserWithOptions {
+   |                ^^^^^^^^^^^^^^^ not found in this scope
+
+warning: `lifeguard-derive` (test "test_derive_relation") generated 10 warnings (run `cargo fix --test "test_derive_relation"` to apply 3 suggestions)
+error[E0412]: cannot find type `UserWithRenamedColumnsModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:41:14
+   |
+41 |     #[derive(LifeModel, LifeRecord)]
+   |              ^^^^^^^^^ not found in this scope
+   |
+   = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `UserWithRenamedColumnsModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:43:16
+   |
+43 |     pub struct UserWithRenamedColumns {
+   |                ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `UserWithRenamedColumnsModel` in this scope
+  --> lifeguard-derive/tests/test_minimal.rs:43:16
+   |
+43 |     pub struct UserWithRenamedColumns {
+   |                ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `OptionPrimaryKeyEntityModel` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:846:18
+    |
+846 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:858:26
+    |
+858 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+    |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `I64PrimaryKeyEntityModel` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:879:18
+    |
+879 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:889:26
+    |
+889 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i64;
+    |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `StringPrimaryKeyEntityModel` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:903:18
+    |
+903 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:913:26
+    |
+913 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = "test".to_string();
+    |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `AutoIncrementPrimaryKeyEntityModel` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:934:18
+    |
+934 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:951:26
+    |
+951 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
+    |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `CompositePrimaryKeyEntityModel` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:966:18
+    |
+966 |         #[derive(LifeModel)]
+    |                  ^^^^^^^^^ not found in this scope
+    |
+    = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+   --> lifeguard-derive/tests/test_minimal.rs:979:26
+    |
+979 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, 43i32);
+    |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `MixedAutoIncrementCompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1021:18
+     |
+1021 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `Tuple3CompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1083:18
+     |
+1083 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `Tuple4CompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1107:18
+     |
+1107 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `Tuple5CompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1133:18
+     |
+1133 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `Tuple6PlusCompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1161:18
+     |
+1161 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `LargeCompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1191:18
+     |
+1191 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1233:26
+     |
+1233 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (1i32, 2i32, 3i32, 4i32);
+     |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `MixedTypeCompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1241:18
+     |
+1241 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1262:26
+     |
+1262 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, "test".to_string());
+     |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `OptionCompositePrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1282:18
+     |
+1282 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `PrimaryKey` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1296:26
+     |
+1296 |             let _value: <PrimaryKey as PrimaryKeyTrait>::ValueType = (42i32, "test".to_string());
+     |                          ^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `NoPrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1330:18
+     |
+1330 |         #[derive(LifeModel)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0422]: cannot find struct, variant or union type `NoPrimaryKeyEntityModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1355:25
+     |
+1332 |         pub struct NoPrimaryKeyEntity {
+     |         ----------------------------- similarly named struct `NoPrimaryKeyEntity` defined here
+...
+1355 |             let model = NoPrimaryKeyEntityModel {
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^ help: a struct with a similar name exists: `NoPrimaryKeyEntity`
+
+error[E0422]: cannot find struct, variant or union type `UserWithOptionsModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:1529:21
+     |
+27   |     pub struct UserWithOptions {
+     |     -------------------------- similarly named struct `UserWithOptions` defined here
+...
+1529 |         let model = UserWithOptionsModel {
+     |                     ^^^^^^^^^^^^^^^^^^^^ help: a struct with a similar name exists: `UserWithOptions`
+
+error[E0412]: cannot find type `FloatFieldsModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:3493:18
+     |
+3493 |         #[derive(LifeModel, LifeRecord)]
+     |                  ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `FloatFieldsModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:3495:20
+     |
+3495 |         pub struct FloatFields {
+     |                    ^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `FloatFieldsModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:3495:20
+     |
+3495 |         pub struct FloatFields {
+     |                    ^^^^^^^^^^^ not found in this scope
+
+error[E0412]: cannot find type `OptionFloatFieldsModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:3622:22
+     |
+3622 |             #[derive(LifeModel, LifeRecord)]
+     |                      ^^^^^^^^^ not found in this scope
+     |
+     = note: this error originates in the derive macro `lifeguard_derive::DeriveEntity` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0412]: cannot find type `OptionFloatFieldsModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:3624:24
+     |
+3624 |             pub struct OptionFloatFields {
+     |                        ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0422]: cannot find struct, variant or union type `OptionFloatFieldsModel` in this scope
+    --> lifeguard-derive/tests/test_minimal.rs:3624:24
+     |
+3624 |             pub struct OptionFloatFields {
+     |                        ^^^^^^^^^^^^^^^^^ not found in this scope
+
+warning: unused import: `UserRecord`
+   --> lifeguard-derive/tests/test_minimal.rs:715:56
+    |
+715 |     use super::{Entity, Column, PrimaryKey, UserModel, UserRecord};
+    |                                                        ^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `PrimaryKeyArityTrait`
+   --> lifeguard-derive/tests/test_minimal.rs:817:42
+    |
+817 |         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+    |                                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1010:46
+     |
+1010 |             use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+     |                                              ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1052:46
+     |
+1052 |             use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+     |                                              ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1062:46
+     |
+1062 |             use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyTrait};
+     |                                              ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1081:42
+     |
+1081 |         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+     |                                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1105:42
+     |
+1105 |         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+     |                                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1131:42
+     |
+1131 |         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+     |                                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1159:42
+     |
+1159 |         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+     |                                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1189:42
+     |
+1189 |         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
+     |                                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1239:42
+     |
+1239 |         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyTrait};
+     |                                          ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PrimaryKeyArityTrait`
+    --> lifeguard-derive/tests/test_minimal.rs:1280:59
+     |
+1280 |         use lifeguard::{PrimaryKeyTrait, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn};
+     |                                                           ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::option_tests::*`
+    --> lifeguard-derive/tests/test_minimal.rs:1527:13
+     |
+1527 |         use crate::option_tests::*;
+     |             ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1613:35
+     |
+1613 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1647:35
+     |
+1647 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1681:35
+     |
+1681 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1709:35
+     |
+1709 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2881:35
+     |
+2881 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2929:35
+     |
+2929 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column`, `Entity`, and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2967:35
+     |
+2967 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^  ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2990:35
+     |
+2990 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3105:35
+     |
+3105 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3124:35
+     |
+3124 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3161:35
+     |
+3161 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3189:35
+     |
+3189 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column`, `Entity`, and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3325:35
+     |
+3325 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^  ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3346:35
+     |
+3346 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3445:35
+     |
+3445 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Entity` and `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3508:27
+     |
+3508 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^  ^^^^^^
+
+warning: unused import: `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3565:27
+     |
+3565 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^
+
+warning: unnecessary trailing semicolon
+    --> lifeguard-derive/tests/test_minimal.rs:3614:9
+     |
+3614 |         ;
+     |         ^ help: remove this semicolon
+     |
+     = note: `#[warn(redundant_semicolons)]` on by default
+
+warning: unused import: `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3665:27
+     |
+3665 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^
+
+warning: unused import: `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3703:27
+     |
+3703 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^
+
+warning: unused import: `UserWithRenamedColumns`
+    --> lifeguard-derive/tests/test_minimal.rs:3733:40
+     |
+3733 |         use super::column_name_tests::{UserWithRenamedColumns, UserWithRenamedColumnsRecord};
+     |                                        ^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:864:22
+    |
+864 |             let pk = PrimaryKey::Id;
+    |                      ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:870:22
+    |
+870 |             let pk = PrimaryKey::Id;
+    |                      ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:894:22
+    |
+894 |             let pk = PrimaryKey::Id;
+    |                      ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:918:22
+    |
+918 |             let pk = PrimaryKey::Id;
+    |                      ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:924:22
+    |
+924 |             let pk = PrimaryKey::Id;
+    |                      ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:945:22
+    |
+945 |             let pk = PrimaryKey::Id;
+    |                      ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:956:22
+    |
+956 |             let pk = PrimaryKey::Id;
+    |                      ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:985:23
+    |
+985 |             let pk1 = PrimaryKey::Id1;
+    |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:986:23
+    |
+986 |             let pk2 = PrimaryKey::Id2;
+    |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:993:23
+    |
+993 |             let pk1 = PrimaryKey::Id1;
+    |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+   --> lifeguard-derive/tests/test_minimal.rs:994:23
+    |
+994 |             let pk2 = PrimaryKey::Id2;
+    |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1001:23
+     |
+1001 |             let pk1 = PrimaryKey::Id1;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1002:23
+     |
+1002 |             let pk2 = PrimaryKey::Id2;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1012:25
+     |
+1012 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1035:23
+     |
+1035 |             let pk1 = PrimaryKey::Id1;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1036:23
+     |
+1036 |             let pk2 = PrimaryKey::Id2;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1043:23
+     |
+1043 |             let pk1 = PrimaryKey::Id1;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1044:23
+     |
+1044 |             let pk2 = PrimaryKey::Id2;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1054:25
+     |
+1054 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1064:25
+     |
+1064 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1068:23
+     |
+1068 |             let pk1 = PrimaryKey::Id1;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1069:23
+     |
+1069 |             let pk2 = PrimaryKey::Id2;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1098:25
+     |
+1098 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1124:25
+     |
+1124 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1152:25
+     |
+1152 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1182:25
+     |
+1182 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1208:25
+     |
+1208 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1217:23
+     |
+1217 |             let pk1 = PrimaryKey::Id1;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1218:23
+     |
+1218 |             let pk2 = PrimaryKey::Id2;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1219:23
+     |
+1219 |             let pk3 = PrimaryKey::Id3;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1220:23
+     |
+1220 |             let pk4 = PrimaryKey::Id4;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1254:25
+     |
+1254 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1270:23
+     |
+1270 |             let pk1 = PrimaryKey::Id;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1271:23
+     |
+1271 |             let pk2 = PrimaryKey::Code;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1303:25
+     |
+1303 |             let arity = PrimaryKey::arity();
+     |                         ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1310:23
+     |
+1310 |             let pk1 = PrimaryKey::Id;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1311:23
+     |
+1311 |             let pk2 = PrimaryKey::Code;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1320:23
+     |
+1320 |             let pk1 = PrimaryKey::Id;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+error[E0433]: failed to resolve: use of undeclared type `PrimaryKey`
+    --> lifeguard-derive/tests/test_minimal.rs:1321:23
+     |
+1321 |             let pk2 = PrimaryKey::Code;
+     |                       ^^^^^^^^^^ use of undeclared type `PrimaryKey`
+
+warning: unused variable: `column_names`
+    --> lifeguard-derive/tests/test_column_attributes.rs:1324:9
+     |
+1324 |     let column_names: Vec<String> = columns.iter()
+     |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_column_names`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+For more information about this error, try `rustc --explain E0412`.
+warning: `lifeguard-derive` (test "test_column_attributes") generated 1 warning
+error: could not compile `lifeguard-derive` (test "test_column_attributes") due to 150 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...
+Some errors have detailed explanations: E0412, E0422, E0432, E0433.
+For more information about an error, try `rustc --explain E0412`.
+warning: `lifeguard-derive` (test "test_minimal") generated 34 warnings
+error: could not compile `lifeguard-derive` (test "test_minimal") due to 125 previous errors; 34 warnings emitted
+[31;1merror[0m: command `[1m/Users/casibbald/.rustup/toolchains/nightly-aarch64-apple-darwin/bin/cargo test --no-run --message-format json-render-diagnostics --all-features[0m` exited with code [1m101[0m
+Build Failed: Command "cd lifeguard-derive && cargo nextest run --all-features" failed: exit status 101
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+Web Trigger
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+Running cmd: cd lifeguard-derive && cargo nextest run --all-features
+    Blocking waiting for file lock on build directory
+   Compiling lifeguard-derive v0.1.0 (/Users/casibbald/Workspace/microscaler/lifeguard/lifeguard-derive)
+   Compiling lifeguard v0.1.0 (/Users/casibbald/Workspace/microscaler/lifeguard)
+warning: unused imports: `AngleBracketedGenericArguments`, `Expr`, `GenericArgument`, `PathArguments`, `PathSegment`, and `Path`
+    --> lifeguard-derive/src/type_conversion.rs:1303:19
+     |
+1303 |         use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Expr};
+     |                   ^^^^^^^^^^^  ^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^
+     |
+     = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `relation::Linked`
+ --> lifeguard-derive/tests/test_derive_linked.rs:7:17
+  |
+7 | use lifeguard::{relation::Linked, RelationDef, LifeModelTrait, LifeEntityName};
+  |                 ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:202:14
+    |
+202 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:294:14
+    |
+294 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:380:14
+    |
+380 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+
+warning: enum `LinkedRelation` is never used
+   --> lifeguard-derive/tests/test_derive_linked.rs:428:14
+    |
+428 |     pub enum LinkedRelation {
+    |              ^^^^^^^^^^^^^^
+
+warning: structure field `fullName` should have a snake case name
+   --> lifeguard-derive/tests/test_partial_model_column_name_equals.rs:103:9
+    |
+103 |     pub fullName: String,  // camelCase - should convert to "full_name"
+    |         ^^^^^^^^ help: convert the identifier to snake case: `full_name`
+    |
+    = note: `#[warn(non_snake_case)]` on by default
+
+warning: unused imports: `Related` and `RelationDef`
+   --> lifeguard-derive/tests/test_derive_relation.rs:957:21
+    |
+957 |     use lifeguard::{Related, RelationDef};
+    |                     ^^^^^^^  ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Related` and `RelationDef`
+    --> lifeguard-derive/tests/test_derive_relation.rs:1068:21
+     |
+1068 |     use lifeguard::{Related, RelationDef};
+     |                     ^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `RelationDef`
+    --> lifeguard-derive/tests/test_derive_relation.rs:1180:21
+     |
+1180 |     use lifeguard::{RelationDef, LifeEntityName, LifeModelTrait};
+     |                     ^^^^^^^^^^^
+
+warning: unused variable: `rel_def_user`
+   --> lifeguard-derive/tests/test_derive_relation.rs:334:9
+    |
+334 |     let rel_def_user: RelationDef = Relation::User.def();
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_rel_def_user`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: variants `Id` and `AuthorId` are never constructed
+   --> lifeguard-derive/tests/test_derive_relation.rs:654:9
+    |
+653 |     pub enum ArticleColumn {
+    |              ------------- variants in this enum
+654 |         Id,
+    |         ^^
+655 |         AuthorId, // Foreign key to AuthorEntity
+    |         ^^^^^^^^
+    |
+    = note: `ArticleColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` on by default
+
+warning: enum `Relation` is never used
+   --> lifeguard-derive/tests/test_derive_relation.rs:682:14
+    |
+682 |     pub enum Relation {
+    |              ^^^^^^^^
+
+warning: enum `Relation` is never used
+   --> lifeguard-derive/tests/test_derive_relation.rs:912:14
+    |
+912 |     pub enum Relation {
+    |              ^^^^^^^^
+
+warning: variants `Id` and `UserId` are never constructed
+    --> lifeguard-derive/tests/test_derive_relation.rs:1014:9
+     |
+1013 |     pub enum PostColumn {
+     |              ---------- variants in this enum
+1014 |         Id,
+     |         ^^
+1015 |         UserId,
+     |         ^^^^^^
+     |
+     = note: `PostColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variants `Id` and `UserId` are never constructed
+    --> lifeguard-derive/tests/test_derive_relation.rs:1125:9
+     |
+1124 |     pub enum PostColumn {
+     |              ---------- variants in this enum
+1125 |         Id,
+     |         ^^
+1126 |         UserId,
+     |         ^^^^^^
+     |
+     = note: `PostColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: variant `ParentId` is never constructed
+    --> lifeguard-derive/tests/test_derive_relation.rs:1206:9
+     |
+1204 |     pub enum CategoryColumn {
+     |              -------------- variant in this enum
+1205 |         Id,
+1206 |         ParentId, // Foreign key to parent category
+     |         ^^^^^^^^
+     |
+     = note: `CategoryColumn` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `lifeguard-derive` (test "test_partial_model_column_name_equals") generated 1 warning
+warning: `lifeguard-derive` (test "test_derive_linked") generated 5 warnings (run `cargo fix --test "test_derive_linked"` to apply 1 suggestion)
+warning: unused import: `UserRecord`
+   --> lifeguard-derive/tests/test_minimal.rs:715:56
+    |
+715 |     use super::{Entity, Column, PrimaryKey, UserModel, UserRecord};
+    |                                                        ^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1613:35
+     |
+1613 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1647:35
+     |
+1647 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1681:35
+     |
+1681 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Entity` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:1709:35
+     |
+1709 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2881:35
+     |
+2881 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2929:35
+     |
+2929 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column`, `Entity`, and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2967:35
+     |
+2967 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^  ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:2990:35
+     |
+2990 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsModel, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3105:35
+     |
+3105 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3124:35
+     |
+3124 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3161:35
+     |
+3161 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3189:35
+     |
+3189 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column`, `Entity`, and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3325:35
+     |
+3325 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^  ^^^^^^  ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3346:35
+     |
+3346 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Column` and `UserWithOptions`
+    --> lifeguard-derive/tests/test_minimal.rs:3445:35
+     |
+3445 |         use super::option_tests::{UserWithOptions, Entity, Column, UserWithOptionsRecord};
+     |                                   ^^^^^^^^^^^^^^^          ^^^^^^
+
+warning: unused imports: `Entity` and `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3508:27
+     |
+3508 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^  ^^^^^^
+
+warning: unused import: `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3565:27
+     |
+3565 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^
+
+warning: unnecessary trailing semicolon
+    --> lifeguard-derive/tests/test_minimal.rs:3614:9
+     |
+3614 |         ;
+     |         ^ help: remove this semicolon
+     |
+     = note: `#[warn(redundant_semicolons)]` on by default
+
+warning: unused import: `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3665:27
+     |
+3665 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^
+
+warning: unused import: `FloatFields`
+    --> lifeguard-derive/tests/test_minimal.rs:3703:27
+     |
+3703 |         use float_tests::{FloatFields, Entity, FloatFieldsRecord};
+     |                           ^^^^^^^^^^^
+
+warning: unused import: `UserWithRenamedColumns`
+    --> lifeguard-derive/tests/test_minimal.rs:3733:40
+     |
+3733 |         use super::column_name_tests::{UserWithRenamedColumns, UserWithRenamedColumnsRecord};
+     |                                        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `lifeguard-derive` (test "test_derive_relation") generated 10 warnings (run `cargo fix --test "test_derive_relation"` to apply 3 suggestions)
+warning: variant `Name` is never constructed
+   --> lifeguard-derive/tests/test_minimal.rs:565:9
+    |
+563 |     pub enum Column {
+    |              ------ variant in this enum
+564 |         Id,
+565 |         Name,
+    |         ^^^^
+    |
+    = note: `Column` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` on by default
+
+warning: struct `OptionPrimaryKeyEntity` is never constructed
+   --> lifeguard-derive/tests/test_minimal.rs:848:20
+    |
+848 |         pub struct OptionPrimaryKeyEntity {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `I64PrimaryKeyEntity` is never constructed
+   --> lifeguard-derive/tests/test_minimal.rs:881:20
+    |
+881 |         pub struct I64PrimaryKeyEntity {
+    |                    ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `StringPrimaryKeyEntity` is never constructed
+   --> lifeguard-derive/tests/test_minimal.rs:905:20
+    |
+905 |         pub struct StringPrimaryKeyEntity {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AutoIncrementPrimaryKeyEntity` is never constructed
+   --> lifeguard-derive/tests/test_minimal.rs:936:20
+    |
+936 |         pub struct AutoIncrementPrimaryKeyEntity {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `CompositePrimaryKeyEntity` is never constructed
+   --> lifeguard-derive/tests/test_minimal.rs:968:20
+    |
+968 |         pub struct CompositePrimaryKeyEntity {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `MixedAutoIncrementCompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1023:20
+     |
+1023 |         pub struct MixedAutoIncrementCompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `Tuple3CompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1085:20
+     |
+1085 |         pub struct Tuple3CompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Id1`, `Id2`, and `Id3` are never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1087:17
+     |
+1083 |         #[derive(LifeModel)]
+     |                  --------- variants in this enum
+...
+1087 |             pub id1: i32,
+     |                 ^^^
+1088 |             #[primary_key]
+1089 |             pub id2: i32,
+     |                 ^^^
+1090 |             #[primary_key]
+1091 |             pub id3: i32,
+     |                 ^^^
+     |
+     = note: `PrimaryKey` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `Tuple4CompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1109:20
+     |
+1109 |         pub struct Tuple4CompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Id1`, `Id2`, `Id3`, and `Id4` are never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1111:17
+     |
+1107 |         #[derive(LifeModel)]
+     |                  --------- variants in this enum
+...
+1111 |             pub id1: i32,
+     |                 ^^^
+1112 |             #[primary_key]
+1113 |             pub id2: i32,
+     |                 ^^^
+1114 |             #[primary_key]
+1115 |             pub id3: i32,
+     |                 ^^^
+1116 |             #[primary_key]
+1117 |             pub id4: i32,
+     |                 ^^^
+     |
+     = note: `PrimaryKey` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `Tuple5CompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1135:20
+     |
+1135 |         pub struct Tuple5CompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Id1`, `Id2`, `Id3`, `Id4`, and `Id5` are never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1137:17
+     |
+1133 |         #[derive(LifeModel)]
+     |                  --------- variants in this enum
+...
+1137 |             pub id1: i32,
+     |                 ^^^
+1138 |             #[primary_key]
+1139 |             pub id2: i32,
+     |                 ^^^
+1140 |             #[primary_key]
+1141 |             pub id3: i32,
+     |                 ^^^
+1142 |             #[primary_key]
+1143 |             pub id4: i32,
+     |                 ^^^
+1144 |             #[primary_key]
+1145 |             pub id5: i32,
+     |                 ^^^
+     |
+     = note: `PrimaryKey` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `Tuple6PlusCompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1163:20
+     |
+1163 |         pub struct Tuple6PlusCompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `Id1`, `Id3`, `Id4`, `Id5`, `Id6`, and `Id7` are never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1165:17
+     |
+1161 |         #[derive(LifeModel)]
+     |                  --------- variants in this enum
+...
+1165 |             pub id1: i32,
+     |                 ^^^
+1166 |             #[primary_key]
+1167 |             pub id3: i32,
+     |                 ^^^
+1168 |             #[primary_key]
+1169 |             pub id4: i32,
+     |                 ^^^
+1170 |             #[primary_key]
+1171 |             pub id5: i32,
+     |                 ^^^
+1172 |             #[primary_key]
+1173 |             pub id6: i32,
+     |                 ^^^
+1174 |             #[primary_key]
+1175 |             pub id7: i32,
+     |                 ^^^
+     |
+     = note: `PrimaryKey` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `LargeCompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1193:20
+     |
+1193 |         pub struct LargeCompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `MixedTypeCompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1243:20
+     |
+1243 |         pub struct MixedTypeCompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `OptionCompositePrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1284:20
+     |
+1284 |         pub struct OptionCompositePrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `NoPrimaryKeyEntity` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:1332:20
+     |
+1332 |         pub struct NoPrimaryKeyEntity {
+     |                    ^^^^^^^^^^^^^^^^^^
+
+warning: field `inner` is never read
+    --> lifeguard-derive/tests/test_minimal.rs:3863:13
+     |
+3862 |         struct TestRecordBounds {
+     |                ---------------- field in this struct
+3863 |             inner: UserRecord,
+     |             ^^^^^
+     |
+     = note: `TestRecordBounds` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: struct `FloatFields` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:3495:20
+     |
+3495 |         pub struct FloatFields {
+     |                    ^^^^^^^^^^^
+
+warning: struct `OptionFloatFields` is never constructed
+    --> lifeguard-derive/tests/test_minimal.rs:3624:24
+     |
+3624 |             pub struct OptionFloatFields {
+     |                        ^^^^^^^^^^^^^^^^^
+
+warning: structure field `firstName` should have a snake case name
+  --> lifeguard-derive/tests/test_minimal.rs:47:13
+   |
+47 |         pub firstName: String,  // Field name is camelCase, column is snake_case
+   |             ^^^^^^^^^ help: convert the identifier to snake case: `first_name`
+   |
+   = note: `#[warn(non_snake_case)]` on by default
+
+warning: structure field `firstName` should have a snake case name
+  --> lifeguard-derive/tests/test_minimal.rs:47:13
+   |
+47 |         pub firstName: String,  // Field name is camelCase, column is snake_case
+   |             ^^^^^^^^^ help: convert the identifier to snake case: `first_name`
+
+warning: method `set_firstName` should have a snake case name
+  --> lifeguard-derive/tests/test_minimal.rs:47:13
+   |
+47 |         pub firstName: String,  // Field name is camelCase, column is snake_case
+   |             ^^^^^^^^^ help: convert the identifier to snake case: `set_first_name`
+
+warning: unused variable: `column_names`
+    --> lifeguard-derive/tests/test_column_attributes.rs:1324:9
+     |
+1324 |     let column_names: Vec<String> = columns.iter()
+     |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_column_names`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: struct `TestAutoIncrement` is never constructed
+  --> lifeguard-derive/tests/test_column_attributes.rs:36:16
+   |
+36 |     pub struct TestAutoIncrement {
+   |                ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: struct `TestColumnType` is never constructed
+  --> lifeguard-derive/tests/test_column_attributes.rs:59:16
+   |
+59 |     pub struct TestColumnType {
+   |                ^^^^^^^^^^^^^^
+
+warning: struct `TestDefaultValue` is never constructed
+  --> lifeguard-derive/tests/test_column_attributes.rs:85:16
+   |
+85 |     pub struct TestDefaultValue {
+   |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestUnique` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:115:16
+    |
+115 |     pub struct TestUnique {
+    |                ^^^^^^^^^^
+
+warning: struct `TestIndexed` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:137:16
+    |
+137 |     pub struct TestIndexed {
+    |                ^^^^^^^^^^^
+
+warning: struct `TestEnumName` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:159:16
+    |
+159 |     pub struct TestEnumName {
+    |                ^^^^^^^^^^^^
+
+warning: struct `TestNullable` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:180:16
+    |
+180 |     pub struct TestNullable {
+    |                ^^^^^^^^^^^^
+
+warning: struct `TestOptionNullable` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:205:16
+    |
+205 |     pub struct TestOptionNullable {
+    |                ^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestOptionWithNullable` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:224:16
+    |
+224 |     pub struct TestOptionWithNullable {
+    |                ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestNonOptionNullable` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:240:16
+    |
+240 |     pub struct TestNonOptionNullable {
+    |                ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestAutoIncrementUnique` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:260:16
+    |
+260 |     pub struct TestAutoIncrementUnique {
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestUniqueIndexed` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:276:16
+    |
+276 |     pub struct TestUniqueIndexed {
+    |                ^^^^^^^^^^^^^^^^^
+
+warning: struct `TestColumnTypeDefault` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:293:16
+    |
+293 |     pub struct TestColumnTypeDefault {
+    |                ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestAllAttributes` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:310:16
+    |
+310 |     pub struct TestAllAttributes {
+    |                ^^^^^^^^^^^^^^^^^
+
+warning: struct `TestPkAutoIncrement` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:338:16
+    |
+338 |     pub struct TestPkAutoIncrement {
+    |                ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestEmptyDefault` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:357:16
+    |
+357 |     pub struct TestEmptyDefault {
+    |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestSqlDefault` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:372:16
+    |
+372 |     pub struct TestSqlDefault {
+    |                ^^^^^^^^^^^^^^
+
+warning: struct `TestLongEnum` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:392:16
+    |
+392 |     pub struct TestLongEnum {
+    |                ^^^^^^^^^^^^
+
+warning: struct `TestSpecialChars` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:407:16
+    |
+407 |     pub struct TestSpecialChars {
+    |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestMultipleFields` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:426:16
+    |
+426 |     pub struct TestMultipleFields {
+    |                ^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestDefaults` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:477:16
+    |
+477 |     pub struct TestDefaults {
+    |                ^^^^^^^^^^^^
+
+warning: struct `TestCompositePk` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:509:16
+    |
+509 |     pub struct TestCompositePk {
+    |                ^^^^^^^^^^^^^^^
+
+warning: struct `TestNumeric` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:535:16
+    |
+535 |     pub struct TestNumeric {
+    |                ^^^^^^^^^^^
+
+warning: struct `TestBoolean` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:563:16
+    |
+563 |     pub struct TestBoolean {
+    |                ^^^^^^^^^^^
+
+warning: struct `TestJson` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:587:16
+    |
+587 |     pub struct TestJson {
+    |                ^^^^^^^^
+
+warning: struct `TestDefaultExpr` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:608:16
+    |
+608 |     pub struct TestDefaultExpr {
+    |                ^^^^^^^^^^^^^^^
+
+warning: struct `TestDefaultExprCombined` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:639:16
+    |
+639 |     pub struct TestDefaultExprCombined {
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestRenamedFrom` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:667:16
+    |
+667 |     pub struct TestRenamedFrom {
+    |                ^^^^^^^^^^^^^^^
+
+warning: struct `TestRenamedFromCombined` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:693:16
+    |
+693 |     pub struct TestRenamedFromCombined {
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `User` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:724:16
+    |
+724 |     pub struct User {
+    |                ^^^^
+
+warning: struct `User` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:742:16
+    |
+742 |     pub struct User {
+    |                ^^^^
+
+warning: struct `Order` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:761:16
+    |
+761 |     pub struct Order {
+    |                ^^^^^
+
+warning: struct `TestIgnore` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:781:16
+    |
+781 |     pub struct TestIgnore {
+    |                ^^^^^^^^^^
+
+warning: struct `TestIgnoreCombined` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:823:16
+    |
+823 |     pub struct TestIgnoreCombined {
+    |                ^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestSelectAs` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:849:16
+    |
+849 |     pub struct TestSelectAs {
+    |                ^^^^^^^^^^^^
+
+warning: struct `TestSelectAsAllColumns` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:871:16
+    |
+871 |     pub struct TestSelectAsAllColumns {
+    |                ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestSaveAs` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:916:16
+    |
+916 |     pub struct TestSaveAs {
+    |                ^^^^^^^^^^
+
+warning: struct `TestSaveAsMethod` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:937:16
+    |
+937 |     pub struct TestSaveAsMethod {
+    |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestComment` is never constructed
+   --> lifeguard-derive/tests/test_column_attributes.rs:971:16
+    |
+971 |     pub struct TestComment {
+    |                ^^^^^^^^^^^
+
+warning: struct `TestCommentIntegration` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1037:16
+     |
+1037 |     pub struct TestCommentIntegration {
+     |                ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestAllSelectAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1076:16
+     |
+1076 |     pub struct TestAllSelectAs {
+     |                ^^^^^^^^^^^^^^^
+
+warning: struct `TestSpecialSelectAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1104:16
+     |
+1104 |     pub struct TestSpecialSelectAs {
+     |                ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestSaveAsPk` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1123:16
+     |
+1123 |     pub struct TestSaveAsPk {
+     |                ^^^^^^^^^^^^
+
+warning: struct `TestSaveAsOption` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1143:16
+     |
+1143 |     pub struct TestSaveAsOption {
+     |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestSpecialSaveAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1167:16
+     |
+1167 |     pub struct TestSpecialSaveAs {
+     |                ^^^^^^^^^^^^^^^^^
+
+warning: struct `TestEmptyComment` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1185:16
+     |
+1185 |     pub struct TestEmptyComment {
+     |                ^^^^^^^^^^^^^^^^
+
+warning: struct `TestBothAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1285:16
+     |
+1285 |     pub struct TestBothAs {
+     |                ^^^^^^^^^^
+
+warning: struct `TestIgnoredAllColumns` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1310:16
+     |
+1310 |     pub struct TestIgnoredAllColumns {
+     |                ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestMultipleSelectAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1335:16
+     |
+1335 |     pub struct TestMultipleSelectAs {
+     |                ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `TestMultipleSaveAs` is never constructed
+    --> lifeguard-derive/tests/test_column_attributes.rs:1371:16
+     |
+1371 |     pub struct TestMultipleSaveAs {
+     |                ^^^^^^^^^^^^^^^^^^
+
+warning: `lifeguard-derive` (lib test) generated 1 warning (run `cargo fix --lib -p lifeguard-derive --tests` to apply 1 suggestion)
+warning: `lifeguard-derive` (test "test_minimal") generated 48 warnings (1 duplicate) (run `cargo fix --test "test_minimal"` to apply 21 suggestions)
+warning: `lifeguard-derive` (test "test_column_attributes") generated 51 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.10s
+────────────
+[32;1m Nextest run[0m ID [1ma9ea7985-e652-4094-b3fb-81222e2ba465[0m with nextest profile: [1mdefault[0m
+[32;1m    Starting[0m [1m334[0m tests across [1m11[0m binaries
+[32;1m        PASS[0m [   0.018s] (  1/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_phantom_data_no_empty_brackets[0m
+[32;1m        PASS[0m [   0.018s] (  2/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_path_types[0m
+[32;1m        PASS[0m [   0.018s] (  3/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_mixed_type_and_non_type_generics[0m
+[32;1m        PASS[0m [   0.018s] (  4/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_generic_types[0m
+[32;1m        PASS[0m [   0.019s] (  5/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_option_types[0m
+[32;1m        PASS[0m [   0.019s] (  6/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_only_const_generics[0m
+[32;1m        PASS[0m [   0.019s] (  7/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_mixed_generics[0m
+[32;1m        PASS[0m [   0.019s] (  8/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_nested_generics[0m
+[32;1m        PASS[0m [   0.020s] (  9/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_only_lifetime_generics[0m
+[32;1m        PASS[0m [   0.022s] ( 10/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_no_empty_brackets_for_non_type_generics[0m
+[32;1m        PASS[0m [   0.015s] ( 11/334) [35;1mlifeguard-derive[0m [36mutils::tests[0m[36m::[0m[34;1mtest_snake_case[0m
+[32;1m        PASS[0m [   0.015s] ( 12/334) [35;1mlifeguard-derive[0m [36mutils::tests[0m[36m::[0m[34;1mtest_camel_case[0m
+[32;1m        PASS[0m [   0.015s] ( 13/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_column_type_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 14/334) [35;1mlifeguard-derive[0m [36mutils::tests[0m[36m::[0m[34;1mtest_pascal_case[0m
+[32;1m        PASS[0m [   0.019s] ( 15/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_boolean_with_default[0m
+[32;1m        PASS[0m [   0.019s] ( 16/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_tuple_types[0m
+[32;1m        PASS[0m [   0.018s] ( 17/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_auto_increment_with_unique[0m
+[32;1m        PASS[0m [   0.022s] ( 18/334) [35;1mlifeguard-derive[0m [36mtype_conversion::tests[0m[36m::[0m[34;1mtest_type_to_string_simple_types[0m
+[32;1m        PASS[0m [   0.022s] ( 19/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_all_attributes_combined[0m
+[32;1m        PASS[0m [   0.023s] ( 20/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_auto_increment_attribute[0m
+[32;1m        PASS[0m [   0.020s] ( 21/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_generation[0m
+[32;1m        PASS[0m [   0.016s] ( 22/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_with_backslashes[0m
+[32;1m        PASS[0m [   0.020s] ( 23/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_with_special_table_name[0m
+[32;1m        PASS[0m [   0.023s] ( 24/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_empty_string[0m
+[32;1m        PASS[0m [   0.023s] ( 25/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_column_type_with_default_value[0m
+[32;1m        PASS[0m [   0.022s] ( 26/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_integration_with_life_model[0m
+[32;1m        PASS[0m [   0.020s] ( 27/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_sql_identifier_validation[0m
+[32;1m        PASS[0m [   0.024s] ( 28/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_attribute[0m
+[32;1m        PASS[0m [   0.023s] ( 29/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_very_long[0m
+[32;1m        PASS[0m [   0.026s] ( 30/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_comment_with_newlines[0m
+[32;1m        PASS[0m [   0.014s] ( 31/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_value_attribute[0m
+[35;1m  TRY 1 FAIL[0m [   0.015s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 2/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.016s] ( 32/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_empty_string_default_value[0m
+[32;1m        PASS[0m [   0.016s] ( 33/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignore_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 34/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_composite_primary_key_with_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 35/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_enum_name_attribute[0m
+[32;1m        PASS[0m [   0.020s] ( 36/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_expr_with_other_attributes[0m
+[32;1m        PASS[0m [   0.022s] ( 37/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_expr_attribute[0m
+[32;1m        PASS[0m [   0.016s] ( 38/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignore_with_other_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 39/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_ignored_fields_not_in_all_columns[0m
+[32;1m        PASS[0m [   0.016s] ( 40/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_indexed_attribute[0m
+[35;1m  TRY 2 FAIL[0m [   0.014s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 3/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.015s] ( 41/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_fields_different_attributes[0m
+[32;1m        PASS[0m [   0.016s] ( 42/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_long_enum_name[0m
+[32;1m        PASS[0m [   0.016s] ( 43/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_save_as_expressions[0m
+[32;1m        PASS[0m [   0.013s] ( 44/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_nullable_attribute[0m
+[32;1m        PASS[0m [   0.020s] ( 45/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_json_type_with_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 46/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_multiple_select_as_expressions[0m
+[32;1m        PASS[0m [   0.019s] ( 47/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_non_option_with_nullable_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 48/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_numeric_types_with_attributes[0m
+[32;1m        PASS[0m [   0.018s] ( 49/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_option_type_automatically_nullable[0m
+[35;1m  TRY 3 FAIL[0m [   0.018s] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[35;1m [0m [35;1mstdout[0m [35;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[35;1m [0m [35;1mstderr[0m [35;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[35;1m   RETRY 4/4[0m [         ] (───────) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[32;1m        PASS[0m [   0.015s] ( 50/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_renamed_from_with_other_attributes[0m
+[32;1m        PASS[0m [   0.017s] ( 51/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_primary_key_with_auto_increment[0m
+[32;1m        PASS[0m [   0.019s] ( 52/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_option_type_with_nullable_attribute[0m
+[32;1m        PASS[0m [   0.017s] ( 53/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_renamed_from_attribute[0m
+[32;1m        PASS[0m [   0.015s] ( 54/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_column_save_as_method[0m
+[32;1m        PASS[0m [   0.019s] ( 55/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_attribute[0m
+[32;1m        PASS[0m [   0.016s] ( 56/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_on_option_field[0m
+[32;1m        PASS[0m [   0.014s] ( 57/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_on_primary_key[0m
+[32;1m        PASS[0m [   0.011s] ( 58/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_attribute[0m
+[31;1m  TRY 4 FAIL[0m [   0.011s] ( 59/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[31;1m [0m [31;1mstdout[0m [31;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[31;1m [0m [31;1mstderr[0m [31;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[31;1m  Cancelling[0m due to [31;1mtest failure[0m: [1m9[0m tests still running
+[32;1m        PASS[0m [   0.013s] ( 60/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_save_as_special_characters[0m
+[32;1m        PASS[0m [   0.014s] ( 61/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_without_attribute[0m
+[32;1m        PASS[0m [   0.013s] ( 62/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_all_columns_method[0m
+[32;1m        PASS[0m [   0.015s] ( 63/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_schema_name_custom_schema[0m
+[32;1m        PASS[0m [   0.014s] ( 64/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_all_columns_have_select_as[0m
+[32;1m        PASS[0m [   0.011s] ( 65/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_and_save_as_on_same_column[0m
+[32;1m        PASS[0m [   0.012s] ( 66/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_attribute[0m
+[32;1m        PASS[0m [   0.010s] ( 67/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_select_as_special_characters[0m
+[32;1m        PASS[0m [   0.011s] ( 68/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_special_characters_in_column_type[0m
+────────────
+[31;1m     Summary[0m [   0.134s] [1m68[0m/[1m334[0m tests run: [1m67[0m [32;1mpassed[0m, [1m1[0m [31;1mfailed[0m, [1m0[0m [33;1mskipped[0m
+[31;1m  TRY 4 FAIL[0m [   0.011s] ( 59/334) [35;1mlifeguard-derive::test_column_attributes[0m [34;1mtest_default_column_definition[0m
+[31;1m [0m [31;1mstdout[0m [31;1m───[0m
+
+    running 1 test
+    test test_default_column_definition ... FAILED
+
+    failures:
+
+    failures:
+        test_default_column_definition
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 55 filtered out; finished in 0.00s
+    [0m
+[31;1m [0m [31;1mstderr[0m [31;1m───[0m
+
+    [0m[31;1mthread 'test_default_column_definition' panicked at lifeguard-derive/tests/test_column_attributes.rs:486:5:[0m
+    [31;1massertion `left == right` failed[0m
+      left: Some("INTEGER")
+     right: None
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace[0m
+
+[33;1mwarning[0m: [1m266[0m/[1m334[0m tests were not run due to [33;1mtest failure[0m (run with [1m--no-fail-fast[0m to run all tests, or run with [1m--max-fail[0m)
+[31;1merror[0m: test run failed
+Build Failed: Command "cd lifeguard-derive && cargo nextest run --all-features" failed: exit status 100
+
+1 File Changed: [lifeguard-derive/src/macros/life_model.rs]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]
+
+1 File Changed: [Cargo.lock]

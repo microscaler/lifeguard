@@ -713,7 +713,7 @@ mod json_tests {
 mod tests {
     use sea_query::Value;
     use super::{Entity, Column, PrimaryKey, UserModel, UserRecord};
-    use lifeguard::{FromRow, LifeModelTrait, ModelTrait, PrimaryKeyTrait, PrimaryKeyToColumn};
+    use lifeguard::{FromRow, LifeModelTrait, ModelTrait};
 
     #[test]
     fn test_entity_exists() {
@@ -960,7 +960,6 @@ mod tests {
     }
 
     mod composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
 
@@ -1016,7 +1015,6 @@ mod tests {
     }
 
     mod mixed_auto_inc_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyToColumn};
 
@@ -1079,7 +1077,6 @@ mod tests {
     // ============================================================================
 
     mod tuple3_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
 
@@ -1104,7 +1101,6 @@ mod tests {
     }
 
     mod tuple4_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
 
@@ -1131,7 +1127,6 @@ mod tests {
     }
 
     mod tuple5_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
 
@@ -1160,7 +1155,6 @@ mod tests {
     }
 
     mod tuple6plus_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
 
@@ -1191,7 +1185,6 @@ mod tests {
     }
 
     mod large_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait};
 
@@ -1242,7 +1235,6 @@ mod tests {
     }
 
     mod mixed_type_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyTrait};
 
@@ -1284,7 +1276,6 @@ mod tests {
     }
 
     mod option_composite_pk_entity {
-        use super::*;
         use lifeguard_derive::LifeModel;
         use lifeguard::{PrimaryKeyTrait, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn};
 
@@ -2364,7 +2355,7 @@ mod tests {
 
 #[cfg(test)]
 mod active_model_trait_tests {
-    use super::*;
+    use super::{Entity, UserModel, UserRecord};
     use lifeguard::{ActiveModelTrait, LifeModelTrait};
 
     #[test]
@@ -3497,7 +3488,6 @@ mod active_model_trait_tests {
 
     // Entity with float fields for testing NaN and infinity serialization
     mod float_tests {
-        use super::*;
         use lifeguard_derive::{LifeModel, LifeRecord};
         
         #[derive(LifeModel, LifeRecord)]
@@ -3740,7 +3730,8 @@ mod active_model_trait_tests {
     fn test_json_roundtrip_with_column_name_attribute() {
         // Test that JSON roundtrip works when #[column_name] attribute is used
         // This verifies that to_json() and from_json() use the same key names
-        use super::column_name_tests::{UserWithRenamedColumns, Entity, Column, UserWithRenamedColumnsRecord};
+        use super::column_name_tests::{UserWithRenamedColumns, UserWithRenamedColumnsRecord};
+        use super::column_name_tests::Entity;
         use lifeguard::LifeModelTrait;
         
         let mut original = UserWithRenamedColumnsRecord::new();

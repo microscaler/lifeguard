@@ -50,16 +50,23 @@ impl TestDatabase {
     /// Get connection string from various sources
     fn get_connection_string() -> Result<String, TestError> {
         // Priority 1: TEST_DATABASE_URL environment variable
+        // Check this first and return immediately if set
         if let Ok(url) = env::var("TEST_DATABASE_URL") {
-            return Ok(url);
+            // Only return if the URL is not empty
+            if !url.is_empty() {
+                return Ok(url);
+            }
         }
 
         // Priority 2: DATABASE_URL environment variable
         if let Ok(url) = env::var("DATABASE_URL") {
-            return Ok(url);
+            if !url.is_empty() {
+                return Ok(url);
+            }
         }
 
         // Priority 3: Try to get from Kubernetes (if running in Kind cluster)
+        // Only try this if no environment variables are set
         if let Ok(url) = Self::get_k8s_connection_string() {
             return Ok(url);
         }

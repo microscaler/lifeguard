@@ -12,12 +12,18 @@ readme = "README.md"
 members = [
     "lifeguard-derive",
     "lifeguard-codegen",
+    "lifeguard-migrate",
+    "tests-integration",
 ]
 resolver = "2"
 
 [[example]]
 name = "query_builder"
 path = "examples/query_builder_example.rs"
+
+[[example]]
+name = "test_sql_generation"
+path = "examples/test_sql_generation.rs"
 
 
 [dependencies]
@@ -44,6 +50,10 @@ config = "0.14"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"  # JSON support is always enabled (core functionality)
 chrono = { version = "0.4.41", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }  # For entity definitions
+rust_decimal = "1.33"  # For entity definitions (NUMERIC types)
+sha2 = "0.10"  # For migration checksum calculation
+regex = "1.10"  # For migration file name parsing
 
 # SQL Builder (borrowed, runtime-agnostic)
 # JSON support is always enabled (core functionality)
@@ -69,3 +79,5 @@ metrics = ["dep:opentelemetry", "dep:opentelemetry-prometheus", "dep:prometheus"
 # Enable OpenTelemetry tracing
 tracing = ["dep:tracing"]
 mock = []
+# Enable test helpers for integration tests
+test-helpers = []

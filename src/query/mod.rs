@@ -74,6 +74,11 @@ pub mod column;
 #[doc(inline)]
 pub use column::{ColumnTrait, ColumnDefinition};
 
+// Table operations (for entity-driven migrations)
+pub mod table;
+#[doc(inline)]
+pub use table::{TableDefinition, IndexDefinition};
+
 // Primary key operations
 pub mod primary_key;
 #[doc(inline)]

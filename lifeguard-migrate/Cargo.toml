@@ -1,0 +1,58 @@
+[package]
+name = "lifeguard-migrate"
+version = "0.1.0"
+edition = "2021"
+description = "Migration CLI tool for Lifeguard ORM"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/microscaler/lifeguard"
+
+[[bin]]
+name = "lifeguard-migrate"
+path = "src/main.rs"
+
+[dependencies]
+# CLI argument parsing
+clap = { version = "4.5", features = ["derive"] }
+# Lifeguard core library
+lifeguard = { path = "../", version = "0.1.0" }
+# Environment variable handling
+dotenv = "0.15"
+# Logging
+log = "0.4"
+env_logger = "0.11"
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+# Configuration file parsing
+toml = "0.8"
+# Pretty printing
+colored = "2.1"
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+# UUID support (needed for entities)
+uuid = { version = "1.0", features = ["v4", "serde"] }
+# Serialization (needed for entities)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Decimal support (needed for entities)
+rust_decimal = "1.33"
+# SQL query builder (for IdenStatic)
+sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
+# Path manipulation for relative paths
+pathdiff = "0.2"
+# Lifeguard derive (needed for entities)
+lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
+# Postgres driver (needed for macro expansion - FromRow uses may_postgres::Row)
+may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
+
+[dev-dependencies]
+# Temporary directory for tests
+tempfile = "3.10"
+# For testing with entities
+lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
+may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
+serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1.0"
+rust_decimal = "1.33"

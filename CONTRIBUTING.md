@@ -17,7 +17,7 @@ src/
   pool/             # configuration loader, DbPoolManager, worker loop
   metrics.rs        # OpenTelemetry/Prometheus metrics
   test_helpers.rs   # utilities for tests
-  tests_cfg/        # schemas and entities used by integration tests
+  tests_cfg/        # (ARCHIVED - legacy SeaORM entities moved to .archive/legacy-petstore/)
 examples/           # database schema and generated SeaORM models
 book/               # mdBook documentation
 config/             # Prometheus/Grafana/otel configs
@@ -39,7 +39,7 @@ The usage guide in the book demonstrates how to create a pool, spawn coroutines 
 
 ## Testing & examples
 
-A small schema and SeaORM models reside under `examples/` and `src/tests_cfg/`. Integration tests cover configuration, initialization, and query behavior. Helpers in `test_helpers.rs` manage temporary tables for tests.
+Legacy SeaORM models have been archived to `.archive/legacy-petstore/`. Integration tests cover configuration, initialization, and query behavior. Helpers in `test_helpers.rs` manage temporary tables for tests.
 
 ## Next steps for learning
 

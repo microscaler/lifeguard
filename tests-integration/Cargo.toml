@@ -1,0 +1,15 @@
+[package]
+name = "lifeguard-integration-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for Lifeguard ORM (requires database connection)"
+
+[[test]]
+name = "migration_test"
+path = "migration_test.rs"
+
+[dependencies]
+# Lifeguard core library
+lifeguard = { path = "../", version = "0.1.0" }
+# SQL query builder
+sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }

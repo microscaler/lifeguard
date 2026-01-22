@@ -107,7 +107,6 @@
 
 use crate::executor::{LifeExecutor, LifeError};
 use crate::query::traits::{LifeModelTrait, FromRow};
-use sea_query::Expr;
 use may_postgres::types::ToSql;
 
 /// Trait for Model Manager patterns.

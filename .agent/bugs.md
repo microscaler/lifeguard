@@ -125,6 +125,36 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-20-04: select_as Integration Uses Wrong Method to Get Column Definition](bugs/BUG-2026-01-20-04.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Silent failure - select_as expressions never used
 
+- [BUG-2026-01-20-05: Migration Lock Deadlock in startup_migrations](bugs/BUG-2026-01-20-05.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Deadlock / Timeout
+
+- [BUG-2026-01-20-06: Migration File Overwrite Risk in handle_generate](bugs/BUG-2026-01-20-06.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Data Loss - Migration files could be silently overwritten
+
+- [BUG-2026-01-20-07: Migration Test Hanging on Lock Acquisition](bugs/BUG-2026-01-20-07.md)  
+  **Status:** 🔴 OPEN | **Priority:** Critical | **Severity:** Test hangs indefinitely - blocks CI/CD
+
+- [BUG-2026-01-20-08: Name-Value Attributes Not Parsed in parse_column_attributes](bugs/BUG-2026-01-20-08.md)  
+  **Status:** ✅ FIXED | **Priority:** Critical | **Severity:** Silent failure - All name-value attributes return None, breaking SQL generation
+
+- [BUG-2026-01-20-09: Incorrect File Count Assertion in test_handle_generate_fails_when_file_exists](bugs/BUG-2026-01-20-09.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Test correctness - Test would pass even when second file isn't created
+
+- [BUG-2026-01-21-01: Migration Template Method Signatures Don't Match Migration Trait](bugs/BUG-2026-01-21-01.md)  
+  **Status:** ✅ FIXED | **Priority:** Critical | **Severity:** Compilation error - Generated migration files fail to compile
+
+- [BUG-2026-01-21-02: Unused _applied_versions Variable in Migrator::status](bugs/BUG-2026-01-21-02.md)  
+  **Status:** ✅ FIXED | **Priority:** Low | **Severity:** Code quality - Dead code
+
+- [BUG-2026-01-21-03: Unused needs_db Variable in lifeguard-migrate main.rs](bugs/BUG-2026-01-21-03.md)  
+  **Status:** ✅ FIXED | **Priority:** Low | **Severity:** Code quality - Dead code
+
+- [BUG-2026-01-21-04: Migration Version Parsing Error Loses Diagnostic Information](bugs/BUG-2026-01-21-04.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Diagnostic information loss - Users see misleading error messages
+
+- [BUG-2026-01-21-05: register_migration Uses Wrong Error Type for Already Registered Migrations](bugs/BUG-2026-01-21-05.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Semantic mismatch - Error handling logic confusion
+
 ---
 
 ## Open Bugs
