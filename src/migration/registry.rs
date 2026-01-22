@@ -246,16 +246,19 @@ mod tests {
 
     #[test]
     fn test_register_migration_duplicate_returns_already_registered() {
-        clear_registry().expect("Failed to clear registry");
-        
         // Use unique version to avoid conflicts with parallel tests
         let version = 20240120120002;
         let name = "test_migration";
         
-        // Register first time - should succeed
+        // Clear and register first time - should succeed
+        clear_registry().expect("Failed to clear registry");
         let migration1 = TestMigration::new(version, name);
         let result1 = register_migration(Box::new(migration1));
         assert!(result1.is_ok(), "First registration should succeed");
+        
+        // Verify it's actually registered before trying duplicate
+        assert!(is_registered(version).expect("Failed to check"), 
+                "Migration should be registered after first registration");
         
         // Register second time with same version - should fail with AlreadyRegistered
         let migration2 = TestMigration::new(version, name);
@@ -299,32 +302,32 @@ mod tests {
 
     #[test]
     fn test_register_multiple_different_versions() {
-        clear_registry().expect("Failed to clear registry");
-        
         // Use unique versions to avoid conflicts with parallel tests
         let version1 = 20240120120004;
         let version2 = 20240120120005;
         let version3 = 20240120120006;
         
-        // Register multiple migrations with different versions
-        let migration1 = TestMigration::new(version1, "migration_1");
-        let migration2 = TestMigration::new(version2, "migration_2");
-        let migration3 = TestMigration::new(version3, "migration_3");
+        // Clear registry first
+        clear_registry().expect("Failed to clear registry");
         
+        // Register multiple migrations with different versions and verify each immediately
+        let migration1 = TestMigration::new(version1, "migration_1");
         assert!(register_migration(Box::new(migration1)).is_ok(), 
                 "Should register first migration");
+        assert!(is_registered(version1).expect("Failed to check"), 
+                "First migration should be registered immediately after registration");
+        
+        let migration2 = TestMigration::new(version2, "migration_2");
         assert!(register_migration(Box::new(migration2)).is_ok(), 
                 "Should register second migration");
+        assert!(is_registered(version2).expect("Failed to check"), 
+                "Second migration should be registered immediately after registration");
+        
+        let migration3 = TestMigration::new(version3, "migration_3");
         assert!(register_migration(Box::new(migration3)).is_ok(), 
                 "Should register third migration");
-        
-        // Verify all are registered
-        assert!(is_registered(version1).expect("Failed to check"), 
-                "First migration should be registered");
-        assert!(is_registered(version2).expect("Failed to check"), 
-                "Second migration should be registered");
         assert!(is_registered(version3).expect("Failed to check"), 
-                "Third migration should be registered");
+                "Third migration should be registered immediately after registration");
         
         // Verify get_all_migration_versions returns our migrations in sorted order
         // Note: We check that our versions are present, not the total count,
@@ -403,22 +406,25 @@ mod tests {
 
     #[test]
     fn test_already_registered_vs_already_applied_semantic_distinction() {
-        clear_registry().expect("Failed to clear registry");
-        
         // Use unique version to avoid conflicts with parallel tests
         // This test verifies that AlreadyRegistered is used for registry state,
         // not database state. AlreadyApplied would be used elsewhere for database state.
         let version = 20240120120009;
         
-        // Register migration
+        // Clear and register migration
+        clear_registry().expect("Failed to clear registry");
         let migration1 = TestMigration::new(version, "test_migration");
         register_migration(Box::new(migration1))
             .expect("Should register successfully");
         
+        // Verify it's actually registered before trying duplicate
+        assert!(is_registered(version).expect("Failed to check"), 
+                "Migration should be registered after first registration");
+        
         // Try to register again - should get AlreadyRegistered, NOT AlreadyApplied
         let migration2 = TestMigration::new(version, "test_migration");
         let error = register_migration(Box::new(migration2))
-            .expect_err("Should fail");
+            .expect_err("Should fail with AlreadyRegistered");
         
         // Verify it's AlreadyRegistered, not AlreadyApplied
         match error {
@@ -436,40 +442,41 @@ mod tests {
 
     #[test]
     fn test_clear_registry_removes_all() {
-        clear_registry().expect("Failed to clear registry");
-        
         // Use unique versions to avoid conflicts with parallel tests
         let version1 = 20240120120010;
         let version2 = 20240120120011;
         let version3 = 20240120120012;
         
-        // Register multiple migrations
+        // Clear registry first to ensure clean state
+        clear_registry().expect("Failed to clear registry");
+        
+        // Register multiple migrations and verify each immediately after registration
+        // This ensures we catch any issues before other tests can interfere
         let migration1 = TestMigration::new(version1, "migration_1");
-        let migration2 = TestMigration::new(version2, "migration_2");
-        let migration3 = TestMigration::new(version3, "migration_3");
-        
-        register_migration(Box::new(migration1)).expect("Should register");
-        register_migration(Box::new(migration2)).expect("Should register");
-        register_migration(Box::new(migration3)).expect("Should register");
-        
-        // Verify all are registered
+        register_migration(Box::new(migration1)).expect("Should register first migration");
         assert!(is_registered(version1).expect("Failed to check"), 
-                "First migration should be registered");
-        assert!(is_registered(version2).expect("Failed to check"), 
-                "Second migration should be registered");
-        assert!(is_registered(version3).expect("Failed to check"), 
-                "Third migration should be registered");
+                "First migration should be registered immediately after registration");
         
-        // Clear registry
+        let migration2 = TestMigration::new(version2, "migration_2");
+        register_migration(Box::new(migration2)).expect("Should register second migration");
+        assert!(is_registered(version2).expect("Failed to check"), 
+                "Second migration should be registered immediately after registration");
+        
+        let migration3 = TestMigration::new(version3, "migration_3");
+        register_migration(Box::new(migration3)).expect("Should register third migration");
+        assert!(is_registered(version3).expect("Failed to check"), 
+                "Third migration should be registered immediately after registration");
+        
+        // Clear registry - this should remove all migrations including ours
         clear_registry().expect("Should clear registry");
         
         // Verify all are gone (check our specific versions, not total count)
         // because other tests may be running in parallel
         assert!(!is_registered(version1).expect("Failed to check"), 
-                "First migration should not be registered");
+                "First migration should not be registered after clear");
         assert!(!is_registered(version2).expect("Failed to check"), 
-                "Second migration should not be registered");
+                "Second migration should not be registered after clear");
         assert!(!is_registered(version3).expect("Failed to check"), 
-                "Third migration should not be registered");
+                "Third migration should not be registered after clear");
     }
 }
