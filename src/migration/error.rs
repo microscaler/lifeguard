@@ -28,8 +28,8 @@ pub enum MigrationError {
         name: String,
         error: String,
     },
-    /// Invalid migration version
-    InvalidVersion(i64),
+    /// Invalid migration version (preserves original invalid string for diagnostics)
+    InvalidVersion(String),
     /// Missing migration file
     MissingFile { version: i64, name: String },
     /// Migration file already exists
@@ -82,8 +82,8 @@ impl std::fmt::Display for MigrationError {
                     name, version, error
                 )
             }
-            MigrationError::InvalidVersion(version) => {
-                write!(f, "Invalid migration version: {}", version)
+            MigrationError::InvalidVersion(version_str) => {
+                write!(f, "Invalid migration version: '{}' (expected format: YYYYMMDDHHMMSS)", version_str)
             }
             MigrationError::MissingFile { version, name } => {
                 write!(

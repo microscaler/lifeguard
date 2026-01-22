@@ -585,7 +585,7 @@ fn handle_info(migrator: &Migrator, executor: &dyn LifeExecutor, version: Option
             println!("Status: Pending");
             println!("Path: {}", pending.path.display());
         } else {
-            return Err(MigrationError::InvalidVersion(version));
+            return Err(MigrationError::InvalidVersion(version.to_string()));
         }
     } else {
         // Show summary info

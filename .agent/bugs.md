@@ -149,6 +149,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-21-03: Unused needs_db Variable in lifeguard-migrate main.rs](bugs/BUG-2026-01-21-03.md)  
   **Status:** ✅ FIXED | **Priority:** Low | **Severity:** Code quality - Dead code
 
+- [BUG-2026-01-21-04: Migration Version Parsing Error Loses Diagnostic Information](bugs/BUG-2026-01-21-04.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Diagnostic information loss - Users see misleading error messages
+
 ---
 
 ## Open Bugs

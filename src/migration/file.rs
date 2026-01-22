@@ -49,7 +49,7 @@ impl MigrationFile {
             
             let version = version_str.parse::<i64>()
                 .map_err(|_e| MigrationError::InvalidVersion(
-                    version_str.parse::<i64>().unwrap_or(0)
+                    version_str.to_string()
                 ))?;
             
             Ok((version, name))
