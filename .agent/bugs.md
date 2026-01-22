@@ -152,6 +152,9 @@ This file serves as an index to all bugs found and fixed in the Lifeguard codeba
 - [BUG-2026-01-21-04: Migration Version Parsing Error Loses Diagnostic Information](bugs/BUG-2026-01-21-04.md)  
   **Status:** ✅ FIXED | **Priority:** High | **Severity:** Diagnostic information loss - Users see misleading error messages
 
+- [BUG-2026-01-21-05: register_migration Uses Wrong Error Type for Already Registered Migrations](bugs/BUG-2026-01-21-05.md)  
+  **Status:** ✅ FIXED | **Priority:** High | **Severity:** Semantic mismatch - Error handling logic confusion
+
 ---
 
 ## Open Bugs

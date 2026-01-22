@@ -22,6 +22,8 @@ pub enum MigrationError {
     LockTimeout(String),
     /// Migration already applied
     AlreadyApplied { version: i64, name: String },
+    /// Migration already registered in memory
+    AlreadyRegistered { version: i64, name: String },
     /// Migration failed during execution
     ExecutionFailed {
         version: i64,
@@ -72,6 +74,13 @@ impl std::fmt::Display for MigrationError {
                 write!(
                     f,
                     "Migration '{}' (version {}) has already been applied",
+                    name, version
+                )
+            }
+            MigrationError::AlreadyRegistered { version, name } => {
+                write!(
+                    f,
+                    "Migration '{}' (version {}) is already registered in the migration registry",
                     name, version
                 )
             }
