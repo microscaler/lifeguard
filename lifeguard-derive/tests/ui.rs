@@ -196,3 +196,45 @@ fn compile_error_save_as_empty_string() {
     let t = TEST_CASES.lock().unwrap();
     t.compile_fail("tests/ui/compile_error_save_as_empty_string.rs");
 }
+
+#[test]
+fn compile_error_index_nonexistent_column() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_index_nonexistent_column.rs");
+}
+
+#[test]
+fn compile_error_index_parent_table_column() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_index_parent_table_column.rs");
+}
+
+#[test]
+fn compile_error_index_multiple_nonexistent_columns() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_index_multiple_nonexistent_columns.rs");
+}
+
+#[test]
+fn compile_error_composite_unique_nonexistent_column() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_composite_unique_nonexistent_column.rs");
+}
+
+#[test]
+fn compile_error_index_skipped_field() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_index_skipped_field.rs");
+}
+
+#[test]
+fn compile_error_index_ignored_field() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_index_ignored_field.rs");
+}
+
+#[test]
+fn compile_error_composite_unique_skipped_field() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_composite_unique_skipped_field.rs");
+}

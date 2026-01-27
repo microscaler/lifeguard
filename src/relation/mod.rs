@@ -1,17 +1,17 @@
 //! Relation module for entity relationships.
 //!
 //! This module provides support for defining and querying entity relationships:
-//! - belongs_to: Many-to-one relationship
-//! - has_one: One-to-one relationship
-//! - has_many: One-to-many relationship
-//! - has_many_through: Many-to-many relationship (via join table)
-//! - Linked: Multi-hop relationship queries (e.g., User → Posts → Comments)
-//! - Eager loading: Load related entities automatically (selectinload strategy)
+//! - `belongs_to`: Many-to-one relationship
+//! - `has_one`: One-to-one relationship
+//! - `has_many`: One-to-many relationship
+//! - `has_many_through`: Many-to-many relationship (via join table)
+//! - `Linked`: Multi-hop relationship queries (e.g., `User → Posts → Comments`)
+//! - Eager loading: Load related entities automatically (`selectinload` strategy)
 //! - Lazy loading: Load related entities on-demand (deferred queries)
 //!
 //! # Architecture
 //!
-//! The relation module follows Sea-ORM's organizational patterns:
+//! The relation module follows `Sea-ORM`'s organizational patterns:
 //! - **Traits**: Core relation traits (`RelationTrait`, `Related`, `FindRelated`, `Linked`)
 //! - **Def**: Relation definition types (`RelationDef`, `RelationType`)
 //! - **Identity**: Identity types for single and composite keys

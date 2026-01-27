@@ -1,14 +1,14 @@
 //! Condition building utilities for relations.
 //!
 //! This module provides functions for building SQL conditions from relation definitions,
-//! including join conditions and WHERE clauses.
+//! including join conditions and `WHERE` clauses.
 
 use crate::relation::def::struct_def::RelationDef;
 use crate::relation::identity::Identity;
 use crate::model::ModelTrait;
 use sea_query::{Condition, ConditionType, Expr, ExprTrait, TableRef};
 
-/// Extract table name string from TableRef
+/// Extract table name string from `TableRef`
 ///
 /// This helper function extracts the actual table name from a `TableRef`,
 /// avoiding the use of `Debug` formatting which produces invalid SQL.
@@ -24,35 +24,36 @@ use sea_query::{Condition, ConditionType, Expr, ExprTrait, TableRef};
 /// # Panics
 ///
 /// Panics if `TableRef` is not in the expected format (should not happen in normal usage)
+#[must_use]
 pub fn extract_table_name(table_ref: &TableRef) -> String {
     match table_ref {
         TableRef::Table(table_name, _alias) => {
-            // TableName is a tuple (Option<DynIden>, DynIden) where the second element is the table name
-            // We need to extract the DynIden and use Iden::unquoted() to get the string
-            // TableName is a tuple struct, so we need to access its fields
-            // Based on sea-query's structure: TableName(schema: Option<DynIden>, table: DynIden)
-            let table_iden = match table_name {
+            // `TableName` is a tuple `(Option<DynIden>, DynIden)` where the second element is the table name
+            // We need to extract the `DynIden` and use `Iden::unquoted()` to get the string
+            // `TableName` is a tuple struct, so we need to access its fields
+            // Based on `sea-query`'s structure: `TableName(schema: Option<DynIden>, table: DynIden)`
+            
+            match table_name {
                 sea_query::TableName(_schema, table) => {
                     // If schema is present, we might want to include it, but for now just return table name
                     // In the future, we could return "schema.table" format
-                    // DynIden implements Display/ToString, so we can use to_string() directly
+                    // `DynIden` implements `Display`/`ToString`, so we can use `to_string()` directly
                     table.to_string()
                 }
-            };
-            table_iden
+            }
         }
-        // Handle other TableRef variants if they exist
+        // Handle other `TableRef` variants if they exist
         _ => {
-            // Fallback: try to convert to string via Debug, but this should not be used in production
-            format!("{:?}", table_ref)
+            // Fallback: try to convert to string via `Debug`, but this should not be used in production
+            format!("{table_ref:?}")
         }
     }
 }
 
-/// Convert RelationDef to Condition for use in JOINs
+/// Convert `RelationDef` to `Condition` for use in `JOIN`s
 ///
-/// This implementation allows `RelationDef` to be used directly where SeaQuery
-/// expects a `Condition`, making it easy to use in JOIN operations.
+/// This implementation allows `RelationDef` to be used directly where `SeaQuery`
+/// expects a `Condition`, making it easy to use in `JOIN` operations.
 ///
 /// # Example
 ///
@@ -75,10 +76,10 @@ impl From<RelationDef> for Condition {
 
         // Build join condition: from_table.from_col = to_table.to_col
         condition = condition.add(join_tbl_on_condition(
-            from_tbl.clone(),
-            to_tbl.clone(),
-            rel.from_col,
-            rel.to_col,
+            &from_tbl,
+            &to_tbl,
+            &rel.from_col,
+            &rel.to_col,
         ));
 
         // Add custom condition if provided
@@ -130,11 +131,12 @@ impl From<RelationDef> for Condition {
 /// );
 /// // Creates: posts.user_id = users.id
 /// ```
+#[must_use]
 pub fn join_tbl_on_condition(
-    from_tbl: TableRef,
-    to_tbl: TableRef,
-    from_col: Identity,
-    to_col: Identity,
+    from_tbl: &TableRef,
+    to_tbl: &TableRef,
+    from_col: &Identity,
+    to_col: &Identity,
 ) -> Condition {
     let mut condition = Condition::all();
 
@@ -153,12 +155,12 @@ pub fn join_tbl_on_condition(
         // Extract actual table names from TableRef, not Debug representation
         let fk_col_str = fk_col.to_string();
         let pk_col_str = pk_col.to_string();
-        let from_tbl_str = extract_table_name(&from_tbl);
-        let to_tbl_str = extract_table_name(&to_tbl);
+        let from_tbl_str = extract_table_name(from_tbl);
+        let to_tbl_str = extract_table_name(to_tbl);
         
         // Create join condition: from_table.fk_col = to_table.pk_col
         // This is a simplified approach - in the future we may want to use proper Expr::col()
-        let join_expr = format!("{}.{} = {}.{}", from_tbl_str, fk_col_str, to_tbl_str, pk_col_str);
+        let join_expr = format!("{from_tbl_str}.{fk_col_str} = {to_tbl_str}.{pk_col_str}");
         let expr = Expr::cust(join_expr);
         condition = condition.add(expr);
     }
@@ -166,9 +168,9 @@ pub fn join_tbl_on_condition(
     condition
 }
 
-/// Build join condition as an Expr from Identity pairs
+/// Build join condition as an `Expr` from `Identity` pairs
 ///
-/// This function creates an `Expr` that can be used in JOIN ON clauses.
+/// This function creates an `Expr` that can be used in `JOIN ON` clauses.
 /// It supports both single and composite keys via the `Identity` enum.
 ///
 /// # Arguments
@@ -202,11 +204,12 @@ pub fn join_tbl_on_condition(
 /// );
 /// // Creates: posts.user_id = users.id
 /// ```
+#[must_use]
 pub fn join_tbl_on_expr(
-    from_tbl: TableRef,
-    to_tbl: TableRef,
-    from_col: Identity,
-    to_col: Identity,
+    from_tbl: &TableRef,
+    to_tbl: &TableRef,
+    from_col: &Identity,
+    to_col: &Identity,
 ) -> Expr {
     // Ensure arities match
     assert_eq!(
@@ -221,23 +224,29 @@ pub fn join_tbl_on_expr(
         // Extract actual table names from TableRef
         let fk_col_str = fk_col.to_string();
         let pk_col_str = pk_col.to_string();
-        let from_tbl_str = extract_table_name(&from_tbl);
-        let to_tbl_str = extract_table_name(&to_tbl);
+        let from_tbl_str = extract_table_name(from_tbl);
+        let to_tbl_str = extract_table_name(to_tbl);
         
         // Create join condition: from_table.fk_col = to_table.pk_col
-        let join_expr = format!("{}.{} = {}.{}", from_tbl_str, fk_col_str, to_tbl_str, pk_col_str);
+        let join_expr = format!("{from_tbl_str}.{fk_col_str} = {to_tbl_str}.{pk_col_str}");
         exprs.push(Expr::cust(join_expr));
     }
 
     // Combine multiple conditions with AND
     // For single key, just return the first expression
     // For composite keys, chain with AND
-    match exprs.len() {
+        match exprs.len() {
         0 => Expr::value(true), // Should never happen due to arity check
-        1 => exprs.into_iter().next().unwrap(),
+        1 => exprs.into_iter().next().unwrap_or_else(|| {
+            // This should never happen as we checked arity > 0, but handle gracefully
+            Expr::value(true) // Fallback expression
+        }),
         _ => {
             let mut iter = exprs.into_iter();
-            let mut result = iter.next().unwrap();
+            let mut result = iter.next().unwrap_or_else(|| {
+                // This should never happen as we checked len > 1, but handle gracefully
+                Expr::value(true) // Fallback expression
+            });
             for expr in iter {
                 result = result.and(expr);
             }
@@ -246,10 +255,10 @@ pub fn join_tbl_on_expr(
     }
 }
 
-/// Build WHERE condition from RelationDef and model primary key values
+/// Build `WHERE` condition from `RelationDef` and model primary key values
 ///
 /// This function creates a `Condition` for filtering related entities based on
-/// the current model's primary key. It works with both single and composite keys.
+/// the current model's primary key. It works with both single and composite keys via `Identity`.
 ///
 /// # Arguments
 ///
@@ -272,6 +281,11 @@ pub fn join_tbl_on_expr(
 /// let condition = build_where_condition(&rel_def, &user_model);
 /// // Creates: posts.user_id = user.id
 /// ```
+///
+/// # Panics
+///
+/// This function will panic if `from_col` and the model's primary key have mismatched arities.
+#[must_use]
 pub fn build_where_condition<M>(
     rel_def: &RelationDef,
     model: &M,
@@ -311,7 +325,7 @@ where
         // Create WHERE condition: table.column = value
         // Use Expr::col() for the column and Expr::val() for the value
         // For table-qualified columns, we'll use a custom expression for now
-        let col_expr = format!("{}.{}", from_tbl_str, fk_col_str);
+        let col_expr = format!("{from_tbl_str}.{fk_col_str}");
         let expr = Expr::cust(col_expr).eq(Expr::val(pk_val.clone()));
         condition = condition.add(expr);
     }
@@ -328,12 +342,11 @@ mod tests {
     fn test_join_tbl_on_condition_single_key() {
         use sea_query::{TableName, IntoIden, Query, PostgresQueryBuilder};
         
-        let condition = join_tbl_on_condition(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Unary("user_id".into()),
-            Identity::Unary("id".into()),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Unary("user_id".into());
+        let to_col = Identity::Unary("id".into());
+        let condition = join_tbl_on_condition(&from_tbl, &to_tbl, &from_col, &to_col);
 
         // Verify condition was created and contains actual table names, not debug output
         // Build a query with the condition to check the SQL output
@@ -353,12 +366,11 @@ mod tests {
     fn test_join_tbl_on_condition_composite_key() {
         use sea_query::{TableName, IntoIden};
         
-        let condition = join_tbl_on_condition(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Binary("user_id".into(), "tenant_id".into()),
-            Identity::Binary("id".into(), "tenant_id".into()),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Binary("user_id".into(), "tenant_id".into());
+        let to_col = Identity::Binary("id".into(), "tenant_id".into());
+        let condition = join_tbl_on_condition(&from_tbl, &to_tbl, &from_col, &to_col);
 
         // Verify condition was created for composite key
         let _ = condition;
@@ -369,12 +381,11 @@ mod tests {
     fn test_join_tbl_on_condition_mismatched_arity() {
         use sea_query::{TableName, IntoIden};
         
-        join_tbl_on_condition(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Unary("user_id".into()),
-            Identity::Binary("id".into(), "tenant_id".into()),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Unary("user_id".into());
+        let to_col = Identity::Binary("id".into(), "tenant_id".into());
+        let _ = join_tbl_on_condition(&from_tbl, &to_tbl, &from_col, &to_col);
     }
 
     #[test]
@@ -407,12 +418,11 @@ mod tests {
         // Edge case: Ternary composite key
         use sea_query::{TableName, IntoIden};
         
-        let condition = join_tbl_on_condition(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Ternary("user_id".into(), "tenant_id".into(), "region_id".into()),
-            Identity::Ternary("id".into(), "tenant_id".into(), "region_id".into()),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Ternary("user_id".into(), "tenant_id".into(), "region_id".into());
+        let to_col = Identity::Ternary("id".into(), "tenant_id".into(), "region_id".into());
+        let condition = join_tbl_on_condition(&from_tbl, &to_tbl, &from_col, &to_col);
 
         let _ = condition;
     }
@@ -422,12 +432,11 @@ mod tests {
         // Edge case: Many variant (4+ columns)
         use sea_query::{TableName, IntoIden};
         
-        let condition = join_tbl_on_condition(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Many(vec!["user_id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]),
-            Identity::Many(vec!["id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Many(vec!["user_id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]);
+        let to_col = Identity::Many(vec!["id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]);
+        let condition = join_tbl_on_condition(&from_tbl, &to_tbl, &from_col, &to_col);
 
         let _ = condition;
     }
@@ -438,12 +447,11 @@ mod tests {
         // Edge case: Ternary vs Unary mismatch
         use sea_query::{TableName, IntoIden};
         
-        join_tbl_on_condition(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Unary("user_id".into()),
-            Identity::Ternary("id".into(), "tenant_id".into(), "region_id".into()),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Unary("user_id".into());
+        let to_col = Identity::Ternary("id".into(), "tenant_id".into(), "region_id".into());
+        let _ = join_tbl_on_condition(&from_tbl, &to_tbl, &from_col, &to_col);
     }
 
     #[test]
@@ -606,12 +614,11 @@ mod tests {
         // Test that join_tbl_on_expr generates correct Expr for single key
         use sea_query::{TableName, IntoIden};
         
-        let expr = join_tbl_on_expr(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Unary("user_id".into()),
-            Identity::Unary("id".into()),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Unary("user_id".into());
+        let to_col = Identity::Unary("id".into());
+        let expr = join_tbl_on_expr(&from_tbl, &to_tbl, &from_col, &to_col);
         
         // Verify expr was created (can't easily test the exact SQL string)
         let _ = expr;
@@ -622,12 +629,11 @@ mod tests {
         // Test that join_tbl_on_expr generates correct Expr for composite key
         use sea_query::{TableName, IntoIden};
         
-        let expr = join_tbl_on_expr(
-            TableRef::Table(TableName(None, "posts".into_iden()), None),
-            TableRef::Table(TableName(None, "users".into_iden()), None),
-            Identity::Binary("user_id".into(), "tenant_id".into()),
-            Identity::Binary("id".into(), "tenant_id".into()),
-        );
+        let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
+        let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
+        let from_col = Identity::Binary("user_id".into(), "tenant_id".into());
+        let to_col = Identity::Binary("id".into(), "tenant_id".into());
+        let expr = join_tbl_on_expr(&from_tbl, &to_tbl, &from_col, &to_col);
         
         // Verify expr was created (composite keys should be combined with AND)
         let _ = expr;

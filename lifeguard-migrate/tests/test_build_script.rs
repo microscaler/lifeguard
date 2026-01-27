@@ -290,8 +290,8 @@ fn test_generate_registry_module_single_entity() {
     assert!(content.contains("Auto-generated entity registry"));
     // The registry includes entity modules using snake_case of struct name
     assert!(content.contains("test_entity")); // Module name from "TestEntity"
-    // The registry references the entity via module path
-    assert!(content.contains("default::test_entity"));
+    // The registry references the entity via module path (sanitized)
+    assert!(content.contains("crate::test_entity"));
 }
 
 #[test]
@@ -331,4 +331,46 @@ fn test_generate_registry_module_with_service_path() {
     let content = fs::read_to_string(&output_file).unwrap();
     assert!(content.contains("ChartOfAccount"));
     assert!(content.contains("chart_of_accounts"));
+}
+
+#[test]
+fn test_generate_registry_module_sanitizes_hyphens() {
+    let temp_dir = TempDir::new().unwrap();
+    let src_dir = temp_dir.path().join("src");
+    
+    // Create service directory structure with hyphens (should be sanitized to underscores)
+    let service_dir = src_dir.join("my-feature").join("sub-module");
+    fs::create_dir_all(&service_dir).unwrap();
+    
+    // Create entity file with hyphen in name (should be sanitized)
+    let entity_file = service_dir.join("my-entity.rs");
+    fs::write(&entity_file, r#"
+        #[derive(LifeModel)]
+        #[table_name = "my_entity"]
+        pub struct MyEntity {
+            pub id: i32,
+        }
+    "#).unwrap();
+    
+    // Discover entities
+    let entities = build_script::discover_entities(&src_dir).unwrap();
+    assert_eq!(entities.len(), 1);
+    
+    // Generate registry
+    let output_file = temp_dir.path().join("out").join("entity_registry.rs");
+    fs::create_dir_all(output_file.parent().unwrap()).unwrap();
+    
+    let result = build_script::generate_registry_module(&entities, &output_file);
+    assert!(result.is_ok());
+    
+    // Verify registry file was created
+    assert!(output_file.exists());
+    
+    // Verify registry content - hyphens should be converted to underscores in module paths
+    let content = fs::read_to_string(&output_file).unwrap();
+    // Module path should use underscores, not hyphens: "crate::my_feature::sub_module::my_entity"
+    assert!(content.contains("crate::my_feature::sub_module::my_entity"));
+    // Should NOT contain hyphens in module paths (would be invalid Rust)
+    assert!(!content.contains("crate::my-feature"));
+    assert!(!content.contains("my-entity::Entity"));
 }

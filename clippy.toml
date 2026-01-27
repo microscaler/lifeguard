@@ -1,0 +1,8 @@
+# Clippy configuration for Lifeguard
+# Database tools must never panic - enforce strict error handling
+
+# Ban panic-causing methods (enforced via #![deny] in src/lib.rs)
+# Tests can use #[allow(clippy::unwrap_used)] or #[cfg(test)] to bypass
+
+# Note: Pedantic mode is enabled via command-line flags (-W clippy::pedantic)
+# not via this config file

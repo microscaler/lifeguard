@@ -49,12 +49,13 @@ impl<'a> MigrationLockGuard<'a> {
     }
     
     /// Get a reference to the underlying executor
+    #[must_use]
     pub fn executor(&self) -> &'a dyn LifeExecutor {
         self.executor
     }
 }
 
-impl<'a> Drop for MigrationLockGuard<'a> {
+impl Drop for MigrationLockGuard<'_> {
     fn drop(&mut self) {
         // Attempt to release the lock by deleting the lock record
         // Ignore errors during drop - we can't propagate them
@@ -78,10 +79,15 @@ impl<'a> Drop for MigrationLockGuard<'a> {
 ///
 /// # How It Works
 ///
-/// 1. Try to INSERT lock record (version = -1) into migration table
-/// 2. If INSERT succeeds (rows_affected > 0): we hold the lock
-/// 3. If INSERT fails (rows_affected = 0): another process has the lock
+/// 1. Try to `INSERT` lock record (version = -1) into migration table
+/// 2. If `INSERT` succeeds (`rows_affected > 0`): we hold the lock
+/// 3. If `INSERT` fails (`rows_affected = 0`): another process has the lock
 /// 4. Poll with timeout until lock acquired or timeout exceeded
+///
+/// # Errors
+///
+/// Returns `MigrationError::LockTimeout` if the lock cannot be acquired within the timeout period.
+/// Returns `MigrationError::Database` if a database error occurs during lock acquisition.
 pub fn acquire_migration_lock(
     executor: &dyn LifeExecutor,
     timeout_seconds: u64,
@@ -95,7 +101,7 @@ pub fn acquire_migration_lock(
     // Note: statement_timeout is session-level, so this affects all subsequent queries
     // We'll reset it after acquiring the lock
     let query_timeout_seconds = 5u64;
-    let set_timeout_sql = format!("SET statement_timeout = '{}s'", query_timeout_seconds);
+    let set_timeout_sql = format!("SET statement_timeout = '{query_timeout_seconds}s'");
     
     // Set query timeout for this session
     // This ensures individual queries don't hang indefinitely
@@ -110,23 +116,21 @@ pub fn acquire_migration_lock(
             // Reset timeout before returning error
             let _ = executor.execute("RESET statement_timeout", &[]);
             return Err(MigrationError::LockTimeout(format!(
-                "Failed to acquire migration lock within {} seconds. \
+                "Failed to acquire migration lock within {timeout_seconds} seconds. \
                  Another process may be running migrations. \
                  If this persists, check for stuck migration processes or manually delete \
-                 the lock record: DELETE FROM lifeguard_migrations WHERE version = {}",
-                timeout_seconds, LOCK_VERSION
+                 the lock record: DELETE FROM lifeguard_migrations WHERE version = {LOCK_VERSION}"
             )));
         }
         
         // Try to insert lock record
         // ON CONFLICT DO NOTHING ensures atomicity via PRIMARY KEY constraint
         let sql = format!(
-            r#"
+            r"
             INSERT INTO lifeguard_migrations (version, name, checksum, applied_at, success)
-            VALUES ({}, 'LOCK', 'lock', NOW(), true)
+            VALUES ({LOCK_VERSION}, 'LOCK', 'lock', NOW(), true)
             ON CONFLICT (version) DO NOTHING
-            "#,
-            LOCK_VERSION
+            "
         );
         
         // Execute with timeout protection
@@ -136,17 +140,16 @@ pub fn acquire_migration_lock(
             Ok(rows) => rows,
             Err(e) => {
                 // Check if error is due to timeout
-                let error_msg = format!("{}", e);
+                let error_msg = format!("{e}");
                 if error_msg.contains("timeout") || error_msg.contains("canceling statement") {
                     // Query timed out - check overall timeout and retry if needed
                     if start.elapsed() >= timeout {
                         let _ = executor.execute("RESET statement_timeout", &[]);
                         return Err(MigrationError::LockTimeout(format!(
-                            "Failed to acquire migration lock within {} seconds due to query timeout. \
+                            "Failed to acquire migration lock within {timeout_seconds} seconds due to query timeout. \
                              Database may be slow or unresponsive. \
                              If this persists, check for stuck migration processes or manually delete \
-                             the lock record: DELETE FROM lifeguard_migrations WHERE version = {}",
-                            timeout_seconds, LOCK_VERSION
+                             the lock record: DELETE FROM lifeguard_migrations WHERE version = {LOCK_VERSION}"
                         )));
                     }
                     // Query timed out but overall timeout not exceeded - retry
@@ -155,7 +158,7 @@ pub fn acquire_migration_lock(
                 }
                 // Other database error - reset timeout and propagate it
                 let _ = executor.execute("RESET statement_timeout", &[]);
-                return Err(MigrationError::Database(e.into()));
+                return Err(MigrationError::Database(e));
             }
         };
         
@@ -181,16 +184,19 @@ pub fn acquire_migration_lock(
 /// # Returns
 ///
 /// Returns `Ok(())` if lock released successfully, or an error if deletion fails.
+///
+/// # Errors
+///
+/// Returns `MigrationError::Database` if a database error occurs during lock release.
 pub fn release_migration_lock(
     executor: &dyn LifeExecutor,
 ) -> Result<(), MigrationError> {
     let sql = format!(
-        "DELETE FROM lifeguard_migrations WHERE version = {}",
-        LOCK_VERSION
+        "DELETE FROM lifeguard_migrations WHERE version = {LOCK_VERSION}"
     );
     
     executor.execute(&sql, &[])
-        .map_err(|e| MigrationError::Database(e.into()))?;
+        .map_err(MigrationError::Database)?;
     
     Ok(())
 }
@@ -204,16 +210,19 @@ pub fn release_migration_lock(
 /// # Returns
 ///
 /// Returns `Ok(true)` if lock is held, `Ok(false)` if not.
+///
+/// # Errors
+///
+/// Returns `MigrationError::Database` if a database error occurs while checking the lock status.
 pub fn is_migration_lock_held(
     executor: &dyn LifeExecutor,
 ) -> Result<bool, MigrationError> {
     let sql = format!(
-        "SELECT COUNT(*) FROM lifeguard_migrations WHERE version = {}",
-        LOCK_VERSION
+        "SELECT COUNT(*) FROM lifeguard_migrations WHERE version = {LOCK_VERSION}"
     );
     
     let row = executor.query_one(&sql, &[])
-        .map_err(|e| MigrationError::Database(e.into()))?;
+        .map_err(MigrationError::Database)?;
     
     let count: i64 = row.get(0);
     Ok(count > 0)

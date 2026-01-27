@@ -11,7 +11,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
 use crate::utils;
 
-/// Generate FromRow implementation for a Model struct
+/// Generate `FromRow` implementation for a Model struct
 pub fn derive_from_row(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -76,6 +76,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
                 
                 if is_unsigned {
                     // For unsigned types, convert to signed equivalent first
+                    #[allow(clippy::single_match_else)]
                     let signed_type = match field_type {
                         syn::Type::Path(syn::TypePath {
                             path: syn::Path { segments, .. },
@@ -84,7 +85,6 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
                             if let Some(segment) = segments.first() {
                                 match segment.ident.to_string().as_str() {
                                     "u8" => quote! { i16 },
-                                    "u16" => quote! { i32 },
                                     "u32" | "u64" => quote! { i64 },
                                     _ => quote! { i32 },
                                 }

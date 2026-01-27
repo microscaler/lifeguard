@@ -1,0 +1,8 @@
+error[E0000]: Column 'nonexistent_column' in index 'idx_test_nonexistent' does not exist on this struct. Available columns: id, name, email
+ --> $DIR/compile_error_index_nonexistent_column.rs:7:1
+  |
+7 | #[index = "idx_test_nonexistent(nonexistent_column)"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: This error indicates that an index is trying to reference a column that doesn't exist on the struct.
+  = note: Only columns that exist on this struct can be indexed. For child entities that reference parent tables via foreign keys, index only the child's own columns, not the parent's columns.

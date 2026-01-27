@@ -1,7 +1,7 @@
 //! Raw SQL Helpers - Epic 01 Story 04
 //!
 //! Provides convenience functions for executing raw SQL queries.
-//! These helpers replicate SeaORM's `find_by_statement()` and `execute_unprepared()` functionality.
+//! These helpers replicate `SeaORM`'s `find_by_statement()` and `execute_unprepared()` functionality.
 
 use crate::executor::{LifeExecutor, LifeError};
 use may_postgres::Row;
@@ -9,7 +9,7 @@ use may_postgres::types::ToSql;
 
 /// Execute an unprepared SQL statement
 ///
-/// This is equivalent to SeaORM's `execute_unprepared()`. It executes a raw SQL string
+/// This is equivalent to `SeaORM`'s `execute_unprepared()`. It executes a raw SQL string
 /// without parameter binding.
 ///
 /// # Arguments
@@ -20,6 +20,10 @@ use may_postgres::types::ToSql;
 /// # Returns
 ///
 /// Returns the number of rows affected, or an error.
+///
+/// # Errors
+///
+/// Returns `LifeError` if the SQL execution fails.
 ///
 /// # Examples
 ///
@@ -40,7 +44,7 @@ pub fn execute_unprepared<E: LifeExecutor>(executor: &E, sql: &str) -> Result<u6
 
 /// Execute a prepared statement with parameters
 ///
-/// This is equivalent to SeaORM's `execute()`. It executes a parameterized SQL statement.
+/// This is equivalent to `SeaORM`'s `execute()`. It executes a parameterized SQL statement.
 ///
 /// # Arguments
 ///
@@ -52,6 +56,10 @@ pub fn execute_unprepared<E: LifeExecutor>(executor: &E, sql: &str) -> Result<u6
 ///
 /// Returns the number of rows affected, or an error.
 ///
+/// # Errors
+///
+/// Returns `LifeError` if the SQL execution fails.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -59,7 +67,7 @@ pub fn execute_unprepared<E: LifeExecutor>(executor: &E, sql: &str) -> Result<u6
 ///
 /// # fn main() -> Result<(), LifeError> {
 /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
-///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+///     .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
 /// let executor = MayPostgresExecutor::new(client);
 /// let rows = execute_statement(&executor, "DELETE FROM users WHERE id = $1", &[&42i64])?;
 /// # Ok(())
@@ -75,7 +83,7 @@ pub fn execute_statement<E: LifeExecutor>(
 
 /// Query a single row using a raw SQL statement
 ///
-/// This is equivalent to SeaORM's `find_by_statement()` for single row queries.
+/// This is equivalent to `SeaORM`'s `find_by_statement()` for single row queries.
 ///
 /// # Arguments
 ///
@@ -87,6 +95,13 @@ pub fn execute_statement<E: LifeExecutor>(
 ///
 /// Returns a single `Row`, or an error if no rows or multiple rows are returned.
 ///
+/// # Errors
+///
+/// Returns `LifeError` if:
+/// - The query execution fails
+/// - No rows are returned
+/// - Multiple rows are returned
+///
 /// # Examples
 ///
 /// ```no_run
@@ -94,7 +109,7 @@ pub fn execute_statement<E: LifeExecutor>(
 ///
 /// # fn main() -> Result<(), LifeError> {
 /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
-///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+///     .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
 /// let executor = MayPostgresExecutor::new(client);
 /// let row = find_by_statement(&executor, "SELECT * FROM users WHERE id = $1", &[&42i64])?;
 /// let name: String = row.get("name");
@@ -111,7 +126,7 @@ pub fn find_by_statement<E: LifeExecutor>(
 
 /// Query multiple rows using a raw SQL statement
 ///
-/// This is equivalent to SeaORM's `find_by_statement()` for multiple row queries.
+/// This is equivalent to `SeaORM`'s `find_by_statement()` for multiple row queries.
 ///
 /// # Arguments
 ///
@@ -123,6 +138,10 @@ pub fn find_by_statement<E: LifeExecutor>(
 ///
 /// Returns a vector of `Row` objects.
 ///
+/// # Errors
+///
+/// Returns `LifeError` if the query execution fails.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -130,7 +149,7 @@ pub fn find_by_statement<E: LifeExecutor>(
 ///
 /// # fn main() -> Result<(), LifeError> {
 /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
-///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+///     .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
 /// let executor = MayPostgresExecutor::new(client);
 /// let rows = find_all_by_statement(&executor, "SELECT * FROM users WHERE active = $1", &[&true])?;
 /// for row in rows {
@@ -180,6 +199,14 @@ pub fn find_all_by_statement<E: LifeExecutor>(
 ///
 /// For better error handling, consider using `find_by_statement()` and extracting
 /// values manually with `row.try_get()`.
+///
+/// # Errors
+///
+/// Returns `LifeError` if:
+/// - The query execution fails
+/// - No rows are returned
+/// - Multiple rows are returned
+/// - Value extraction/conversion fails
 pub fn query_value<T, E: LifeExecutor>(
     executor: &E,
     sql: &str,
@@ -194,7 +221,7 @@ where
     // Type parameters in turbofish: <I, T> (index type, then value type)
     // We specify both explicitly to help type inference
     row.try_get::<usize, T>(0)
-        .map_err(|e| LifeError::ParseError(format!("Failed to extract value: {}", e)))
+        .map_err(|e| LifeError::ParseError(format!("Failed to extract value: {e}")))
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! Lazy loading utilities for related entities.
 //!
 //! This module provides utilities for loading related entities lazily,
-//! similar to SeaORM's lazy loading strategy. Queries are built but not
+//! similar to `SeaORM`'s lazy loading strategy. Queries are built but not
 //! executed until the related data is actually accessed.
 //!
 //! # Example
@@ -134,22 +134,36 @@ where
     /// let lazy_posts = LazyLoader::new(&user, executor);
     /// let posts = lazy_posts.load::<PostModel>()?;
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if:
+    /// - The relationship definition is invalid
+    /// - Query execution fails
+    /// - Row parsing fails
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// - `to_col` and primary key have mismatched arities for `HasMany` relationships
+    /// - Required relationship fields are missing
     pub fn load<R>(&self) -> Result<Vec<R::Model>, LifeError>
     where
         R: LifeModelTrait,
         M::Entity: Related<R>,
         R::Model: crate::query::traits::FromRow,
     {
+        use crate::relation::def::types::RelationType;
+        
         // Get the relationship definition
         let rel_def: RelationDef = <M::Entity as Related<R>>::to();
 
         // Build the query using the relationship definition
         let mut query = SelectQuery::<R>::new();
-
+        
         // Build WHERE condition from the parent entity's primary key
         // For has_many relationships, we need to use to_col (FK in target table) instead of from_col (PK in source table)
         // because we're querying the target table (to_tbl), not the source table (from_tbl)
-        use crate::relation::def::types::RelationType;
         let where_condition = if rel_def.rel_type == RelationType::HasMany {
             // For has_many: query target table (to_tbl) filtered by to_col (FK) = source PK
             // Example: SELECT * FROM posts WHERE posts.user_id = user.id
@@ -175,7 +189,7 @@ where
                 
                 // Create WHERE condition: to_table.fk_col = source_pk_value
                 // Use the same pattern as build_where_condition in condition.rs
-                let col_expr = format!("{}.{}", to_tbl_str, fk_col_str);
+                let col_expr = format!("{to_tbl_str}.{fk_col_str}");
                 let expr = Expr::cust(col_expr).eq(Expr::val(pk_val.clone()));
                 condition = condition.add(expr);
             }
@@ -196,6 +210,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
     use crate::relation::identity::Identity;
@@ -211,6 +226,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // Test code - long test function is acceptable
     fn test_lazy_loader_composite_key() {
         // Test that LazyLoader works with composite key entities
         use sea_query::{TableName, IntoIden, ConditionType};
@@ -220,7 +236,7 @@ mod tests {
         struct TenantEntity;
         
         impl sea_query::Iden for TenantEntity {
-            fn unquoted(&self) -> &str { "tenants" }
+            fn unquoted(&self) -> &'static str { "tenants" }
         }
         
         impl crate::LifeEntityName for TenantEntity {
@@ -236,7 +252,7 @@ mod tests {
         struct UserEntity;
         
         impl sea_query::Iden for UserEntity {
-            fn unquoted(&self) -> &str { "users" }
+            fn unquoted(&self) -> &'static str { "users" }
         }
         
         impl crate::LifeEntityName for UserEntity {
@@ -257,7 +273,7 @@ mod tests {
         enum TenantColumn { Id, TenantId }
         
         impl sea_query::Iden for TenantColumn {
-            fn unquoted(&self) -> &str {
+            fn unquoted(&self) -> &'static str {
                 match self {
                     TenantColumn::Id => "id",
                     TenantColumn::TenantId => "tenant_id",
@@ -314,6 +330,7 @@ mod tests {
                     TenantColumn::TenantId => sea_query::Value::Int(Some(self.tenant_id)),
                 }
             }
+            #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
             fn set(&mut self, _col: TenantColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
@@ -358,6 +375,7 @@ mod tests {
         let tenant = TenantModel { id: 1, tenant_id: 10 };
         
         // Verify LazyLoader can be created with composite key entity
+        #[allow(clippy::items_after_statements)] // Test code - function definition after statement is acceptable
         fn _test_composite_key<'a, M: ModelTrait, Ex: LifeExecutor>(
             entity: &'a M,
             executor: &'a Ex,
@@ -370,6 +388,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)] // Test code - long test function is acceptable
     fn test_lazy_loader_has_many_uses_to_col() {
         // Test that LazyLoader::load() for has_many relationships uses to_col (FK in target table)
         // instead of from_col (PK in source table), which would reference an unjoined table
@@ -386,7 +405,7 @@ mod tests {
         struct UserEntity;
         
         impl sea_query::Iden for UserEntity {
-            fn unquoted(&self) -> &str { "users" }
+            fn unquoted(&self) -> &'static str { "users" }
         }
         
         impl crate::LifeEntityName for UserEntity {
@@ -402,7 +421,7 @@ mod tests {
         struct PostEntity;
         
         impl sea_query::Iden for PostEntity {
-            fn unquoted(&self) -> &str { "posts" }
+            fn unquoted(&self) -> &'static str { "posts" }
         }
         
         impl crate::LifeEntityName for PostEntity {
@@ -423,7 +442,7 @@ mod tests {
         enum UserColumn { Id }
         
         impl sea_query::Iden for UserColumn {
-            fn unquoted(&self) -> &str { "id" }
+            fn unquoted(&self) -> &'static str { "id" }
         }
         
         impl sea_query::IdenStatic for UserColumn {
@@ -470,6 +489,7 @@ mod tests {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
             }
+            #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
             fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
@@ -506,15 +526,17 @@ mod tests {
         // Verify that LazyLoader::load() would use to_col (posts.user_id) not from_col (users.id)
         // The fix ensures the WHERE condition references posts.user_id, not users.id
         // This test verifies the function compiles with the fix
+        #[allow(clippy::items_after_statements)] // Test code - function definition after statement is acceptable
+        #[allow(clippy::used_underscore_binding)] // Test code - underscore prefix is intentional for unused parameter
         fn _test_has_many_fix<M: ModelTrait, R: LifeModelTrait, Ex: LifeExecutor>(
             entity: &M,
-            _executor: &Ex,
+            executor: &Ex,
         ) -> Result<Vec<R::Model>, LifeError>
         where
             M::Entity: Related<R>,
             R::Model: crate::query::traits::FromRow,
         {
-            let loader = LazyLoader::new(entity, _executor);
+            let loader = LazyLoader::new(entity, executor);
             loader.load()
         }
         

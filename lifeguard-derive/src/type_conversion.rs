@@ -3,6 +3,7 @@
 //! This module provides functions to generate code for converting between Rust types
 //! and `sea_query::Value`. All type conversions should go through this module to
 //! ensure consistency across the codebase.
+#![allow(clippy::map_unwrap_or)] // Allow in quote! macro-generated code
 //!
 //! Supported types:
 //! - Integer types: i8, i16, i32, i64, u8, u16, u32, u64
@@ -10,7 +11,7 @@
 //! - Boolean: bool
 //! - String: String
 //! - Binary: Vec<u8>
-//! - JSON: serde_json::Value
+//! - JSON: `serde_json::Value`
 //! - Option<T> for all above types
 //!
 //! # Type Conversion Consistency
@@ -47,11 +48,9 @@ pub fn is_vec_u8_type(ty: &Type) -> bool {
         if let Some(segment) = path.segments.last() {
             if segment.ident == "Vec" {
                 if let PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(GenericArgument::Type(inner_type)) = args.args.first() {
-                        if let Type::Path(TypePath { path: inner_path, .. }) = inner_type {
-                            if let Some(inner_segment) = inner_path.segments.last() {
-                                return inner_segment.ident == "u8";
-                            }
+                    if let Some(GenericArgument::Type(Type::Path(TypePath { path: inner_path, .. }))) = args.args.first() {
+                        if let Some(inner_segment) = inner_path.segments.last() {
+                            return inner_segment.ident == "u8";
                         }
                     }
                 }
@@ -113,6 +112,47 @@ pub fn is_option_f64_type(ty: &Type) -> bool {
     false
 }
 
+/// Check if a type is `rust_decimal::Decimal`
+pub fn is_decimal_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        let segments: Vec<_> = path.segments.iter().collect();
+        // Check for rust_decimal::Decimal (2 segments)
+        if segments.len() == 2
+            && segments[0].ident == "rust_decimal" && segments[1].ident == "Decimal" {
+            return true;
+        }
+        // Check for Decimal (1 segment, if imported)
+        if segments.len() == 1
+            && segments[0].ident == "Decimal" {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if a type is `rusty_money::Money<C: Currency>`
+pub fn is_money_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        let segments: Vec<_> = path.segments.iter().collect();
+        // Check for rusty_money::Money<...> (2 segments with generics)
+        if segments.len() == 2
+            && segments[0].ident == "rusty_money" && segments[1].ident == "Money" {
+            // Check if it has generic arguments (Money<Currency>)
+            if let PathArguments::AngleBracketed(_) = &segments[1].arguments {
+                return true;
+            }
+        }
+        // Check for Money<...> (1 segment with generics, if imported)
+        if segments.len() == 1
+            && segments[0].ident == "Money" {
+            if let PathArguments::AngleBracketed(_) = &segments[0].arguments {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Convert a Rust Type to its string representation
 ///
 /// This function converts a `syn::Type` to a string representation that can be used
@@ -164,7 +204,7 @@ pub fn type_to_string(ty: &Type) -> String {
         Type::Slice(_) => "slice".to_string(),
         Type::Tuple(tuple) => {
             let elems: Vec<String> = tuple.elems.iter()
-                .map(|elem| type_to_string(elem))
+                .map(type_to_string)
                 .collect();
             format!("({})", elems.join(", "))
         }
@@ -202,6 +242,24 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
         };
     }
     
+    // Check for rust_decimal::Decimal
+    if is_decimal_type(field_type) {
+        // Convert Decimal to String for SeaQuery Value
+        // SeaQuery doesn't have a Decimal variant, so we use String
+        return quote! {
+            sea_query::Value::String(Some(self.#field_name.to_string()))
+        };
+    }
+    
+    // Check for rusty_money::Money
+    if is_money_type(field_type) {
+        // Extract the amount (Decimal) from Money and convert to String
+        // Money stores amount as Decimal internally
+        return quote! {
+            sea_query::Value::String(Some(self.#field_name.amount().to_string()))
+        };
+    }
+    
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = field_type {
         if let Some(segment) = path.segments.last() {
@@ -233,10 +291,10 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
     }
 }
 
-/// Generate code to convert an `Option<T>` field to `sea_query::Value` (with unwrap_or for None)
+/// Generate code to convert an `Option<T>` field to `sea_query::Value` (with `unwrap_or` for None)
 ///
 /// This is used for Model-to-Value conversion where Option<T> fields should return
-/// Value::Some(...) or Value::None (not Option<Value>).
+/// `Value::Some`(...) or `Value::None` (not Option<Value>).
 /// The field is accessed as `self.field_name` where `field_name: Option<T>`.
 ///
 /// # Arguments
@@ -259,6 +317,20 @@ pub fn generate_option_field_to_value_with_default(field_name: &syn::Ident, inne
     if is_vec_u8_type(inner_type) {
         return quote! {
             self.#field_name.as_ref().map(|v| sea_query::Value::Bytes(Some(v.clone()))).unwrap_or(sea_query::Value::Bytes(None))
+        };
+    }
+    
+    // Check for rust_decimal::Decimal
+    if is_decimal_type(inner_type) {
+        return quote! {
+            self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.to_string()))).unwrap_or(sea_query::Value::String(None))
+        };
+    }
+    
+    // Check for rusty_money::Money
+    if is_money_type(inner_type) {
+        return quote! {
+            self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.amount().to_string()))).unwrap_or(sea_query::Value::String(None))
         };
     }
     
@@ -348,6 +420,22 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
         };
     }
     
+    // Check for rust_decimal::Decimal
+    if is_decimal_type(inner_type) {
+        return quote! {
+            self.#field_name.as_ref()
+                .map(|v| sea_query::Value::String(Some(v.to_string())))
+        };
+    }
+    
+    // Check for rusty_money::Money
+    if is_money_type(inner_type) {
+        return quote! {
+            self.#field_name.as_ref()
+                .map(|v| sea_query::Value::String(Some(v.amount().to_string())))
+        };
+    }
+    
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = inner_type {
         if let Some(segment) = path.segments.last() {
@@ -424,6 +512,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
 ///
 /// Returns a `TokenStream` that generates code to convert `Value` to the field type.
 #[allow(dead_code)] // Reserved for future ModelTrait::set() implementation
+#[allow(clippy::too_many_lines)]
 pub fn generate_value_to_field(
     field_name: &syn::Ident,
     field_type: &Type,
@@ -476,6 +565,43 @@ pub fn generate_value_to_field(
             }
         };
     }
+    
+    // Check for rust_decimal::Decimal
+    if is_decimal_type(field_type) {
+        return quote! {
+            match value {
+                sea_query::Value::String(Some(v)) => {
+                    match v.parse::<rust_decimal::Decimal>() {
+                        Ok(dec) => {
+                            self.#field_name = dec;
+                            Ok(())
+                        }
+                        Err(e) => Err(lifeguard::ActiveModelError::InvalidValueType {
+                            column: stringify!(#column_variant).to_string(),
+                            expected: "String containing valid Decimal".to_string(),
+                            actual: format!("String({}) - parse error: {}", v, e),
+                        })
+                    }
+                }
+                sea_query::Value::String(None) => {
+                    return Err(lifeguard::ActiveModelError::InvalidValueType {
+                        column: stringify!(#column_variant).to_string(),
+                        expected: "String (non-null)".to_string(),
+                        actual: format!("{:?}", value),
+                    });
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "String".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+    
+    // Note: Money type conversion requires currency_code field, handled in FromRow generation
+    // This function is for Value-to-field conversion (used in Record setters)
+    // Money will need special handling in FromRow to construct from amount + currency
     
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = field_type {
@@ -817,6 +943,7 @@ pub fn generate_value_to_field(
 /// # Returns
 ///
 /// Returns a `TokenStream` that generates code to convert `Value` to `Option<T>`.
+#[allow(clippy::too_many_lines)]
 pub fn generate_value_to_option_field(
     field_name: &syn::Ident,
     inner_type: &Type,
@@ -863,6 +990,40 @@ pub fn generate_value_to_option_field(
             }
         };
     }
+    
+    // Check for rust_decimal::Decimal
+    if is_decimal_type(inner_type) {
+        return quote! {
+            match value {
+                sea_query::Value::String(Some(v)) => {
+                    match v.parse::<rust_decimal::Decimal>() {
+                        Ok(dec) => {
+                            self.#field_name = Some(dec);
+                            Ok(())
+                        }
+                        Err(e) => Err(lifeguard::ActiveModelError::InvalidValueType {
+                            column: stringify!(#column_variant).to_string(),
+                            expected: "String containing valid Decimal".to_string(),
+                            actual: format!("String({}) - parse error: {}", v, e),
+                        })
+                    }
+                }
+                sea_query::Value::String(None) => {
+                    self.#field_name = None;
+                    Ok(())
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "String".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+    
+    // Note: Money type conversion requires currency_code field, handled in FromRow generation
+    // This function is for Value-to-option-field conversion (used in Record setters)
+    // Money will need special handling in FromRow to construct from amount + currency
     
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = inner_type {

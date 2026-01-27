@@ -1,6 +1,6 @@
-//! Value conversion utilities for SeaQuery to may_postgres.
+//! Value conversion utilities for `SeaQuery` to `may_postgres`.
 //!
-//! This module provides functions to convert SeaQuery `Value` enums into
+//! This module provides functions to convert `SeaQuery` `Value` enums into
 //! `ToSql` trait objects that can be used with `may_postgres` queries.
 //!
 //! The conversion follows a two-pass pattern:
@@ -13,10 +13,10 @@ use crate::executor::LifeError;
 use may_postgres::types::ToSql;
 use sea_query::Value;
 
-/// Convert SeaQuery values to may_postgres ToSql parameters.
+/// Convert `SeaQuery` values to `may_postgres` `ToSql` parameters.
 ///
 ///
-/// This function converts a slice of SeaQuery `Value` enums into
+/// This function converts a slice of `SeaQuery` `Value` enums into
 /// `ToSql` trait objects that can be used with `may_postgres`, then executes
 /// a closure with the converted parameters.
 ///
@@ -27,7 +27,7 @@ use sea_query::Value;
 ///
 /// # Arguments
 ///
-/// * `values` - Slice of SeaQuery `Value` enums to convert
+/// * `values` - Slice of `SeaQuery` `Value` enums to convert
 /// * `f` - Closure that receives the converted parameters and executes the database operation
 ///
 /// # Returns
@@ -37,6 +37,7 @@ use sea_query::Value;
 /// # Errors
 ///
 /// Returns `LifeError::Other` if an unsupported value type is encountered.
+#[allow(clippy::too_many_lines)] // Complex value conversion logic requires many lines (145 lines)
 pub fn with_converted_params<F, R>(values: &sea_query::Values, f: F) -> Result<R, LifeError>
 where
     F: FnOnce(&[&dyn ToSql]) -> Result<R, LifeError>,
@@ -59,28 +60,31 @@ where
             Value::BigInt(Some(i)) => big_ints.push(*i),
             Value::String(Some(s)) => strings.push(s.clone()),
             Value::Bytes(Some(b)) => bytes.push(b.clone()),
-            Value::Bool(None)
-            | Value::Int(None)
-            | Value::BigInt(None)
-            | Value::String(None)
-            | Value::Bytes(None) => nulls.push(None),
-            Value::TinyInt(Some(i)) => ints.push(*i as i32),
-            Value::SmallInt(Some(i)) => ints.push(*i as i32),
-            Value::TinyUnsigned(Some(u)) => ints.push(*u as i32),
-            Value::SmallUnsigned(Some(u)) => ints.push(*u as i32),
-            Value::Unsigned(Some(u)) => big_ints.push(*u as i64),
+            Value::TinyInt(Some(i)) => ints.push(i32::from(*i)),
+            Value::SmallInt(Some(i)) => ints.push(i32::from(*i)),
+            Value::TinyUnsigned(Some(u)) => ints.push(i32::from(*u)),
+            Value::SmallUnsigned(Some(u)) => ints.push(i32::from(*u)),
+            Value::Unsigned(Some(u)) => big_ints.push(i64::from(*u)),
             Value::BigUnsigned(Some(u)) => {
+                #[allow(clippy::cast_sign_loss)] // i64::MAX is positive, safe to cast to u64
                 if *u > i64::MAX as u64 {
                     return Err(LifeError::Other(format!(
-                        "BigUnsigned value {} exceeds i64::MAX ({}), cannot be safely cast to i64",
-                        u, i64::MAX
+                        "BigUnsigned value {u} exceeds i64::MAX ({}), cannot be safely cast to i64",
+                        i64::MAX
                     )));
                 }
+                #[allow(clippy::cast_possible_wrap)] // Checked for range above
                 big_ints.push(*u as i64);
             }
             Value::Float(Some(f)) => floats.push(*f),
             Value::Double(Some(d)) => doubles.push(*d),
-            Value::TinyInt(None)
+            #[allow(clippy::match_same_arms)] // All null variants correctly push None to nulls
+            Value::Bool(None)
+            | Value::Int(None)
+            | Value::BigInt(None)
+            | Value::String(None)
+            | Value::Bytes(None)
+            | Value::TinyInt(None)
             | Value::SmallInt(None)
             | Value::TinyUnsigned(None)
             | Value::SmallUnsigned(None)
@@ -90,14 +94,13 @@ where
             | Value::Double(None) => nulls.push(None),
             Value::Json(Some(j)) => {
                 strings.push(serde_json::to_string(&**j).map_err(|e| {
-                    LifeError::Other(format!("Failed to serialize JSON: {}", e))
+                    LifeError::Other(format!("Failed to serialize JSON: {e}"))
                 })?);
             }
             Value::Json(None) => nulls.push(None),
             _ => {
                 return Err(LifeError::Other(format!(
-                    "Unsupported value type in query: {:?}",
-                    value
+                    "Unsupported value type in query: {value:?}"
                 )));
             }
         }
@@ -185,8 +188,7 @@ where
             }
             _ => {
                 return Err(LifeError::Other(format!(
-                    "Unsupported value type in query: {:?}",
-                    value
+                    "Unsupported value type in query: {value:?}"
                 )));
             }
         }

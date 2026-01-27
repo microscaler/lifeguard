@@ -1,8 +1,8 @@
 //! Migration system for Lifeguard
 //!
 //! This module provides the infrastructure for database migrations, including:
-//! - Migration trait definition
-//! - SchemaManager for schema operations
+//! - `Migration` trait definition
+//! - `SchemaManager` for schema operations
 //! - Migration state tracking
 //! - Migration execution and validation
 //!
@@ -40,6 +40,7 @@
 //! ```
 
 pub mod error;
+#[allow(clippy::module_inception)]
 pub mod migration;
 pub mod schema_manager;
 pub mod record;

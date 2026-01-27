@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)] // Example code - Result wrapper is intentional for error propagation
 fn test_chart_of_accounts() -> Result<(), Box<dyn std::error::Error>> {
     // Note: SQL generation is disabled in examples - use lifeguard-migrate tests instead
     println!("⚠️  SQL generation test disabled in examples - use lifeguard-migrate tests");
@@ -37,24 +38,28 @@ fn test_chart_of_accounts() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)] // Example code - Result wrapper is intentional for error propagation
 fn test_account() -> Result<(), Box<dyn std::error::Error>> {
     println!("⚠️  SQL generation test disabled in examples - use lifeguard-migrate tests");
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)] // Example code - Result wrapper is intentional for error propagation
 fn test_journal_entry() -> Result<(), Box<dyn std::error::Error>> {
     println!("⚠️  SQL generation test disabled in examples - use lifeguard-migrate tests");
     Ok(())
 }
 
+#[allow(dead_code)]
 fn load_original_sql(filename: &str) -> Result<String, Box<dyn std::error::Error>> {
     let path = PathBuf::from("migrations/original").join(filename);
     Ok(fs::read_to_string(&path)?)
 }
 
+#[allow(dead_code)]
 fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std::error::Error>> {
     // Extract CREATE TABLE statement for the specified table
-    let start_marker = format!("CREATE TABLE IF NOT EXISTS {}", table_name);
+    let start_marker = format!("CREATE TABLE IF NOT EXISTS {table_name}");
     let end_marker = ");";
     
     if let Some(start) = sql.find(&start_marker) {
@@ -67,7 +72,7 @@ fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std:
             
             // Extract indexes
             for line in sql.lines() {
-                if line.contains(&format!("ON {}", table_name)) {
+                if line.contains(&format!("ON {table_name}")) {
                     result.push_str(line);
                     result.push('\n');
                 }
@@ -75,7 +80,7 @@ fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std:
             
             // Extract comment
             for line in sql.lines() {
-                if line.contains(&format!("COMMENT ON TABLE {}", table_name)) {
+                if line.contains(&format!("COMMENT ON TABLE {table_name}")) {
                     result.push_str(line);
                     result.push('\n');
                 }
@@ -85,17 +90,19 @@ fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std:
         }
     }
     
-    Err(format!("Could not find table definition for {}", table_name).into())
+    Err(format!("Could not find table definition for {table_name}").into())
 }
 
+#[allow(dead_code)]
 fn normalize_sql(sql: &str) -> String {
     sql.lines()
-        .map(|line| line.trim())
+        .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with("--"))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
+#[allow(dead_code)]
 fn compare_sql(generated: &str, original: &str) {
     let gen_lines: Vec<&str> = generated.lines().collect();
     let orig_lines: Vec<&str> = original.lines().collect();
@@ -109,10 +116,10 @@ fn compare_sql(generated: &str, original: &str) {
         if gen_line != orig_line {
             println!("  Line {}:", i + 1);
             if !gen_line.is_empty() {
-                println!("    Generated: {}", gen_line);
+                println!("    Generated: {gen_line}");
             }
             if !orig_line.is_empty() {
-                println!("    Original:  {}", orig_line);
+                println!("    Original:  {orig_line}");
             }
         }
     }

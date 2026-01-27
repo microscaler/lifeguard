@@ -15,7 +15,7 @@ quote = "1.0"
 proc-macro2 = "1.0"
 
 [dev-dependencies]
-may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
 lifeguard = { path = "..", version = "0.1.0" }
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
 serde = { version = "1.0", features = ["derive"] }  # Required for Serialize/Deserialize derives in generated Models

@@ -1,0 +1,16 @@
+{
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.allTargets": true,
+  "rust-analyzer.check.extraArgs": [
+    "--",
+    "-D",
+    "warnings",
+    "-W",
+    "clippy::pedantic"
+  ],
+  "rust-analyzer.cargo.allFeatures": true,
+  "[rust]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  }
+}

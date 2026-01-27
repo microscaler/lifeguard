@@ -1,7 +1,7 @@
-//! Select query builder for LifeModel.
+//! Select query builder for `LifeModel`.
 //!
 //! This module provides `SelectQuery` and `SelectModel` for building and executing
-//! type-safe database queries. Query building methods (filter, order_by, limit, etc.)
+//! type-safe database queries. Query building methods (`filter`, `order_by`, `limit`, etc.)
 //! are defined here, while execution methods are in the execution module.
 
 use crate::query::traits::{LifeModelTrait, FromRow};
@@ -38,7 +38,7 @@ use std::marker::PhantomData;
 ///     .all(executor)?;
 /// ```
 /// 
-/// Following SeaORM's pattern: `SelectQuery<E>` where `E: LifeModelTrait`.
+/// Following `SeaORM`'s pattern: `SelectQuery<E>` where `E: LifeModelTrait`.
 /// The Entity (not Model) is the type parameter, and Model is accessed via
 /// the associated type `E::Model`.
 pub struct SelectQuery<E>
@@ -51,7 +51,7 @@ where
 
 /// Typed select query that returns a specific Model type
 ///
-/// This is similar to SeaORM's `SelectModel<E>` and provides type-safe
+/// This is similar to `SeaORM`'s `SelectModel<E>` and provides type-safe
 /// query results. It wraps a `SelectQuery<E>` and ensures results are
 /// properly typed as `M` where `M: FromRow`.
 ///
@@ -84,21 +84,32 @@ where
     _model: PhantomData<M>,
 }
 
+impl<E> Default for SelectQuery<E>
+where
+    E: LifeModelTrait,
+ {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<E> SelectQuery<E>
 where
     E: LifeModelTrait,
 {
     /// Create a new select query
     ///
-    /// Following SeaORM's pattern: uses `E::default().table_name()` to get
+    /// Following `SeaORM`'s pattern: uses `E::default().table_name()` to get
     /// the table name, avoiding the need to pass it as a parameter.
+    #[must_use]
     pub fn new() -> Self {
+        use sea_query::{TableName, IntoIden, SchemaName};
+        
         let entity = E::default();
         let table_name = entity.table_name();
         let schema_name = entity.schema_name();
         
         // Use schema-qualified table name if schema is present
-        use sea_query::{TableName, IntoIden, SchemaName};
         let table_ref = if let Some(schema) = schema_name {
             TableName(Some(SchemaName::from(schema)), table_name.into_iden())
         } else {
@@ -182,6 +193,7 @@ where
     /// # let query = UserModel::find();
     /// let filtered = query.filter(Expr::col("id").eq(1));
     /// ```
+    #[must_use]
     pub fn filter<F>(mut self, condition: F) -> Self
     where
         F: sea_query::IntoCondition,
@@ -210,6 +222,7 @@ where
     /// # let query = UserModel::find();
     /// let ordered = query.order_by("id", Order::Desc);
     /// ```
+    #[must_use]
     pub fn order_by<C: IntoColumnRef>(mut self, column: C, order: Order) -> Self {
         self.query.order_by(column, order);
         self
@@ -233,6 +246,7 @@ where
     /// # let query = UserModel::find();
     /// let limited = query.limit(10);
     /// ```
+    #[must_use]
     pub fn limit(mut self, limit: u64) -> Self {
         self.query.limit(limit);
         self
@@ -256,6 +270,7 @@ where
     /// # let query = UserModel::find();
     /// let offset = query.offset(20);
     /// ```
+    #[must_use]
     pub fn offset(mut self, offset: u64) -> Self {
         self.query.offset(offset);
         self
@@ -279,6 +294,7 @@ where
     /// # let query = UserModel::find();
     /// let grouped = query.group_by("status");
     /// ```
+    #[must_use]
     pub fn group_by<C: IntoColumnRef>(mut self, column: C) -> Self {
         self.query.group_by_col(column);
         self
@@ -303,6 +319,7 @@ where
     /// # let query = UserModel::find();
     /// let having = query.group_by("status").having(Expr::col("COUNT(*)").gt(5));
     /// ```
+    #[must_use]
     pub fn having(mut self, condition: Expr) -> Self {
         self.query.and_having(condition);
         self
@@ -327,11 +344,12 @@ where
     /// # }
     /// # struct Post; // Related entity
     /// # impl sea_query::Iden for Post {
-    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// #     fn unquoted(&self) -> &'static str { "posts" }
     /// # }
     /// # let query = UserModel::find();
     /// let joined = query.join(Post, Expr::col("users.id").equals("posts.user_id"));
     /// ```
+    #[must_use]
     pub fn join<T: Iden>(mut self, table: T, on: Expr) -> Self {
         self.query.join(sea_query::JoinType::InnerJoin, table, on);
         self
@@ -356,11 +374,12 @@ where
     /// # }
     /// # struct Post; // Related entity
     /// # impl sea_query::Iden for Post {
-    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// #     fn unquoted(&self) -> &'static str { "posts" }
     /// # }
     /// # let query = UserModel::find();
     /// let joined = query.left_join(Post, Expr::col("users.id").equals("posts.user_id"));
     /// ```
+    #[must_use]
     pub fn left_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
         self.query.join(sea_query::JoinType::LeftJoin, table, on);
         self
@@ -385,11 +404,12 @@ where
     /// # }
     /// # struct Post; // Related entity
     /// # impl sea_query::Iden for Post {
-    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// #     fn unquoted(&self) -> &'static str { "posts" }
     /// # }
     /// # let query = UserModel::find();
     /// let joined = query.right_join(Post, Expr::col("users.id").equals("posts.user_id"));
     /// ```
+    #[must_use]
     pub fn right_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
         self.query.join(sea_query::JoinType::RightJoin, table, on);
         self
@@ -414,11 +434,12 @@ where
     /// # }
     /// # struct Post; // Related entity
     /// # impl sea_query::Iden for Post {
-    /// #     fn unquoted(&self) -> &str { "posts" }
+    /// #     fn unquoted(&self) -> &'static str { "posts" }
     /// # }
     /// # let query = UserModel::find();
     /// let joined = query.inner_join(Post, Expr::col("users.id").equals("posts.user_id"));
     /// ```
+    #[must_use]
     pub fn inner_join<T: Iden>(mut self, table: T, on: Expr) -> Self {
         self.query.join(sea_query::JoinType::InnerJoin, table, on);
         self
@@ -446,7 +467,7 @@ where
     /// # }
     /// struct ActiveUsers;
     /// impl sea_query::Iden for ActiveUsers {
-    ///     fn unquoted(&self) -> &str { "active_users" }
+    ///     fn unquoted(&self) -> &'static str { "active_users" }
     /// }
     ///
     /// // Define a CTE for active users
@@ -464,6 +485,16 @@ where
     /// let with_query = query.with(with_clause);
     /// // Continue with: with_query.select(...)
     /// ```
+    /// Add a WITH clause (Common Table Expression) to the query
+    ///
+    /// # Arguments
+    ///
+    /// * `with_clause` - The `WithClause` to add
+    ///
+    /// # Returns
+    ///
+    /// Returns a `WithQuery` that can be used to continue building the query.
+    #[must_use]
     pub fn with(self, with_clause: sea_query::WithClause) -> sea_query::WithQuery {
         self.query.with(with_clause)
     }
@@ -490,7 +521,7 @@ where
     /// # }
     /// struct PostCount;
     /// impl sea_query::Iden for PostCount {
-    ///     fn unquoted(&self) -> &str { "post_count" }
+    ///     fn unquoted(&self) -> &'static str { "post_count" }
     /// }
     ///
     /// // Create a subquery to count posts per user
@@ -504,6 +535,7 @@ where
     /// # let query = UserModel::find();
     /// let query_with_subquery = query.subquery_column(subquery, Some(PostCount));
     /// ```
+    #[must_use]
     pub fn subquery_column<T: Iden>(mut self, subquery: SelectStatement, alias: Option<T>) -> Self {
         // Convert SelectStatement to SubQueryStatement, then to Expr
         use sea_query::SubQueryStatement;
@@ -540,7 +572,7 @@ where
     /// # }
     /// struct RowNumber;
     /// impl sea_query::Iden for RowNumber {
-    ///     fn unquoted(&self) -> &str { "row_number" }
+    ///     fn unquoted(&self) -> &'static str { "row_number" }
     /// }
     ///
     /// // Add window function to query using custom SQL
@@ -550,6 +582,17 @@ where
     ///     Some(RowNumber)
     /// );
     /// ```
+    /// Add a custom window function expression to the SELECT clause
+    ///
+    /// # Arguments
+    ///
+    /// * `window_expr` - The window function expression as a static string
+    /// * `alias` - Optional alias for the window function
+    ///
+    /// # Returns
+    ///
+    /// Returns `Self` for method chaining.
+    #[must_use]
     pub fn window_function_cust<T: Iden>(
         mut self,
         window_expr: &'static str,
@@ -571,7 +614,7 @@ where
     E: LifeModelTrait,
     M: FromRow,
 {
-    /// Create a new SelectModel from a SelectQuery
+    /// Create a new `SelectModel` from a `SelectQuery`
     #[allow(dead_code)]
     pub(crate) fn new(query: SelectQuery<E>) -> Self {
         Self {
@@ -605,7 +648,7 @@ mod tests {
     }
 
     impl sea_query::Iden for TestSelectAsColumn {
-        fn unquoted(&self) -> &str {
+        fn unquoted(&self) -> &'static str {
             match self {
                 TestSelectAsColumn::Id => "id",
                 TestSelectAsColumn::Name => "name",
@@ -625,7 +668,7 @@ mod tests {
     }
 
     impl TestSelectAsColumn {
-        /// Get all column variants (mimics macro-generated all_columns())
+        /// Get all column variants (mimics macro-generated `all_columns()`)
         pub fn all_columns() -> &'static [TestSelectAsColumn] {
             static COLUMNS: &[TestSelectAsColumn] = &[
                 TestSelectAsColumn::Id,
@@ -683,21 +726,18 @@ mod tests {
         let sql_upper = sql.to_uppercase();
         assert!(
             sql_upper.contains("CONCAT"),
-            "SQL should contain CONCAT expression from select_as. SQL: {}",
-            sql
+            "SQL should contain CONCAT expression from select_as. SQL: {sql}"
         );
         assert!(
             sql_upper.contains("FULL_NAME"),
-            "SQL should contain full_name alias from select_as. SQL: {}",
-            sql
+            "SQL should contain full_name alias from select_as. SQL: {sql}"
         );
         
         // Verify we're not using SELECT * (should have explicit columns)
         // The SQL should have individual column selections, not just SELECT *
         assert!(
             !sql_upper.contains("SELECT *"),
-            "Should not use SELECT * when select_as is present. SQL: {}",
-            sql
+            "Should not use SELECT * when select_as is present. SQL: {sql}"
         );
     }
 
@@ -734,7 +774,7 @@ mod tests {
         }
 
         impl sea_query::Iden for TestNoSelectAsColumn {
-            fn unquoted(&self) -> &str {
+            fn unquoted(&self) -> &'static str {
                 match self {
                     TestNoSelectAsColumn::Id => "id",
                     TestNoSelectAsColumn::Name => "name",
@@ -799,8 +839,7 @@ mod tests {
         // when there's no select_as. Actually, let's check that it doesn't have CONCAT
         assert!(
             !sql_upper.contains("CONCAT"),
-            "Should not have CONCAT when no select_as is present. SQL: {}",
-            sql
+            "Should not have CONCAT when no select_as is present. SQL: {sql}"
         );
     }
 }

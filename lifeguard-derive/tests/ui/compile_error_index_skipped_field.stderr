@@ -1,0 +1,9 @@
+error[E0000]: Column 'cached_value' in index 'idx_test_skipped' does not exist on this struct. Available columns: id, name, email
+ --> $DIR/compile_error_index_skipped_field.rs:7:1
+  |
+7 | #[index = "idx_test_skipped(cached_value)"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: This error indicates that an index is trying to reference a column that doesn't exist on the struct.
+  = note: Only columns that exist on this struct can be indexed. For child entities that reference parent tables via foreign keys, index only the child's own columns, not the parent's columns.
+  = note: Fields marked with #[skip] or #[ignore] are not database columns and cannot be indexed.

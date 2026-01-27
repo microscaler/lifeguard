@@ -1055,6 +1055,7 @@ dependencies = [
  "log",
  "may_postgres",
  "pathdiff",
+ "regex",
  "rust_decimal",
  "sea-query",
  "serde",
@@ -1126,7 +1127,7 @@ dependencies = [
 [[package]]
 name = "may_postgres"
 version = "0.1.0"
-source = "git+https://github.com/Xudong-Huang/may_postgres?branch=master#04323d968ecea5e95ae3e240ddbc8a220e308c38"
+source = "git+https://github.com/microscaler/may_postgres.git?branch=master#04323d968ecea5e95ae3e240ddbc8a220e308c38"
 dependencies = [
  "byteorder",
  "bytes",

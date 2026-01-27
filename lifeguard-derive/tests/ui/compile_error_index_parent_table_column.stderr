@@ -1,0 +1,35 @@
+error[E0000]: Column 'invoice_number' in index 'idx_customer_invoices_invoice_number' does not exist on this struct. Available columns: id, invoice_id, customer_id, outstanding_amount, days_overdue
+ --> $DIR/compile_error_index_parent_table_column.rs:10:1
+  |
+10 | #[index = "idx_customer_invoices_invoice_number(invoice_number)"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: This error indicates that an index is trying to reference a column that doesn't exist on the struct.
+  = note: Only columns that exist on this struct can be indexed. For child entities that reference parent tables via foreign keys, index only the child's own columns, not the parent's columns.
+
+error[E0000]: Column 'due_date' in index 'idx_customer_invoices_due_date' does not exist on this struct. Available columns: id, invoice_id, customer_id, outstanding_amount, days_overdue
+ --> $DIR/compile_error_index_parent_table_column.rs:12:1
+  |
+12 | #[index = "idx_customer_invoices_due_date(due_date)"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: This error indicates that an index is trying to reference a column that doesn't exist on the struct.
+  = note: Only columns that exist on this struct can be indexed. For child entities that reference parent tables via foreign keys, index only the child's own columns, not the parent's columns.
+
+error[E0000]: Column 'status' in index 'idx_customer_invoices_status' does not exist on this struct. Available columns: id, invoice_id, customer_id, outstanding_amount, days_overdue
+ --> $DIR/compile_error_index_parent_table_column.rs:14:1
+  |
+14 | #[index = "idx_customer_invoices_status(status)"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: This error indicates that an index is trying to reference a column that doesn't exist on the struct.
+  = note: Only columns that exist on this struct can be indexed. For child entities that reference parent tables via foreign keys, index only the child's own columns, not the parent's columns.
+
+error[E0000]: Column 'payment_state' in index 'idx_customer_invoices_payment_state' does not exist on this struct. Available columns: id, invoice_id, customer_id, outstanding_amount, days_overdue
+ --> $DIR/compile_error_index_parent_table_column.rs:16:1
+  |
+16 | #[index = "idx_customer_invoices_payment_state(payment_state)"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: This error indicates that an index is trying to reference a column that doesn't exist on the struct.
+  = note: Only columns that exist on this struct can be indexed. For child entities that reference parent tables via foreign keys, index only the child's own columns, not the parent's columns.

@@ -34,6 +34,10 @@ pub mod database {
 
     impl DatabaseConfig {
         /// Loads configuration from `config/config.toml` and overlays with environment variables.
+        ///
+        /// # Errors
+        ///
+        /// Returns `ConfigError` if configuration loading or parsing fails.
         pub fn load() -> Result<Self, ConfigError> {
             Config::builder()
                 .add_source(File::with_name("config/config").required(false))

@@ -173,12 +173,12 @@ fmt-check:
 # Lint code
 lint:
     @echo "🔍 Linting code..."
-    @cargo clippy -- -D warnings
+    @cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic
 
 # Lint and fix
 lint-fix:
     @echo "🔍 Linting and fixing code..."
-    @cargo clippy --fix --allow-dirty --allow-staged
+    @cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged
 
 # Audit dependencies
 audit:

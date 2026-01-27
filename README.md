@@ -88,6 +88,8 @@ A sophisticated connection pool designed for extreme scale:
 
 **Distributed cache coherence system**—this is Lifeguard's unique advantage:
 
+> **Note**: LifeReflector is now a **separate enterprise component**. See [Lifeguard Reflector](https://github.com/microscaler/lifeguard-reflector) for details.
+
 A **standalone microservice** that maintains cluster-wide cache coherence:
 
 - **Leader-elected Raft system:** Only one active reflector at a time (no duplicate work)
@@ -106,6 +108,8 @@ A **standalone microservice** that maintains cluster-wide cache coherence:
 
 **Result:** Oracle Coherence-level cache consistency with Postgres + Redis, but lighter, faster, and open source.
 
+**Enterprise Component**: LifeReflector is available as a separate enterprise component with source-available licensing for paid customers. For more information, see the [Lifeguard Reflector repository](https://github.com/microscaler/lifeguard-reflector) or contact enterprise@microscaler.io.
+
 ### Transparent Caching System
 
 Lifeguard provides transparent caching that uses PostgreSQL as the gods designed it:
@@ -113,9 +117,11 @@ Lifeguard provides transparent caching that uses PostgreSQL as the gods designed
 - **Check Redis first:** Sub-millisecond reads if cached
 - **Read from replicas:** When healthy (WAL lag < threshold)
 - **Write to primary:** Always (as PostgreSQL was designed)
-- **LifeReflector keeps cache fresh:** Automatic coherence across microservices
+- **LifeReflector keeps cache fresh:** Automatic coherence across microservices (enterprise component)
 
 Your application code doesn't need to know about Redis, replicas, or cache coherence. It just calls `User::find_by_id(&pool, 42)?` and Lifeguard handles the rest.
+
+**Note**: For distributed cache coherence across multiple microservices, [Lifeguard Reflector](https://github.com/microscaler/lifeguard-reflector) (enterprise component) provides automatic cache refresh using PostgreSQL LISTEN/NOTIFY.
 
 ### Replica Read Support
 

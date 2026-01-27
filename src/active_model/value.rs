@@ -1,14 +1,14 @@
-//! ActiveValue enum for field value metadata.
+//! `ActiveValue` enum for field value metadata.
 //!
 //! This module provides the `ActiveValue` enum which wraps field values with
 //! information about whether they are set, unset, or have been modified.
-//! Similar to SeaORM's `ActiveValue`.
+//! Similar to `SeaORM`'s `ActiveValue`.
 
 use sea_query::Value;
 
-/// Wrapper for ActiveModel field values with metadata
+/// Wrapper for `ActiveModel` field values with metadata
 ///
-/// Similar to SeaORM's `ActiveValue`, this enum wraps field values with
+/// Similar to `SeaORM`'s `ActiveValue`, this enum wraps field values with
 /// information about whether they are set, unset, or have been modified.
 ///
 /// # Example
@@ -29,9 +29,9 @@ use sea_query::Value;
 pub enum ActiveValue {
     /// Value is set (field has a value)
     Set(Value),
-    /// Value is not set (field is uninitialized/None)
+    /// Value is not set (field is uninitialized/`None`)
     NotSet,
-    /// Value is unset (field was never set, different from NotSet for Option fields)
+    /// Value is unset (field was never set, different from `NotSet` for `Option` fields)
     Unset,
 }
 
@@ -39,6 +39,7 @@ impl ActiveValue {
     /// Convert to `Option<Value>`
     ///
     /// Returns `Some(Value)` if the value is `Set`, `None` otherwise.
+    #[must_use]
     pub fn into_value(self) -> Option<Value> {
         match self {
             ActiveValue::Set(v) => Some(v),
@@ -51,6 +52,7 @@ impl ActiveValue {
     /// Creates an `ActiveValue` from an `Option<Value>`:
     /// - `Some(value)` → `ActiveValue::Set(value)`
     /// - `None` → `ActiveValue::NotSet`
+    #[must_use]
     pub fn from_value(value: Option<Value>) -> Self {
         match value {
             Some(v) => ActiveValue::Set(v),
@@ -59,21 +61,25 @@ impl ActiveValue {
     }
 
     /// Check if the value is set
+    #[must_use]
     pub fn is_set(&self) -> bool {
         matches!(self, ActiveValue::Set(_))
     }
 
     /// Check if the value is not set
+    #[must_use]
     pub fn is_not_set(&self) -> bool {
         matches!(self, ActiveValue::NotSet)
     }
 
     /// Check if the value is unset
+    #[must_use]
     pub fn is_unset(&self) -> bool {
         matches!(self, ActiveValue::Unset)
     }
 
-    /// Get the value if set, otherwise return None
+    /// Get the value if set, otherwise return `None`
+    #[must_use]
     pub fn as_value(&self) -> Option<&Value> {
         match self {
             ActiveValue::Set(v) => Some(v),

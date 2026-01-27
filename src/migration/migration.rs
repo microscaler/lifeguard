@@ -21,6 +21,10 @@ pub trait Migration: Send + Sync {
     ///
     /// Note: Lifeguard uses coroutines (may runtime), so this is synchronous,
     /// not async. The executor handles coroutine scheduling internally.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the migration execution fails.
     fn up(&self, manager: &SchemaManager<'_>) -> Result<(), LifeError>;
     
     /// Rollback the migration (reverse migration)
@@ -33,5 +37,9 @@ pub trait Migration: Send + Sync {
     ///
     /// Note: Lifeguard uses coroutines (may runtime), so this is synchronous,
     /// not async. The executor handles coroutine scheduling internally.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the migration rollback fails.
     fn down(&self, manager: &SchemaManager<'_>) -> Result<(), LifeError>;
 }

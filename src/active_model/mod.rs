@@ -1,16 +1,16 @@
-//! ActiveModel operations for mutable model operations.
+//! `ActiveModel` operations for mutable model operations.
 //!
 //! This module provides traits and utilities for mutable model operations including
-//! inserts, updates, and deletes. Similar to SeaORM's `ActiveModelTrait`, but adapted
+//! inserts, updates, and deletes. Similar to `SeaORM`'s `ActiveModelTrait`, but adapted
 //! for Lifeguard's `LifeRecord` architecture.
 //!
 //! # Architecture
 //!
-//! The active_model module follows Sea-ORM's organizational patterns:
-//! - **Traits**: Core ActiveModel traits (`ActiveModelTrait`, `ActiveModelBehavior`)
-//! - **Value**: ActiveValue enum for field value metadata
-//! - **Error**: ActiveModelError for operation errors
-//! - **Conversion**: Value conversion utilities (duplicates query::value_conversion for ActiveModelError)
+//! The `active_model` module follows `Sea-ORM`'s organizational patterns:
+//! - **Traits**: Core `ActiveModel` traits (`ActiveModelTrait`, `ActiveModelBehavior`)
+//! - **Value**: `ActiveValue` enum for field value metadata
+//! - **Error**: `ActiveModelError` for operation errors
+//! - **Conversion**: Value conversion utilities (duplicates `query::value_conversion` for `ActiveModelError`)
 //!
 //! # Examples
 //!

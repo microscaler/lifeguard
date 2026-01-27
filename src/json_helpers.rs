@@ -2,69 +2,84 @@
 //!
 //! This module provides custom deserializers for floating-point types
 //! that can handle both numeric JSON values and special string representations
-//! (NaN, Infinity, -Infinity) to support roundtrip serialization.
+//! (`NaN`, `Infinity`, `-Infinity`) to support roundtrip serialization.
 
 use serde::Deserializer;
 
-/// Custom deserializer for f32 that accepts both numbers and special string representations
+/// Custom deserializer for `f32` that accepts both numbers and special string representations
 ///
 /// This allows deserializing JSON values that were serialized with our custom
-/// serializer, which converts NaN/infinity to strings.
+/// serializer, which converts `NaN`/infinity to strings.
 ///
-/// # Examples
-///
-/// ```rust,ignore
-/// use serde_json::json;
-/// use lifeguard::json_helpers::deserialize_f32;
-///
-/// // Normal number
-/// let val: f32 = deserialize_f32(&json!(3.14)).unwrap();
-/// assert_eq!(val, 3.14);
-///
-/// // NaN as string
-/// let val: f32 = deserialize_f32(&json!("NaN")).unwrap();
-/// assert!(val.is_nan());
-///
-/// // Infinity as string
-/// let val: f32 = deserialize_f32(&json!("Infinity")).unwrap();
-/// assert!(val.is_infinite() && val.is_sign_positive());
-/// ```
-pub fn deserialize_f32<'de, D>(deserializer: D) -> Result<f32, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::{self, Visitor};
-    use std::fmt;
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use serde_json::json;
+    /// use lifeguard::json_helpers::deserialize_f32;
+    ///
+    /// // Normal number
+    /// let val: f32 = deserialize_f32(&json!(3.14)).unwrap();
+    /// assert_eq!(val, 3.14);
+    ///
+    /// // `NaN` as string
+    /// let val: f32 = deserialize_f32(&json!("NaN")).unwrap();
+    /// assert!(val.is_nan());
+    ///
+    /// // `Infinity` as string
+    /// let val: f32 = deserialize_f32(&json!("Infinity")).unwrap();
+    /// assert!(val.is_infinite() && val.is_sign_positive());
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `deserializer` - The `Deserializer` to deserialize from
+    ///
+    /// # Returns
+    ///
+    /// Returns the deserialized `f32` value, or a deserialization error.
+    ///
+    /// # Errors
+    ///
+    /// Returns `D::Error` if the value cannot be deserialized as a number or a valid special string (`NaN`, `Infinity`, `-Infinity`).
+    pub fn deserialize_f32<'de, D>(deserializer: D) -> Result<f32, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, Visitor};
+        use std::fmt;
 
-    struct F32Visitor;
+        struct F32Visitor;
 
-    impl<'de> Visitor<'de> for F32Visitor {
-        type Value = f32;
+        impl Visitor<'_> for F32Visitor {
+            type Value = f32;
 
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
-        }
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
+            }
 
-        fn visit_f64<E>(self, value: f64) -> Result<f32, E>
-        where
-            E: de::Error,
-        {
-            Ok(value as f32)
-        }
+            fn visit_f64<E>(self, value: f64) -> Result<f32, E>
+            where
+                E: de::Error,
+            {
+                #[allow(clippy::cast_possible_truncation)] // f64 to f32 truncation is intentional
+                Ok(value as f32)
+            }
 
-        fn visit_i64<E>(self, value: i64) -> Result<f32, E>
-        where
-            E: de::Error,
-        {
-            Ok(value as f32)
-        }
+            fn visit_i64<E>(self, value: i64) -> Result<f32, E>
+            where
+                E: de::Error,
+            {
+                #[allow(clippy::cast_precision_loss)] // i64 to f32 precision loss is intentional
+                Ok(value as f32)
+            }
 
-        fn visit_u64<E>(self, value: u64) -> Result<f32, E>
-        where
-            E: de::Error,
-        {
-            Ok(value as f32)
-        }
+            fn visit_u64<E>(self, value: u64) -> Result<f32, E>
+            where
+                E: de::Error,
+            {
+                #[allow(clippy::cast_precision_loss)] // u64 to f32 precision loss is intentional
+                Ok(value as f32)
+            }
 
         fn visit_str<E>(self, value: &str) -> Result<f32, E>
         where
@@ -85,65 +100,79 @@ where
     deserializer.deserialize_any(F32Visitor)
 }
 
-/// Custom deserializer for f64 that accepts both numbers and special string representations
+/// Custom deserializer for `f64` that accepts both numbers and special string representations
 ///
 /// This allows deserializing JSON values that were serialized with our custom
-/// serializer, which converts NaN/infinity to strings.
+/// serializer, which converts `NaN`/infinity to strings.
 ///
-/// # Examples
-///
-/// ```rust,ignore
-/// use serde_json::json;
-/// use lifeguard::json_helpers::deserialize_f64;
-///
-/// // Normal number
-/// let val: f64 = deserialize_f64(&json!(3.14)).unwrap();
-/// assert_eq!(val, 3.14);
-///
-/// // NaN as string
-/// let val: f64 = deserialize_f64(&json!("NaN")).unwrap();
-/// assert!(val.is_nan());
-///
-/// // Infinity as string
-/// let val: f64 = deserialize_f64(&json!("Infinity")).unwrap();
-/// assert!(val.is_infinite() && val.is_sign_positive());
-/// ```
-pub fn deserialize_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::{self, Visitor};
-    use std::fmt;
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use serde_json::json;
+    /// use lifeguard::json_helpers::deserialize_f64;
+    ///
+    /// // Normal number
+    /// let val: f64 = deserialize_f64(&json!(3.14)).unwrap();
+    /// assert_eq!(val, 3.14);
+    ///
+    /// // `NaN` as string
+    /// let val: f64 = deserialize_f64(&json!("NaN")).unwrap();
+    /// assert!(val.is_nan());
+    ///
+    /// // `Infinity` as string
+    /// let val: f64 = deserialize_f64(&json!("Infinity")).unwrap();
+    /// assert!(val.is_infinite() && val.is_sign_positive());
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `deserializer` - The `Deserializer` to deserialize from
+    ///
+    /// # Returns
+    ///
+    /// Returns the deserialized `f64` value, or a deserialization error.
+    ///
+    /// # Errors
+    ///
+    /// Returns `D::Error` if the value cannot be deserialized as a number or a valid special string (`NaN`, `Infinity`, `-Infinity`).
+    pub fn deserialize_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, Visitor};
+        use std::fmt;
 
-    struct F64Visitor;
+        struct F64Visitor;
 
-    impl<'de> Visitor<'de> for F64Visitor {
-        type Value = f64;
+        impl Visitor<'_> for F64Visitor {
+            type Value = f64;
 
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
-        }
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
+            }
 
-        fn visit_f64<E>(self, value: f64) -> Result<f64, E>
-        where
-            E: de::Error,
-        {
-            Ok(value)
-        }
+            fn visit_f64<E>(self, value: f64) -> Result<f64, E>
+            where
+                E: de::Error,
+            {
+                Ok(value)
+            }
 
-        fn visit_i64<E>(self, value: i64) -> Result<f64, E>
-        where
-            E: de::Error,
-        {
-            Ok(value as f64)
-        }
+            fn visit_i64<E>(self, value: i64) -> Result<f64, E>
+            where
+                E: de::Error,
+            {
+                #[allow(clippy::cast_precision_loss)] // i64 to f64 precision loss is intentional
+                Ok(value as f64)
+            }
 
-        fn visit_u64<E>(self, value: u64) -> Result<f64, E>
-        where
-            E: de::Error,
-        {
-            Ok(value as f64)
-        }
+            fn visit_u64<E>(self, value: u64) -> Result<f64, E>
+            where
+                E: de::Error,
+            {
+                #[allow(clippy::cast_precision_loss)] // u64 to f64 precision loss is intentional
+                Ok(value as f64)
+            }
 
         fn visit_str<E>(self, value: &str) -> Result<f64, E>
         where
@@ -164,7 +193,11 @@ where
     deserializer.deserialize_any(F64Visitor)
 }
 
-/// Custom deserializer for Option<f32> that accepts numbers, strings, and null
+/// Custom deserializer for `Option<f32>` that accepts numbers, strings, and `null`
+///
+/// # Errors
+///
+/// Returns `D::Error` if the value cannot be deserialized as a number, a valid special string (`NaN`, `Infinity`, `-Infinity`), or `null`.
 pub fn deserialize_option_f32<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
 where
     D: Deserializer<'de>,
@@ -206,6 +239,7 @@ where
         where
             E: de::Error,
         {
+            #[allow(clippy::cast_possible_truncation)] // f64 to f32 truncation is intentional
             Ok(Some(value as f32))
         }
 
@@ -213,6 +247,7 @@ where
         where
             E: de::Error,
         {
+            #[allow(clippy::cast_precision_loss)] // i64 to f32 precision loss is intentional
             Ok(Some(value as f32))
         }
 
@@ -220,6 +255,7 @@ where
         where
             E: de::Error,
         {
+            #[allow(clippy::cast_precision_loss)] // u64 to f32 precision loss is intentional
             Ok(Some(value as f32))
         }
 
@@ -242,7 +278,11 @@ where
     deserializer.deserialize_option(OptionF32Visitor)
 }
 
-/// Custom deserializer for Option<f64> that accepts numbers, strings, and null
+/// Custom deserializer for `Option<f64>` that accepts numbers, strings, and `null`
+///
+/// # Errors
+///
+/// Returns `D::Error` if the value cannot be deserialized as a number, a valid special string (`NaN`, `Infinity`, `-Infinity`), or `null`.
 pub fn deserialize_option_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
 where
     D: Deserializer<'de>,
@@ -291,6 +331,7 @@ where
         where
             E: de::Error,
         {
+            #[allow(clippy::cast_precision_loss)] // i64 to f64 precision loss is intentional
             Ok(Some(value as f64))
         }
 
@@ -298,6 +339,7 @@ where
         where
             E: de::Error,
         {
+            #[allow(clippy::cast_precision_loss)] // u64 to f64 precision loss is intentional
             Ok(Some(value as f64))
         }
 
@@ -321,47 +363,55 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
     use serde_json::json;
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_f32_normal() {
         let val: f32 = deserialize_f32(&json!(3.14)).unwrap();
         assert!((val - 3.14).abs() < 0.001);
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_f32_nan() {
         let val: f32 = deserialize_f32(&json!("NaN")).unwrap();
         assert!(val.is_nan());
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_f32_infinity() {
         let val: f32 = deserialize_f32(&json!("Infinity")).unwrap();
         assert!(val.is_infinite() && val.is_sign_positive());
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_f32_neg_infinity() {
         let val: f32 = deserialize_f32(&json!("-Infinity")).unwrap();
         assert!(val.is_infinite() && val.is_sign_negative());
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_f64_normal() {
         let val: f64 = deserialize_f64(&json!(2.71828)).unwrap();
         assert!((val - 2.71828).abs() < 0.00001);
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_f64_nan() {
         let val: f64 = deserialize_f64(&json!("NaN")).unwrap();
         assert!(val.is_nan());
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_option_f32() {
         let val: Option<f32> = deserialize_option_f32(&json!(null)).unwrap();
         assert_eq!(val, None);
@@ -374,6 +424,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_deserialize_option_f64() {
         let val: Option<f64> = deserialize_option_f64(&json!(null)).unwrap();
         assert_eq!(val, None);

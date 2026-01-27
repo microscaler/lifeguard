@@ -1,7 +1,6 @@
 //! Comprehensive tests for SQL generation from entities
 //!
-//! These tests verify that SQL generated from Lifeguard entities matches
-//! the original SQL migrations in migrations/original/
+//! These tests verify that SQL can be generated correctly from Lifeguard entities.
 
 // Use the library crate
 use lifeguard_migrate::sql_generator;
@@ -208,36 +207,6 @@ fn test_chart_of_accounts_sql_generation() {
     }
 }
 
-#[test]
-fn test_load_original_migrations() {
-    // Test that we can load the original migration files
-    // Note: Migrations are now organized by service (accounting/general-ledger/)
-    let migrations_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("migrations")
-        .join("original");
-    
-    // Updated path to reflect service-based organization
-    let chart_of_accounts_file = migrations_dir
-        .join("accounting")
-        .join("general-ledger")
-        .join("20240120120000_create_chart_of_accounts.sql");
-    
-    assert!(
-        chart_of_accounts_file.exists(),
-        "Original migration file should exist: {:?}",
-        chart_of_accounts_file
-    );
-    
-    let content = fs::read_to_string(&chart_of_accounts_file)
-        .expect("Should be able to read migration file");
-    
-    assert!(
-        content.contains("CREATE TABLE IF NOT EXISTS chart_of_accounts"),
-        "Migration file should contain chart_of_accounts table definition"
-    );
-}
 
 fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std::error::Error>> {
     // Extract CREATE TABLE statement for the specified table

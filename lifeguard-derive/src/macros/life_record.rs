@@ -1,4 +1,5 @@
-//! LifeRecord derive macro implementation
+//! `LifeRecord` derive macro implementation
+#![allow(clippy::too_many_lines, clippy::explicit_iter_loop)] // Complex macro code
 
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Fields, Ident, GenericArgument, PathArguments, Type, LitStr};
@@ -30,8 +31,8 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
 ///
 /// This macro generates:
 /// - `Record` struct (mutable change-set with Option<T> fields)
-/// - `from_model()` method (create from LifeModel for updates)
-/// - `to_model()` method (convert to LifeModel, None fields use defaults)
+/// - `from_model()` method (create from `LifeModel` for updates)
+/// - `to_model()` method (convert to `LifeModel`, None fields use defaults)
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
@@ -40,8 +41,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     
     // Extract struct name
     let struct_name = &input.ident;
-    let record_name = Ident::new(&format!("{}Record", struct_name), struct_name.span());
-    let model_name = Ident::new(&format!("{}Model", struct_name), struct_name.span());
+    let record_name = Ident::new(&format!("{struct_name}Record"), struct_name.span());
+    let model_name = Ident::new(&format!("{struct_name}Model"), struct_name.span());
     
     // Extract struct fields
     let fields = match &input.data {
@@ -126,15 +127,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 )
                 .to_compile_error()
                 .into();
-            } else {
-                // Fallback to field name if attribute not found (shouldn't happen)
-                return syn::Error::new_spanned(
-                    field_name,
-                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
-                )
-                .to_compile_error()
-                .into();
             }
+            // Fallback to field name if attribute not found (shouldn't happen)
+            return syn::Error::new_spanned(
+                field_name,
+                "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+            )
+            .to_compile_error()
+            .into();
         }
         
         // Skip ignored fields - they're not included in database operations
@@ -246,7 +246,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Generate setter method
         // If field is already Option<T>, setter accepts Option<T> directly
         // Otherwise, setter accepts T and wraps in Some()
-        let setter_name = Ident::new(&format!("set_{}", field_name), field_name.span());
+        let setter_name = Ident::new(&format!("set_{field_name}"), field_name.span());
         if is_already_option {
             setter_methods.push(quote! {
                 /// Set the #field_name field

@@ -3,14 +3,17 @@
 //! This macro generates:
 //! - Relation enum with variants for each relationship
 //! - Related trait implementations for each relationship
-//! - Query builders using SelectQuery
+//! - Query builders using `SelectQuery`
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{parse_macro_input, Data, DataEnum, DeriveInput, Variant};
 
-/// Extract column name from column reference like "Column::UserId" or "super::users::Column::Id"
+/// Type alias for complex relation extraction return type
+type RelationExtractionResult = Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>, TokenStream2)>;
+
+/// Extract column name from column reference like "`Column::UserId`" or "`super::users::Column::Id`"
 fn extract_column_name(column_ref: &str) -> Option<String> {
     // Parse "Column::UserId" or "super::users::Column::Id" format
     // Extract the last segment after the last "::"
@@ -27,12 +30,14 @@ fn extract_column_name(column_ref: &str) -> Option<String> {
 /// Parse a column reference string and extract the column path and variant name
 /// 
 /// Examples:
-/// - "Column::UserId" -> (None, "UserId")
-/// - "super::users::Column::Id" -> (Some("super::users"), "Id")
-/// - "Column::UserId, Column::TenantId" -> (None, ["UserId", "TenantId"]) for composite keys
+/// ```text
+/// - Column::UserId -> (None, "UserId")
+/// - super::users::Column::Id -> (Some("super::users"), "Id")
+/// - Column::UserId, Column::TenantId -> (None, ["UserId", "TenantId"]) for composite keys
+/// ```
 fn parse_column_reference(column_ref: &str) -> (Option<String>, Vec<String>) {
     // Check if this is a composite key (multiple columns separated by comma)
-    let columns: Vec<&str> = column_ref.split(',').map(|s| s.trim()).collect();
+    let columns: Vec<&str> = column_ref.split(',').map(str::trim).collect();
     
     let mut column_variants = Vec::new();
     let mut path_prefix: Option<String> = None;
@@ -40,7 +45,7 @@ fn parse_column_reference(column_ref: &str) -> (Option<String>, Vec<String>) {
     for col_ref in columns {
         let parts: Vec<&str> = col_ref.split("::").collect();
         if let Some(last_segment) = parts.last() {
-            column_variants.push(last_segment.to_string());
+            column_variants.push((*last_segment).to_string());
         }
         
         // Extract path prefix (everything before the last "Column::" part)
@@ -63,12 +68,13 @@ fn parse_column_reference(column_ref: &str) -> (Option<String>, Vec<String>) {
 /// Build Identity from column reference string(s)
 /// 
 /// Supports:
-/// - Single column: "Column::UserId" -> Identity::Unary
-/// - Composite keys: "Column::UserId, Column::TenantId" -> Identity::Binary
-/// - Path-qualified: "super::users::Column::Id" -> Identity::Unary
+/// - Single column: `` `Column::UserId` `` -> `Identity::Unary`
+/// - Composite keys: `` `Column::UserId`, `Column::TenantId` `` -> `Identity::Binary`
+/// - Path-qualified: `` `super::users::Column::Id` `` -> `Identity::Unary`
 /// 
 /// Note: When the path is just "Column", it refers to the current entity's Column type.
 /// The macro uses `<Entity as LifeModelTrait>::Column` to access it.
+#[allow(clippy::too_many_lines)]
 fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Span) -> Result<TokenStream2, TokenStream2> {
     let (path_prefix, column_variants) = parse_column_reference(column_ref);
     
@@ -83,9 +89,9 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
         for (idx, segment) in prefix_segments.iter().enumerate() {
             if segment.is_empty() {
                 let error_msg = if prefix_segments.len() == 1 {
-                    format!("Column reference path cannot be empty. Found empty string in column reference \"{}\".", column_ref)
+                    format!("Column reference path cannot be empty. Found empty string in column reference \"{column_ref}\".")
                 } else if idx == prefix_segments.len() - 1 {
-                    format!("Column reference path has trailing colons. Found empty segment at end in \"{}\". Use a valid path like \"super::users::Column::Id\".", column_ref)
+                    format!("Column reference path has trailing colons. Found empty segment at end in \"{column_ref}\". Use a valid path like \"super::users::Column::Id\".")
                 } else {
                     format!("Column reference path has consecutive colons. Found empty segment at position {} in \"{}\". Use a valid path like \"super::users::Column::Id\".", idx + 1, column_ref)
                 };
@@ -225,8 +231,8 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
     }
 }
 
-/// Convert PascalCase to snake_case
-/// Example: "UserId" -> "user_id", "OwnerId" -> "owner_id"
+/// Convert `PascalCase` to `snake_case`
+/// Example: `` `UserId` `` -> `` `user_id` ``, `` `OwnerId` `` -> `` `owner_id` ``
 fn convert_pascal_to_snake_case(s: &str) -> String {
     let mut result = String::new();
     for (i, c) in s.chars().enumerate() {
@@ -241,9 +247,9 @@ fn convert_pascal_to_snake_case(s: &str) -> String {
 /// Extract entity name from entity path and infer foreign key column name
 /// 
 /// Examples:
-/// - "super::users::Entity" -> "users" -> "user_id"
-/// - "CommentEntity" -> "Comment" -> "comment_id"
-/// - "UserEntity" -> "User" -> "user_id"
+/// - `` `super::users::Entity` `` -> "users" -> `` `user_id` ``
+/// - `` `CommentEntity` `` -> "Comment" -> `` `comment_id` ``
+/// - `` `UserEntity` `` -> "User" -> `` `user_id` ``
 fn infer_foreign_key_column_name(entity_path: &str) -> String {
     // Extract the entity name from the path
     // Path format: "super::users::Entity" or "CommentEntity" or "UserEntity"
@@ -265,7 +271,7 @@ fn infer_foreign_key_column_name(entity_path: &str) -> String {
     
     // Convert to snake_case and handle plural to singular
     // If the entity_name is already in snake_case (e.g., "users"), convert plural to singular
-    let snake_case = if entity_name.contains('_') || entity_name.chars().all(|c| c.is_lowercase()) {
+    let snake_case = if entity_name.contains('_') || entity_name.chars().all(char::is_lowercase) {
         // Already snake_case - handle plural to singular conversion
         // Simple heuristic: remove trailing "s" if present (e.g., "users" -> "user")
         if entity_name.ends_with('s') && entity_name.len() > 1 {
@@ -277,7 +283,7 @@ fn infer_foreign_key_column_name(entity_path: &str) -> String {
         // PascalCase - convert to snake_case (returns String)
         convert_pascal_to_snake_case(entity_name)
     };
-    format!("{}_id", snake_case)
+    format!("{snake_case}_id")
 }
 
 /// Derive macro for `DeriveRelation` - generates Relation enum and Related implementations
@@ -308,22 +314,20 @@ fn infer_foreign_key_column_name(entity_path: &str) -> String {
 /// // - Related trait implementations returning RelationDef
 /// // - RelationMetadata implementations when from/to are specified
 /// ```
+#[allow(clippy::too_many_lines)]
 pub fn derive_relation(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
     let enum_name = &input.ident;
     
     // Extract enum variants
-    let variants = match &input.data {
-        Data::Enum(DataEnum { variants, .. }) => variants,
-        _ => {
-            return syn::Error::new_spanned(
-                &input.ident,
-                "DeriveRelation can only be derived for enums",
-            )
-            .to_compile_error()
-            .into();
-        }
+    let Data::Enum(DataEnum { variants, .. }) = &input.data else {
+        return syn::Error::new_spanned(
+            &input.ident,
+            "DeriveRelation can only be derived for enums",
+        )
+        .to_compile_error()
+        .into();
     };
     
     // Process each variant to extract relationship information
@@ -388,7 +392,16 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             
             // Only deduplicate Related impls if this is not a dummy path (error case)
             // Error cases should always be emitted to show the compile error
-            if !is_dummy_path {
+            if is_dummy_path {
+                // Always emit error cases (dummy paths)
+                related_impls.push(related_impl);
+                // Add a match arm for error cases (dummy paths) that panics to avoid non-exhaustive match error
+                def_match_arms.push(quote! {
+                    #enum_name::#variant_name => {
+                        panic!("Relation variant `{}` has invalid entity path. See compile error above.", stringify!(#variant_name))
+                    },
+                });
+            } else {
                 // Only generate one Related impl per unique target entity path to avoid conflicts
                 // when multiple relations target the same entity (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
                 let target_path_key = path_to_key(&target_entity_path);
@@ -396,36 +409,28 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 // Check if we've already seen this target entity path
                 if let Some((existing_from, existing_to, existing_variant, existing_def_relation_def)) = seen_related_impls.get(&target_path_key) {
                     // Check if the column configuration is different
-                    let from_col_str = from_col.as_ref().map(|s| s.as_str()).unwrap_or("default");
-                    let to_col_str = to_col.as_ref().map(|s| s.as_str()).unwrap_or("default");
-                    let existing_from_str = existing_from.as_ref().map(|s| s.as_str()).unwrap_or("default");
-                    let existing_to_str = existing_to.as_ref().map(|s| s.as_str()).unwrap_or("default");
+                    let from_col_str = from_col.as_deref().unwrap_or("default");
+                    let to_col_str = to_col.as_deref().unwrap_or("default");
+                    let existing_from_str = existing_from.as_deref().unwrap_or("default");
+                    let existing_to_str = existing_to.as_deref().unwrap_or("default");
                     
                     if from_col_str != existing_from_str || to_col_str != existing_to_str {
                         // Different column configuration - emit compile error
                         let error_msg = format!(
-                            "Multiple relations target the same entity `{}` with different column configurations.\n\
+                            "Multiple relations target the same entity `{target_path_key}` with different column configurations.\n\
                             \n\
-                            First relation `{}` uses:\n\
-                            - from: {}\n\
-                            - to: {}\n\
+                            First relation `{existing_variant}` uses:\n\
+                            - from: {existing_from_str}\n\
+                            - to: {existing_to_str}\n\
                             \n\
-                            Second relation `{}` uses:\n\
-                            - from: {}\n\
-                            - to: {}\n\
+                            Second relation `{variant_name}` uses:\n\
+                            - from: {from_col_str}\n\
+                            - to: {to_col_str}\n\
                             \n\
-                            Rust doesn't allow multiple `impl Related<{}> for Entity` implementations.\n\
+                            Rust doesn't allow multiple `impl Related<{target_path_key}> for Entity` implementations.\n\
                             The macro would silently discard the second configuration, leading to incorrect queries.\n\
                             \n\
-                            Solution: Use different target entities, or ensure all relations to the same entity use identical column configurations.",
-                            target_path_key,
-                            existing_variant,
-                            existing_from_str,
-                            existing_to_str,
-                            variant_name,
-                            from_col_str,
-                            to_col_str,
-                            target_path_key
+                            Solution: Use different target entities, or ensure all relations to the same entity use identical column configurations."
                         );
                         let error = syn::Error::new_spanned(
                             &variant.ident,
@@ -446,11 +451,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                     // Same column configuration - skip this Related impl (already generated)
                     // But still add a match arm that reuses the same RelationDef
                     let existing_def_str = existing_def_relation_def.to_string();
-                    if !existing_def_str.trim().is_empty() {
-                        def_match_arms.push(quote! {
-                            #enum_name::#variant_name => #existing_def_relation_def,
-                        });
-                    } else {
+                    if existing_def_str.trim().is_empty() {
                         // If existing_def_relation_def is empty, it means the original relation had a column parsing error
                         // We still need to add a match arm that panics to avoid non-exhaustive match error
                         def_match_arms.push(quote! {
@@ -458,43 +459,37 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                                 panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
                             },
                         });
+                    } else {
+                        def_match_arms.push(quote! {
+                            #enum_name::#variant_name => #existing_def_relation_def,
+                        });
                     }
                     continue;
-                } else {
-                    // First time seeing this target entity path - record it and add the impl
-                    seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone(), def_relation_def.clone()));
-                    related_impls.push(related_impl);
-                    
-                    // Store RelationDef construction for def() method generation
-                    // Only add when we actually generate the Related impl
-                    // Check that def_relation_def is not empty (error cases have empty quote! {})
-                    // Error cases occur when column parsing fails but target entity path is valid
-                    // In such cases, def_relation_def is empty and should not be added to def_match_arms
-                    let def_relation_def_str = def_relation_def.to_string();
-                    if !def_relation_def_str.trim().is_empty() {
-                        def_match_arms.push(quote! {
-                            #enum_name::#variant_name => #def_relation_def,
-                        });
-                    } else {
-                        // If def_relation_def is empty, it means there was an error in column parsing
-                        // We still push the related_impl (which contains the error) but need to add a match arm
-                        // that panics to avoid non-exhaustive match error
-                        def_match_arms.push(quote! {
-                            #enum_name::#variant_name => {
-                                panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
-                            },
-                        });
-                    }
                 }
-            } else {
-                // Always emit error cases (dummy paths)
+                // First time seeing this target entity path - record it and add the impl
+                seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone(), def_relation_def.clone()));
                 related_impls.push(related_impl);
-                // Add a match arm for error cases (dummy paths) that panics to avoid non-exhaustive match error
-                def_match_arms.push(quote! {
-                    #enum_name::#variant_name => {
-                        panic!("Relation variant `{}` has invalid entity path. See compile error above.", stringify!(#variant_name))
-                    },
-                });
+                
+                // Store RelationDef construction for def() method generation
+                // Only add when we actually generate the Related impl
+                // Check that def_relation_def is not empty (error cases have empty quote! {})
+                // Error cases occur when column parsing fails but target entity path is valid
+                // In such cases, def_relation_def is empty and should not be added to def_match_arms
+                let def_relation_def_str = def_relation_def.to_string();
+                if def_relation_def_str.trim().is_empty() {
+                    // If def_relation_def is empty, it means there was an error in column parsing
+                    // We still push the related_impl (which contains the error) but need to add a match arm
+                    // that panics to avoid non-exhaustive match error
+                    def_match_arms.push(quote! {
+                        #enum_name::#variant_name => {
+                            panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
+                        },
+                    });
+                } else {
+                    def_match_arms.push(quote! {
+                        #enum_name::#variant_name => #def_relation_def,
+                    });
+                }
             }
             
             // Only generate RelatedEntity if this is not a dummy path (error case)
@@ -537,7 +532,9 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     // Generate RelatedEntity enum if we have variants
     // Note: If there are parse errors, they will be in related_impls and will stop compilation
     // We don't need to check for errors here since the error token streams will be emitted
-    let related_entity_enum = if !related_entity_variants.is_empty() {
+    let related_entity_enum = if related_entity_variants.is_empty() {
+        quote! {}
+    } else {
         quote! {
             /// RelatedEntity enum for type-safe relationship access
             ///
@@ -562,15 +559,15 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             
             #(#related_entity_impls)*
         }
-    } else {
-        quote! {}
     };
     
     // Generate def() method implementation for Relation enum
     // Generate if we have match arms for all variants (exhaustive match)
     // Even if there are errors, we should generate def() with match arms to avoid non-exhaustive match errors
     // The match arms for error cases will panic at runtime
-    let def_impl = if !def_match_arms.is_empty() {
+    let def_impl = if def_match_arms.is_empty() {
+        quote! {}
+    } else {
         quote! {
             impl #enum_name {
                 /// Returns the RelationDef for this relation variant
@@ -592,8 +589,6 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 }
             }
         }
-    } else {
-        quote! {}
     };
     
     let expanded: TokenStream2 = quote! {
@@ -608,17 +603,17 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
 /// Process a relation variant and generate Related trait implementation
 ///
 /// Returns a tuple of:
-/// - Related trait implementation TokenStream
-/// - Target entity path for RelatedEntity enum generation
-/// - Variant name for RelatedEntity enum generation
+/// - Related trait implementation `TokenStream`
+/// - Target entity path for `RelatedEntity` enum generation
+/// - Variant name for `RelatedEntity` enum generation
 /// - From column configuration (for conflict detection)
 /// - To column configuration (for conflict detection)
-/// - RelationDef construction code for def() method
+/// - `RelationDef` construction code for `def()` method
+#[allow(clippy::too_many_lines)]
 fn process_relation_variant(
     variant: &Variant,
     _enum_name: &syn::Ident,
-) -> Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>, TokenStream2)> {
-    let _variant_name = &variant.ident;
+) -> RelationExtractionResult {
     
     // Parse attributes to find relationship type and target entity
     let mut relationship_type: Option<String> = None;
@@ -635,7 +630,7 @@ fn process_relation_variant(
             if let Err(err) = attr.parse_nested_meta(|meta| {
                 // Check for key-value pairs like has_many = "..."
                 if meta.path.is_ident("has_many") || meta.path.is_ident("has_one") || meta.path.is_ident("belongs_to") || meta.path.is_ident("has_many_through") {
-                    let key = meta.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
+                    let key = meta.path.get_ident().map(std::string::ToString::to_string).unwrap_or_default();
                     let value: syn::LitStr = meta.value()?.parse()?;
                     relationship_type = Some(key);
                     target_entity = Some(value.value());
@@ -690,64 +685,62 @@ fn process_relation_variant(
         
         // Capture relationship type before move
         let rel_type = match rel_type_str.as_str() {
-            "has_many" => quote! { lifeguard::RelationType::HasMany },
             "has_one" => quote! { lifeguard::RelationType::HasOne },
             "belongs_to" => quote! { lifeguard::RelationType::BelongsTo },
             "has_many_through" => quote! { lifeguard::RelationType::HasManyThrough },
-            _ => quote! { lifeguard::RelationType::HasMany }, // Default
+            _ => quote! { lifeguard::RelationType::HasMany }, // Default (includes "has_many")
         };
         
         // Helper function to parse and validate entity path
         let parse_entity_path = |entity_str: &str, error_context: &str| -> Result<syn::Path, TokenStream2> {
-            match syn::parse_str(entity_str) {
-                Ok(path) => Ok(path),
-                Err(_) => {
-                    // If parsing fails, try to construct a path manually
-                    let segments: Vec<&str> = entity_str.split("::").collect();
-                    
-                    // Validate segments before creating identifiers
-                    for (idx, segment) in segments.iter().enumerate() {
-                        if segment.is_empty() {
-                            let error_msg = if segments.len() == 1 {
-                                format!("Entity path cannot be empty. Found empty string in {} \"{}\".", error_context, entity_str)
-                            } else if idx == segments.len() - 1 {
-                                format!("Entity path has trailing colons. Found empty segment at end in {} \"{}\". Use a valid path like \"super::users::Entity\".", error_context, entity_str)
-                            } else {
-                                format!("Entity path has consecutive colons. Found empty segment at position {} in {} \"{}\". Use a valid path like \"super::users::Entity\".", idx + 1, error_context, entity_str)
-                            };
-                            return Err(syn::Error::new(
-                                variant.ident.span(),
-                                error_msg,
-                            )
-                            .to_compile_error());
-                        }
-                        
-                        // Validate that the segment is a valid Rust identifier
-                        if syn::parse_str::<syn::Ident>(segment).is_err() {
-                            return Err(syn::Error::new(
-                                variant.ident.span(),
-                                format!("Entity path contains invalid identifier \"{}\" at position {} in {} \"{}\". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", segment, idx + 1, error_context, entity_str),
-                            )
-                            .to_compile_error());
-                        }
+            if let Ok(path) = syn::parse_str(entity_str) {
+                Ok(path)
+            } else {
+                // If parsing fails, try to construct a path manually
+                let segments: Vec<&str> = entity_str.split("::").collect();
+                
+                // Validate segments before creating identifiers
+                for (idx, segment) in segments.iter().enumerate() {
+                    if segment.is_empty() {
+                        let error_msg = if segments.len() == 1 {
+                            format!("Entity path cannot be empty. Found empty string in {error_context} \"{entity_str}\".")
+                        } else if idx == segments.len() - 1 {
+                            format!("Entity path has trailing colons. Found empty segment at end in {error_context} \"{entity_str}\". Use a valid path like \"super::users::Entity\".")
+                        } else {
+                            format!("Entity path has consecutive colons. Found empty segment at position {} in {} \"{}\". Use a valid path like \"super::users::Entity\".", idx + 1, error_context, entity_str)
+                        };
+                        return Err(syn::Error::new(
+                            variant.ident.span(),
+                            error_msg,
+                        )
+                        .to_compile_error());
                     }
                     
-                    // Build the path after validation
-                    let mut path = syn::Path {
-                        leading_colon: None,
-                        segments: syn::punctuated::Punctuated::new(),
-                    };
-                    for segment in segments {
-                        // At this point, we've validated that segment is not empty and is a valid identifier
-                        let ident = syn::parse_str::<syn::Ident>(segment)
-                            .expect("Segment should be valid identifier after validation");
-                        path.segments.push(syn::PathSegment {
-                            ident,
-                            arguments: syn::PathArguments::None,
-                        });
+                    // Validate that the segment is a valid Rust identifier
+                    if syn::parse_str::<syn::Ident>(segment).is_err() {
+                        return Err(syn::Error::new(
+                            variant.ident.span(),
+                            format!("Entity path contains invalid identifier \"{}\" at position {} in {} \"{}\". Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", segment, idx + 1, error_context, entity_str),
+                        )
+                        .to_compile_error());
                     }
-                    Ok(path)
                 }
+                
+                // Build the path after validation
+                let mut path = syn::Path {
+                    leading_colon: None,
+                    segments: syn::punctuated::Punctuated::new(),
+                };
+                for segment in segments {
+                    // At this point, we've validated that segment is not empty and is a valid identifier
+                    let ident = syn::parse_str::<syn::Ident>(segment)
+                        .expect("Segment should be valid identifier after validation");
+                    path.segments.push(syn::PathSegment {
+                        ident,
+                        arguments: syn::PathArguments::None,
+                    });
+                }
+                Ok(path)
             }
         };
         

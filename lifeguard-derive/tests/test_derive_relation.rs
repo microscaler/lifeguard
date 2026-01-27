@@ -407,7 +407,7 @@ fn test_derive_relation_has_many_through_join_exprs() {
     let rel_def: RelationDef = <Entity as Related<TagEntity>>::to();
     
     // Verify join_on_exprs() generates correct two joins
-    let (first_join, second_join) = rel_def.join_on_exprs();
+    let (first_join, second_join) = rel_def.join_on_exprs().expect("join_on_exprs should succeed for has_many_through");
     
     // Verify both joins are created (can't easily test the exact SQL string, but we can verify they're Expr types)
     let _ = first_join;
@@ -419,9 +419,8 @@ fn test_derive_relation_has_many_through_join_exprs() {
 }
 
 #[test]
-#[should_panic(expected = "join_on_exprs() can only be called on HasManyThrough relationships")]
-fn test_derive_relation_join_on_exprs_panics_on_non_has_many_through() {
-    // Test that join_on_exprs() panics when called on non-has_many_through relationships
+fn test_derive_relation_join_on_exprs_errors_on_non_has_many_through() {
+    // Test that join_on_exprs() returns an error when called on non-has_many_through relationships
     use lifeguard::relation::def::{RelationDef, RelationType};
     use lifeguard::relation::identity::Identity;
     use sea_query::{TableName, IntoIden, ConditionType};
@@ -441,8 +440,11 @@ fn test_derive_relation_join_on_exprs_panics_on_non_has_many_through() {
         condition_type: ConditionType::All,
     };
     
-    // This should panic
-    let _ = rel_def.join_on_exprs();
+    // This should return an error
+    let result = rel_def.join_on_exprs();
+    assert!(result.is_err());
+    let error_msg = format!("{}", result.unwrap_err());
+    assert!(error_msg.contains("join_on_exprs() can only be called on HasManyThrough relationships"));
 }
 
 #[test]

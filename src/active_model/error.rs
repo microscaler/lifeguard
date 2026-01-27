@@ -1,9 +1,9 @@
-//! Error types for ActiveModel operations.
+//! Error types for `ActiveModel` operations.
 //!
 //! This module provides the `ActiveModelError` enum for handling errors
-//! that occur during ActiveModel operations.
+//! that occur during `ActiveModel` operations.
 
-/// Error type for ActiveModel operations
+/// Error type for `ActiveModel` operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveModelError {
     /// Invalid value type for the column
@@ -33,11 +33,10 @@ impl std::fmt::Display for ActiveModelError {
                 actual,
             } => write!(
                 f,
-                "Invalid value type for column {}: expected {}, got {}",
-                column, expected, actual
+                "Invalid value type for column {column}: expected {expected}, got {actual}"
             ),
             ActiveModelError::ColumnNotFound(column) => {
-                write!(f, "Column not found: {}", column)
+                write!(f, "Column not found: {column}")
             }
             ActiveModelError::PrimaryKeyRequired => {
                 write!(f, "Primary key is required for this operation")
@@ -46,9 +45,9 @@ impl std::fmt::Display for ActiveModelError {
                 write!(f, "Record not found (no rows affected)")
             }
             ActiveModelError::DatabaseError(msg) => {
-                write!(f, "Database error: {}", msg)
+                write!(f, "Database error: {msg}")
             }
-            ActiveModelError::Other(msg) => write!(f, "ActiveModel error: {}", msg),
+            ActiveModelError::Other(msg) => write!(f, "ActiveModel error: {msg}"),
         }
     }
 }

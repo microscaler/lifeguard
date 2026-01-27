@@ -1,11 +1,11 @@
 //! Model trait for accessing and manipulating model data
 //!
 //! This module provides the `ModelTrait` which allows dynamic access to model fields
-//! and primary key values. Similar to SeaORM's `ModelTrait`.
+//! and primary key values. Similar to `SeaORM`'s `ModelTrait`.
 //!
 //! ## Submodules
 //!
-//! - `try_into_model` - `TryIntoModel` trait for converting types into Model instances
+//! - `try_into_model` - `TryIntoModel` trait for converting types into `Model` instances
 
 use crate::query::LifeModelTrait;
 use crate::relation::identity::Identity;
@@ -14,7 +14,7 @@ use sea_query::Value;
 /// Trait for Model-level operations
 ///
 /// This trait provides methods for accessing and manipulating model data at runtime.
-/// It's similar to SeaORM's `ModelTrait` and allows dynamic column access.
+/// It's similar to `SeaORM`'s `ModelTrait` and allows dynamic column access.
 ///
 /// # Example
 ///
@@ -80,6 +80,10 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if the value cannot be set
+    ///
+    /// # Errors
+    ///
+    /// Returns `ModelError` if the value cannot be set (e.g., type mismatch, invalid value).
     ///
     /// # Note
     ///
@@ -170,7 +174,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// # Arguments
     ///
-    /// * `column_name` - The column name as a string (e.g., "user_id", "id")
+    /// * `column_name` - The column name as a string (e.g., `"user_id"`, `"id"`)
     ///
     /// # Returns
     ///
@@ -238,7 +242,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     }
 }
 
-/// Error type for ModelTrait operations
+/// Error type for `ModelTrait` operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelError {
     /// Invalid value type for the column
@@ -262,13 +266,12 @@ impl std::fmt::Display for ModelError {
                 actual,
             } => write!(
                 f,
-                "Invalid value type for column {}: expected {}, got {}",
-                column, expected, actual
+                "Invalid value type for column {column}: expected {expected}, got {actual}"
             ),
             ModelError::ColumnNotFound(column) => {
-                write!(f, "Column not found: {}", column)
+                write!(f, "Column not found: {column}")
             }
-            ModelError::Other(msg) => write!(f, "Model error: {}", msg),
+            ModelError::Other(msg) => write!(f, "Model error: {msg}"),
         }
     }
 }
@@ -276,6 +279,7 @@ impl std::fmt::Display for ModelError {
 impl std::error::Error for ModelError {}
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
     use crate::{LifeModelTrait, LifeEntityName};
@@ -289,7 +293,7 @@ mod tests {
     }
 
     impl Iden for TestColumn {
-        fn unquoted(&self) -> &str {
+        fn unquoted(&self) -> &'static str {
             match self {
                 TestColumn::Id => "id",
                 TestColumn::TenantId => "tenant_id",
@@ -348,7 +352,7 @@ mod tests {
                         Err(ModelError::InvalidValueType {
                             column: "id".to_string(),
                             expected: "Int(Some(_))".to_string(),
-                            actual: format!("{:?}", value),
+                            actual: format!("{value:?}"),
                         })
                     }
                 }
@@ -360,7 +364,7 @@ mod tests {
                         Err(ModelError::InvalidValueType {
                             column: "tenant_id".to_string(),
                             expected: "Int".to_string(),
-                            actual: format!("{:?}", value),
+                            actual: format!("{value:?}"),
                         })
                     }
                 }
@@ -589,6 +593,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod get_by_column_name_tests {
     use super::*;
     use crate::{LifeEntityName, LifeModelTrait};
@@ -604,7 +609,7 @@ mod get_by_column_name_tests {
         struct TestEntity;
         
         impl sea_query::Iden for TestEntity {
-            fn unquoted(&self) -> &str { "test" }
+            fn unquoted(&self) -> &'static str { "test" }
         }
         
         impl LifeEntityName for TestEntity {
@@ -623,7 +628,7 @@ mod get_by_column_name_tests {
         enum TestColumn { Id }
         
         impl sea_query::Iden for TestColumn {
-            fn unquoted(&self) -> &str { "id" }
+            fn unquoted(&self) -> &'static str { "id" }
         }
         
         impl IdenStatic for TestColumn {

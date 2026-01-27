@@ -9,9 +9,9 @@
 //! - **`ValueType`** - Maps Rust types to their corresponding `sea_query::Value` variant
 //! - **`TryGetable`** - Safe value extraction with error handling
 //! - **`TryGetableMany`** - Extract multiple values from collections
-//! - **`IntoValueTuple`** - Convert composite keys to ValueTuple
-//! - **`FromValueTuple`** - Convert ValueTuple to composite keys
-//! - **`TryFromU64`** - Safe conversion from u64 for primary keys
+//! - **`IntoValueTuple`** - Convert composite keys to `ValueTuple`
+//! - **`FromValueTuple`** - Convert `ValueTuple` to composite keys
+//! - **`TryFromU64`** - Safe conversion from `u64` for primary keys
 
 pub mod types;
 pub mod try_getable;

@@ -41,9 +41,9 @@ pub enum MigrationError {
 impl std::fmt::Display for MigrationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MigrationError::Database(e) => write!(f, "Database error: {}", e),
-            MigrationError::FileNotFound(path) => write!(f, "Migration file not found: {}", path),
-            MigrationError::InvalidFormat(msg) => write!(f, "Invalid migration format: {}", msg),
+            MigrationError::Database(e) => write!(f, "Database error: {e}"),
+            MigrationError::FileNotFound(path) => write!(f, "Migration file not found: {path}"),
+            MigrationError::InvalidFormat(msg) => write!(f, "Invalid migration format: {msg}"),
             MigrationError::ChecksumMismatch {
                 version,
                 name,
@@ -52,65 +52,58 @@ impl std::fmt::Display for MigrationError {
             } => {
                 write!(
                     f,
-                    "Migration '{}' (version {}) has been modified after being applied.\n\
-                     Stored checksum: {}\n\
-                     Current checksum: {}\n\
-                     This indicates the migration file was edited after deployment.",
-                    name, version, stored, current
+                    "Migration '{name}' (version {version}) has been modified after being applied.\n\
+                     Stored checksum: {stored}\n\
+                     Current checksum: {current}\n\
+                     This indicates the migration file was edited after deployment."
                 )
             }
             MigrationError::LockTimeout(msg) => {
                 write!(
                     f,
-                    "Migration lock timeout: {}\n\
+                    "Migration lock timeout: {msg}\n\
                      Another process may be running migrations. If this persists, check for:\n\
                      - Stuck migration process\n\
                      - Database connection issues\n\
-                     - Manual lock in lifeguard_migration_lock table",
-                    msg
+                     - Manual lock in lifeguard_migration_lock table"
                 )
             }
             MigrationError::AlreadyApplied { version, name } => {
                 write!(
                     f,
-                    "Migration '{}' (version {}) has already been applied",
-                    name, version
+                    "Migration '{name}' (version {version}) has already been applied"
                 )
             }
             MigrationError::AlreadyRegistered { version, name } => {
                 write!(
                     f,
-                    "Migration '{}' (version {}) is already registered in the migration registry",
-                    name, version
+                    "Migration '{name}' (version {version}) is already registered in the migration registry"
                 )
             }
             MigrationError::ExecutionFailed { version, name, error } => {
                 write!(
                     f,
-                    "Migration '{}' (version {}) failed during execution: {}",
-                    name, version, error
+                    "Migration '{name}' (version {version}) failed during execution: {error}"
                 )
             }
             MigrationError::InvalidVersion(version_str) => {
-                write!(f, "Invalid migration version: '{}' (expected format: YYYYMMDDHHMMSS)", version_str)
+                write!(f, "Invalid migration version: '{version_str}' (expected format: YYYYMMDDHHMMSS)")
             }
             MigrationError::MissingFile { version, name } => {
                 write!(
                     f,
-                    "Applied migration file not found: m{}_{}.rs\n\
-                     Suggestion: Ensure all migration files are present in migrations directory",
-                    version, name
+                    "Applied migration file not found: m{version}_{name}.rs\n\
+                     Suggestion: Ensure all migration files are present in migrations directory"
                 )
             }
             MigrationError::FileAlreadyExists { path } => {
                 write!(
                     f,
-                    "Migration file already exists: {}\n\
+                    "Migration file already exists: {path}\n\
                      This can happen if:\n\
                      - Two migrations are generated within the same second with the same name\n\
                      - A migration file with this name already exists\n\
-                     Suggestion: Use a different migration name or wait a second before generating again",
-                    path
+                     Suggestion: Use a different migration name or wait a second before generating again"
                 )
             }
         }

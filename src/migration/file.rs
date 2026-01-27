@@ -22,7 +22,8 @@ pub struct MigrationFile {
 }
 
 impl MigrationFile {
-    /// Create a new MigrationFile
+    /// Create a new `MigrationFile`
+    #[must_use]
     pub fn new(path: PathBuf, version: i64, name: String, checksum: String) -> Self {
         Self {
             path,
@@ -37,15 +38,29 @@ impl MigrationFile {
     /// Expected format: `m{YYYYMMDDHHMMSS}_{name}.rs`
     ///
     /// # Example
-    /// - `m20240120120000_create_users_table.rs` → version: 20240120120000, name: "create_users_table"
+    /// - `m20240120120000_create_users_table.rs` → version: `20240120120000`, name: `"create_users_table"`
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::InvalidFormat` if the filename doesn't match the expected pattern.
+    /// Returns `MigrationError::InvalidVersion` if the version string cannot be parsed as `i64`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the regex matches but capture groups are missing.
+    /// This should never happen in practice as the regex pattern guarantees groups exist if match succeeds.
     pub fn parse_filename(filename: &str) -> Result<(i64, String), MigrationError> {
         // Pattern: m{14 digits}_{name}.rs
         let re = Regex::new(r"^m(\d{14})_(.+)\.rs$")
-            .map_err(|e| MigrationError::InvalidFormat(format!("Invalid regex: {}", e)))?;
+            .map_err(|e| MigrationError::InvalidFormat(format!("Invalid regex: {e}")))?;
         
         if let Some(caps) = re.captures(filename) {
-            let version_str = caps.get(1).unwrap().as_str();
-            let name = caps.get(2).unwrap().as_str().to_string();
+            let version_str = caps.get(1).ok_or_else(|| {
+                MigrationError::InvalidFormat("Regex matched but capture group 1 is missing".to_string())
+            })?.as_str();
+            let name = caps.get(2).ok_or_else(|| {
+                MigrationError::InvalidFormat("Regex matched but capture group 2 is missing".to_string())
+            })?.as_str().to_string();
             
             let version = version_str.parse::<i64>()
                 .map_err(|_e| MigrationError::InvalidVersion(
@@ -55,8 +70,7 @@ impl MigrationFile {
             Ok((version, name))
         } else {
             Err(MigrationError::InvalidFormat(format!(
-                "Migration file name '{}' does not match expected pattern: m{{YYYYMMDDHHMMSS}}_{{name}}.rs",
-                filename
+                "Migration file name '{filename}' does not match expected pattern: m{{YYYYMMDDHHMMSS}}_{{name}}.rs"
             )))
         }
     }
@@ -107,7 +121,7 @@ pub fn discover_migrations(migrations_dir: &Path) -> Result<Vec<MigrationFile>, 
     
     for entry in entries {
         let entry = entry.map_err(|e| MigrationError::FileNotFound(format!(
-            "Failed to read directory entry: {}", e
+            "Failed to read directory entry: {e}"
         )))?;
         
         let path = entry.path();

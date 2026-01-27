@@ -1,7 +1,9 @@
-//! Example: Using TryIntoModel trait for DTO → Model conversions
+//! Example: Using `TryIntoModel` trait for DTO → Model conversions
 //!
 //! This example demonstrates how to use the `TryIntoModel` trait and `DeriveTryIntoModel`
 //! macro to convert custom types (DTOs, request structs, etc.) into Model instances.
+
+#![allow(clippy::needless_update)]
 
 use lifeguard::{TryIntoModel, ModelTrait, LifeModelTrait, LifeEntityName};
 use lifeguard_derive::DeriveTryIntoModel;
@@ -11,7 +13,7 @@ use lifeguard_derive::DeriveTryIntoModel;
 pub struct UserEntity;
 
 impl sea_query::Iden for UserEntity {
-    fn unquoted(&self) -> &str {
+    fn unquoted(&self) -> &'static str {
         "users"
     }
 }
@@ -28,6 +30,7 @@ impl LifeModelTrait for UserEntity {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[allow(dead_code)]
 pub enum UserColumn {
     Id,
     Name,
@@ -35,7 +38,7 @@ pub enum UserColumn {
 }
 
 impl sea_query::Iden for UserColumn {
-    fn unquoted(&self) -> &str {
+    fn unquoted(&self) -> &'static str {
         match self {
             UserColumn::Id => "id",
             UserColumn::Name => "name",
@@ -92,7 +95,7 @@ impl ModelTrait for UserModel {
                     Err(lifeguard::ModelError::InvalidValueType {
                         column: "id".to_string(),
                         expected: "Int".to_string(),
-                        actual: format!("{:?}", value),
+                        actual: format!("{value:?}"),
                     })
                 }
             }
@@ -104,7 +107,7 @@ impl ModelTrait for UserModel {
                     Err(lifeguard::ModelError::InvalidValueType {
                         column: "name".to_string(),
                         expected: "String".to_string(),
-                        actual: format!("{:?}", value),
+                        actual: format!("{value:?}"),
                     })
                 }
             }
@@ -116,7 +119,7 @@ impl ModelTrait for UserModel {
                     Err(lifeguard::ModelError::InvalidValueType {
                         column: "email".to_string(),
                         expected: "String".to_string(),
-                        actual: format!("{:?}", value),
+                        actual: format!("{value:?}"),
                     })
                 }
             }
@@ -147,6 +150,7 @@ struct CreateUserRequest {
 
 // Example 2: DTO with all fields
 #[derive(DeriveTryIntoModel)]
+#[allow(clippy::needless_update)]
 #[lifeguard(model = "UserModel")]
 struct UpdateUserRequest {
     id: i32,
@@ -181,7 +185,7 @@ fn main() {
             // Output: Created user: id=0, name=John Doe, email=john@example.com
         }
         Err(e) => {
-            eprintln!("Failed to convert request to model: {}", e);
+            eprintln!("Failed to convert request to model: {e}");
         }
     }
     
@@ -199,7 +203,7 @@ fn main() {
             // Output: Updated user: id=42, name=Jane Smith, email=jane@example.com
         }
         Err(e) => {
-            eprintln!("Failed to convert update request to model: {}", e);
+            eprintln!("Failed to convert update request to model: {e}");
         }
     }
     
@@ -217,7 +221,7 @@ fn main() {
             // Output: Converted external data: id=0, name=Bob Johnson, email=bob@example.com
         }
         Err(e) => {
-            eprintln!("Failed to convert external data to model: {}", e);
+            eprintln!("Failed to convert external data to model: {e}");
         }
     }
     

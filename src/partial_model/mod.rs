@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //!
-//! The partial_model module follows Sea-ORM's organizational patterns:
+//! The `partial_model` module follows `Sea-ORM`'s organizational patterns:
 //! - **Traits**: Core partial model traits (`PartialModelTrait`, `PartialModelBuilder`)
 //! - **Query**: Partial query builder (`SelectPartialQuery`)
 

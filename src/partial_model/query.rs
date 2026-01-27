@@ -29,6 +29,10 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
     /// # Returns
     ///
     /// Returns a vector of partial models, or an error if the query fails
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution fails or if row parsing fails.
     pub fn all<Ex: LifeExecutor>(
         self,
         executor: &Ex,
@@ -42,7 +46,7 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
             // Convert rows to partial models
             let mut results = Vec::new();
             for row in rows {
-                results.push(P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))?);
+                results.push(P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?);
             }
             Ok(results)
         })
@@ -58,6 +62,10 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
     ///
     /// Returns `Some(partial_model)` if a row is found, `None` if no rows match,
     /// or an error if the query fails
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution fails or if row parsing fails.
     pub fn one<Ex: LifeExecutor>(
         self,
         executor: &Ex,
@@ -68,7 +76,7 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
         with_converted_params(&values, |params| {
             match executor.query_one(&sql, params) {
                 Ok(row) => {
-                    Ok(Some(P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))?))
+                    Ok(Some(P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?))
                 }
                 Err(e) => {
                     // Check if this is a "no rows found" error
@@ -91,6 +99,7 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
     /// # Returns
     ///
     /// Returns self for method chaining
+    #[must_use]
     pub fn filter<F>(mut self, condition: F) -> Self
     where
         F: sea_query::IntoCondition,
@@ -109,6 +118,7 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
     /// # Returns
     ///
     /// Returns self for method chaining
+    #[must_use]
     pub fn order_by<C: sea_query::IntoColumnRef>(mut self, column: C, order: sea_query::Order) -> Self {
         self.query = self.query.order_by(column, order);
         self
@@ -123,6 +133,7 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
     /// # Returns
     ///
     /// Returns self for method chaining
+    #[must_use]
     pub fn limit(mut self, limit: u64) -> Self {
         self.query = self.query.limit(limit);
         self
@@ -137,6 +148,7 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
     /// # Returns
     ///
     /// Returns self for method chaining
+    #[must_use]
     pub fn offset(mut self, offset: u64) -> Self {
         self.query = self.query.offset(offset);
         self
@@ -145,6 +157,14 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
 
 impl<E: LifeModelTrait> super::traits::PartialModelBuilder<E> for SelectQuery<E> {
     fn select_partial<P: PartialModelTrait<Entity = E>>(mut self) -> SelectPartialQuery<E, P> {
+        // Define helper struct for table name (must be in scope before use)
+        struct TableName(&'static str);
+        impl sea_query::Iden for TableName {
+            fn unquoted(&self) -> &'static str {
+                self.0
+            }
+        }
+        
         // Get the column names from the partial model
         let column_names = P::selected_columns();
         
@@ -156,13 +176,6 @@ impl<E: LifeModelTrait> super::traits::PartialModelBuilder<E> for SelectQuery<E>
         // Get table name (in case we need to rebuild FROM clause)
         let entity = E::default();
         let table_name = entity.table_name();
-        
-        struct TableName(&'static str);
-        impl sea_query::Iden for TableName {
-            fn unquoted(&self) -> &str {
-                self.0
-            }
-        }
         
         // Build a new query with only the partial model columns
         // We'll preserve all other clauses from the original query
@@ -196,6 +209,7 @@ impl<E: LifeModelTrait> super::traits::PartialModelBuilder<E> for SelectQuery<E>
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
     use crate::{LifeEntityName, LifeModelTrait};
@@ -206,7 +220,7 @@ mod tests {
     struct TestEntity;
     
     impl sea_query::Iden for TestEntity {
-        fn unquoted(&self) -> &str {
+        fn unquoted(&self) -> &'static str {
             "test_entities"
         }
     }
@@ -223,7 +237,7 @@ mod tests {
     }
     
     impl sea_query::Iden for TestColumn {
-        fn unquoted(&self) -> &str {
+        fn unquoted(&self) -> &'static str {
             "id"
         }
     }

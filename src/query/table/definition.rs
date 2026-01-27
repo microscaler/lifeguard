@@ -8,6 +8,7 @@
 /// Stores information about table-level constraints, indexes, and metadata.
 /// This is used for entity-driven migration generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub struct TableDefinition {
     /// Table comment/documentation
     pub table_comment: Option<String>,
@@ -15,24 +16,14 @@ pub struct TableDefinition {
     /// Each entry is a vector of column names
     pub composite_unique: Vec<Vec<String>>,
     /// Index definitions
-    /// Each entry is: (index_name, columns, unique, partial_where)
+    /// Each entry is: (`index_name`, `columns`, `unique`, `partial_where`)
     pub indexes: Vec<IndexDefinition>,
-    /// Table-level CHECK constraints
-    /// Each entry is a tuple of (constraint_name, expression)
-    /// If constraint_name is None, a default name will be generated from the table name
+    /// Table-level `CHECK` constraints
+    /// Each entry is a tuple of (`constraint_name`, `expression`)
+    /// If `constraint_name` is `None`, a default name will be generated from the table name
     pub check_constraints: Vec<(Option<String>, String)>,
 }
 
-impl Default for TableDefinition {
-    fn default() -> Self {
-        Self {
-            table_comment: None,
-            composite_unique: Vec::new(),
-            indexes: Vec::new(),
-            check_constraints: Vec::new(), // Vec<(Option<String>, String)>
-        }
-    }
-}
 
 /// Index definition metadata
 #[derive(Debug, Clone, PartialEq, Eq)]

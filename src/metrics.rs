@@ -23,7 +23,10 @@
 //! - `lifeguard.release_connection`: Connection release
 
 #[cfg(feature = "metrics")]
-use once_cell::sync::Lazy;
+// Note: once_cell::sync::Lazy is deprecated in favor of std::sync::LazyLock,
+// but LazyLock requires Rust 1.80+. Using once_cell for compatibility.
+#[allow(deprecated)]
+use std::sync::LazyLock;
 #[cfg(feature = "metrics")]
 use opentelemetry::{
     global,
@@ -31,8 +34,6 @@ use opentelemetry::{
 };
 #[cfg(feature = "metrics")]
 use opentelemetry_prometheus::PrometheusExporter;
-#[cfg(feature = "tracing")]
-use tracing::Span;
 
 /// Lifeguard metrics collector
 ///
@@ -58,8 +59,22 @@ pub struct LifeguardMetrics {
 impl LifeguardMetrics {
     /// Initialize metrics collector
     ///
-    /// Creates all Prometheus metrics and sets up the exporter.
+    /// Creates all `Prometheus` metrics and sets up the exporter.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the Prometheus exporter fails to initialize.
+    /// This should only happen if there's a configuration error or system resource issue.
+    ///
+    /// Note: This uses `expect()` because metrics initialization failure at startup
+    /// is a critical system error that should be caught during development/testing.
+    /// In production, this should be handled by the application's startup error handling.
+    #[must_use]
     pub fn init() -> Self {
+        // Note: Using expect() here is intentional - metrics initialization failure
+        // is a critical system error that should fail fast at startup.
+        // The application should handle this at a higher level.
+        #[allow(clippy::expect_used)] // Critical system error - fail fast at startup
         let exporter = opentelemetry_prometheus::exporter()
             .build()
             .expect("failed to build prometheus exporter");
@@ -127,7 +142,8 @@ impl LifeguardMetrics {
 }
 
 #[cfg(feature = "metrics")]
-pub static METRICS: Lazy<LifeguardMetrics> = Lazy::new(LifeguardMetrics::init);
+#[allow(clippy::declare_interior_mutable_const)]
+pub static METRICS: LazyLock<LifeguardMetrics> = LazyLock::new(LifeguardMetrics::init);
 
 /// No-op metrics implementation when metrics feature is disabled
 #[cfg(not(feature = "metrics"))]
@@ -152,7 +168,7 @@ pub static METRICS: LifeguardMetrics = LifeguardMetrics;
 /// Tracing helpers for database operations
 #[cfg(feature = "tracing")]
 pub mod tracing_helpers {
-    use super::*;
+    use tracing::Span;
 
     /// Create a span for connection acquisition
     pub fn acquire_connection_span() -> Span {

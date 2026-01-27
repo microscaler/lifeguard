@@ -35,6 +35,7 @@ use sea_query::Expr;
 /// let condition = Expr::col(("posts", "user_id"))
 ///     .equals(Expr::col(("users", "id")));
 /// ```
+#[must_use]
 pub fn join_condition(
     from_table: &str,
     from_column: &str,
@@ -47,8 +48,7 @@ pub fn join_condition(
     // Note: This creates a raw SQL string, so table/column names should be validated
     // to prevent SQL injection if user input is involved
     let condition = format!(
-        "{}.{} = {}.{}",
-        from_table, from_column, to_table, to_column
+        "{from_table}.{from_column} = {to_table}.{to_column}"
     );
     Expr::cust(condition)
 }
