@@ -39,7 +39,7 @@ fn main() {
             println!("cargo:warning=Generated entity registry at {:?}", registry_path);
         }
         Err(e) => {
-            println!("cargo:warning=Failed to generate registry: {}", e);
+            panic!("Failed to generate entity registry: {e}\nThis is a build error - the registry file is required for compilation.");
         }
     }
 }
