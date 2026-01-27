@@ -42,6 +42,15 @@ pub enum Identity {
     Many(Vec<DynIden>),
 }
 
+impl<'a> IntoIterator for &'a Identity {
+    type Item = &'a sea_query::DynIden;
+    type IntoIter = BorrowedIdentityIter<'a>;
+    
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl Identity {
     /// Get the arity (number of columns) for this identity
     ///
@@ -61,6 +70,7 @@ impl Identity {
     /// let identity2 = Identity::Binary(id_col.clone(), id_col.clone());
     /// assert_eq!(identity2.arity(), 2);
     /// ```
+    #[must_use]
     pub fn arity(&self) -> usize {
         match self {
             Self::Unary(_) => 1,
@@ -72,7 +82,10 @@ impl Identity {
 
     /// Iterate over column identifiers
     ///
-    /// Returns an iterator that yields references to each `DynIden` in this identity.
+    /// Returns an iterator that yields references to each `DynIden` in this `Identity`.
+    ///
+    /// Note: This is a custom iterator method. Consider implementing `IntoIterator` for `&Identity`
+    /// in the future to make this more idiomatic.
     ///
     /// # Example
     ///
@@ -86,6 +99,7 @@ impl Identity {
     /// let columns: Vec<&DynIden> = identity.iter().collect();
     /// assert_eq!(columns.len(), 2);
     /// ```
+    #[must_use]
     pub fn iter(&self) -> BorrowedIdentityIter<'_> {
         BorrowedIdentityIter {
             identity: self,
@@ -115,6 +129,7 @@ impl Identity {
     /// assert!(identity.contains(&id_col));
     /// assert!(identity.contains(&tenant_col));
     /// ```
+    #[must_use]
     pub fn contains(&self, col: &DynIden) -> bool {
         self.iter().any(|c| c == col)
     }
@@ -130,8 +145,9 @@ impl Identity {
     /// # Returns
     ///
     /// `true` if `self` contains all columns from `other`
+    #[must_use]
     pub fn fully_contains(&self, other: &Identity) -> bool {
-        for col in other.iter() {
+        for col in other {
             if !self.contains(col) {
                 return false;
             }
@@ -283,7 +299,7 @@ mod tests {
     #[test]
     fn test_identity_many_large() {
         // Edge case: Many variant with 5+ columns
-        let cols: Vec<DynIden> = (0..6).map(|i| format!("col_{}", i).into()).collect();
+        let cols: Vec<DynIden> = (0..6).map(|i| format!("col_{i}").into()).collect();
         let identity = Identity::Many(cols.clone());
         
         assert_eq!(identity.arity(), 6);

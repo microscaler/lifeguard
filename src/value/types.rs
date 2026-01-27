@@ -1,4 +1,4 @@
-//! ValueType trait for type-safe value conversions
+//! `ValueType` trait for type-safe value conversions
 //!
 //! The `ValueType` trait maps Rust types to their corresponding `sea_query::Value` variant.
 //! This enables type-safe conversions and better compile-time guarantees.
@@ -84,7 +84,6 @@ impl ValueType for i8 {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::TinyInt(Some(v)) => Some(v),
-            Value::TinyInt(None) => None,
             _ => None,
         }
     }
@@ -102,7 +101,6 @@ impl ValueType for i16 {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::SmallInt(Some(v)) => Some(v),
-            Value::SmallInt(None) => None,
             _ => None,
         }
     }
@@ -120,7 +118,6 @@ impl ValueType for i32 {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::Int(Some(v)) => Some(v),
-            Value::Int(None) => None,
             _ => None,
         }
     }
@@ -138,7 +135,6 @@ impl ValueType for i64 {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::BigInt(Some(v)) => Some(v),
-            Value::BigInt(None) => None,
             _ => None,
         }
     }
@@ -150,15 +146,17 @@ impl ValueType for i64 {
 
 impl ValueType for u8 {
     fn into_value(self) -> Value {
-        Value::SmallInt(Some(self as i16))
+        Value::SmallInt(Some(i16::from(self)))
     }
     
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::TinyUnsigned(Some(v)) => Some(v),
-            Value::TinyUnsigned(None) => None,
-            Value::SmallInt(Some(v)) if v >= 0 && v <= u8::MAX as i16 => Some(v as u8),
-            Value::SmallInt(None) => None,
+            #[allow(clippy::checked_conversions)] // Manual range check is explicit and safe
+            Value::SmallInt(Some(v)) if v >= 0 && v <= i16::from(u8::MAX) => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for range above
+                Some(v as u8)
+            }
             _ => None,
         }
     }
@@ -170,15 +168,17 @@ impl ValueType for u8 {
 
 impl ValueType for u16 {
     fn into_value(self) -> Value {
-        Value::Int(Some(self as i32))
+        Value::Int(Some(i32::from(self)))
     }
     
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::SmallUnsigned(Some(v)) => Some(v),
-            Value::SmallUnsigned(None) => None,
-            Value::Int(Some(v)) if v >= 0 && v <= u16::MAX as i32 => Some(v as u16),
-            Value::Int(None) => None,
+            #[allow(clippy::checked_conversions)] // Manual range check is explicit and safe
+            Value::Int(Some(v)) if v >= 0 && v <= i32::from(u16::MAX) => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for range above
+                Some(v as u16)
+            }
             _ => None,
         }
     }
@@ -190,15 +190,17 @@ impl ValueType for u16 {
 
 impl ValueType for u32 {
     fn into_value(self) -> Value {
-        Value::BigInt(Some(self as i64))
+        Value::BigInt(Some(i64::from(self)))
     }
     
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::Unsigned(Some(v)) => Some(v),
-            Value::Unsigned(None) => None,
-            Value::BigInt(Some(v)) if v >= 0 && v <= u32::MAX as i64 => Some(v as u32),
-            Value::BigInt(None) => None,
+            #[allow(clippy::checked_conversions)] // Manual range check is explicit and safe
+            Value::BigInt(Some(v)) if v >= 0 && v <= i64::from(u32::MAX) => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for range above
+                Some(v as u32)
+            }
             _ => None,
         }
     }
@@ -216,7 +218,6 @@ impl ValueType for u64 {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::BigUnsigned(Some(v)) => Some(v),
-            Value::BigUnsigned(None) => None,
             _ => None,
         }
     }
@@ -234,7 +235,6 @@ impl ValueType for f32 {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::Float(Some(v)) => Some(v),
-            Value::Float(None) => None,
             _ => None,
         }
     }
@@ -252,7 +252,6 @@ impl ValueType for f64 {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::Double(Some(v)) => Some(v),
-            Value::Double(None) => None,
             _ => None,
         }
     }
@@ -270,7 +269,6 @@ impl ValueType for bool {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::Bool(Some(v)) => Some(v),
-            Value::Bool(None) => None,
             _ => None,
         }
     }
@@ -288,7 +286,6 @@ impl ValueType for String {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::String(Some(v)) => Some(v),
-            Value::String(None) => None,
             _ => None,
         }
     }
@@ -306,7 +303,6 @@ impl ValueType for Vec<u8> {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::Bytes(Some(v)) => Some(v),
-            Value::Bytes(None) => None,
             _ => None,
         }
     }
@@ -324,7 +320,6 @@ impl ValueType for serde_json::Value {
     fn from_value(value: Value) -> Option<Self> {
         match value {
             Value::Json(Some(v)) => Some(*v),
-            Value::Json(None) => None,
             _ => None,
         }
     }
@@ -372,6 +367,7 @@ impl<T: ValueType> ValueType for Option<T> {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
     
@@ -508,6 +504,7 @@ mod tests {
     // Floating point tests
     
     #[test]
+    #[allow(clippy::map_unwrap_or)] // Test code - map().unwrap_or() pattern is acceptable
     fn test_f32_value_type() {
         let value = 3.14f32.into_value();
         assert!(matches!(value, Value::Float(Some(v)) if (v - 3.14).abs() < f32::EPSILON));
@@ -520,6 +517,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::map_unwrap_or)] // Test code - map().unwrap_or() pattern is acceptable
     fn test_f64_value_type() {
         let value = 3.14f64.into_value();
         assert!(matches!(value, Value::Double(Some(v)) if (v - 3.14).abs() < f64::EPSILON));
@@ -717,6 +715,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::map_unwrap_or)] // Test code - map().unwrap_or() pattern is acceptable
     fn test_f32_special_values() {
         // Test NaN
         let nan = f32::NAN.into_value();
@@ -730,6 +729,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::map_unwrap_or)] // Test code - map().unwrap_or() pattern is acceptable
     fn test_f64_special_values() {
         // Test NaN
         let nan = f64::NAN.into_value();

@@ -54,7 +54,7 @@ pub fn extract_column_name(field: &Field) -> Option<String> {
 }
 
 /// Extract model name from struct attributes
-/// Used by DeriveEntity to know which Model type to reference in EntityTrait
+/// Used by `DeriveEntity` to know which Model type to reference in `EntityTrait`
 pub fn extract_model_name(attrs: &[Attribute]) -> Option<syn::Ident> {
     for attr in attrs {
         if attr.path().is_ident("model") {
@@ -73,7 +73,7 @@ pub fn extract_model_name(attrs: &[Attribute]) -> Option<syn::Ident> {
 }
 
 /// Extract column enum name from struct attributes
-/// Used by DeriveEntity to know which Column enum type to reference in EntityTrait
+/// Used by `DeriveEntity` to know which Column enum type to reference in `EntityTrait`
 pub fn extract_column_enum_name(attrs: &[Attribute]) -> Option<syn::Ident> {
     for attr in attrs {
         if attr.path().is_ident("column") {
@@ -101,6 +101,8 @@ pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
 /// This struct is a placeholder for future functionality that will support
 /// additional column attributes like unique, indexed, nullable, etc.
 #[allow(dead_code)]
+#[derive(Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ColumnAttributes {
     pub is_primary_key: bool,
     pub column_name: Option<String>,
@@ -117,35 +119,12 @@ pub struct ColumnAttributes {
     pub select_as: Option<String>,
     pub save_as: Option<String>,
     pub comment: Option<String>,
-    /// Foreign key constraint (e.g., "chart_of_accounts(id) ON DELETE SET NULL")
+    /// Foreign key constraint (e.g., "`chart_of_accounts(id)` ON DELETE SET NULL")
     pub foreign_key: Option<String>,
     /// CHECK constraint expression (column-level)
     pub check: Option<String>,
 }
 
-impl Default for ColumnAttributes {
-    fn default() -> Self {
-        Self {
-            is_primary_key: false,
-            column_name: None,
-            column_type: None,
-            default_value: None,
-            default_expr: None,
-            renamed_from: None,
-            is_unique: false,
-            is_indexed: false,
-            is_nullable: false,
-            is_auto_increment: false,
-            enum_name: None,
-            is_ignored: false,
-            select_as: None,
-            save_as: None,
-            comment: None,
-            foreign_key: None,
-            check: None,
-        }
-    }
-}
 
 /// Parse all column attributes from a field
 /// 
@@ -154,7 +133,8 @@ impl Default for ColumnAttributes {
 /// `ColumnTrait::def()` implementations.
 /// 
 /// Returns an error if invalid attribute values are found (e.g., empty strings
-/// in select_as or save_as attributes).
+/// in `select_as` or `save_as` attributes).
+#[allow(clippy::too_many_lines)]
 pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::Error> {
     let mut attrs = ColumnAttributes::default();
     
@@ -244,6 +224,7 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                         ));
                     }
                     // Validate expression length to prevent memory issues with get_static_expr() caching
+                    #[allow(clippy::items_after_statements)]
                     const MAX_EXPR_LENGTH: usize = 64 * 1024; // 64KB
                     if value.len() > MAX_EXPR_LENGTH {
                         return Err(syn::Error::new_spanned(
@@ -271,6 +252,7 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                         ));
                     }
                     // Validate expression length to prevent memory issues with get_static_expr() caching
+                    #[allow(clippy::items_after_statements)]
                     const MAX_EXPR_LENGTH: usize = 64 * 1024; // 64KB
                     if value.len() > MAX_EXPR_LENGTH {
                         return Err(syn::Error::new_spanned(
@@ -324,19 +306,23 @@ pub struct TableAttributes {
     pub table_comment: Option<String>,
     /// Composite unique constraints (each entry is a vector of column names)
     pub composite_unique: Vec<Vec<String>>,
-    /// Index definitions (name, columns, unique, partial_where)
+    /// Index definitions (name, columns, unique, `partial_where`)
     pub indexes: Vec<(String, Vec<String>, bool, Option<String>)>,
     /// Table-level CHECK constraints
-    /// Each entry is a tuple of (constraint_name, expression)
-    /// If constraint_name is None, a default name will be generated from the table name
+    /// Each entry is a tuple of (`constraint_name`, expression)
+    /// If `constraint_name` is None, a default name will be generated from the table name
     pub check_constraints: Vec<(Option<String>, String)>,
-    /// Skip FromRow generation (useful for SQL generation when types don't implement FromSql)
+    /// Skip `FromRow` generation (useful for SQL generation when types don't implement `FromSql`)
     pub skip_from_row: bool,
 }
 
 /// Parse table-level attributes from struct attributes
+/// 
+/// # Parameters
+/// * `attrs` - Struct attributes to parse
+/// * `valid_columns` - Set of valid column names that exist on the struct (for validation)
 #[allow(dead_code)] // Used by macro expansion
-pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, syn::Error> {
+pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collections::HashSet<String>) -> Result<TableAttributes, syn::Error> {
     let mut table_attrs = TableAttributes::default();
     
     for attr in attrs {
@@ -364,6 +350,17 @@ pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, sy
                         .map(|col| col.trim().to_string())
                         .filter(|col| !col.is_empty())
                         .collect();
+                    // Validate that all columns exist
+                    for col in &columns {
+                        if !valid_columns.contains(col) {
+                            return Err(syn::Error::new_spanned(
+                                attr,
+                                format!("Column '{}' in composite_unique does not exist on this struct. Available columns: {}", 
+                                    col, 
+                                    valid_columns.iter().map(String::as_str).collect::<Vec<_>>().join(", "))
+                            ));
+                        }
+                    }
                     if !columns.is_empty() {
                         table_attrs.composite_unique.push(columns);
                     }
@@ -378,7 +375,20 @@ pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, sy
                     ..
                 }) = &meta.value {
                     let index_def = parse_index_definition(&s.value())?;
-                    table_attrs.indexes.push(index_def);
+                    // Validate that all columns in the index exist
+                    let (name, columns, unique, where_clause) = index_def;
+                    for col in &columns {
+                        if !valid_columns.contains(col) {
+                            return Err(syn::Error::new_spanned(
+                                attr,
+                                format!("Column '{}' in index '{}' does not exist on this struct. Available columns: {}", 
+                                    col, 
+                                    name,
+                                    valid_columns.iter().map(String::as_str).collect::<Vec<_>>().join(", "))
+                            ));
+                        }
+                    }
+                    table_attrs.indexes.push((name, columns, unique, where_clause));
                 }
             }
         } else if attr.path().is_ident("check") {
@@ -415,17 +425,17 @@ pub fn parse_table_attributes(attrs: &[Attribute]) -> Result<TableAttributes, sy
 }
 
 /// Parse index definition string
-/// Format: "idx_name(col1, col2) WHERE col1 IS NOT NULL"
-/// Returns: (name, columns, unique, partial_where)
+/// Format: "`idx_name(col1`, col2) WHERE col1 IS NOT NULL"
+/// Returns: (name, columns, unique, `partial_where`)
 #[allow(dead_code)] // Used by parse_table_attributes
 fn parse_index_definition(def: &str) -> Result<(String, Vec<String>, bool, Option<String>), syn::Error> {
     let def = def.trim();
     let mut unique = false;
     
     // Check for UNIQUE prefix
-    let def = if def.starts_with("UNIQUE ") {
+    let def = if let Some(stripped) = def.strip_prefix("UNIQUE ") {
         unique = true;
-        &def[7..]
+        stripped
     } else {
         def
     };
@@ -445,7 +455,7 @@ fn parse_index_definition(def: &str) -> Result<(String, Vec<String>, bool, Optio
         let columns_str = &index_part[pos + 1..];
         let columns_str = columns_str.strip_suffix(')')
             .ok_or_else(|| syn::Error::new_spanned(
-                &def,
+                def,
                 "Invalid index definition: missing closing parenthesis"
             ))?;
         

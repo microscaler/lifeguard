@@ -40,17 +40,19 @@ rust_decimal = "1.33"
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
 # Path manipulation for relative paths
 pathdiff = "0.2"
+# Regex for pattern matching
+regex = "1.10"
 # Lifeguard derive (needed for entities)
 lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
 # Postgres driver (needed for macro expansion - FromRow uses may_postgres::Row)
-may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
 
 [dev-dependencies]
 # Temporary directory for tests
 tempfile = "3.10"
 # For testing with entities
 lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
-may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
 serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

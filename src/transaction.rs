@@ -1,9 +1,9 @@
 //! Transaction Module - Epic 01 Story 06
 //!
-//! Provides transaction support for Lifeguard, replicating SeaORM's transaction API.
+//! Provides transaction support for Lifeguard, replicating `SeaORM`'s transaction API.
 //!
 //! This module provides:
-//! - Transaction type that implements LifeExecutor
+//! - `Transaction` type that implements `LifeExecutor`
 //! - Transaction isolation levels
 //! - Nested transaction support (savepoints)
 //! - Commit/rollback operations
@@ -22,7 +22,7 @@ use crate::metrics::tracing_helpers;
 /// Transaction isolation level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsolationLevel {
-    /// Read uncommitted (not supported by PostgreSQL, maps to ReadCommitted)
+    /// Read uncommitted (not supported by `PostgreSQL`, maps to `ReadCommitted`)
     ReadUncommitted,
     /// Read committed (default)
     ReadCommitted,
@@ -33,8 +33,9 @@ pub enum IsolationLevel {
 }
 
 impl IsolationLevel {
-    /// Convert to PostgreSQL SQL syntax
-    fn to_sql(&self) -> &'static str {
+    /// Convert to `PostgreSQL` SQL syntax
+    #[allow(clippy::wrong_self_convention)]
+    fn to_sql(self) -> &'static str {
         match self {
             IsolationLevel::ReadUncommitted => "READ UNCOMMITTED",
             IsolationLevel::ReadCommitted => "READ COMMITTED",
@@ -47,7 +48,7 @@ impl IsolationLevel {
 /// Transaction error type
 #[derive(Debug)]
 pub enum TransactionError {
-    /// PostgreSQL error from may_postgres
+    /// `PostgreSQL` error from `may_postgres`
     PostgresError(PostgresError),
     /// Transaction already committed or rolled back
     TransactionClosed,
@@ -61,16 +62,16 @@ impl fmt::Display for TransactionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TransactionError::PostgresError(e) => {
-                write!(f, "PostgreSQL error: {}", e)
+                write!(f, "PostgreSQL error: {e}")
             }
             TransactionError::TransactionClosed => {
                 write!(f, "Transaction has already been committed or rolled back")
             }
             TransactionError::NestedTransactionError(s) => {
-                write!(f, "Nested transaction error: {}", s)
+                write!(f, "Nested transaction error: {s}")
             }
             TransactionError::Other(s) => {
-                write!(f, "Transaction error: {}", s)
+                write!(f, "Transaction error: {s}")
             }
         }
     }
@@ -89,8 +90,7 @@ impl From<TransactionError> for LifeError {
         match err {
             TransactionError::PostgresError(e) => LifeError::PostgresError(e),
             TransactionError::TransactionClosed => LifeError::Other("Transaction closed".to_string()),
-            TransactionError::NestedTransactionError(s) => LifeError::Other(s),
-            TransactionError::Other(s) => LifeError::Other(s),
+            TransactionError::NestedTransactionError(s) | TransactionError::Other(s) => LifeError::Other(s),
         }
     }
 }
@@ -133,7 +133,7 @@ pub struct Transaction {
 impl Transaction {
     /// Create a new transaction from a client
     ///
-    /// This starts a new transaction with the default isolation level (ReadCommitted).
+    /// This starts a new transaction with the default isolation level (`ReadCommitted`).
     /// For custom isolation levels, use `begin_with_isolation()`.
     pub(crate) fn new(client: Client) -> Result<Self, TransactionError> {
         Self::new_with_isolation(client, IsolationLevel::ReadCommitted)
@@ -167,7 +167,7 @@ impl Transaction {
 
     /// Start a nested transaction (savepoint)
     ///
-    /// Nested transactions are implemented using PostgreSQL savepoints.
+    /// Nested transactions are implemented using `PostgreSQL` savepoints.
     /// Each nested transaction creates a new savepoint that can be rolled back
     /// independently while keeping the outer transaction intact.
     ///
@@ -195,13 +195,19 @@ impl Transaction {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `TransactionError` if:
+    /// - The transaction is already closed
+    /// - The savepoint creation fails
     pub fn begin_nested(&mut self) -> Result<Transaction, TransactionError> {
         if self.closed {
             return Err(TransactionError::TransactionClosed);
         }
 
         let savepoint_name = format!("sp_{}", self.depth + 1);
-        let savepoint_sql = format!("SAVEPOINT {}", savepoint_name);
+        let savepoint_sql = format!("SAVEPOINT {savepoint_name}");
         self.client.execute(savepoint_sql.as_str(), &[])
             .map_err(TransactionError::from)?;
 
@@ -235,7 +241,7 @@ impl Transaction {
         } else {
             // Nested transaction: release savepoint
             let savepoint_name = format!("sp_{}", self.depth);
-            let release_sql = format!("RELEASE SAVEPOINT {}", savepoint_name);
+            let release_sql = format!("RELEASE SAVEPOINT {savepoint_name}");
             self.client.execute(release_sql.as_str(), &[])
                 .map_err(TransactionError::from)?;
         }
@@ -267,7 +273,7 @@ impl Transaction {
         } else {
             // Nested transaction: rollback to savepoint
             let savepoint_name = format!("sp_{}", self.depth);
-            let rollback_sql = format!("ROLLBACK TO SAVEPOINT {}", savepoint_name);
+            let rollback_sql = format!("ROLLBACK TO SAVEPOINT {savepoint_name}");
             self.client.execute(rollback_sql.as_str(), &[])
                 .map_err(TransactionError::from)?;
         }

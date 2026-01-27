@@ -39,7 +39,8 @@ pub struct PendingMigration {
 }
 
 impl MigrationStatus {
-    /// Create a new MigrationStatus
+    /// Create a new `MigrationStatus`
+    #[must_use]
     pub fn new(
         applied: Vec<MigrationRecord>,
         pending: Vec<PendingMigration>,
@@ -58,11 +59,13 @@ impl MigrationStatus {
     }
     
     /// Check if all migrations are applied
+    #[must_use]
     pub fn is_up_to_date(&self) -> bool {
         self.pending_count == 0
     }
     
     /// Get the latest applied migration version
+    #[must_use]
     pub fn latest_applied_version(&self) -> Option<i64> {
         self.applied.iter()
             .map(|m| m.version)
@@ -70,6 +73,7 @@ impl MigrationStatus {
     }
     
     /// Get the next pending migration version
+    #[must_use]
     pub fn next_pending_version(&self) -> Option<i64> {
         self.pending.first()
             .map(|m| m.version)

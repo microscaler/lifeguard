@@ -1,4 +1,4 @@
-//! TryGetable and TryGetableMany traits for safe value extraction
+//! `TryGetable` and `TryGetableMany` traits for safe value extraction
 //!
 //! These traits provide safe, error-aware extraction of values from `sea_query::Value`
 //! with proper error handling and type checking.
@@ -25,10 +25,10 @@ impl std::fmt::Display for ValueExtractionError {
         match self {
             ValueExtractionError::NullValue => write!(f, "Value is null"),
             ValueExtractionError::TypeMismatch { expected, actual } => {
-                write!(f, "Type mismatch: expected {}, got {}", expected, actual)
+                write!(f, "Type mismatch: expected {expected}, got {actual}")
             }
             ValueExtractionError::ConversionError(msg) => {
-                write!(f, "Conversion error: {}", msg)
+                write!(f, "Conversion error: {msg}")
             }
         }
     }
@@ -64,6 +64,12 @@ pub trait TryGetable: ValueType {
     /// - `Err(ValueExtractionError::NullValue)` if the value is null
     /// - `Err(ValueExtractionError::TypeMismatch)` if the value type doesn't match
     /// - `Err(ValueExtractionError::ConversionError)` if conversion fails (e.g., overflow)
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValueExtractionError::NullValue` if the value is null.
+    /// Returns `ValueExtractionError::TypeMismatch` if the value type doesn't match the expected type.
+    /// Returns `ValueExtractionError::ConversionError` if conversion fails (e.g., overflow, negative value for unsigned type).
     fn try_get(value: Value) -> Result<Self, ValueExtractionError>;
     
     /// Try to extract a value, allowing null values to return `None`.
@@ -72,6 +78,11 @@ pub trait TryGetable: ValueType {
     /// - `Ok(Some(T))` if the value matches and is not null
     /// - `Ok(None)` if the value is null
     /// - `Err(...)` if the value type doesn't match or conversion fails
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValueExtractionError::TypeMismatch` if the value type doesn't match the expected type.
+    /// Returns `ValueExtractionError::ConversionError` if conversion fails (e.g., overflow, negative value for unsigned type).
     fn try_get_opt(value: Value) -> Result<Option<Self>, ValueExtractionError> {
         match Self::try_get(value) {
             Ok(v) => Ok(Some(v)),
@@ -115,14 +126,15 @@ impl TryGetable for u8 {
     fn try_get(value: Value) -> Result<Self, ValueExtractionError> {
         match value {
             Value::TinyUnsigned(Some(v)) => Ok(v),
-            Value::TinyUnsigned(None) => Err(ValueExtractionError::NullValue),
-            Value::SmallInt(Some(v)) if v >= 0 && v <= u8::MAX as i16 => {
+            Value::TinyUnsigned(None) | Value::SmallInt(None) => Err(ValueExtractionError::NullValue),
+            #[allow(clippy::checked_conversions)] // Manual range check is explicit and safe
+            Value::SmallInt(Some(v)) if v >= 0 && v <= i16::from(u8::MAX) => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for range above
                 Ok(v as u8)
             }
             Value::SmallInt(Some(v)) if v < 0 => {
                 Err(ValueExtractionError::ConversionError(format!(
-                    "Cannot convert negative value {} to u8",
-                    v
+                    "Cannot convert negative value {v} to u8"
                 )))
             }
             Value::SmallInt(Some(v)) => {
@@ -131,10 +143,9 @@ impl TryGetable for u8 {
                     v, u8::MAX
                 )))
             }
-            Value::SmallInt(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
                 expected: "TinyUnsigned or SmallInt".to_string(),
-                actual: format!("{:?}", value),
+                actual: format!("{value:?}"),
             }),
         }
     }
@@ -144,14 +155,15 @@ impl TryGetable for u16 {
     fn try_get(value: Value) -> Result<Self, ValueExtractionError> {
         match value {
             Value::SmallUnsigned(Some(v)) => Ok(v),
-            Value::SmallUnsigned(None) => Err(ValueExtractionError::NullValue),
-            Value::Int(Some(v)) if v >= 0 && v <= u16::MAX as i32 => {
+            Value::SmallUnsigned(None) | Value::Int(None) => Err(ValueExtractionError::NullValue),
+            #[allow(clippy::checked_conversions)] // Manual range check is explicit and safe
+            Value::Int(Some(v)) if v >= 0 && v <= i32::from(u16::MAX) => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for range above
                 Ok(v as u16)
             }
             Value::Int(Some(v)) if v < 0 => {
                 Err(ValueExtractionError::ConversionError(format!(
-                    "Cannot convert negative value {} to u16",
-                    v
+                    "Cannot convert negative value {v} to u16"
                 )))
             }
             Value::Int(Some(v)) => {
@@ -160,10 +172,9 @@ impl TryGetable for u16 {
                     v, u16::MAX
                 )))
             }
-            Value::Int(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
                 expected: "SmallUnsigned or Int".to_string(),
-                actual: format!("{:?}", value),
+                actual: format!("{value:?}"),
             }),
         }
     }
@@ -173,14 +184,15 @@ impl TryGetable for u32 {
     fn try_get(value: Value) -> Result<Self, ValueExtractionError> {
         match value {
             Value::Unsigned(Some(v)) => Ok(v),
-            Value::Unsigned(None) => Err(ValueExtractionError::NullValue),
-            Value::BigInt(Some(v)) if v >= 0 && v <= u32::MAX as i64 => {
+            Value::Unsigned(None) | Value::BigInt(None) => Err(ValueExtractionError::NullValue),
+            #[allow(clippy::checked_conversions)] // Manual range check is explicit and safe
+            Value::BigInt(Some(v)) if v >= 0 && v <= i64::from(u32::MAX) => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for range above
                 Ok(v as u32)
             }
             Value::BigInt(Some(v)) if v < 0 => {
                 Err(ValueExtractionError::ConversionError(format!(
-                    "Cannot convert negative value {} to u32",
-                    v
+                    "Cannot convert negative value {v} to u32"
                 )))
             }
             Value::BigInt(Some(v)) => {
@@ -189,10 +201,9 @@ impl TryGetable for u32 {
                     v, u32::MAX
                 )))
             }
-            Value::BigInt(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
                 expected: "Unsigned or BigInt".to_string(),
-                actual: format!("{:?}", value),
+                actual: format!("{value:?}"),
             }),
         }
     }
@@ -205,7 +216,7 @@ impl TryGetable for u64 {
             Value::BigUnsigned(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
                 expected: "BigUnsigned".to_string(),
-                actual: format!("{:?}", value),
+                actual: format!("{value:?}"),
             }),
         }
     }
@@ -218,7 +229,7 @@ impl TryGetable for serde_json::Value {
             Value::Json(None) => Err(ValueExtractionError::NullValue),
             _ => Err(ValueExtractionError::TypeMismatch {
                 expected: "Json".to_string(),
-                actual: format!("{:?}", value),
+                actual: format!("{value:?}"),
             }),
         }
     }
@@ -265,6 +276,11 @@ pub trait TryGetableMany: TryGetable {
     /// Returns:
     /// - `Ok(Vec<T>)` if all values can be extracted successfully
     /// - `Err(ValueExtractionError)` if any value fails to extract
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValueExtractionError` if any value in the collection fails to extract.
+    /// The error is the same as returned by `try_get()` for the failing value.
     fn try_get_many<I>(values: I) -> Result<Vec<Self>, ValueExtractionError>
     where
         I: IntoIterator<Item = Value>,
@@ -277,6 +293,11 @@ pub trait TryGetableMany: TryGetable {
     }
     
     /// Try to extract multiple optional values from a collection.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValueExtractionError` if any non-null value in the collection fails to extract.
+    /// Null values are converted to `None` and do not cause errors.
     ///
     /// Returns `Ok(Vec<Option<T>>)` where `None` entries represent null values.
     fn try_get_many_opt<I>(values: I) -> Result<Vec<Option<Self>>, ValueExtractionError>
@@ -295,6 +316,7 @@ pub trait TryGetableMany: TryGetable {
 impl<T: TryGetable> TryGetableMany for T {}
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
     
@@ -383,6 +405,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_try_get_u8_negative() {
         let value = Value::SmallInt(Some(-1i16));
         let result: Result<u8, _> = TryGetable::try_get(value);
@@ -417,6 +440,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_try_get_u16_negative() {
         let value = Value::Int(Some(-1i32));
         let result: Result<u16, _> = TryGetable::try_get(value);
@@ -445,12 +469,13 @@ mod tests {
     
     #[test]
     fn test_try_get_u32_overflow() {
-        let value = Value::BigInt(Some(4294967296i64)); // > u32::MAX
+        let value = Value::BigInt(Some(4_294_967_296_i64)); // > u32::MAX
         let result: Result<u32, _> = TryGetable::try_get(value);
         assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
     }
     
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_try_get_u32_negative() {
         let value = Value::BigInt(Some(-1i64));
         let result: Result<u32, _> = TryGetable::try_get(value);
@@ -473,6 +498,7 @@ mod tests {
     // Floating point tests
     
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_try_get_f32() {
         let value = Value::Float(Some(3.14f32));
         let result: Result<f32, _> = TryGetable::try_get(value);
@@ -480,6 +506,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
     fn test_try_get_f64() {
         let value = Value::Double(Some(3.14f64));
         let result: Result<f64, _> = TryGetable::try_get(value);
@@ -618,6 +645,7 @@ mod tests {
     // Error message tests
     
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_error_message_null_value() {
         let value = Value::Int(None);
         let result: Result<i32, _> = TryGetable::try_get(value);
@@ -632,6 +660,7 @@ mod tests {
     }
     
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_error_message_type_mismatch() {
         let value = Value::String(Some("hello".to_string()));
         let result: Result<i32, _> = TryGetable::try_get(value);

@@ -9,10 +9,10 @@ mod utils;
 
 use proc_macro::TokenStream;
 
-/// Derive macro for `Entity` - generates Entity unit struct, EntityName, Iden, IdenStatic
+/// Derive macro for `Entity` - generates Entity unit struct, `EntityName`, `Iden`, `IdenStatic`
 ///
-/// This macro generates the Entity unit struct and implements LifeEntityName, Iden, and IdenStatic.
-/// Following SeaORM's architecture, this is a separate derive from Model.
+/// This macro generates the Entity unit struct and implements `LifeEntityName`, `Iden`, and `IdenStatic`.
+/// Following `SeaORM`'s architecture, this is a separate derive from Model.
 ///
 /// Note: This macro is typically used internally by `LifeModel`. See `LifeModel` for usage examples.
 #[proc_macro_derive(DeriveEntity, attributes(table_name, model, column, schema_name))]
@@ -20,7 +20,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     macros::derive_entity(input)
 }
 
-/// Derive macro for `FromRow` - generates FromRow trait implementation
+/// Derive macro for `FromRow` - generates `FromRow` trait implementation
 ///
 /// This macro generates the `FromRow` implementation for converting
 /// `may_postgres::Row` into a Model struct. It's separate from `LifeModel`
@@ -30,18 +30,18 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 /// so this derive is typically not needed unless you're using a custom Model.
 #[proc_macro_derive(FromRow, attributes(column_name))]
 pub fn derive_from_row(input: TokenStream) -> TokenStream {
-    macros::derive_from_row(input).into()
+    macros::derive_from_row(input)
 }
 
 /// Derive macro for `LifeModel` - generates immutable database row representation
 ///
 /// This macro generates:
-/// - `Entity` unit struct (with nested `DeriveEntity` for LifeModelTrait)
+/// - `Entity` unit struct (with nested `DeriveEntity` for `LifeModelTrait`)
 /// - `Model` struct (immutable row representation)
 /// - `Column` enum (all columns)
 /// - `PrimaryKey` enum (primary key columns)
 /// - `FromRow` implementation (automatic)
-/// - `LifeModelTrait` implementation (via nested DeriveEntity)
+/// - `LifeModelTrait` implementation (via nested `DeriveEntity`)
 ///
 /// See `lifeguard-derive/tests/test_minimal.rs` for usage examples.
 #[proc_macro_derive(LifeModel, attributes(table_name, schema_name, primary_key, column_name, column_type, default_value, default_expr, renamed_from, select_as, save_as, comment, unique, indexed, nullable, auto_increment, enum_name, skip, table_comment, index, foreign_key, check, composite_unique, skip_from_row))]
@@ -53,8 +53,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 ///
 /// This macro generates:
 /// - `Record` struct (mutable change-set with Option<T> fields)
-/// - `from_model()` method (create from LifeModel for updates)
-/// - `to_model()` method (convert to LifeModel, None fields use defaults)
+/// - `from_model()` method (create from `LifeModel` for updates)
+/// - `to_model()` method (convert to `LifeModel`, None fields use defaults)
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
@@ -67,7 +67,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 ///
 /// This macro generates:
 /// - Related trait implementations for each relationship variant in the Relation enum
-/// - Query builders using SelectQuery for each relationship
+/// - Query builders using `SelectQuery` for each relationship
 ///
 /// # Example
 ///
@@ -126,11 +126,11 @@ pub fn derive_linked(input: TokenStream) -> TokenStream {
     macros::derive_linked(input)
 }
 
-/// Derive macro for `DerivePartialModel` - generates PartialModelTrait and FromRow implementations
+/// Derive macro for `DerivePartialModel` - generates `PartialModelTrait` and `FromRow` implementations
 ///
 /// This macro generates:
-/// - PartialModelTrait implementation with selected_columns() method
-/// - FromRow implementation for converting database rows to partial models
+/// - `PartialModelTrait` implementation with `selected_columns()` method
+/// - `FromRow` implementation for converting database rows to partial models
 ///
 /// # Example
 ///
@@ -154,7 +154,7 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
     macros::derive_partial_model(input)
 }
 
-/// Derive macro for `DeriveTryIntoModel` - generates TryIntoModel trait implementations
+/// Derive macro for `DeriveTryIntoModel` - generates `TryIntoModel` trait implementations
 ///
 /// This macro generates `TryIntoModel` implementations for converting custom types (DTOs, partial models, etc.)
 /// into Model instances with proper error handling.

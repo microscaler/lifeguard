@@ -1,4 +1,4 @@
-//! LifeExecutor Module - Epic 01 Story 03
+//! `LifeExecutor` Module - Epic 01 Story 03
 //!
 //! Provides the `LifeExecutor` trait that abstracts database execution over `may_postgres`.
 //!
@@ -16,10 +16,10 @@ use crate::metrics::METRICS;
 use crate::metrics::tracing_helpers;
 
 
-/// LifeExecutor error type
+/// `LifeExecutor` error type
 #[derive(Debug)]
 pub enum LifeError {
-    /// PostgreSQL error from may_postgres
+    /// `PostgreSQL` error from `may_postgres`
     PostgresError(PostgresError),
     /// Query execution error
     QueryError(String),
@@ -33,16 +33,16 @@ impl fmt::Display for LifeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LifeError::PostgresError(e) => {
-                write!(f, "PostgreSQL error: {}", e)
+                write!(f, "PostgreSQL error: {e}")
             }
             LifeError::QueryError(s) => {
-                write!(f, "Query error: {}", s)
+                write!(f, "Query error: {s}")
             }
             LifeError::ParseError(s) => {
-                write!(f, "Parse error: {}", s)
+                write!(f, "Parse error: {s}")
             }
             LifeError::Other(s) => {
-                write!(f, "Execution error: {}", s)
+                write!(f, "Execution error: {s}")
             }
         }
     }
@@ -97,6 +97,10 @@ pub trait LifeExecutor {
     ///
     /// Returns the number of rows affected (for INSERT, UPDATE, DELETE) or `Ok(0)` for other statements.
     ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution fails.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -120,6 +124,13 @@ pub trait LifeExecutor {
     /// Returns a single `Row`, or an error if no rows or multiple rows are returned.
     /// Extract values from the row using `.get(index)` or `.get(name)`.
     ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if:
+    /// - The query execution fails
+    /// - No rows are returned
+    /// - Multiple rows are returned
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -142,6 +153,10 @@ pub trait LifeExecutor {
     /// # Returns
     ///
     /// Returns a vector of all `Row` objects. Extract values from each row using `.get(index)` or `.get(name)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution fails.
     ///
     /// # Examples
     ///
@@ -181,8 +196,12 @@ impl MayPostgresExecutor {
 
     /// Start a new transaction
     ///
-    /// This begins a new transaction with the default isolation level (ReadCommitted).
+    /// This begins a new transaction with the default isolation level (`ReadCommitted`).
     /// The transaction must be committed or rolled back before the executor can be used again.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TransactionError` if the transaction cannot be started.
     ///
     /// # Examples
     ///
@@ -212,6 +231,10 @@ impl MayPostgresExecutor {
 
     /// Start a new transaction with a specific isolation level
     ///
+    /// # Errors
+    ///
+    /// Returns `TransactionError` if the transaction cannot be started.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -220,7 +243,7 @@ impl MayPostgresExecutor {
     ///
     /// # fn main() -> Result<(), LifeError> {
     /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
-    ///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+    ///     .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
     /// let executor = MayPostgresExecutor::new(client);
     ///
     /// // Start a serializable transaction
@@ -248,6 +271,10 @@ impl MayPostgresExecutor {
     /// Returns `Ok(true)` if the connection is healthy, `Ok(false)` if unhealthy,
     /// or an error if the health check itself fails.
     ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the health check query fails.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -255,28 +282,32 @@ impl MayPostgresExecutor {
     ///
     /// # fn main() -> Result<(), LifeError> {
     /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
-    ///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
+    ///     .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
     /// let executor = MayPostgresExecutor::new(client);
     ///
     /// match executor.check_health() {
     ///     Ok(true) => println!("Connection is healthy"),
     ///     Ok(false) => println!("Connection is unhealthy - may need reconnection"),
-    ///     Err(e) => println!("Health check failed: {}", e),
+    ///     Err(e) => println!("Health check failed: {e}"),
     /// }
     /// # Ok(())
     /// # }
     /// ```
     pub fn check_health(&self) -> Result<bool, LifeError> {
         crate::connection::check_connection_health(&self.client)
-            .map_err(|e| LifeError::Other(format!("Health check error: {}", e)))
+            .map_err(|e| LifeError::Other(format!("Health check error: {e}")))
     }
 
     /// Check connection health with timeout
     ///
     /// Similar to `check_health()`, but may timeout if the connection is unresponsive.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the health check query fails or times out.
     pub fn check_health_with_timeout(&self) -> Result<bool, LifeError> {
         crate::connection::check_connection_health_with_timeout(&self.client)
-            .map_err(|e| LifeError::Other(format!("Health check error: {}", e)))
+            .map_err(|e| LifeError::Other(format!("Health check error: {e}")))
     }
 }
 

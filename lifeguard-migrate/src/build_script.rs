@@ -6,6 +6,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::env;
+use regex;
 
 /// Entity information discovered from source files
 #[derive(Debug, Clone)]
@@ -14,6 +16,7 @@ pub struct EntityInfo {
     pub struct_name: String,
     pub file_path: PathBuf,
     pub module_path: String,
+    pub file_name: String, // File name without .rs extension (e.g., "chart_of_accounts")
 }
 
 /// Discover all entities in a source directory
@@ -44,9 +47,9 @@ fn discover_entities_recursive(
             }
             discover_entities_recursive(root_dir, &path, entities)?;
         } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            // Check if file contains #[derive(LifeModel)]
+            // Check if file contains #[derive(...LifeModel...)] in any pattern
             if let Ok(content) = fs::read_to_string(&path) {
-                if content.contains("#[derive(LifeModel)]") || content.contains("#[derive(LifeModel,") {
+                if contains_lifemodel_derive(&content) {
                     // Extract entity information
                     if let Some(entity_info) = extract_entity_info(&path, &content, root_dir)? {
                         entities.push(entity_info);
@@ -59,6 +62,42 @@ fn discover_entities_recursive(
     Ok(())
 }
 
+/// Check if content contains #[derive(...LifeModel...)] in any pattern
+///
+/// This function detects `LifeModel` in any position within a `#[derive(...)]` attribute,
+/// not just when it's the first derive. This fixes a bug where entities with patterns like
+/// `#[derive(Clone, LifeModel)]` or `#[derive(Debug, Serialize, LifeModel)]` were silently
+/// excluded from migration generation.
+///
+/// Handles cases like:
+/// - `#[derive(LifeModel)]`
+/// - `#[derive(LifeModel, Clone)]`
+/// - `#[derive(Clone, LifeModel)]`
+/// - `#[derive(Debug, Serialize, LifeModel)]`
+fn contains_lifemodel_derive(content: &str) -> bool {
+    // Use regex to match #[derive(...)] attributes and extract the content inside parentheses
+    // Pattern: #[derive(...)] where ... can contain LifeModel anywhere
+    let derive_pattern = regex::Regex::new(r#"#\[derive\(([^)]*)\)\]"#).unwrap();
+    
+    for line in content.lines() {
+        if let Some(captures) = derive_pattern.captures(line) {
+            // Extract just the content inside the parentheses (the derive list)
+            if let Some(derive_list) = captures.get(1) {
+                let derive_list_str = derive_list.as_str();
+                // Check if LifeModel appears in the derive list
+                // Look for "LifeModel" as a whole word (not part of another identifier)
+                // Pattern: LifeModel must be preceded by start, comma+space, or space
+                // and followed by comma, closing paren, or end
+                let lifemodel_pattern = regex::Regex::new(r#"(^|,\s*|\s+)LifeModel(\s*,\s*|\)|$)"#).unwrap();
+                if lifemodel_pattern.is_match(derive_list_str) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Extract entity information from a Rust source file
 ///
 /// Uses simple string parsing to find #[derive(LifeModel)] and extract basic info.
@@ -69,8 +108,8 @@ fn extract_entity_info(
     content: &str,
     root_dir: &Path,
 ) -> Result<Option<EntityInfo>, Box<dyn std::error::Error>> {
-    // Check if file contains #[derive(LifeModel)]
-    if !content.contains("#[derive(LifeModel)]") && !content.contains("#[derive(LifeModel,") {
+    // Check if file contains #[derive(...LifeModel...)] in any pattern
+    if !contains_lifemodel_derive(content) {
         return Ok(None);
     }
     
@@ -84,6 +123,13 @@ fn extract_entity_info(
     // Extract table name from #[table_name = "..."] attribute
     let table_name = extract_table_name_from_string(content)
         .unwrap_or_else(|| snake_case(&struct_name));
+    
+    // Extract file name without extension (e.g., "chart_of_accounts.rs" -> "chart_of_accounts")
+    let file_name = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
     
     // Calculate module path (relative to root_dir)
     let rel_path = file_path.strip_prefix(root_dir)
@@ -106,6 +152,7 @@ fn extract_entity_info(
         } else {
             format!("crate::{}", module_path)
         },
+        file_name,
     }))
 }
 
@@ -116,9 +163,9 @@ fn extract_struct_name(content: &str) -> Result<Option<String>, Box<dyn std::err
     let lines: Vec<&str> = content.lines().collect();
     
     for (i, line) in lines.iter().enumerate() {
-        if line.contains("#[derive(LifeModel)]") || line.contains("#[derive(LifeModel,") {
-            // Look ahead for struct definition (within next 10 lines)
-            for j in (i + 1)..(i + 10).min(lines.len()) {
+        if contains_lifemodel_derive(line) {
+            // Look ahead for struct definition (within next 25 lines to handle multiple attributes)
+            for j in (i + 1)..(i + 25).min(lines.len()) {
                 let struct_line = lines[j].trim();
                 if struct_line.starts_with("pub struct ") || struct_line.starts_with("struct ") {
                     // Extract struct name
@@ -180,12 +227,37 @@ fn snake_case(s: &str) -> String {
 /// This generates a registry module that includes all discovered entities.
 /// The registry uses `#[path = "..."]` to include entity files and provides
 /// functions to iterate over entities and generate SQL.
+///
+/// Note: The `#[path]` attribute paths are resolved relative to the file that contains them.
+/// Since the registry is in OUT_DIR, paths need to be relative to OUT_DIR, not the crate root.
+///
+/// When `entities` is empty, generates a minimal empty registry that can still be included
+/// in the crate without causing compilation errors.
 pub fn generate_registry_module(
     entities: &[EntityInfo],
     output_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Handle empty entities case - generate minimal empty registry
     if entities.is_empty() {
-        return Err("No entities found to generate registry".into());
+        let mut registry_content = String::from("// Auto-generated entity registry\n");
+        registry_content.push_str("// DO NOT EDIT - This file is generated by build script\n");
+        registry_content.push_str("// No entities found - empty registry\n\n");
+        registry_content.push_str("/// Entity metadata for registry iteration\n");
+        registry_content.push_str("pub struct EntityMetadata {\n");
+        registry_content.push_str("    pub table_name: &'static str,\n");
+        registry_content.push_str("    pub service_path: &'static str,\n");
+        registry_content.push_str("}\n\n");
+        registry_content.push_str("/// Get all entity metadata\n");
+        registry_content.push_str("pub fn all_entity_metadata() -> Vec<EntityMetadata> {\n");
+        registry_content.push_str("    vec![]\n");
+        registry_content.push_str("}\n\n");
+        registry_content.push_str("/// Generate SQL for all entities\n");
+        registry_content.push_str("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
+        registry_content.push_str("    Ok(vec![])\n");
+        registry_content.push_str("}\n");
+        
+        fs::write(output_path, registry_content)?;
+        return Ok(());
     }
     
     // Group entities by service path (directory structure)
@@ -224,128 +296,134 @@ pub fn generate_registry_module(
             .push(entity);
     }
     
-    // Calculate output directory for relative paths
-    let output_dir = output_path.parent()
-        .ok_or("Output path must have a parent directory")?;
+    // Find crate root using CARGO_MANIFEST_DIR (set by Cargo during build)
+    // If not available, try to find it by looking for Cargo.toml
+    let crate_root = match env::var("CARGO_MANIFEST_DIR") {
+        Ok(dir) => PathBuf::from(dir),
+        Err(_) => {
+            entities.first()
+                .and_then(|e| {
+                    // Find the crate root by looking for Cargo.toml
+                    let mut path = e.file_path.as_path();
+                    while let Some(parent) = path.parent() {
+                        if parent.join("Cargo.toml").exists() {
+                            return Some(parent.to_path_buf());
+                        }
+                        path = parent;
+                    }
+                    None
+                })
+                .ok_or_else(|| "Failed to find crate root (CARGO_MANIFEST_DIR not set and Cargo.toml not found)".to_string())?
+        }
+    };
     
     // Generate registry module content
-    let mut registry_content = String::from("//! Auto-generated entity registry\n");
-    registry_content.push_str("//! DO NOT EDIT - This file is generated by build script\n\n");
-    registry_content.push_str("use lifeguard::{LifeModelTrait, LifeEntityName};\n");
+    // Note: This content will be included in lib.rs as: pub mod entity_registry { include!(...); }
+    // So we don't wrap it in another mod declaration here
+    let mut registry_content = String::from("// Auto-generated entity registry\n");
+    registry_content.push_str("// DO NOT EDIT - This file is generated by build script\n\n");
+    
     registry_content.push_str("use lifeguard_migrate::sql_generator;\n\n");
     
-    registry_content.push_str("pub mod entity_registry {\n");
-    registry_content.push_str("    use super::*;\n\n");
-    
-    // Generate module includes for each entity
-    for (service_path, service_entities) in &entities_by_service {
-        // Create service module name (sanitize for Rust identifier)
-        let service_module = sanitize_module_name(service_path);
-        registry_content.push_str(&format!("    pub mod {} {{\n", service_module));
-        registry_content.push_str("        use super::*;\n\n");
-        
-        for entity in service_entities {
-            // Generate module name from struct name (snake_case)
-            let module_name = snake_case(&entity.struct_name);
-            
-            // Calculate relative path from output directory to entity file
-            // For build scripts, the registry is in OUT_DIR and entities are in src/
-            // We need to calculate relative path from OUT_DIR to the entity file
-            let relative_path = pathdiff::diff_paths(&entity.file_path, output_dir)
-                .ok_or_else(|| format!("Failed to calculate relative path from {:?} to {:?}", 
-                    output_dir, entity.file_path))?;
-            
-            // Convert to string with forward slashes (works on all platforms)
-            let path_str = relative_path.to_string_lossy().replace('\\', "/");
-            
-            registry_content.push_str(&format!(
-                "        #[path = r#\"{}\"#]\n",
-                path_str
-            ));
-            registry_content.push_str(&format!(
-                "        pub mod {};\n",
-                module_name
-            ));
-        }
-        
-        registry_content.push_str("    }\n\n");
-    }
-    
     // Generate entity metadata and iteration functions
-    registry_content.push_str("    /// Entity metadata for registry iteration\n");
-    registry_content.push_str("    pub struct EntityMetadata {\n");
-    registry_content.push_str("        pub table_name: &'static str,\n");
-    registry_content.push_str("        pub service_path: &'static str,\n");
-    registry_content.push_str("    }\n\n");
+    registry_content.push_str("/// Entity metadata for registry iteration\n");
+    registry_content.push_str("pub struct EntityMetadata {\n");
+    registry_content.push_str("    pub table_name: &'static str,\n");
+    registry_content.push_str("    pub service_path: &'static str,\n");
+    registry_content.push_str("}\n\n");
     
-    registry_content.push_str("    /// Get all entity metadata\n");
-    registry_content.push_str("    pub fn all_entity_metadata() -> Vec<EntityMetadata> {\n");
-    registry_content.push_str("        vec![\n");
+    registry_content.push_str("/// Get all entity metadata\n");
+    registry_content.push_str("pub fn all_entity_metadata() -> Vec<EntityMetadata> {\n");
+    registry_content.push_str("    vec![\n");
     
     for (service_path, service_entities) in &entities_by_service {
-        let service_module = sanitize_module_name(service_path);
         for entity in service_entities {
-            let module_name = snake_case(&entity.struct_name);
+            // Build module path from service_path and file name (which is the module name)
+            // e.g., "inventory" + "category" -> "crate::inventory::category"
+            // e.g., "accounting/general_ledger" + "chart_of_accounts" -> "crate::accounting::general_ledger::chart_of_accounts"
+            // Sanitize both service_path and file_name to handle hyphens and invalid characters
+            let module_path = if service_path == "default" || service_path.is_empty() {
+                format!("crate::{}", sanitize_module_segment(&entity.file_name))
+            } else {
+                // service_path is like "inventory" or "accounting/general_ledger" or "my-feature"
+                // Convert to module path: "inventory" -> "crate::inventory::category"
+                // Sanitize service_path (handles hyphens like "my-feature" -> "my_feature")
+                let service_mod = sanitize_service_path_to_module(service_path);
+                let file_name_sanitized = sanitize_module_segment(&entity.file_name);
+                format!("crate::{}::{}", service_mod, file_name_sanitized)
+            };
+            
             registry_content.push_str(&format!(
-                "            EntityMetadata {{\n"
+                "        EntityMetadata {{\n"
             ));
             registry_content.push_str(&format!(
-                "                table_name: {}::{}::Entity::TABLE_NAME,\n",
-                service_module, module_name
+                "            table_name: {}::Entity::TABLE_NAME,\n",
+                module_path
             ));
             registry_content.push_str(&format!(
-                "                service_path: r#\"{}\"#,\n",
+                "            service_path: r#\"{}\"#,\n",
                 service_path
             ));
-            registry_content.push_str("            },\n");
+            registry_content.push_str("        },\n");
         }
     }
     
-    registry_content.push_str("        ]\n");
-    registry_content.push_str("    }\n\n");
+    registry_content.push_str("    ]\n");
+    registry_content.push_str("}\n\n");
     
     // Generate function to generate SQL for all entities
-    registry_content.push_str("    /// Generate SQL for all entities\n");
-    registry_content.push_str("    pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
-    registry_content.push_str("        let mut results = Vec::new();\n\n");
+    registry_content.push_str("/// Generate SQL for all entities\n");
+    registry_content.push_str("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
+    registry_content.push_str("    let mut results = Vec::new();\n\n");
     
     for (service_path, service_entities) in &entities_by_service {
-        let service_module = sanitize_module_name(service_path);
         for entity in service_entities {
-            let module_name = snake_case(&entity.struct_name);
+            // Build module path from service_path and file name (which is the module name)
+            // e.g., "inventory" + "category" -> "crate::inventory::category"
+            // e.g., "accounting/general_ledger" + "chart_of_accounts" -> "crate::accounting::general_ledger::chart_of_accounts"
+            // Sanitize both service_path and file_name to handle hyphens and invalid characters
+            let module_path = if service_path == "default" || service_path.is_empty() {
+                format!("crate::{}", sanitize_module_segment(&entity.file_name))
+            } else {
+                // service_path is like "inventory" or "accounting/general_ledger" or "my-feature"
+                // Convert to module path: "inventory" -> "crate::inventory::category"
+                // Sanitize service_path (handles hyphens like "my-feature" -> "my_feature")
+                let service_mod = sanitize_service_path_to_module(service_path);
+                let file_name_sanitized = sanitize_module_segment(&entity.file_name);
+                format!("crate::{}::{}", service_mod, file_name_sanitized)
+            };
             let struct_name = &entity.struct_name;
             
             registry_content.push_str(&format!(
-                "        // Generate SQL for {}::{}::Entity\n",
-                service_module, module_name
+                "    // Generate SQL for {}::Entity\n",
+                module_path
             ));
             registry_content.push_str(&format!(
-                "        {{\n"
+                "    {{\n"
             ));
             registry_content.push_str(&format!(
-                "            use {}::{}::Entity;\n",
-                service_module, module_name
+                "        use {}::Entity;\n",
+                module_path
             ));
             registry_content.push_str(&format!(
-                "            let table_def = Entity::table_definition();\n"
+                "        let table_def = Entity::table_definition();\n"
             ));
             registry_content.push_str(&format!(
-                "            match sql_generator::generate_create_table_sql::<Entity>(table_def) {{\n"
+                "        match sql_generator::generate_create_table_sql::<Entity>(table_def) {{\n"
             ));
             registry_content.push_str(&format!(
-                "                Ok(sql) => results.push((Entity::TABLE_NAME.to_string(), sql)),\n"
+                "            Ok(sql) => results.push((Entity::TABLE_NAME.to_string(), sql)),\n"
             ));
             registry_content.push_str(&format!(
-                "                Err(e) => return Err(format!(\"Failed to generate SQL for {}: {{}}\", e)),\n",
+                "            Err(e) => return Err(format!(\"Failed to generate SQL for {}: {{}}\", e)),\n",
                 struct_name
             ));
-            registry_content.push_str("            }\n");
-            registry_content.push_str("        }\n\n");
+            registry_content.push_str("        }\n");
+            registry_content.push_str("    }\n\n");
         }
     }
     
-    registry_content.push_str("        Ok(results)\n");
-    registry_content.push_str("    }\n");
+    registry_content.push_str("    Ok(results)\n");
     registry_content.push_str("}\n");
     
     // Write registry module
@@ -362,4 +440,23 @@ fn sanitize_module_name(path: &str) -> String {
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect::<String>()
+}
+
+/// Sanitize a module path segment (identifier) to be valid Rust
+/// Converts hyphens to underscores and removes invalid characters
+fn sanitize_module_segment(segment: &str) -> String {
+    segment.replace("-", "_")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect::<String>()
+}
+
+/// Sanitize a service path to a valid Rust module path
+/// Converts "/" to "::" and sanitizes each segment
+fn sanitize_service_path_to_module(service_path: &str) -> String {
+    service_path
+        .split('/')
+        .map(|segment| sanitize_module_segment(segment))
+        .collect::<Vec<_>>()
+        .join("::")
 }

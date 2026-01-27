@@ -1,7 +1,7 @@
-//! Core traits for ActiveModel operations.
+//! Core traits for `ActiveModel` operations.
 //!
 //! This module provides `ActiveModelTrait` and `ActiveModelBehavior` for mutable
-//! model operations including field access, CRUD operations, and lifecycle hooks.
+//! model operations including field access, `CRUD` operations, and lifecycle hooks.
 
 use crate::executor::LifeExecutor;
 use crate::query::LifeModelTrait;
@@ -11,10 +11,10 @@ use super::value::ActiveValue;
 use sea_query::Value;
 use serde_json::Value as JsonValue;
 
-/// Trait for ActiveModel operations
+/// Trait for `ActiveModel` operations
 ///
 /// This trait provides methods for mutable model operations including field access,
-/// CRUD operations, and field management. It's similar to SeaORM's `ActiveModelTrait`
+/// `CRUD` operations, and field management. It's similar to `SeaORM`'s `ActiveModelTrait`
 /// but adapted for Lifeguard's `LifeRecord` architecture.
 ///
 /// # Example
@@ -34,15 +34,15 @@ use serde_json::Value as JsonValue;
 /// // }
 /// ```
 pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
-    /// The Entity type that this ActiveModel belongs to
+    /// The `Entity` type that this `ActiveModel` belongs to
     type Entity: LifeModelTrait;
     
-    /// The Model type that this ActiveModel can convert to
+    /// The `Model` type that this `ActiveModel` can convert to
     type Model: ModelTrait<Entity = Self::Entity>;
 
     /// Get the value of a column from the active model
     ///
-    /// Returns `Some(Value)` if the field is set, `None` if it's not set (for Option fields).
+    /// Returns `Some(Value)` if the field is set, `None` if it's not set (for `Option` fields).
     ///
     /// # Arguments
     ///
@@ -63,6 +63,10 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if the value cannot be set
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if the value cannot be set (e.g., type mismatch).
     fn set(
         &mut self,
         column: <Self::Entity as LifeModelTrait>::Column,
@@ -72,7 +76,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// Take (move) the value of a column from the active model
     ///
     /// This removes the value from the active model and returns it.
-    /// After calling `take()`, the field will be `None` (for Option fields).
+    /// After calling `take()`, the field will be `None` (for `Option` fields).
     ///
     /// # Arguments
     ///
@@ -83,7 +87,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// The column value as `Option<sea_query::Value>`, or `None` if the field was not set
     fn take(&mut self, column: <Self::Entity as LifeModelTrait>::Column) -> Option<Value>;
 
-    /// Reset all fields to their default state (None for Option fields)
+    /// Reset all fields to their default state (`None` for `Option` fields)
     ///
     /// This clears all field values, setting them back to their uninitialized state.
     fn reset(&mut self);
@@ -127,6 +131,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///     ActiveValue::Unset => println!("Value was never set"),
     /// }
     /// ```
+    #[allow(clippy::wrong_self_convention)]
     fn into_active_value(
         &self,
         column: <Self::Entity as LifeModelTrait>::Column,
@@ -156,7 +161,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
         }
     }
 
-    /// Insert the active model into the database
+    /// Insert the `ActiveModel` into the database
     ///
     /// # Arguments
     ///
@@ -166,15 +171,19 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// Returns the inserted model on success, or an error if the operation fails
     ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if the insert operation fails.
+    ///
     /// # Note
     ///
     /// This is a placeholder for future implementation. The actual implementation
-    /// will need to generate INSERT SQL and execute it via the executor.
+    /// will need to generate `INSERT` SQL and execute it via the executor.
     fn insert<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
         Err(ActiveModelError::Other("insert() not yet implemented".to_string()))
     }
 
-    /// Update the active model in the database
+    /// Update the `ActiveModel` in the database
     ///
     /// # Arguments
     ///
@@ -184,6 +193,10 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// Returns the updated model on success, or an error if the operation fails
     ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if the update operation fails.
+    ///
     /// # Note
     ///
     /// This requires a primary key to be set. Only dirty (changed) fields will be updated.
@@ -191,12 +204,12 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// # Note
     ///
     /// This is a placeholder for future implementation. The actual implementation
-    /// will need to generate UPDATE SQL and execute it via the executor.
+    /// will need to generate `UPDATE` SQL and execute it via the executor.
     fn update<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
         Err(ActiveModelError::Other("update() not yet implemented".to_string()))
     }
 
-    /// Save the active model (insert or update based on primary key)
+    /// Save the `ActiveModel` (insert or update based on primary key)
     ///
     /// If the primary key is set and exists in the database, performs an update.
     /// Otherwise, performs an insert.
@@ -209,6 +222,10 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// Returns the saved model on success, or an error if the operation fails
     ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if the save operation fails.
+    ///
     /// # Note
     ///
     /// This is a placeholder for future implementation. The actual implementation
@@ -217,7 +234,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
         Err(ActiveModelError::Other("save() not yet implemented".to_string()))
     }
 
-    /// Delete the active model from the database
+    /// Delete the `ActiveModel` from the database
     ///
     /// # Arguments
     ///
@@ -227,6 +244,10 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// Returns `Ok(())` on success, or an error if the operation fails
     ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if the delete operation fails.
+    ///
     /// # Note
     ///
     /// This requires a primary key to be set.
@@ -234,14 +255,14 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// # Note
     ///
     /// This is a placeholder for future implementation. The actual implementation
-    /// will need to generate DELETE SQL and execute it via the executor.
+    /// will need to generate `DELETE` SQL and execute it via the executor.
     fn delete<E: LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
         Err(ActiveModelError::Other("delete() not yet implemented".to_string()))
     }
 
-    /// Deserialize an ActiveModel from JSON
+    /// Deserialize an `ActiveModel` from JSON
     ///
-    /// This method constructs an ActiveModel by interpreting JSON input.
+    /// This method constructs an `ActiveModel` by interpreting JSON input.
     /// Fields not present in the JSON automatically become `ActiveValue::NotSet`.
     ///
     /// # Arguments
@@ -250,7 +271,11 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// # Returns
     ///
-    /// Returns a new ActiveModel instance with fields set from the JSON.
+    /// Returns a new `ActiveModel` instance with fields set from the JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if deserialization fails.
     ///
     /// # Example
     ///
@@ -281,23 +306,27 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
         Self: Sized,
     {
         // Default implementation: This is a placeholder that should be overridden
-        // by the macro-generated implementation in LifeRecord.
+        // by the macro-generated implementation in `LifeRecord`.
         // The macro can generate an implementation that:
-        // 1. Deserializes JSON into Model (if Model implements Deserialize), then uses from_model()
-        // 2. Or directly parses JSON and uses set() to set Record fields
+        // 1. Deserializes JSON into `Model` (if `Model` implements `Deserialize`), then uses `from_model()`
+        // 2. Or directly parses JSON and uses `set()` to set `Record` fields
         Err(ActiveModelError::Other(
             "from_json() not implemented - LifeRecord macro should generate this method".to_string()
         ))
     }
 
-    /// Serialize an ActiveModel to JSON
+    /// Serialize an `ActiveModel` to JSON
     ///
-    /// This method converts the ActiveModel to a JSON representation.
+    /// This method converts the `ActiveModel` to a JSON representation.
     /// Only fields that are set (not `NotSet` or `Unset`) are included.
     ///
     /// # Returns
     ///
-    /// Returns a JSON value representing the ActiveModel.
+    /// Returns a JSON value representing the `ActiveModel`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if serialization fails.
     ///
     /// # Example
     ///
@@ -320,20 +349,20 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// ```
     fn to_json(&self) -> Result<JsonValue, ActiveModelError> {
         // Default implementation: This is a placeholder that should be overridden
-        // by the macro-generated implementation in LifeRecord.
+        // by the macro-generated implementation in `LifeRecord`.
         // The macro can generate an implementation that:
-        // 1. Converts Record to Model using to_model(), then serializes (if Model implements Serialize)
-        // 2. Or directly iterates over columns and builds JSON from get() values
+        // 1. Converts `Record` to `Model` using `to_model()`, then serializes (if `Model` implements `Serialize`)
+        // 2. Or directly iterates over columns and builds JSON from `get()` values
         Err(ActiveModelError::Other(
             "to_json() not implemented - LifeRecord macro should generate this method".to_string()
         ))
     }
 }
 
-/// ActiveModelBehavior trait for lifecycle hooks
+/// `ActiveModelBehavior` trait for lifecycle hooks
 ///
 /// This trait allows you to define custom behavior that runs before or after
-/// CRUD operations. All methods have default empty implementations, so you
+/// `CRUD` operations. All methods have default empty implementations, so you
 /// only need to override the hooks you want to use.
 ///
 /// # Example
@@ -358,7 +387,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
 pub trait ActiveModelBehavior: ActiveModelTrait {
     /// Hook called before insert operation
     ///
-    /// This is called before the INSERT query is executed. You can use this to:
+    /// This is called before the `INSERT` query is executed. You can use this to:
     /// - Set default values
     /// - Validate data
     /// - Transform fields
@@ -366,13 +395,17 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
     /// # Returns
     ///
     /// Returns `Ok(())` to continue with the insert, or an error to abort.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if validation or transformation fails.
     fn before_insert(&mut self) -> Result<(), ActiveModelError> {
         Ok(())
     }
 
     /// Hook called after insert operation
     ///
-    /// This is called after the INSERT query is executed successfully.
+    /// This is called after the `INSERT` query is executed successfully.
     /// The `model` parameter contains the inserted model (with generated IDs).
     ///
     /// # Arguments
@@ -382,27 +415,35 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if post-processing fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if post-processing fails.
     fn after_insert(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
         Ok(())
     }
 
     /// Hook called before update operation
     ///
-    /// This is called before the UPDATE query is executed. You can use this to:
+    /// This is called before the `UPDATE` query is executed. You can use this to:
     /// - Validate changes
-    /// - Set updated_at timestamps
+    /// - Set `updated_at` timestamps
     /// - Transform fields
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` to continue with the update, or an error to abort.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if validation or transformation fails.
     fn before_update(&mut self) -> Result<(), ActiveModelError> {
         Ok(())
     }
 
     /// Hook called after update operation
     ///
-    /// This is called after the UPDATE query is executed successfully.
+    /// This is called after the `UPDATE` query is executed successfully.
     /// The `model` parameter contains the updated model.
     ///
     /// # Arguments
@@ -412,13 +453,17 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if post-processing fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if post-processing fails.
     fn after_update(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
         Ok(())
     }
 
-    /// Hook called before save operation (insert or update)
+    /// Hook called before `save` operation (insert or update)
     ///
-    /// This is called before the save operation determines whether to insert or update.
+    /// This is called before the `save` operation determines whether to insert or update.
     /// You can use this to:
     /// - Set default values
     /// - Validate data
@@ -427,13 +472,17 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
     /// # Returns
     ///
     /// Returns `Ok(())` to continue with the save, or an error to abort.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if validation or transformation fails.
     fn before_save(&mut self) -> Result<(), ActiveModelError> {
         Ok(())
     }
 
-    /// Hook called after save operation (insert or update)
+    /// Hook called after `save` operation (insert or update)
     ///
-    /// This is called after the save operation completes successfully.
+    /// This is called after the `save` operation completes successfully.
     /// The `model` parameter contains the saved model.
     ///
     /// # Arguments
@@ -443,31 +492,43 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if post-processing fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if post-processing fails.
     fn after_save(&mut self, _model: &Self::Model) -> Result<(), ActiveModelError> {
         Ok(())
     }
 
     /// Hook called before delete operation
     ///
-    /// This is called before the DELETE query is executed. You can use this to:
+    /// This is called before the `DELETE` query is executed. You can use this to:
     /// - Validate deletion is allowed
-    /// - Perform soft deletes (set a deleted_at flag instead)
+    /// - Perform soft deletes (set a `deleted_at` flag instead)
     /// - Check dependencies
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` to continue with the delete, or an error to abort.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if validation fails or deletion is not allowed.
     fn before_delete(&mut self) -> Result<(), ActiveModelError> {
         Ok(())
     }
 
     /// Hook called after delete operation
     ///
-    /// This is called after the DELETE query is executed successfully.
+    /// This is called after the `DELETE` query is executed successfully.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` on success, or an error if post-processing fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ActiveModelError` if post-processing fails.
     fn after_delete(&mut self) -> Result<(), ActiveModelError> {
         Ok(())
     }
@@ -486,7 +547,7 @@ mod tests {
     }
     
     impl Iden for TestColumn {
-        fn unquoted(&self) -> &str { "id" }
+        fn unquoted(&self) -> &'static str { "id" }
     }
     
     impl IdenStatic for TestColumn {
@@ -686,12 +747,18 @@ mod tests {
         };
         
         // Test hook order (conceptual - full test requires executor)
-        record.before_save().unwrap();
-        record.before_insert().unwrap();
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
+        {
+            record.before_save().unwrap();
+            record.before_insert().unwrap();
+        }
         // insert() would be called here
         let model = TestModel;
-        record.after_insert(&model).unwrap();
-        record.after_save(&model).unwrap();
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
+        {
+            record.after_insert(&model).unwrap();
+            record.after_save(&model).unwrap();
+        }
         
         // Verify order
         assert_eq!(record.call_order, vec!["before_save", "before_insert", "after_insert", "after_save"]);

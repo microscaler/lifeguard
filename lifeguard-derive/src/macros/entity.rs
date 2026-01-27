@@ -1,7 +1,7 @@
 //! Derive macro for Entity
 //!
-//! Generates Entity unit struct, EntityName, Iden, and IdenStatic implementations.
-//! This is separate from other derives to match SeaORM's architecture.
+//! Generates Entity unit struct, `EntityName`, Iden, and `IdenStatic` implementations.
+//! This is separate from other derives to match `SeaORM`'s architecture.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -11,7 +11,7 @@ use syn::{parse_macro_input, DeriveInput};
 use crate::attributes;
 use crate::utils;
 
-/// Generate Entity, EntityName, Iden, and IdenStatic implementations
+/// Generate Entity, `EntityName`, Iden, and `IdenStatic` implementations
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -36,7 +36,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         None => {
             // Default: assume Model is named "Model" (SeaORM convention)
             // or "{Entity}Model" if Entity is not "Entity"
-            if struct_name.to_string() == "Entity" {
+            if *struct_name == "Entity" {
                 syn::Ident::new("Model", struct_name.span())
             } else {
                 // Remove "Entity" suffix if present, add "Model"
@@ -46,7 +46,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
                 } else {
                     &base
                 };
-                syn::Ident::new(&format!("{}Model", base), struct_name.span())
+                syn::Ident::new(&format!("{base}Model"), struct_name.span())
             }
         }
     };
@@ -61,7 +61,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         None => {
             // Default: assume Column is named "Column" (SeaORM convention)
             // or "{Entity}Column" if Entity is not "Entity"
-            if struct_name.to_string() == "Entity" {
+            if *struct_name == "Entity" {
                 syn::Ident::new("Column", struct_name.span())
             } else {
                 // Remove "Entity" suffix if present, add "Column"
@@ -71,7 +71,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
                 } else {
                     &base
                 };
-                syn::Ident::new(&format!("{}Column", base), struct_name.span())
+                syn::Ident::new(&format!("{base}Column"), struct_name.span())
             }
         }
     };

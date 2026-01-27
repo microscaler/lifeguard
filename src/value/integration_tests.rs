@@ -1,9 +1,10 @@
-//! Integration tests for the ValueType system
+//! Integration tests for the `ValueType` system
 //!
 //! These tests verify that multiple traits work together correctly,
 //! simulating real-world usage scenarios.
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::super::*;
     use sea_query::Value;
@@ -58,7 +59,7 @@ mod tests {
     #[test]
     fn test_tuple_roundtrip_3() {
         let original = (1i32, 2i32, 3i32);
-        let value_tuple = original.clone().into_value_tuple();
+        let value_tuple = original.into_value_tuple();
         let extracted: Result<(i32, i32, i32), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(extracted, Ok(original));
     }
@@ -68,10 +69,11 @@ mod tests {
         let original = (42i32, "hello".to_string(), true, 3.14f64);
         let value_tuple = original.clone().into_value_tuple();
         let extracted: Result<(i32, String, bool, f64), _> = FromValueTuple::from_value_tuple(value_tuple);
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let (i, s, b, f) = extracted.unwrap();
         assert_eq!(i, 42);
         assert_eq!(s, "hello");
-        assert_eq!(b, true);
+        assert!(b);
         assert!((f - 3.14).abs() < f64::EPSILON);
     }
     
@@ -80,6 +82,7 @@ mod tests {
     #[test]
     fn test_try_from_u64_to_value_type() {
         let u64_value: u64 = 42;
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let i32_value: i32 = TryFromU64::try_from_u64(u64_value).unwrap();
         let value = i32_value.into_value();
         assert!(matches!(value, Value::Int(Some(42))));
@@ -98,7 +101,7 @@ mod tests {
     #[test]
     fn test_try_get_many_from_value_type() {
         let values = vec![1i32, 2i32, 3i32];
-        let value_vec: Vec<Value> = values.iter().map(|v| v.clone().into_value()).collect();
+        let value_vec: Vec<Value> = values.iter().map(|v| (*v).into_value()).collect();
         let extracted: Result<Vec<i32>, _> = TryGetableMany::try_get_many(value_vec);
         assert_eq!(extracted, Ok(values));
     }
@@ -157,6 +160,7 @@ mod tests {
         let db_id: u64 = 42;
         
         // Convert safely
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let model_id: i32 = TryFromU64::try_from_u64(db_id).unwrap();
         
         // Convert to Value
@@ -184,7 +188,7 @@ mod tests {
         let ids = vec![1i32, 2i32, 3i32, 4i32, 5i32];
         
         // Convert all to Values
-        let values: Vec<Value> = ids.iter().map(|id| id.clone().into_value()).collect();
+        let values: Vec<Value> = ids.iter().map(|id| (*id).into_value()).collect();
         
         // Extract all back
         let extracted: Result<Vec<i32>, _> = TryGetableMany::try_get_many(values);

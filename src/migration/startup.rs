@@ -25,6 +25,11 @@ use crate::migration::{Migrator, MigrationError, lock::MigrationLockGuard};
 /// - Checksum validation fails
 /// - Migration execution fails
 ///
+/// # Errors
+///
+/// Returns `MigrationError` if lock acquisition fails, checksum validation fails,
+/// or migration execution fails.
+///
 /// # Behavior
 ///
 /// - **First process wins:** The first process to insert lock record acquires the lock
@@ -52,6 +57,8 @@ pub fn startup_migrations(
     migrations_dir: impl AsRef<std::path::Path>,
     timeout_seconds: Option<u64>,
 ) -> Result<(), MigrationError> {
+    use crate::migration::SchemaManager;
+    
     // Acquire migration lock (Flyway-style: uses migration table itself)
     // This prevents concurrent execution in multi-instance deployments (e.g., Kubernetes)
     let _lock = MigrationLockGuard::new(executor, timeout_seconds)?;
@@ -66,7 +73,6 @@ pub fn startup_migrations(
     // Create SchemaManager for migration execution
     // Note: We use up_with_lock() instead of up() since we already hold the lock
     // Calling up() would attempt to acquire the lock again, causing a deadlock
-    use crate::migration::SchemaManager;
     let manager = SchemaManager::new(executor);
     
     // Apply pending migrations (executor is just a reference - no ownership needed!)
@@ -74,7 +80,7 @@ pub fn startup_migrations(
     let applied = migrator.up_with_lock(executor, &manager, None)?;
     
     if applied > 0 {
-        log::info!("Applied {} migration(s) on startup", applied);
+        log::info!("Applied {applied} migration(s) on startup");
     } else {
         log::debug!("No pending migrations to apply");
     }
@@ -87,11 +93,18 @@ pub fn startup_migrations(
 ///
 /// Similar to `startup_migrations()`, but allows custom timeout and
 /// returns more detailed error information.
+///
+/// # Errors
+///
+/// Returns `MigrationError` if lock acquisition fails, checksum validation fails,
+/// or migration execution fails.
 pub fn startup_migrations_with_timeout(
     executor: &dyn LifeExecutor,
     migrations_dir: impl AsRef<std::path::Path>,
     timeout_seconds: u64,
 ) -> Result<usize, MigrationError> {
+    use crate::migration::SchemaManager;
+    
     // Acquire migration lock (Flyway-style: uses migration table itself)
     let _lock = MigrationLockGuard::new(executor, Some(timeout_seconds))?;
     
@@ -101,7 +114,6 @@ pub fn startup_migrations_with_timeout(
     // Create SchemaManager for migration execution
     // Note: We use up_with_lock() instead of up() since we already hold the lock
     // Calling up() would attempt to acquire the lock again, causing a deadlock
-    use crate::migration::SchemaManager;
     let manager = SchemaManager::new(executor);
     
     // Apply pending migrations (executor is just a reference - no ownership needed!)
@@ -109,7 +121,7 @@ pub fn startup_migrations_with_timeout(
     let applied = migrator.up_with_lock(executor, &manager, None)?;
     
     if applied > 0 {
-        log::info!("Applied {} migration(s) on startup", applied);
+        log::info!("Applied {applied} migration(s) on startup");
     } else {
         log::debug!("No pending migrations to apply");
     }

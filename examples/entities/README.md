@@ -1,6 +1,8 @@
-# Accounting Entities Library
+# Example Entities Library
 
-A realistic example of a 3rd party project using Lifeguard ORM for accounting domain entities.
+Example entities using Lifeguard ORM for documentation and testing purposes.
+
+**Note**: RERP accounting entities have been moved to `rerp/entities/`. This examples directory is kept for Lifeguard documentation and testing purposes.
 
 ## Project Structure
 

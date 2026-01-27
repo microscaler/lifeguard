@@ -1,6 +1,6 @@
 //! Utility functions for code generation
 
-/// Convert string to snake_case
+/// Convert string to `snake_case`
 pub fn snake_case(s: &str) -> String {
     let mut result = String::new();
     for (i, c) in s.chars().enumerate() {
@@ -12,7 +12,7 @@ pub fn snake_case(s: &str) -> String {
     result
 }
 
-/// Convert string to PascalCase
+/// Convert string to `PascalCase`
 pub fn pascal_case(s: &str) -> String {
     let mut result = String::new();
     let mut capitalize = true;

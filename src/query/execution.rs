@@ -1,10 +1,10 @@
-//! Query execution methods for SelectQuery and SelectModel.
+//! Query execution methods for `SelectQuery` and `SelectModel`.
 //!
 //! This module provides execution methods (`all`, `one`, `find_one`, `count`, etc.)
 //! for executing queries built with `SelectQuery` and `SelectModel`.
 //!
 //! The execution methods use `with_converted_params` from `value_conversion` to
-//! convert SeaQuery values to may_postgres ToSql parameters, avoiding code duplication.
+//! convert `SeaQuery` values to `may_postgres` `ToSql` parameters, avoiding code duplication.
 
 use crate::executor::{LifeExecutor, LifeError};
 use crate::query::select::{SelectQuery, SelectModel};
@@ -36,6 +36,10 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let users = User::find().all(executor)?;
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution or row parsing fails.
     pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<E::Model>, LifeError>
     where
         E::Model: FromRow,
@@ -48,7 +52,7 @@ where
             let mut results = Vec::new();
             for row in rows {
                 let model = <E::Model as FromRow>::from_row(&row)
-                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))?;
+                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
                 results.push(model);
             }
             Ok(results)
@@ -71,6 +75,14 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let user = UserModel::find().one(executor)?;
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if:
+    /// - The query execution fails
+    /// - No rows are returned
+    /// - Multiple rows are returned
+    /// - Row parsing fails
     pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<E::Model, LifeError>
     where
         E::Model: FromRow,
@@ -80,7 +92,7 @@ where
         with_converted_params(&values, |params| {
             let row = executor.query_one(&sql, params)?;
             <E::Model as FromRow>::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
         })
     }
     
@@ -102,6 +114,13 @@ where
     /// # let executor: &dyn LifeExecutor = todo!();
     /// let user = UserModel::find().filter(Expr::col("id").eq(1)).find_one(executor)?;
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if:
+    /// - The query execution fails
+    /// - Multiple rows are returned
+    /// - Row parsing fails
     pub fn find_one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Option<E::Model>, LifeError>
     where
         E::Model: FromRow,
@@ -140,7 +159,7 @@ where
     /// let mut paginator = UserModel::find().paginate(executor, 10);
     /// let page_1 = paginator.fetch_page(1)?;
     /// ```
-    pub fn paginate<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> Paginator<'e, E, Ex>
+    pub fn paginate<Ex: LifeExecutor>(self, executor: &Ex, page_size: usize) -> Paginator<'_, E, Ex>
     where
         E::Model: FromRow,
     {
@@ -179,6 +198,10 @@ where
     ///     .filter(Expr::col("age").gt(18))
     ///     .count(executor)?;
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution fails.
     pub fn count<Ex: LifeExecutor>(&self, executor: &Ex) -> Result<usize, LifeError> {
         // Build a COUNT(*) query by wrapping the original query in a subquery
         // This preserves all WHERE, GROUP BY, and HAVING conditions
@@ -224,7 +247,7 @@ where
         
         // Wrap the cleaned query in SELECT COUNT(*) FROM (cleaned_query) AS subquery
         // This ensures we count all matching rows, not just the limited subset
-        let count_sql = format!("SELECT COUNT(*) FROM ({}) AS count_subquery", cleaned_sql);
+        let count_sql = format!("SELECT COUNT(*) FROM ({cleaned_sql}) AS count_subquery");
         
         // Use with_converted_params for value conversion
         with_converted_params(&values, |params| {
@@ -236,9 +259,10 @@ where
             
             // Convert to usize, handling potential overflow
             if count < 0 {
-                return Err(LifeError::Other(format!("Count cannot be negative: {}", count)));
+                return Err(LifeError::Other(format!("Count cannot be negative: {count}")));
             }
             
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for negative above, truncation acceptable for count
             Ok(count as usize)
         })
     }
@@ -267,7 +291,7 @@ where
     /// let total = paginator.num_items()?;
     /// let page_1 = paginator.fetch_page(1)?;
     /// ```
-    pub fn paginate_and_count<'e, Ex: LifeExecutor>(self, executor: &'e Ex, page_size: usize) -> PaginatorWithCount<'e, E, Ex>
+    pub fn paginate_and_count<Ex: LifeExecutor>(self, executor: &Ex, page_size: usize) -> PaginatorWithCount<'_, E, Ex>
     where
         E::Model: FromRow,
     {
@@ -282,6 +306,10 @@ where
     M: FromRow,
 {
     /// Execute the query and return all results as the specified Model type
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution or row parsing fails.
     pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<M>, LifeError> {
         let (sql, values) = self.query.query.build(PostgresQueryBuilder);
         
@@ -291,7 +319,7 @@ where
             let mut results = Vec::new();
             for row in rows {
                 let model = M::from_row(&row)
-                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {}", e)))?;
+                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
                 results.push(model);
             }
             Ok(results)
@@ -299,6 +327,15 @@ where
     }
     
     /// Execute the query and return a single result as the specified Model type
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if:
+    /// - The query execution fails
+    /// - No rows are returned
+    /// - Multiple rows are returned
+    /// - Row parsing fails
+    /// - Internal error: expected one result but iterator returned None (should never happen)
     pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<M, LifeError> {
         let results = self.all(executor)?;
         
@@ -309,7 +346,11 @@ where
             )));
         }
         
-        Ok(results.into_iter().next().unwrap())
+        results.into_iter().next().ok_or_else(|| {
+            LifeError::Other(
+                "Internal error: expected one result but iterator returned None".to_string()
+            )
+        })
     }
 }
 
@@ -341,6 +382,10 @@ where
     }
     
     /// Fetch a specific page (1-indexed)
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution or row parsing fails.
     pub fn fetch_page(&mut self, page: usize) -> Result<Vec<E::Model>, LifeError> {
         let offset = (page.saturating_sub(1)) * self.page_size;
         // Clone the query to avoid moving it
@@ -392,6 +437,10 @@ where
     /// This method efficiently counts rows by executing a COUNT(*) query that
     /// preserves WHERE, GROUP BY, and HAVING conditions without loading all rows
     /// into memory. The result is cached for subsequent calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the COUNT query execution fails.
     pub fn num_items(&mut self) -> Result<usize, LifeError> {
         if let Some(count) = self.total_count {
             return Ok(count);
@@ -405,6 +454,10 @@ where
     }
     
     /// Fetch a specific page (1-indexed)
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution or row parsing fails.
     pub fn fetch_page(&mut self, page: usize) -> Result<Vec<E::Model>, LifeError> {
         let offset = (page.saturating_sub(1)) * self.page_size;
         // Clone the query to avoid moving it
@@ -420,6 +473,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(dead_code, clippy::single_match)]
 mod tests {
     use crate::query::select::SelectQuery;
     use crate::query::traits::{LifeEntityName, LifeModelTrait, FromRow};
@@ -448,7 +502,7 @@ mod tests {
     }
 
     impl sea_query::Iden for TestColumn {
-        fn unquoted(&self) -> &str {
+        fn unquoted(&self) -> &'static str {
             match self {
                 TestColumn::Id => "id",
                 TestColumn::Name => "name",
@@ -505,14 +559,17 @@ mod tests {
             }
         }
 
+        #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn get_captured_sql(&self) -> Vec<String> {
             self.captured_sql.lock().unwrap().clone()
         }
 
+        #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn get_captured_param_counts(&self) -> Vec<usize> {
             self.captured_param_counts.lock().unwrap().clone()
         }
 
+        #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn clear(&self) {
             self.captured_sql.lock().unwrap().clear();
             self.captured_param_counts.lock().unwrap().clear();
@@ -521,17 +578,19 @@ mod tests {
         // Helper to count placeholders in SQL
         #[allow(dead_code)]
         fn count_placeholders(sql: &str) -> usize {
-            sql.matches("$").count()
+            sql.matches('$').count()
         }
     }
 
     impl LifeExecutor for MockExecutor {
+        #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
             self.captured_sql.lock().unwrap().push(query.to_string());
             self.captured_param_counts.lock().unwrap().push(params.len());
             Ok(0)
         }
 
+        #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
             self.captured_sql.lock().unwrap().push(query.to_string());
             self.captured_param_counts.lock().unwrap().push(params.len());
@@ -540,6 +599,7 @@ mod tests {
             Err(LifeError::QueryError("MockExecutor: No rows available for testing".to_string()))
         }
 
+        #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
             self.captured_sql.lock().unwrap().push(query.to_string());
             self.captured_param_counts.lock().unwrap().push(params.len());
@@ -668,7 +728,7 @@ mod tests {
         // Before the fix, this would be 0. After the fix, it should be > 0
         assert!(param_counts[0] > 0, "Should have parameters for integer filter - THIS TESTS THE FIX");
         // Verify SQL contains placeholder
-        assert!(sql[0].contains("$"), "SQL should contain parameter placeholder");
+        assert!(sql[0].contains('$'), "SQL should contain parameter placeholder");
     }
 
     #[test]
@@ -686,7 +746,7 @@ mod tests {
         assert!(!sql.is_empty(), "SQL should be generated");
         assert_eq!(param_counts.len(), 1, "Should have one query");
         assert!(param_counts[0] > 0, "Should have parameters for string filter");
-        assert!(sql[0].contains("$"), "SQL should contain parameter placeholder");
+        assert!(sql[0].contains('$'), "SQL should contain parameter placeholder");
     }
 
     #[test]
@@ -1126,7 +1186,7 @@ mod tests {
         assert!(!values_vec.is_empty(), "Values should be extracted from filters - THIS VERIFIES THE FIX");
         
         // Verify SQL contains placeholders
-        assert!(sql.contains("$"), "SQL should contain parameter placeholders when filters are used");
+        assert!(sql.contains('$'), "SQL should contain parameter placeholders when filters are used");
         
         // Count placeholders
         let placeholder_count = sql.matches('$').count();
@@ -1164,7 +1224,7 @@ mod tests {
         let (sql1, values1) = query1.query.build(sea_query::PostgresQueryBuilder);
         let values1_vec: Vec<_> = values1.iter().collect();
         assert!(!values1_vec.is_empty(), "Integer filter should generate values");
-        assert!(sql1.contains("$"), "Integer filter should generate placeholders");
+        assert!(sql1.contains('$'), "Integer filter should generate placeholders");
         
         // String
         let query2 = SelectQuery::<TestEntity>::new()
@@ -1172,7 +1232,7 @@ mod tests {
         let (sql2, values2) = query2.query.build(sea_query::PostgresQueryBuilder);
         let values2_vec: Vec<_> = values2.iter().collect();
         assert!(!values2_vec.is_empty(), "String filter should generate values");
-        assert!(sql2.contains("$"), "String filter should generate placeholders");
+        assert!(sql2.contains('$'), "String filter should generate placeholders");
         
         // Boolean
         let query3 = SelectQuery::<TestEntity>::new()
@@ -1180,7 +1240,7 @@ mod tests {
         let (sql3, values3) = query3.query.build(sea_query::PostgresQueryBuilder);
         let values3_vec: Vec<_> = values3.iter().collect();
         assert!(!values3_vec.is_empty(), "Boolean filter should generate values");
-        assert!(sql3.contains("$"), "Boolean filter should generate placeholders");
+        assert!(sql3.contains('$'), "Boolean filter should generate placeholders");
     }
 
     // ============================================================================
@@ -1188,6 +1248,7 @@ mod tests {
     // ============================================================================
 
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_find_one_no_results() {
         // Test find_one() when no results are found
         let executor = MockExecutor::new(vec![]);
@@ -1198,10 +1259,11 @@ mod tests {
             .find_one(&executor);
         
         // Should return Ok(None) when no rows found (fixed to handle QueryError variant)
+        #[allow(clippy::panic)] // Test code - panic is acceptable
         match result {
             Ok(None) => {}, // Expected - find_one should return None when no rows found
             Ok(Some(_)) => panic!("find_one should return None when no results"),
-            Err(e) => panic!("find_one should return Ok(None) for 'no rows' errors, got: {:?}", e),
+            Err(e) => panic!("find_one should return Ok(None) for 'no rows' errors, got: {e:?}"),
         }
     }
 
@@ -1235,8 +1297,8 @@ mod tests {
         assert!(is_no_rows_error(&no_rows_error),
             "Actual 'no rows' errors should be detected");
         
-        let no_row_error = LifeError::QueryError("no row found".to_string());
-        assert!(is_no_rows_error(&no_row_error),
+        let single_row_error = LifeError::QueryError("no row found".to_string());
+        assert!(is_no_rows_error(&single_row_error),
             "Actual 'no row' errors should be detected");
         
         // Test 6: PostgresError with "no rows" should be detected
@@ -1326,6 +1388,7 @@ mod tests {
         // Manually set total_count to simulate a successful first call
         paginator.total_count = Some(42);
         let sql_calls_before = executor.get_captured_sql().len();
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let cached_count = paginator.num_items().unwrap();
         let sql_calls_after = executor.get_captured_sql().len();
         
@@ -1334,6 +1397,7 @@ mod tests {
         assert_eq!(sql_calls_before, sql_calls_after, "Cached call should not execute SQL");
         
         // Verify that multiple calls with cached value don't increase SQL calls
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let _count2 = paginator.num_items().unwrap();
         let sql_calls_final = executor.get_captured_sql().len();
         assert_eq!(sql_calls_after, sql_calls_final, "Multiple cached calls should not execute SQL");
@@ -1473,7 +1537,7 @@ mod tests {
         
         // Chain many order_by calls
         for i in 1..=20 {
-            query = query.order_by(format!("col_{}", i), Order::Asc);
+            query = query.order_by(format!("col_{i}"), Order::Asc);
         }
         
         let _result = query.all(&executor);
@@ -1521,6 +1585,7 @@ mod tests {
         
         // Should return error (MockExecutor returns error, which is fine for this test)
         // In real scenario, this would error if multiple rows returned
+        #[allow(clippy::match_same_arms)] // Both arms are intentionally empty - just verifying no panic
         match result {
             Ok(_) => {}, // Unlikely with MockExecutor
             Err(_) => {}, // Expected when multiple rows or no rows

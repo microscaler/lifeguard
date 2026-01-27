@@ -9,6 +9,8 @@
 # Resources are organized into parallel streams using labels:
 # - 'infrastructure' label: PostgreSQL test database
 # - 'migration' label: Migration integration tests (runs in parallel with other tests)
+# - One label per component (no multi-label to avoid Tilt UI clutter).
+# - Inventory service: 'inventory_entities', 'inventory_gen_migrations', 'inventory_migrations'
 
 # ====================
 # Configuration
@@ -115,6 +117,60 @@ local_resource(
     resource_deps=['build-derive'],  # Wait for lifeguard-derive to compile first
     labels=['build'],
     allow_parallel=False,  # Serialize after derive build to prevent storms
+)
+
+# Build example entities crate (showcase example)
+# This monitors compilation errors in the entities
+# Note: Only building library (--lib) to avoid binary compilation issues
+# The binary (generate-migrations) has macro type resolution issues that need separate fixing
+local_resource(
+    'build-entities',
+    cmd='cd examples/entities && cargo build --lib 2>&1',
+    deps=[
+        'examples/entities/src',
+        'examples/entities/Cargo.toml',
+        'examples/entities/Cargo.lock',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        'examples/entities/src/bin/**',  # Ignore binary directory
+    ],
+    resource_deps=['build-lifeguard'],  # Wait for lifeguard to compile first (entities depend on it)
+    labels=['inventory_entities'],
+    allow_parallel=False,  # Serialize after lifeguard build to prevent storms
+)
+
+# ====================
+# Inventory Service
+# ====================
+# Generate migrations from inventory entities (writes to migrations/generated/inventory/)
+
+# Generate migrations from inventory entities
+local_resource(
+    'gen-migrations',
+    cmd='cd examples/entities && cargo run --bin generate-migrations 2>&1',
+    deps=[
+        'examples/entities',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=['build-entities'],
+    labels=['inventory_gen_migrations'],
+    allow_parallel=False,
+)
+
+# Verify generated migrations exist for inventory service
+local_resource(
+    'check-migrations-inventory',
+    cmd=('ls migrations/generated/inventory/*.sql >/dev/null 2>&1 && ' +
+         'echo "✅ inventory migrations OK" || ' +
+         'echo "⚠️ No .sql in inventory/"'),
+    deps=['migrations/generated/inventory'],
+    resource_deps=['gen-migrations'],
+    labels=['inventory_migrations'],
 )
 
 # ====================

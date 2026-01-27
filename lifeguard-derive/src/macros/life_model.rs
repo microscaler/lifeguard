@@ -1,7 +1,8 @@
-//! LifeModel derive macro implementation
+//! `LifeModel` derive macro implementation
 //!
-//! Based on SeaORM's expand_derive_entity_model pattern (v2.0.0-rc.28)
-//! Generates Entity, Column, PrimaryKey, Model, FromRow, and LifeModelTrait
+//! Based on `SeaORM`'s `expand_derive_entity_model` pattern (v2.0.0-rc.28)
+//! Generates Entity, Column, `PrimaryKey`, Model, `FromRow`, and `LifeModelTrait`
+#![allow(clippy::map_unwrap_or, clippy::explicit_iter_loop)] // Allow in macro-generated code
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -83,6 +84,39 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
                     return Some("JSONB".to_string());
                 }
             }
+            
+            // Check for Decimal (rust_decimal::Decimal)
+            if last_ident == "Decimal" {
+                // Check if this is rust_decimal::Decimal
+                if segments.len() == 2 {
+                    if let Some(first_seg) = segments.first() {
+                        if first_seg.ident == "rust_decimal" {
+                            return Some("NUMERIC(19, 4)".to_string());
+                        }
+                    }
+                } else if segments.len() == 1 {
+                    // Single segment "Decimal" - likely imported rust_decimal::Decimal
+                    return Some("NUMERIC(19, 4)".to_string());
+                }
+            }
+            
+            // Check for Money (rusty_money::Money<Currency>)
+            if last_ident == "Money" {
+                // Check if this is rusty_money::Money
+                if segments.len() == 2 {
+                    if let Some(first_seg) = segments.first() {
+                        if first_seg.ident == "rusty_money" {
+                            return Some("NUMERIC(19, 4)".to_string());
+                        }
+                    }
+                } else if segments.len() == 1 {
+                    // Single segment "Money" - likely imported rusty_money::Money
+                    // Check if it has generic arguments (Money<Currency>)
+                    if let PathArguments::AngleBracketed(_) = &segments[0].arguments {
+                        return Some("NUMERIC(19, 4)".to_string());
+                    }
+                }
+            }
         }
         
         // Check for integer types - primitive types are single-segment
@@ -90,10 +124,8 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
             if let Some(first_seg) = segments.first() {
                 let first_ident = first_seg.ident.to_string();
                 match first_ident.as_str() {
-                    "i8" | "i16" | "i32" => return Some("INTEGER".to_string()),
-                    "i64" => return Some("BIGINT".to_string()),
-                    "u8" | "u16" | "u32" => return Some("INTEGER".to_string()),
-                    "u64" => return Some("BIGINT".to_string()),
+                    "i8" | "i16" | "i32" | "u8" | "u16" | "u32" => return Some("INTEGER".to_string()),
+                    "i64" | "u64" => return Some("BIGINT".to_string()),
                     "bool" => return Some("BOOLEAN".to_string()),
                     _ => {}
                 }
@@ -104,15 +136,16 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
     None
 }
 
-/// Derive macro for `LifeModel` - generates Entity, Model, Column, PrimaryKey, and FromRow
+/// Derive macro for `LifeModel` - generates Entity, Model, Column, `PrimaryKey`, and `FromRow`
 ///
-/// This macro follows SeaORM's pattern exactly:
+/// This macro follows `SeaORM`'s pattern exactly:
 /// 1. Generates Entity struct with #[derive(DeriveEntity)] (triggers nested expansion)
 /// 2. Generates Column enum
-/// 3. Generates PrimaryKey enum  
+/// 3. Generates `PrimaryKey` enum  
 /// 4. Generates Model struct
-/// 5. Generates FromRow implementation for Model
-/// 6. DeriveEntity (nested) generates LifeModelTrait for Entity
+/// 5. Generates `FromRow` implementation for Model
+/// 6. `DeriveEntity` (nested) generates `LifeModelTrait` for Entity
+#[allow(clippy::too_many_lines)]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -127,13 +160,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         quote! { #[schema_name = #schema_lit] }
     });
     
-    // Parse table-level attributes (composite_unique, index, check, table_comment)
-    let table_attrs = match attributes::parse_table_attributes(&input.attrs) {
-        Ok(attrs) => attrs,
-        Err(e) => return e.to_compile_error().into(),
-    };
-
-    // Extract fields
+    // Extract fields first to collect column names for validation
     let fields = match &input.data {
         Data::Struct(DataStruct {
             fields: Fields::Named(fields),
@@ -149,8 +176,30 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Collect valid column names from struct fields for index validation
+    // Exclude fields marked with #[skip] or #[ignore] since they don't exist in the database
+    let mut valid_columns = std::collections::HashSet::new();
+    for field in fields {
+        if let Some(field_name) = &field.ident {
+            // Skip fields marked with #[skip] or #[ignore] - they're not database columns
+            if attributes::has_attribute(field, "skip") || attributes::has_attribute(field, "ignore") {
+                continue;
+            }
+            let column_name = attributes::extract_column_name(field)
+                .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+            valid_columns.insert(column_name);
+        }
+    }
+
+    // Parse table-level attributes (composite_unique, index, check, table_comment)
+    // Pass valid_columns for validation
+    let table_attrs = match attributes::parse_table_attributes(&input.attrs, &valid_columns) {
+        Ok(attrs) => attrs,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
     // Generate Model name
-    let model_name = Ident::new(&format!("{}Model", struct_name), struct_name.span());
+    let model_name = Ident::new(&format!("{struct_name}Model"), struct_name.span());
     let model_name_lit = syn::LitStr::new(&model_name.to_string(), model_name.span());
 
     // Process fields to generate:
@@ -170,10 +219,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut iden_impls = Vec::new();
     
     // Generate table definition expression
-    let table_comment_expr = table_attrs.table_comment.as_ref().map(|tc| {
-        let tc_lit = syn::LitStr::new(tc, struct_name.span());
-        quote! { Some(#tc_lit.to_string()) }
-    }).unwrap_or_else(|| quote! { None });
+    let table_comment_expr = table_attrs.table_comment.as_ref().map_or_else(
+        || quote! { None },
+        |tc| {
+            let tc_lit = syn::LitStr::new(tc, struct_name.span());
+            quote! { Some(#tc_lit.to_string()) }
+        }
+    );
     
     // Generate composite unique constraints
     let composite_unique_expr = if table_attrs.composite_unique.is_empty() {
@@ -200,10 +252,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 quote! { #c_lit.to_string() }
             }).collect();
             let unique_lit = syn::LitBool::new(*unique, struct_name.span());
-            let where_expr = where_clause.as_ref().map(|w| {
-                let w_lit = syn::LitStr::new(w, struct_name.span());
-                quote! { Some(#w_lit.to_string()) }
-            }).unwrap_or_else(|| quote! { None });
+            let where_expr = where_clause.as_ref().map_or_else(
+                || quote! { None },
+                |w| {
+                    let w_lit = syn::LitStr::new(w, struct_name.span());
+                    quote! { Some(#w_lit.to_string()) }
+                }
+            );
             quote! {
                 lifeguard::IndexDefinition {
                     name: #name_lit.to_string(),
@@ -222,10 +277,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     } else {
         let check_tuples: Vec<_> = table_attrs.check_constraints.iter().map(|(name, expr)| {
             let expr_lit = syn::LitStr::new(expr, struct_name.span());
-            let name_expr = name.as_ref().map(|n| {
-                let n_lit = syn::LitStr::new(n, struct_name.span());
-                quote! { Some(#n_lit.to_string()) }
-            }).unwrap_or_else(|| quote! { None });
+            let name_expr = name.as_ref().map_or_else(
+                || quote! { None },
+                |n| {
+                    let n_lit = syn::LitStr::new(n, struct_name.span());
+                    quote! { Some(#n_lit.to_string()) }
+                }
+            );
             quote! { (#name_expr, #expr_lit.to_string()) }
         }).collect();
         quote! { vec![#(#check_tuples),*] }
@@ -253,7 +311,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut column_def_match_arms = Vec::new();
     let mut enum_type_name_match_arms = Vec::new();
 
-    for field in fields.iter() {
+    for field in fields {
         let field_name = field.ident.as_ref().unwrap();
         let field_type = &field.ty;
         let column_name = attributes::extract_column_name(field)
@@ -279,15 +337,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 )
                 .to_compile_error()
                 .into();
-            } else {
-                // Fallback to field name if attribute not found (shouldn't happen)
-                return syn::Error::new_spanned(
-                    field_name,
-                    "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
-                )
-                .to_compile_error()
-                .into();
             }
+            // Fallback to field name if attribute not found (shouldn't happen)
+            return syn::Error::new_spanned(
+                field_name,
+                "Field cannot have both `#[primary_key]` and `#[skip]` (or `#[ignore]`) attributes. Primary key fields must be included in database operations.",
+            )
+            .to_compile_error()
+            .into();
         }
 
         // Skip ignored fields - they're not mapped to database columns
@@ -354,6 +411,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             // Track primary key field for ModelTrait::get_primary_key_value()
             // Generate the value conversion expression now
             if primary_key_value_expr.is_none() {
+                #[allow(clippy::single_match_else)]
                 let pk_value_expr = match field_type {
                     syn::Type::Path(syn::TypePath {
                         path: syn::Path { segments, .. },
@@ -418,6 +476,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
         // Generate ModelTrait::get() match arm
         // Convert field value to sea_query::Value
+        #[allow(clippy::single_match_else)]
         let field_value_to_value = match field_type {
             syn::Type::Path(syn::TypePath {
                 path: syn::Path { segments, .. },
@@ -464,6 +523,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
         // Generate ModelTrait::set() match arm
         // Convert sea_query::Value to field value
+        #[allow(clippy::single_match_else)]
         let value_to_field_value = match field_type {
             syn::Type::Path(syn::TypePath {
                 path: syn::Path { segments, .. },
@@ -473,6 +533,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 if let Some(last_segment) = segments.last() {
                     if last_segment.ident == "Option" {
                         // Handle Option<T> - extract inner type
+                        #[allow(clippy::collapsible_match)]
                         if let Some(inner_type) = extract_option_inner_type(field_type) {
                             if let Type::Path(inner_path) = inner_type {
                                 // Check for serde_json::Value
@@ -1041,20 +1102,23 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 _ => String::new(),
             };
             
-            // Check if this is uuid::Uuid or chrono::NaiveDateTime
-            let (is_uuid, is_naive_datetime) = match inner_type {
+            // Check if this is uuid::Uuid, chrono::NaiveDateTime, rust_decimal::Decimal, or rusty_money::Money
+            #[allow(clippy::map_unwrap_or)]
+            let (is_uuid, is_naive_datetime, is_decimal, is_money) = match inner_type {
                 syn::Type::Path(syn::TypePath {
                     path: syn::Path { segments, .. },
                     ..
                 }) => {
                     let last_seg = segments.last().map(|s| s.ident.to_string());
-                    let is_uuid = last_seg.as_ref().map(|s| s == "Uuid").unwrap_or(false) ||
+                    let is_uuid = last_seg.as_ref().is_some_and(|s| s == "Uuid") ||
                                   type_name.contains("Uuid");
-                    let is_naive_datetime = last_seg.as_ref().map(|s| s == "NaiveDateTime").unwrap_or(false) ||
+                    let is_naive_datetime = last_seg.as_ref().is_some_and(|s| s == "NaiveDateTime") ||
                                            type_name.contains("NaiveDateTime");
-                    (is_uuid, is_naive_datetime)
+                    let is_decimal = type_conversion::is_decimal_type(inner_type);
+                    let is_money = type_conversion::is_money_type(inner_type);
+                    (is_uuid, is_naive_datetime, is_decimal, is_money)
                 }
-                _ => (false, false),
+                _ => (false, false, false, false),
             };
             
             // Handle uuid::Uuid - get as string and parse
@@ -1091,6 +1155,27 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                             }
                         }
                     }
+                }
+            }
+            // Handle rust_decimal::Decimal - uses FromSql directly (NUMERIC type)
+            else if is_decimal {
+                // Decimal implements FromSql for NUMERIC, so we can use try_get directly
+                quote! {
+                    row.try_get::<&str, #field_type>(#column_name_str)?
+                }
+            }
+            // Handle rusty_money::Money - needs special construction from amount + currency_code
+            // Note: This requires currency_code field to exist in the same struct
+            // For now, we'll use a placeholder - Money support will need entity-level coordination
+            else if is_money {
+                // TODO: Implement Money construction from NUMERIC amount + currency_code
+                // This requires finding the currency_code field in the same struct
+                // For now, fall back to direct try_get (may not work if Money doesn't implement FromSql)
+                quote! {
+                    // Money type - requires amount (NUMERIC) + currency_code (VARCHAR)
+                    // TODO: Implement proper Money construction
+                    // For now, try direct FromSql (may fail if Money doesn't implement it)
+                    row.try_get::<&str, #field_type>(#column_name_str)?
                 }
             }
             // Handle chrono::NaiveDateTime - get as string and parse
@@ -1154,18 +1239,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 };
 
                 if is_unsigned {
+                    #[allow(clippy::single_match_else)]
                     let signed_type = match field_type {
                     syn::Type::Path(syn::TypePath {
                         path: syn::Path { segments, .. },
                         ..
                     }) => {
                         if let Some(segment) = segments.first() {
-                            match segment.ident.to_string().as_str() {
-                                "u8" => quote! { i16 },
-                                "u16" => quote! { i32 },
-                                "u32" | "u64" => quote! { i64 },
-                                _ => quote! { i32 },
-                            }
+                                match segment.ident.to_string().as_str() {
+                                    "u8" => quote! { i16 },
+                                    "u32" | "u64" => quote! { i64 },
+                                    _ => quote! { i32 },
+                                }
                         } else {
                             quote! { i32 }
                         }
@@ -1214,45 +1299,69 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
         };
         
-        let default_value_expr = col_attrs.default_value.as_ref().map(|dv| {
-            let dv_lit = syn::LitStr::new(dv, field_name.span());
-            quote! { Some(#dv_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let default_value_expr = col_attrs.default_value.as_ref().map_or_else(
+            || quote! { None },
+            |dv| {
+                let dv_lit = syn::LitStr::new(dv, field_name.span());
+                quote! { Some(#dv_lit.to_string()) }
+            }
+        );
         
-        let default_expr_expr = col_attrs.default_expr.as_ref().map(|de| {
-            let de_lit = syn::LitStr::new(de, field_name.span());
-            quote! { Some(#de_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let default_expr_expr = col_attrs.default_expr.as_ref().map_or_else(
+            || quote! { None },
+            |de| {
+                let de_lit = syn::LitStr::new(de, field_name.span());
+                quote! { Some(#de_lit.to_string()) }
+            }
+        );
         
-        let renamed_from_expr = col_attrs.renamed_from.as_ref().map(|rf| {
-            let rf_lit = syn::LitStr::new(rf, field_name.span());
-            quote! { Some(#rf_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let renamed_from_expr = col_attrs.renamed_from.as_ref().map_or_else(
+            || quote! { None },
+            |rf| {
+                let rf_lit = syn::LitStr::new(rf, field_name.span());
+                quote! { Some(#rf_lit.to_string()) }
+            }
+        );
         
-        let select_as_expr = col_attrs.select_as.as_ref().map(|sa| {
-            let sa_lit = syn::LitStr::new(sa, field_name.span());
-            quote! { Some(#sa_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let select_as_expr = col_attrs.select_as.as_ref().map_or_else(
+            || quote! { None },
+            |sa| {
+                let sa_lit = syn::LitStr::new(sa, field_name.span());
+                quote! { Some(#sa_lit.to_string()) }
+            }
+        );
         
-        let save_as_expr = col_attrs.save_as.as_ref().map(|sa| {
-            let sa_lit = syn::LitStr::new(sa, field_name.span());
-            quote! { Some(#sa_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let save_as_expr = col_attrs.save_as.as_ref().map_or_else(
+            || quote! { None },
+            |sa| {
+                let sa_lit = syn::LitStr::new(sa, field_name.span());
+                quote! { Some(#sa_lit.to_string()) }
+            }
+        );
         
-        let comment_expr = col_attrs.comment.as_ref().map(|c| {
-            let c_lit = syn::LitStr::new(c, field_name.span());
-            quote! { Some(#c_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let comment_expr = col_attrs.comment.as_ref().map_or_else(
+            || quote! { None },
+            |c| {
+                let c_lit = syn::LitStr::new(c, field_name.span());
+                quote! { Some(#c_lit.to_string()) }
+            }
+        );
         
-        let foreign_key_expr = col_attrs.foreign_key.as_ref().map(|fk| {
-            let fk_lit = syn::LitStr::new(fk, field_name.span());
-            quote! { Some(#fk_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let foreign_key_expr = col_attrs.foreign_key.as_ref().map_or_else(
+            || quote! { None },
+            |fk| {
+                let fk_lit = syn::LitStr::new(fk, field_name.span());
+                quote! { Some(#fk_lit.to_string()) }
+            }
+        );
         
-        let check_expr = col_attrs.check.as_ref().map(|c| {
-            let c_lit = syn::LitStr::new(c, field_name.span());
-            quote! { Some(#c_lit.to_string()) }
-        }).unwrap_or_else(|| quote! { None });
+        let check_expr = col_attrs.check.as_ref().map_or_else(
+            || quote! { None },
+            |c| {
+                let c_lit = syn::LitStr::new(c, field_name.span());
+                quote! { Some(#c_lit.to_string()) }
+            }
+        );
         
         // Extract boolean attributes for use in quote! macro
         let is_unique_attr = col_attrs.is_unique;
@@ -1291,21 +1400,21 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     }
 
     // Generate primary key value expression for ModelTrait
-    let pk_value_impl = primary_key_value_expr
-        .as_ref()
-        .map(|expr| {
-            quote! {
-                #expr
-            }
-        })
-        .unwrap_or_else(|| {
+      let single_pk_value_impl = primary_key_value_expr.as_ref().map_or_else(
+        || {
             quote! {
                 // WARNING: No primary key found for this entity.
                 // get_primary_key_value() returns String(None) when no primary key is defined.
                 // Consider adding a #[primary_key] attribute to one of the fields.
                 sea_query::Value::String(None)
             }
-        });
+        },
+        |expr| {
+            quote! {
+                #expr
+            }
+        }
+    );
     
     // Generate get_primary_key_identity() implementation
     let pk_identity_impl = if primary_key_variant_idents.is_empty() {
@@ -1697,7 +1806,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
 
             fn get_primary_key_value(&self) -> sea_query::Value {
-                #pk_value_impl
+                #single_pk_value_impl
             }
             
             fn get_primary_key_identity(&self) -> lifeguard::Identity {

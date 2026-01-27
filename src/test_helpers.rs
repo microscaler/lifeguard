@@ -39,6 +39,12 @@ impl TestDatabase {
     /// // Use executor for tests...
     /// # Ok::<(), lifeguard::test_helpers::TestError>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `TestError` if the connection string cannot be retrieved.
+    // Note: Result wrapper is intentional - we want to propagate connection string retrieval errors
+    #[allow(clippy::unnecessary_wraps)] // Result wrapper is intentional for error propagation
     pub fn new() -> Result<Self, TestError> {
         let connection_string = Self::get_connection_string()?;
         Ok(Self {
@@ -48,6 +54,11 @@ impl TestDatabase {
     }
 
     /// Get connection string from various sources
+    ///
+    /// # Errors
+    ///
+    /// Returns `TestError` if connection string cannot be determined from any source.
+    #[allow(clippy::unnecessary_wraps)] // Result wrapper is intentional for API consistency
     fn get_connection_string() -> Result<String, TestError> {
         // Priority 1: TEST_DATABASE_URL environment variable
         // Check this first and return immediately if set
@@ -79,7 +90,7 @@ impl TestDatabase {
     fn get_k8s_connection_string() -> Result<String, TestError> {
         // Try to get connection string from kubectl
         let output = Command::new("kubectl")
-            .args(&[
+            .args([
                 "get",
                 "svc",
                 "postgres",
@@ -89,7 +100,7 @@ impl TestDatabase {
                 "jsonpath={.spec.clusterIP}",
             ])
             .output()
-            .map_err(|e| TestError::K8sError(format!("Failed to run kubectl: {}", e)))?;
+            .map_err(|e| TestError::K8sError(format!("Failed to run kubectl: {e}")))?;
 
         if !output.status.success() {
             return Err(TestError::K8sError(
@@ -98,7 +109,7 @@ impl TestDatabase {
         }
 
         let cluster_ip = String::from_utf8(output.stdout)
-            .map_err(|e| TestError::K8sError(format!("Invalid kubectl output: {}", e)))?
+            .map_err(|e| TestError::K8sError(format!("Invalid kubectl output: {e}")))?
             .trim()
             .to_string();
 
@@ -106,7 +117,7 @@ impl TestDatabase {
             // Use service DNS name instead
             Ok("postgresql://postgres:postgres@postgres.lifeguard-test.svc.cluster.local:5432/postgres".to_string())
         } else {
-            Ok(format!("postgresql://postgres:postgres@{}:5432/postgres", cluster_ip))
+            Ok(format!("postgresql://postgres:postgres@{cluster_ip}:5432/postgres"))
         }
     }
 
@@ -116,6 +127,10 @@ impl TestDatabase {
     }
 
     /// Connect to the database and return a client
+    ///
+    /// # Errors
+    ///
+    /// Returns `ConnectionError` if the connection fails.
     pub fn connect(&mut self) -> Result<Client, ConnectionError> {
         let client = connect(&self.connection_string)?;
         self.client = Some(client.clone());
@@ -123,6 +138,10 @@ impl TestDatabase {
     }
 
     /// Get an executor for the test database
+    ///
+    /// # Errors
+    ///
+    /// Returns `TestError` if the connection fails.
     pub fn executor(&mut self) -> Result<MayPostgresExecutor, TestError> {
         let client = self.connect().map_err(TestError::ConnectionError)?;
         Ok(MayPostgresExecutor::new(client))
@@ -132,6 +151,10 @@ impl TestDatabase {
     ///
     /// This function attempts to connect to the database, retrying up to `max_attempts` times
     /// with a delay of `delay_seconds` between attempts.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TestError` if all connection attempts fail.
     pub fn wait_for_ready(&mut self, max_attempts: u32, delay_seconds: u64) -> Result<(), TestError> {
         for attempt in 1..=max_attempts {
             match self.connect() {
@@ -139,7 +162,6 @@ impl TestDatabase {
                 Err(e) => {
                     if attempt < max_attempts {
                         std::thread::sleep(Duration::from_secs(delay_seconds));
-                        continue;
                     } else {
                         return Err(TestError::ConnectionError(e));
                     }
@@ -166,9 +188,9 @@ pub enum TestError {
 impl std::fmt::Display for TestError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TestError::ConnectionError(e) => write!(f, "Connection error: {}", e),
-            TestError::K8sError(s) => write!(f, "Kubernetes error: {}", s),
-            TestError::Other(s) => write!(f, "Test error: {}", s),
+            TestError::ConnectionError(e) => write!(f, "Connection error: {e}"),
+            TestError::K8sError(s) => write!(f, "Kubernetes error: {s}"),
+            TestError::Other(s) => write!(f, "Test error: {s}"),
         }
     }
 }
@@ -197,6 +219,7 @@ mod tests {
         
         // Verify the environment variable is actually set
         // This helps catch issues where env::set_var doesn't work
+        #[allow(clippy::expect_used)] // Test code - expect is acceptable
         let env_check = env::var("TEST_DATABASE_URL")
             .expect("TEST_DATABASE_URL should be set immediately after env::set_var");
         assert_eq!(
@@ -205,14 +228,14 @@ mod tests {
         );
         
         // Get connection string - should use TEST_DATABASE_URL
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let url = TestDatabase::get_connection_string().unwrap();
         
         // Verify it matches exactly (more strict than just containing "test")
         assert_eq!(
             url, test_url,
-            "URL should match TEST_DATABASE_URL exactly. Got: {}. This indicates the environment variable was not respected. \
-             Possible causes: env::set_var not working in test environment, or environment variable was cleared/modified.",
-            url
+            "URL should match TEST_DATABASE_URL exactly. Got: {url}. This indicates the environment variable was not respected. \
+             Possible causes: env::set_var not working in test environment, or environment variable was cleared/modified."
         );
         
         // Cleanup - restore old values
@@ -235,12 +258,12 @@ mod tests {
         // All are valid connection strings
         env::remove_var("TEST_DATABASE_URL");
         env::remove_var("DATABASE_URL");
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let url = TestDatabase::get_connection_string().unwrap();
         // Should always be a valid PostgreSQL connection string
         assert!(
             url.starts_with("postgresql://"),
-            "Should be a PostgreSQL connection string, got: {}",
-            url
+            "Should be a PostgreSQL connection string, got: {url}"
         );
         // Should contain postgres user and database
         assert!(url.contains("postgres"), "Should contain postgres user/database");

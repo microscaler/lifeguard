@@ -1,6 +1,6 @@
 //! Basic Connection Example - Epic 01 Story 02
 //!
-//! Demonstrates how to establish a connection to PostgreSQL using may_postgres.
+//! Demonstrates how to establish a connection to `PostgreSQL` using `may_postgres`.
 //!
 //! Run with:
 //! ```bash
@@ -9,6 +9,7 @@
 
 use lifeguard::connection::{connect, validate_connection_string};
 
+#[allow(clippy::unnecessary_wraps)] // Example code - Result wrapper is intentional for error propagation
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example connection strings
     let uri_format = "postgresql://postgres:postgres@localhost:5432/postgres";
@@ -17,15 +18,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Validating connection strings...");
     
     // Validate URI format
+    #[allow(clippy::ignored_unit_patterns)] // Example code - explicit unit pattern is acceptable
     match validate_connection_string(uri_format) {
-        Ok(_) => println!("✅ URI format connection string is valid"),
-        Err(e) => println!("❌ URI format validation failed: {}", e),
+        Ok(()) => println!("✅ URI format connection string is valid"),
+        Err(e) => println!("❌ URI format validation failed: {e}"),
     }
 
     // Validate key-value format
+    #[allow(clippy::ignored_unit_patterns)] // Example code - explicit unit pattern is acceptable
     match validate_connection_string(key_value_format) {
-        Ok(_) => println!("✅ Key-value format connection string is valid"),
-        Err(e) => println!("❌ Key-value format validation failed: {}", e),
+        Ok(()) => println!("✅ Key-value format connection string is valid"),
+        Err(e) => println!("❌ Key-value format validation failed: {e}"),
     }
 
     println!("\nAttempting to connect to PostgreSQL...");
@@ -42,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Err(e) => {
-            println!("❌ Connection failed: {}", e);
+            println!("❌ Connection failed: {e}");
             println!("   This is expected if PostgreSQL is not running.");
             println!("   To test a real connection, ensure PostgreSQL is running and credentials are correct.");
             // Return Ok since this is just a demonstration

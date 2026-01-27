@@ -1,4 +1,4 @@
-//! TryFromU64 trait for safe conversion from u64
+//! `TryFromU64` trait for safe conversion from `u64`
 //!
 //! This trait provides safe conversion from `u64` values to other integer types,
 //! with proper overflow handling. This is particularly useful for primary key
@@ -29,9 +29,15 @@ use crate::value::ValueExtractionError;
 pub trait TryFromU64: Sized {
     /// Try to convert a `u64` value to this type
     ///
-    /// Returns:
+    /// # Returns
+    ///
     /// - `Ok(Self)` if the conversion succeeds
     /// - `Err(ValueExtractionError::ConversionError)` if the value overflows
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValueExtractionError::ConversionError` if the `u64` value overflows
+    /// the target integer type's maximum value.
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError>;
 }
 
@@ -39,12 +45,14 @@ pub trait TryFromU64: Sized {
 
 impl TryFromU64 for i8 {
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError> {
+        #[allow(clippy::cast_sign_loss)] // i8::MAX is positive, safe to cast to u64
         if value > i8::MAX as u64 {
             Err(ValueExtractionError::ConversionError(format!(
                 "u64 value {} overflows i8::MAX ({})",
                 value, i8::MAX
             )))
         } else {
+            #[allow(clippy::cast_possible_truncation)] // Checked for overflow above
             Ok(value as i8)
         }
     }
@@ -52,12 +60,14 @@ impl TryFromU64 for i8 {
 
 impl TryFromU64 for i16 {
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError> {
+        #[allow(clippy::cast_sign_loss)] // i16::MAX is positive, safe to cast to u64
         if value > i16::MAX as u64 {
             Err(ValueExtractionError::ConversionError(format!(
                 "u64 value {} overflows i16::MAX ({})",
                 value, i16::MAX
             )))
         } else {
+            #[allow(clippy::cast_possible_truncation)] // Checked for overflow above
             Ok(value as i16)
         }
     }
@@ -65,12 +75,14 @@ impl TryFromU64 for i16 {
 
 impl TryFromU64 for i32 {
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError> {
+        #[allow(clippy::cast_sign_loss)] // i32::MAX is positive, safe to cast to u64
         if value > i32::MAX as u64 {
             Err(ValueExtractionError::ConversionError(format!(
                 "u64 value {} overflows i32::MAX ({})",
                 value, i32::MAX
             )))
         } else {
+            #[allow(clippy::cast_possible_truncation)] // Checked for overflow above
             Ok(value as i32)
         }
     }
@@ -78,12 +90,14 @@ impl TryFromU64 for i32 {
 
 impl TryFromU64 for i64 {
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError> {
+        #[allow(clippy::cast_sign_loss)] // i64::MAX is positive, safe to cast to u64
         if value > i64::MAX as u64 {
             Err(ValueExtractionError::ConversionError(format!(
                 "u64 value {} overflows i64::MAX ({})",
                 value, i64::MAX
             )))
         } else {
+            #[allow(clippy::cast_possible_wrap)] // Checked for overflow above
             Ok(value as i64)
         }
     }
@@ -91,12 +105,13 @@ impl TryFromU64 for i64 {
 
 impl TryFromU64 for u8 {
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError> {
-        if value > u8::MAX as u64 {
+        if value > u64::from(u8::MAX) {
             Err(ValueExtractionError::ConversionError(format!(
                 "u64 value {} overflows u8::MAX ({})",
                 value, u8::MAX
             )))
         } else {
+            #[allow(clippy::cast_possible_truncation)] // Checked for overflow above
             Ok(value as u8)
         }
     }
@@ -104,12 +119,13 @@ impl TryFromU64 for u8 {
 
 impl TryFromU64 for u16 {
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError> {
-        if value > u16::MAX as u64 {
+        if value > u64::from(u16::MAX) {
             Err(ValueExtractionError::ConversionError(format!(
                 "u64 value {} overflows u16::MAX ({})",
                 value, u16::MAX
             )))
         } else {
+            #[allow(clippy::cast_possible_truncation)] // Checked for overflow above
             Ok(value as u16)
         }
     }
@@ -117,12 +133,13 @@ impl TryFromU64 for u16 {
 
 impl TryFromU64 for u32 {
     fn try_from_u64(value: u64) -> Result<Self, ValueExtractionError> {
-        if value > u32::MAX as u64 {
+        if value > u64::from(u32::MAX) {
             Err(ValueExtractionError::ConversionError(format!(
                 "u64 value {} overflows u32::MAX ({})",
                 value, u32::MAX
             )))
         } else {
+            #[allow(clippy::cast_possible_truncation)] // Checked for overflow above
             Ok(value as u32)
         }
     }
@@ -248,7 +265,7 @@ mod tests {
     
     #[test]
     fn test_try_from_u64_u8_boundary() {
-        let value: u64 = u8::MAX as u64;
+        let value: u64 = u64::from(u8::MAX);
         let result: Result<u8, _> = TryFromU64::try_from_u64(value);
         assert_eq!(result, Ok(u8::MAX));
     }
@@ -264,14 +281,14 @@ mod tests {
     
     #[test]
     fn test_try_from_u64_u16_overflow() {
-        let value: u64 = u16::MAX as u64 + 1;
+        let value: u64 = u64::from(u16::MAX) + 1;
         let result: Result<u16, _> = TryFromU64::try_from_u64(value);
         assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
     }
     
     #[test]
     fn test_try_from_u64_u16_boundary() {
-        let value: u64 = u16::MAX as u64;
+        let value: u64 = u64::from(u16::MAX);
         let result: Result<u16, _> = TryFromU64::try_from_u64(value);
         assert_eq!(result, Ok(u16::MAX));
     }
@@ -287,14 +304,14 @@ mod tests {
     
     #[test]
     fn test_try_from_u64_u32_overflow() {
-        let value: u64 = u32::MAX as u64 + 1;
+        let value: u64 = u64::from(u32::MAX) + 1;
         let result: Result<u32, _> = TryFromU64::try_from_u64(value);
         assert!(matches!(result, Err(ValueExtractionError::ConversionError(_))));
     }
     
     #[test]
     fn test_try_from_u64_u32_boundary() {
-        let value: u64 = u32::MAX as u64;
+        let value: u64 = u64::from(u32::MAX);
         let result: Result<u32, _> = TryFromU64::try_from_u64(value);
         assert_eq!(result, Ok(u32::MAX));
     }
@@ -318,6 +335,7 @@ mod tests {
     // Error message tests
     
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_try_from_u64_error_message() {
         let value: u64 = i32::MAX as u64 + 1;
         let result: Result<i32, _> = TryFromU64::try_from_u64(value);

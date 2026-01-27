@@ -78,7 +78,7 @@
 //! }
 //! ```
 //!
-//! ## Using ModelManager Trait (Optional)
+//! ## Using `ModelManager` Trait (Optional)
 //!
 //! The `ModelManager` trait provides common query patterns that you can implement
 //! for your entities. This is optional - you can also just add custom methods directly.
@@ -177,6 +177,10 @@ where
     ///     }
     /// }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution or row parsing fails.
     fn find_by_id<Ex: LifeExecutor>(executor: &Ex, id: i64) -> Result<Option<<Self as LifeModelTrait>::Model>, LifeError>;
 
     /// Find all models matching a condition.
@@ -191,6 +195,10 @@ where
     /// # Returns
     ///
     /// Returns a vector of models matching the condition.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution or row parsing fails.
     fn find_where<Ex: LifeExecutor, C: sea_query::IntoCondition>(
         executor: &Ex,
         condition: C,
@@ -210,6 +218,10 @@ where
     /// # Returns
     ///
     /// Returns the count of models matching the condition.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution fails.
     fn count_where<Ex: LifeExecutor, C: sea_query::IntoCondition>(
         executor: &Ex,
         condition: C,
@@ -229,6 +241,10 @@ where
     /// # Returns
     ///
     /// Returns `true` if at least one model matches, `false` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query execution fails.
     fn exists_where<Ex: LifeExecutor, C: sea_query::IntoCondition>(
         executor: &Ex,
         condition: C,
@@ -279,6 +295,14 @@ pub trait StoredProcedure: FromRow {
     /// # Returns
     ///
     /// Returns the model mapped from the procedure result.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if:
+    /// - The procedure execution fails
+    /// - No rows are returned
+    /// - Multiple rows are returned
+    /// - Row parsing fails
     fn call_procedure<Ex: LifeExecutor>(
         executor: &Ex,
         sql: &str,
@@ -300,6 +324,10 @@ pub trait StoredProcedure: FromRow {
     /// # Returns
     ///
     /// Returns a vector of models mapped from the procedure results.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the procedure execution or row parsing fails.
     fn call_procedure_many<Ex: LifeExecutor>(
         executor: &Ex,
         sql: &str,

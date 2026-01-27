@@ -47,16 +47,13 @@ pub fn derive_linked(input: TokenStream) -> TokenStream {
     let enum_name = &input.ident;
     
     // Extract enum variants
-    let variants = match &input.data {
-        Data::Enum(DataEnum { variants, .. }) => variants,
-        _ => {
-            return syn::Error::new_spanned(
-                &input.ident,
-                "DeriveLinked can only be derived for enums",
-            )
-            .to_compile_error()
-            .into();
-        }
+    let Data::Enum(DataEnum { variants, .. }) = &input.data else {
+        return syn::Error::new_spanned(
+            &input.ident,
+            "DeriveLinked can only be derived for enums",
+        )
+        .to_compile_error()
+        .into();
     };
     
     // Process each variant to extract linked path information
@@ -85,7 +82,7 @@ pub fn derive_linked(input: TokenStream) -> TokenStream {
 /// Structure representing a parsed linked path
 struct LinkedPath {
     /// All entity paths in the chain (excluding Self)
-    /// For "PostEntity -> CommentEntity", this is [PostEntity, CommentEntity]
+    /// For "`PostEntity` -> `CommentEntity`", this is [`PostEntity`, `CommentEntity`]
     /// For "A -> B -> C", this is [A, B, C]
     hops: Vec<syn::Path>,
 }
@@ -106,7 +103,7 @@ fn process_linked_variant(
     for attr in &variant.attrs {
         if attr.path().is_ident("lifeguard") {
             // Parse nested attributes like #[lifeguard(linked = "...")]
-            if let Err(err) = attr.parse_nested_meta(|meta| {
+            attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("linked") {
                     // Parse: linked = "PostEntity -> CommentEntity"
                     let value: syn::LitStr = meta.value()?.parse()?;
@@ -116,9 +113,7 @@ fn process_linked_variant(
                     // Ignore other lifeguard attributes
                     Ok(())
                 }
-            }) {
-                return Err(err);
-            }
+            })?;
         }
     }
     
@@ -135,14 +130,14 @@ fn process_linked_variant(
 /// Parse linked path from attribute string
 ///
 /// Examples:
-/// - "PostEntity -> CommentEntity" -> [PostEntity, CommentEntity]
-/// - "PostEntity -> CommentEntity -> ReactionEntity" -> [PostEntity, CommentEntity, ReactionEntity]
-/// - "super::posts::PostEntity -> CommentEntity" -> [super::posts::PostEntity, CommentEntity]
+/// - "`PostEntity` -> `CommentEntity`" -> [`PostEntity`, `CommentEntity`]
+/// - "`PostEntity` -> `CommentEntity` -> `ReactionEntity`" -> [`PostEntity`, `CommentEntity`, `ReactionEntity`]
+/// - "`super::posts::PostEntity` -> `CommentEntity`" -> [`super::posts::PostEntity`, `CommentEntity`]
 fn parse_linked_path(path_str: &str, error_span: proc_macro2::Span) -> Result<LinkedPath, syn::Error> {
     // Split by "->" to get hops
     let hops: Vec<&str> = path_str
         .split("->")
-        .map(|s| s.trim())
+        .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
     
@@ -187,7 +182,7 @@ fn parse_linked_path(path_str: &str, error_span: proc_macro2::Span) -> Result<Li
 
 /// Generate Linked trait implementation
 ///
-/// For a path like "PostEntity -> CommentEntity", generates:
+/// For a path like "`PostEntity` -> `CommentEntity`", generates:
 /// ```ignore
 /// use lifeguard::relation::Linked;
 /// use lifeguard::{Related, RelationDef};

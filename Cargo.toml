@@ -29,7 +29,7 @@ path = "examples/test_sql_generation.rs"
 [dependencies]
 # Coroutine runtime
 may = "0.3"
-may_postgres = { git = "https://github.com/Xudong-Huang/may_postgres", branch = "master" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
 
 # Procedural macros for ORM
 lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }

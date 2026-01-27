@@ -1,7 +1,7 @@
-//! TryIntoModel trait for converting types into Model instances.
+//! `TryIntoModel` trait for converting types into `Model` instances.
 //!
 //! This module provides the `TryIntoModel` trait which allows converting arbitrary types
-//! (DTOs, partial models, external types) into Model instances with proper error handling.
+//! (DTOs, partial models, external types) into `Model` instances with proper error handling.
 //!
 //! # Example
 //!
@@ -100,6 +100,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
     use crate::model::ModelTrait;
@@ -116,7 +117,7 @@ mod tests {
     struct TestEntity;
 
     impl sea_query::Iden for TestEntity {
-        fn unquoted(&self) -> &str {
+        fn unquoted(&self) -> &'static str {
             "test_entities"
         }
     }
@@ -134,7 +135,7 @@ mod tests {
     }
 
     impl sea_query::Iden for TestColumn {
-        fn unquoted(&self) -> &str {
+        fn unquoted(&self) -> &'static str {
             match self {
                 TestColumn::Id => "id",
                 TestColumn::Name => "name",
@@ -182,7 +183,7 @@ mod tests {
                         Err(crate::model::ModelError::InvalidValueType {
                             column: "id".to_string(),
                             expected: "Int".to_string(),
-                            actual: format!("{:?}", value),
+                            actual: format!("{value:?}"),
                         })
                     }
                 }
@@ -194,7 +195,7 @@ mod tests {
                         Err(crate::model::ModelError::InvalidValueType {
                             column: "name".to_string(),
                             expected: "String".to_string(),
-                            actual: format!("{:?}", value),
+                            actual: format!("{value:?}"),
                         })
                     }
                 }
@@ -238,9 +239,10 @@ mod tests {
 
         // This should compile and work
         // The default implementation uses Infallible as the error type
-        fn convert<M: ModelTrait>(m: M) -> Result<M, std::convert::Infallible>
+        #[allow(clippy::items_after_statements)] // Test code - function definition after statement is acceptable
+        fn convert<M>(m: M) -> Result<M, std::convert::Infallible>
         where
-            M: TryIntoModel<M, Error = std::convert::Infallible>,
+            M: ModelTrait + TryIntoModel<M, Error = std::convert::Infallible>,
         {
             m.try_into_model()
         }

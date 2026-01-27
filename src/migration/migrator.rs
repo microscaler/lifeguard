@@ -30,6 +30,11 @@ impl Migrator {
     ///
     /// Scans the directory for files matching the pattern `m{YYYYMMDDHHMMSS}_{name}.rs`
     /// and returns them sorted by version.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::FileNotFound` if the migrations directory cannot be read.
+    /// Returns `MigrationError::InvalidFormat` if any migration file has an invalid name format.
     pub fn discover_migrations(&self) -> Result<Vec<MigrationFile>, MigrationError> {
         discover_migrations(&self.migrations_dir)
     }
@@ -46,6 +51,13 @@ impl Migrator {
     /// # Returns
     ///
     /// Returns a `MigrationStatus` containing applied and pending migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::Database` if database operations fail.
+    /// Returns `MigrationError::ChecksumMismatch` if any applied migration's checksum doesn't match the file.
+    /// Returns `MigrationError::MissingFile` if a migration is recorded as applied but the file is missing.
+    /// Returns `MigrationError::FileNotFound` if migration files cannot be discovered.
     pub fn status(&self, executor: &dyn LifeExecutor) -> Result<MigrationStatus, MigrationError> {
         // Ensure state table exists
         initialize_state_table(executor)?;
@@ -113,6 +125,12 @@ impl Migrator {
     /// # Returns
     ///
     /// Returns `Ok(())` if all checksums match, or an error if any mismatch is found.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::ChecksumMismatch` if any applied migration's checksum doesn't match the file.
+    /// Returns `MigrationError::Database` if database operations fail.
+    /// Returns `MigrationError::FileNotFound` if migration files cannot be discovered.
     pub fn validate_checksums(&self, executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
         let _status = self.status(executor)?;
         
@@ -128,18 +146,26 @@ impl Migrator {
     /// # Arguments
     ///
     /// * `executor` - The database executor (reference, no ownership needed!)
-    /// * `manager` - The SchemaManager for executing migrations
+    /// * `manager` - The `SchemaManager` for executing migrations
     /// * `steps` - Number of migrations to apply (None = all pending)
     ///
     /// # Returns
     ///
     /// Returns the number of migrations applied, or an error if execution fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::Database` if database operations fail.
+    /// Returns `MigrationError::ChecksumMismatch` if any migration's checksum doesn't match.
+    /// Returns `MigrationError` from `execute_migration()` if migration execution fails.
     pub fn up_with_lock(
         &self,
         executor: &dyn LifeExecutor,
         manager: &SchemaManager<'_>,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
+        use crate::migration::registry::{execute_migration, MigrationDirection};
+        
         // Get status (validates checksums)
         let status = self.status(executor)?;
         
@@ -162,9 +188,6 @@ impl Migrator {
             // Execute migration using the registry
             // Note: The migration must be registered before execution
             // This is typically done at application startup or via a build script
-            use crate::migration::registry::execute_migration;
-            use crate::migration::registry::MigrationDirection;
-            
             execute_migration(
                 pending_migration.version,
                 manager,
@@ -172,6 +195,8 @@ impl Migrator {
             )?;
             
             // Record migration in state table
+            // Note: as_millis() returns u128, but we store as i64. Execution time should never exceed i64::MAX.
+            #[allow(clippy::cast_possible_truncation)] // Execution time in milliseconds will never exceed i64::MAX
             let execution_time = start.elapsed().as_millis() as i64;
             let record = MigrationRecord::new(
                 pending_migration.version,
@@ -202,12 +227,20 @@ impl Migrator {
     /// # Returns
     ///
     /// Returns the number of migrations applied, or an error if execution fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::LockTimeout` if the migration lock cannot be acquired.
+    /// Returns `MigrationError::Database` if database operations fail.
+    /// Returns `MigrationError::ChecksumMismatch` if any migration's checksum doesn't match.
+    /// Returns `MigrationError` from `execute_migration()` if migration execution fails.
     pub fn up(
         &self,
         executor: &dyn LifeExecutor,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
         use crate::migration::lock::MigrationLockGuard;
+        use crate::migration::registry::{execute_migration, MigrationDirection};
         
         // Acquire migration lock (Flyway-style: uses migration table itself)
         let _lock = MigrationLockGuard::new(executor, Some(60))?;
@@ -237,9 +270,6 @@ impl Migrator {
             // Execute migration using the registry
             // Note: The migration must be registered before execution
             // This is typically done at application startup or via a build script
-            use crate::migration::registry::execute_migration;
-            use crate::migration::registry::MigrationDirection;
-            
             execute_migration(
                 pending_migration.version,
                 &manager,
@@ -247,6 +277,8 @@ impl Migrator {
             )?;
             
             // Record migration in state table
+            // Note: as_millis() returns u128, but we store as i64. Execution time should never exceed i64::MAX.
+            #[allow(clippy::cast_possible_truncation)] // Execution time in milliseconds will never exceed i64::MAX
             let execution_time = start.elapsed().as_millis() as i64;
             let record = MigrationRecord::new(
                 pending_migration.version,
@@ -277,6 +309,11 @@ impl Migrator {
     /// # Returns
     ///
     /// Returns the number of migrations rolled back, or an error if execution fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::InvalidFormat` if rollback is attempted (known limitation).
+    /// Returns `MigrationError::Database` if database operations fail.
     pub fn down_with_lock(
         &self,
         executor: &dyn LifeExecutor,
@@ -302,12 +339,12 @@ impl Migrator {
         
         // Note: We can't create SchemaManager from a reference
         // This is a known limitation that needs to be addressed
-        return Err(MigrationError::InvalidFormat(
+        Err(MigrationError::InvalidFormat(
             "Migration rollback with lock guard requires SchemaManager refactoring. \
              SchemaManager needs executor ownership, but lock guard only provides a reference. \
              This is a known limitation that needs to be addressed."
                 .to_string()
-        ));
+        ))
     }
     
     /// Rollback migrations
@@ -322,12 +359,19 @@ impl Migrator {
     /// # Returns
     ///
     /// Returns the number of migrations rolled back, or an error if execution fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::LockTimeout` if the migration lock cannot be acquired.
+    /// Returns `MigrationError::Database` if database operations fail.
+    /// Returns `MigrationError` from `execute_migration()` if migration rollback fails.
     pub fn down(
         &self,
         executor: &dyn LifeExecutor,
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
         use crate::migration::lock::MigrationLockGuard;
+        use crate::migration::registry::{execute_migration, MigrationDirection};
         
         // Acquire migration lock (Flyway-style: uses migration table itself)
         let _lock = MigrationLockGuard::new(executor, Some(60))?;
@@ -354,9 +398,6 @@ impl Migrator {
         let manager = SchemaManager::new(executor);
         
         // Execute down() for each migration (in reverse order - newest first)
-        use crate::migration::registry::execute_migration;
-        use crate::migration::registry::MigrationDirection;
-        
         for record in migrations_to_rollback {
             // Execute rollback
             execute_migration(
@@ -375,21 +416,25 @@ impl Migrator {
     /// Query applied migrations from the state table
     ///
     /// Excludes the lock record (version = -1) from results.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::Database` if database operations fail.
     fn query_applied_migrations(executor: &dyn LifeExecutor) -> Result<Vec<MigrationRecord>, MigrationError> {
-        let sql = r#"
+        let sql = r"
             SELECT version, name, checksum, applied_at, execution_time_ms, success
             FROM lifeguard_migrations
             WHERE version > 0
             ORDER BY version ASC
-        "#;
+        ";
         
         let rows = executor.query_all(sql, &[])
-            .map_err(|e| MigrationError::Database(e.into()))?;
+            .map_err(MigrationError::Database)?;
         
         let mut records = Vec::new();
         for row in rows {
             let record = MigrationRecord::from_row(&row)
-                .map_err(|e| MigrationError::Database(e))?;
+                .map_err(MigrationError::Database)?;
             records.push(record);
         }
         
@@ -397,11 +442,15 @@ impl Migrator {
     }
     
     /// Record a migration in the state table
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::Database` if database operations fail.
     fn record_migration(executor: &dyn LifeExecutor, record: &MigrationRecord) -> Result<(), MigrationError> {
-        let sql = r#"
+        let sql = r"
             INSERT INTO lifeguard_migrations (version, name, checksum, applied_at, execution_time_ms, success)
             VALUES ($1, $2, $3, $4, $5, $6)
-        "#;
+        ";
         
         // Format timestamp as PostgreSQL timestamp string
         let timestamp_str = record.applied_at.format("%Y-%m-%d %H:%M:%S%.f").to_string();
@@ -414,17 +463,21 @@ impl Migrator {
             &record.execution_time_ms,
             &record.success,
         ])
-        .map_err(|e| MigrationError::Database(e.into()))?;
+        .map_err(MigrationError::Database)?;
         
         Ok(())
     }
     
     /// Remove a migration record from the state table
+    ///
+    /// # Errors
+    ///
+    /// Returns `MigrationError::Database` if database operations fail.
     fn remove_migration_record(executor: &dyn LifeExecutor, version: i64) -> Result<(), MigrationError> {
         let sql = "DELETE FROM lifeguard_migrations WHERE version = $1";
         
         executor.execute(sql, &[&version])
-            .map_err(|e| MigrationError::Database(e.into()))?;
+            .map_err(MigrationError::Database)?;
         
         Ok(())
     }

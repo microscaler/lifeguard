@@ -50,9 +50,14 @@ pub trait FromValueTuple: Sized {
     
     /// Try to convert a tuple of `Value` enums into this tuple type
     ///
-    /// Returns:
+    /// # Returns
+    ///
     /// - `Ok(Self)` if all values can be converted successfully
     /// - `Err(ValueExtractionError)` if any value fails to convert
+    ///
+    /// # Errors
+    ///
+    /// Returns `ValueExtractionError` if any value in the tuple fails to convert to the expected type.
     fn from_value_tuple(value_tuple: Self::ValueTuple) -> Result<Self, ValueExtractionError>;
 }
 
@@ -317,10 +322,11 @@ mod tests {
         assert!(matches!(value_tuple.3, Value::Double(Some(v)) if (v - 2.5).abs() < f64::EPSILON));
         
         let result: Result<(i32, String, bool, f64), _> = FromValueTuple::from_value_tuple(value_tuple);
+        #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let (i, s, b, f) = result.unwrap();
         assert_eq!(i, 1);
         assert_eq!(s, "a");
-        assert_eq!(b, true);
+        assert!(b);
         assert!((f - 2.5).abs() < f64::EPSILON);
     }
     

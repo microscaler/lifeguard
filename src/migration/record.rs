@@ -1,4 +1,4 @@
-//! MigrationRecord - Represents entries in the lifeguard_migrations state table
+//! `MigrationRecord` - Represents entries in the `lifeguard_migrations` state table
 
 use chrono::{DateTime, Utc};
 
@@ -13,13 +13,13 @@ pub struct MigrationRecord {
     /// Human-readable migration name
     pub name: String,
     
-    /// SHA-256 checksum of migration file content
+    /// `SHA-256` checksum of migration file content
     pub checksum: String,
     
     /// When the migration was applied
     pub applied_at: DateTime<Utc>,
     
-    /// Execution time in milliseconds (None if not recorded)
+    /// Execution time in milliseconds (`None` if not recorded)
     pub execution_time_ms: Option<i64>,
     
     /// Whether the migration completed successfully
@@ -27,7 +27,8 @@ pub struct MigrationRecord {
 }
 
 impl MigrationRecord {
-    /// Create a new MigrationRecord
+    /// Create a new `MigrationRecord`
+    #[must_use]
     pub fn new(
         version: i64,
         name: String,
@@ -46,17 +47,27 @@ impl MigrationRecord {
         }
     }
     
-    /// Create a MigrationRecord from database row
+    /// Create a `MigrationRecord` from database row
     ///
-    /// Expected column order: version, name, checksum, applied_at, execution_time_ms, success
+    /// Expected column order: `version`, `name`, `checksum`, `applied_at`, `execution_time_ms`, `success`
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the row data cannot be parsed or if timestamp parsing fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the row data cannot be parsed or if timestamp parsing fails.
+    // Note: Result<T, E> is already #[must_use], so we don't need the attribute here
+    #[allow(clippy::double_must_use)] // Result is already must_use, but from_row() is a conversion method
     pub fn from_row(row: &may_postgres::Row) -> Result<Self, crate::LifeError> {
         let version: i64 = row.get(0);
         let name: String = row.get(1);
         let checksum: String = row.get(2);
         
-        // PostgreSQL TIMESTAMP is returned as a string in may_postgres
-        // Parse it to DateTime<Utc>
-        // Note: may_postgres returns timestamps as strings, so we need to parse them
+        // `PostgreSQL` `TIMESTAMP` is returned as a string in `may_postgres`
+        // Parse it to `DateTime<Utc>`
+        // Note: `may_postgres` returns timestamps as strings, so we need to parse them
         let applied_at_str: String = row.get(3);
         let applied_at = {
             // Try different timestamp formats
@@ -70,8 +81,7 @@ impl MigrationRecord {
                 naive.and_utc()
             } else {
                 return Err(crate::LifeError::Other(format!(
-                    "Failed to parse timestamp '{}': unrecognized format",
-                    applied_at_str
+                    "Failed to parse timestamp '{applied_at_str}': unrecognized format"
                 )));
             }
         };

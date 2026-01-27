@@ -1,6 +1,6 @@
-//! Derive macro for `DeriveTryIntoModel` - generates TryIntoModel trait implementations
+//! Derive macro for `DeriveTryIntoModel` - generates `TryIntoModel` trait implementations
 //!
-//! This macro generates TryIntoModel implementations for converting custom types (DTOs, partial models, etc.)
+//! This macro generates `TryIntoModel` implementations for converting custom types (DTOs, partial models, etc.)
 //! into Model instances with proper error handling.
 //!
 //! # Example
@@ -29,7 +29,7 @@
 //!
 //! **CRITICAL**: Field attributes MUST be extracted in a single pass using `extract_field_attributes()`.
 //! 
-//! **DO NOT** call `extract_field_attribute()` multiple times (e.g., once for "map_from", once for "convert").
+//! **DO NOT** call `extract_field_attribute()` multiple times (e.g., once for "`map_from`", once for "convert").
 //! This causes `parse_nested_meta` to be invoked multiple times on the same attribute, leading to:
 //! - Macro expansion failures with "expected `,`" errors
 //! - Token consumption issues
@@ -55,11 +55,11 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields, Field};
 
 use crate::attributes;
 
-/// Derive macro for `DeriveTryIntoModel` - generates TryIntoModel trait implementations
+/// Derive macro for `DeriveTryIntoModel` - generates `TryIntoModel` trait implementations
 /// 
 /// ## Field Attribute Parsing
 /// 
-/// This macro extracts field attributes (map_from, convert) using `extract_field_attributes()`,
+/// This macro extracts field attributes (`map_from`, convert) using `extract_field_attributes()`,
 /// which MUST be called in a single pass. Do NOT call `extract_field_attribute()` multiple times
 /// as this causes `parse_nested_meta` to be invoked multiple times on the same attribute, leading
 /// to macro expansion failures. See `extract_field_attributes()` documentation for details.
@@ -69,6 +69,7 @@ use crate::attributes;
 /// All attribute parsing errors are propagated immediately and converted to compile errors.
 /// This ensures users get clear error messages for malformed attributes instead of silent failures.
 /// See BUG-2026-01-19-02 for historical context.
+#[allow(clippy::too_many_lines)]
 pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -103,14 +104,13 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                 )
                 .to_compile_error()
                 .into();
-            } else {
-                return syn::Error::new_spanned(
-                    &input.ident,
-                    "DeriveTryIntoModel requires #[lifeguard(model = \"path::to::Model\")] attribute. Found #[lifeguard] but missing model parameter.",
-                )
-                .to_compile_error()
-                .into();
             }
+            return syn::Error::new_spanned(
+                &input.ident,
+                "DeriveTryIntoModel requires #[lifeguard(model = \"path::to::Model\")] attribute. Found #[lifeguard] but missing model parameter.",
+            )
+            .to_compile_error()
+            .into();
         }
         Err(err) => {
             return err.to_compile_error().into();
@@ -126,7 +126,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
         Err(e) => {
             return syn::Error::new_spanned(
                 &input.ident,
-                format!("Failed to parse error type: {}", e)
+                format!("Failed to parse error type: {e}")
             )
             .to_compile_error()
             .into();
@@ -137,9 +137,8 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     // Generate field mapping code
     let mut field_mappings: Vec<TokenStream2> = Vec::new();
     
-    for field in fields.iter() {
+    for field in fields {
         let field_name = field.ident.as_ref().unwrap();
-        let _field_type = &field.ty;
         
         // CRITICAL: Extract all field attributes in a SINGLE pass.
         // 
@@ -166,7 +165,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                 Err(e) => {
                     return syn::Error::new_spanned(
                         field,
-                        format!("Invalid field name in map_from attribute: {}", e)
+                        format!("Invalid field name in map_from attribute: {e}")
                     )
                     .to_compile_error()
                     .into();
@@ -185,7 +184,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                 Err(e) => {
                     return syn::Error::new_spanned(
                         field,
-                        format!("Invalid conversion function path: {}", e)
+                        format!("Invalid conversion function path: {e}")
                     )
                     .to_compile_error()
                     .into();
@@ -299,7 +298,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
     
     for attr in &input.attrs {
         if attr.path().is_ident("lifeguard") {
-            if let Err(err) = attr.parse_nested_meta(|meta| {
+            attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("model") {
                     let value: syn::LitStr = meta.value()?.parse()?;
                     model_path_str = Some(value.value());
@@ -311,9 +310,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
                 } else {
                     Ok(())
                 }
-            }) {
-                return Err(err);
-            }
+            })?;
         }
     }
     
@@ -323,7 +320,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
             .map_err(|e| {
                 syn::Error::new_spanned(
                     &input.ident,
-                    format!("Invalid model type path '{}': {}", model_path_str, e)
+                    format!("Invalid model type path '{model_path_str}': {e}")
                 )
             })?;
         
@@ -333,7 +330,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
                 .map_err(|e| {
                     syn::Error::new_spanned(
                         &input.ident,
-                        format!("Invalid error type path '{}': {}", error_path_str, e)
+                        format!("Invalid error type path '{error_path_str}': {e}")
                     )
                 })?
         } else {
@@ -342,7 +339,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
                 .map_err(|e| {
                     syn::Error::new_spanned(
                         &input.ident,
-                        format!("Failed to parse default error type: {}", e)
+                        format!("Failed to parse default error type: {e}")
                     )
                 })?
         };
@@ -353,7 +350,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
     }
 }
 
-/// Extract all field attributes (map_from, convert) in a single pass
+/// Extract all field attributes (`map_from`, convert) in a single pass
 /// 
 /// **CRITICAL: This function MUST extract all attributes in a single `parse_nested_meta` call.**
 /// 
@@ -366,7 +363,7 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
 /// 
 /// ## Historical Context
 /// 
-/// Previously, we had separate `extract_field_attribute` calls for "map_from" and "convert",
+/// Previously, we had separate `extract_field_attribute` calls for "`map_from`" and "convert",
 /// which called `parse_nested_meta` twice on the same attribute. This caused a regression where
 /// valid field attributes like `#[lifeguard(convert = "function")]` would fail with "expected `,`"
 /// errors, preventing macro expansion. See BUG-2026-01-19-02 for details.
@@ -428,7 +425,7 @@ fn extract_field_attributes(field: &Field) -> Result<(Option<String>, Option<Str
             //
             // If we need to extract more attributes in the future, add them here
             // rather than creating separate extraction functions.
-            if let Err(err) = attr.parse_nested_meta(|meta| {
+            attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("map_from") {
                     // Extract map_from attribute value
                     let lit: syn::LitStr = meta.value()?.parse()?;
@@ -444,26 +441,18 @@ fn extract_field_attributes(field: &Field) -> Result<(Option<String>, Option<Str
                     // This allows for future extensibility without breaking existing code
                     Ok(())
                 }
-            }) {
-                // CRITICAL: Propagate parse errors immediately.
-                // 
-                // If parse_nested_meta returns an error (e.g., malformed attribute like
-                // `convert = 123` instead of `convert = "function"`), we MUST return it
-                // so it can be converted to a compile error. Silently ignoring errors
-                // was the original bug (BUG-2026-01-19-02).
-                return Err(err);
-            }
+            })?;
         }
     }
     
     Ok((map_from, convert))
 }
 
-/// Extract a field attribute value (e.g., map_from, convert)
+/// Extract a field attribute value (e.g., `map_from`, convert)
 /// 
 /// This function checks ALL #[lifeguard(...)] attributes on the field,
 /// not just the first one. This allows users to split attributes across
-/// multiple #[lifeguard] blocks (e.g., #[lifeguard(map_from = "foo")] and
+/// multiple #[lifeguard] blocks (e.g., #[`lifeguard(map_from` = "foo")] and
 /// #[lifeguard(convert = "bar")] on separate lines).
 /// 
 /// Returns `Ok(Some(String))` if the attribute is found, `Ok(None)` if not found,
@@ -475,7 +464,7 @@ fn extract_field_attribute(field: &Field, attr_name: &str) -> Result<Option<Stri
         if attr.path().is_ident("lifeguard") {
             let mut value: Option<String> = None;
             // Check result and propagate errors instead of silently ignoring them
-            if let Err(err) = attr.parse_nested_meta(|meta| {
+            attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident(attr_name) {
                     let lit: syn::LitStr = meta.value()?.parse()?;
                     value = Some(lit.value());
@@ -483,10 +472,7 @@ fn extract_field_attribute(field: &Field, attr_name: &str) -> Result<Option<Stri
                 } else {
                     Ok(())
                 }
-            }) {
-                // Return parse error immediately - malformed attribute detected
-                return Err(err);
-            }
+            })?;
             // If we found the requested attribute, return it
             // Otherwise, continue checking other attributes
             if value.is_some() {

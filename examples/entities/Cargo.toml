@@ -1,18 +1,23 @@
 [package]
-name = "accounting-entities"
+name = "example-entities"
 version = "0.1.0"
 edition = "2021"
-description = "Accounting domain entities using Lifeguard ORM"
+description = "Example entities using Lifeguard ORM (for documentation and testing)"
 authors = ["Example Corp <dev@example.com>"]
 license = "MIT OR Apache-2.0"
+build = "build.rs"
 
 # Exclude from parent workspace (this simulates a 3rd party project)
 [workspace]
+
+[build-dependencies]
+lifeguard-migrate = { path = "../../lifeguard-migrate", version = "0.1.0" }
 
 [dependencies]
 # Lifeguard ORM
 lifeguard = { path = "../../", version = "0.1.0" }
 lifeguard-derive = { path = "../../lifeguard-derive", version = "0.1.0" }
+lifeguard-migrate = { path = "../../lifeguard-migrate", version = "0.1.0" }
 
 # Standard dependencies for entities
 uuid = { version = "1.0", features = ["v4", "serde"] }
@@ -20,7 +25,17 @@ chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1.33", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
 
 [lib]
-name = "accounting_entities"
+name = "example_entities"
 path = "src/lib.rs"
+
+[[bin]]
+name = "generate-migrations"
+path = "src/bin/generate_migrations.rs"
+
+[[bin]]
+name = "generate-sql"
+path = "src/bin/generate_sql.rs"

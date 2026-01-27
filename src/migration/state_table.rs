@@ -16,6 +16,7 @@ use sea_query::{Table, ColumnDef, TableCreateStatement, Index, IndexCreateStatem
 /// # Returns
 ///
 /// Returns a `TableCreateStatement` that can be executed via `SchemaManager::create_table()`
+#[must_use]
 pub fn create_state_table() -> TableCreateStatement {
     Table::create()
         .table("lifeguard_migrations")
@@ -57,6 +58,7 @@ pub fn create_state_table() -> TableCreateStatement {
 }
 
 /// Create index on `applied_at` for faster queries
+#[must_use]
 pub fn create_state_table_index() -> IndexCreateStatement {
     Index::create()
         .name("idx_lifeguard_migrations_applied_at")
@@ -76,11 +78,15 @@ pub fn create_state_table_index() -> IndexCreateStatement {
 /// # Returns
 ///
 /// Returns `Ok(())` if the table was created successfully, or an error if it fails.
-/// If the table already exists, this is a no-op (PostgreSQL's `IF NOT EXISTS` handles this).
+/// If the table already exists, this is a no-op (`PostgreSQL`'s `IF NOT EXISTS` handles this).
+///
+/// # Errors
+///
+/// Returns `LifeError` if table or index creation fails.
 pub fn initialize_state_table(executor: &dyn LifeExecutor) -> Result<(), LifeError> {
     // Use raw SQL with IF NOT EXISTS for safety
     // This avoids the need to wrap executor in a Box (which has lifetime issues)
-    let sql = r#"
+    let sql = r"
         CREATE TABLE IF NOT EXISTS lifeguard_migrations (
             version BIGINT PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
@@ -89,15 +95,15 @@ pub fn initialize_state_table(executor: &dyn LifeExecutor) -> Result<(), LifeErr
             execution_time_ms INTEGER,
             success BOOLEAN NOT NULL DEFAULT true
         )
-    "#;
+    ";
     
     executor.execute(sql, &[])?;
     
     // Create index (IF NOT EXISTS)
-    let index_sql = r#"
+    let index_sql = r"
         CREATE INDEX IF NOT EXISTS idx_lifeguard_migrations_applied_at 
         ON lifeguard_migrations(applied_at)
-    "#;
+    ";
     
     executor.execute(index_sql, &[])?;
     

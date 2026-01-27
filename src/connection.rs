@@ -1,6 +1,6 @@
 //! Connection Module - Epic 01 Story 02
 //!
-//! Provides connection establishment and management for may_postgres.
+//! Provides connection establishment and management for `may_postgres`.
 //!
 //! This module wraps `may_postgres::Client` and provides:
 //! - Connection string parsing and validation
@@ -16,9 +16,9 @@ use std::time::Instant;
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
 
-/// Connection string for PostgreSQL
+/// Connection string for `PostgreSQL`
 ///
-/// Supports PostgreSQL URI format: `postgresql://user:pass@host:port/dbname`
+/// Supports `PostgreSQL` URI format: `postgresql://user:pass@host:port/dbname`
 /// Also supports key-value format: `host=localhost user=postgres dbname=mydb`
 pub type ConnectionString = String;
 
@@ -27,7 +27,7 @@ pub type ConnectionString = String;
 pub enum ConnectionError {
     /// Invalid connection string format
     InvalidConnectionString(String),
-    /// Network/authentication error from may_postgres
+    /// Network/authentication error from `may_postgres`
     PostgresError(PostgresError),
     /// Other connection errors
     Other(String),
@@ -37,13 +37,13 @@ impl fmt::Display for ConnectionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ConnectionError::InvalidConnectionString(s) => {
-                write!(f, "Invalid connection string: {}", s)
+                write!(f, "Invalid connection string: {s}")
             }
             ConnectionError::PostgresError(e) => {
-                write!(f, "PostgreSQL error: {}", e)
+                write!(f, "PostgreSQL error: {e}")
             }
             ConnectionError::Other(s) => {
-                write!(f, "Connection error: {}", s)
+                write!(f, "Connection error: {s}")
             }
         }
     }
@@ -57,11 +57,11 @@ impl From<PostgresError> for ConnectionError {
     }
 }
 
-/// Establishes a connection to PostgreSQL using may_postgres
+/// Establishes a connection to `PostgreSQL` using `may_postgres`
 ///
 /// # Arguments
 ///
-/// * `connection_string` - PostgreSQL connection string. Supports:
+/// * `connection_string` - `PostgreSQL` connection string. Supports:
 ///   - URI format: `postgresql://user:pass@host:port/dbname`
 ///   - Key-value format: `host=localhost user=postgres dbname=mydb`
 ///
@@ -87,6 +87,14 @@ impl From<PostgresError> for ConnectionError {
 /// This is a blocking call that works within coroutines. The connection
 /// is established synchronously and returns immediately with a `Client`
 /// that can be used for queries.
+///
+/// # Errors
+///
+/// Returns `ConnectionError` if:
+/// - The connection string is invalid
+/// - Network connection fails
+/// - Authentication fails
+/// - Database is unavailable
 pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
     #[cfg(feature = "tracing")]
     let _span = tracing_helpers::acquire_connection_span().entered();
@@ -100,7 +108,7 @@ pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
     // Note: may_postgres::connect is a blocking call that works within coroutines
     // It returns a Client directly (no separate connection handle to manage)
     let client = may_postgres::connect(connection_string)
-        .map_err(|e| ConnectionError::PostgresError(e))?;
+        .map_err(ConnectionError::PostgresError)?;
 
     let duration = start.elapsed();
     #[cfg(feature = "metrics")]
@@ -113,11 +121,15 @@ pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
 ///
 /// # Arguments
 ///
-/// * `connection_string` - PostgreSQL connection string to validate
+/// * `connection_string` - `PostgreSQL` connection string to validate
 ///
 /// # Returns
 ///
 /// Returns `Ok(())` if the connection string format is valid, or an error otherwise.
+///
+/// # Errors
+///
+/// Returns `ConnectionError::InvalidConnectionString` if the connection string format is invalid.
 ///
 /// # Supported Formats
 ///
@@ -160,12 +172,16 @@ pub fn validate_connection_string(connection_string: &str) -> Result<(), Connect
 ///
 /// # Arguments
 ///
-/// * `client` - The PostgreSQL client to check
+/// * `client` - The `PostgreSQL` client to check
 ///
 /// # Returns
 ///
 /// Returns `Ok(true)` if the connection is healthy, `Ok(false)` if the connection
 /// is unhealthy, or an error if the check itself fails.
+///
+/// # Errors
+///
+/// Returns `ConnectionError` if the health check query fails.
 ///
 /// # Examples
 ///
@@ -176,7 +192,7 @@ pub fn validate_connection_string(connection_string: &str) -> Result<(), Connect
 /// match check_connection_health(&client) {
 ///     Ok(true) => println!("Connection is healthy"),
 ///     Ok(false) => println!("Connection is unhealthy"),
-///     Err(e) => println!("Health check failed: {}", e),
+///     Err(e) => println!("Health check failed: {e}"),
 /// }
 /// # Ok::<(), lifeguard::connection::ConnectionError>(())
 /// ```
@@ -201,15 +217,19 @@ pub fn check_connection_health(client: &Client) -> Result<bool, ConnectionError>
 ///
 /// This function attempts to check the connection health, but may timeout
 /// if the connection is unresponsive. The timeout is handled by the underlying
-/// may_postgres client's connection settings.
+/// `may_postgres` client's connection settings.
 ///
 /// # Arguments
 ///
-/// * `client` - The PostgreSQL client to check
+/// * `client` - The `PostgreSQL` client to check
 ///
 /// # Returns
 ///
 /// Returns `Ok(true)` if healthy, `Ok(false)` if unhealthy, or an error.
+///
+/// # Errors
+///
+/// Returns `ConnectionError` if the health check query fails or times out.
 pub fn check_connection_health_with_timeout(client: &Client) -> Result<bool, ConnectionError> {
     // For now, this is the same as check_connection_health
     // In the future, we could add explicit timeout handling
@@ -233,7 +253,7 @@ mod tests {
         ];
 
         for s in valid_strings {
-            assert!(validate_connection_string(s).is_ok(), "Should validate: {}", s);
+            assert!(validate_connection_string(s).is_ok(), "Should validate: {s}");
         }
     }
 
@@ -246,7 +266,7 @@ mod tests {
         ];
 
         for s in invalid_strings {
-            assert!(validate_connection_string(s).is_err(), "Should reject: {}", s);
+            assert!(validate_connection_string(s).is_err(), "Should reject: {s}");
         }
     }
 
@@ -271,6 +291,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::panic)] // Test code - panic is acceptable
     fn test_empty_connection_string() {
         let result = validate_connection_string("");
         assert!(result.is_err());

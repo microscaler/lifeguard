@@ -32,7 +32,7 @@ pub fn calculate_checksum(migration_file_path: &Path) -> Result<String, LifeErro
     let hash = hasher.finalize();
     
     // Return hexadecimal representation
-    Ok(format!("{:x}", hash))
+    Ok(format!("{hash:x}"))
 }
 
 /// Validate checksum against stored value
@@ -45,13 +45,16 @@ pub fn calculate_checksum(migration_file_path: &Path) -> Result<String, LifeErro
 /// # Returns
 ///
 /// Returns `Ok(())` if checksums match, or an error if they don't
+///
+/// # Errors
+///
+/// Returns `LifeError::Other` if checksums don't match.
 pub fn validate_checksum(stored_checksum: &str, current_checksum: &str) -> Result<(), LifeError> {
     if stored_checksum == current_checksum {
         Ok(())
     } else {
         Err(LifeError::Other(format!(
-            "Checksum mismatch: stored={}, current={}",
-            stored_checksum, current_checksum
+            "Checksum mismatch: stored={stored_checksum}, current={current_checksum}"
         )))
     }
 }

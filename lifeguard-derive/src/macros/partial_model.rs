@@ -1,9 +1,10 @@
-//! Derive macro for `DerivePartialModel` - generates PartialModelTrait and FromRow implementations
+//! Derive macro for `DerivePartialModel` - generates `PartialModelTrait` and `FromRow` implementations
 //!
 //! This macro generates:
-//! - PartialModelTrait implementation with selected_columns() method
-//! - FromRow implementation for converting database rows to partial models
-//! - Column name extraction from field names or column_name attribute
+//! - `PartialModelTrait` implementation with `selected_columns()` method
+//! - `FromRow` implementation for converting database rows to partial models
+//! - Column name extraction from field names or `column_name` attribute
+#![allow(clippy::too_many_lines, clippy::single_match_else, clippy::match_same_arms, clippy::explicit_iter_loop)] // Complex macro code
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -13,7 +14,7 @@ use syn::{parse_macro_input, Data, DeriveInput, Fields};
 use crate::utils;
 use crate::attributes;
 
-/// Generate PartialModelTrait and FromRow implementations for a partial model struct
+/// Generate `PartialModelTrait` and `FromRow` implementations for a partial model struct
 pub fn derive_partial_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -48,14 +49,13 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
                 )
                 .to_compile_error()
                 .into();
-            } else {
-                return syn::Error::new_spanned(
-                    &input.ident,
-                    "DerivePartialModel requires #[lifeguard(entity = \"path::to::Entity\")] attribute. Found #[lifeguard] but missing entity parameter.",
-                )
-                .to_compile_error()
-                .into();
             }
+            return syn::Error::new_spanned(
+                &input.ident,
+                "DerivePartialModel requires #[lifeguard(entity = \"path::to::Entity\")] attribute. Found #[lifeguard] but missing entity parameter.",
+            )
+            .to_compile_error()
+            .into();
         }
         Err(err) => {
             // Return the parsing error
@@ -177,7 +177,7 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
 }
 
 /// Extract Entity type from #[lifeguard(entity = "...")] attribute
-/// Returns Some(TokenStream2) if found, None if not found, or an error TokenStream if parsing fails
+/// Returns Some(TokenStream2) if found, None if not found, or an error `TokenStream` if parsing fails
 fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, TokenStream2> {
     for attr in &input.attrs {
         if attr.path().is_ident("lifeguard") {
@@ -220,7 +220,7 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                 if entity_path_str.starts_with("::") {
                     return Err(syn::Error::new_spanned(
                         error_span,
-                        format!("Entity path has leading colons. Found absolute path in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str),
+                        format!("Entity path has leading colons. Found absolute path in #[lifeguard(entity = \"{entity_path_str}\")]. Use a valid path like \"foo::Entity\" or \"Entity\"."),
                     )
                     .to_compile_error());
                 }
@@ -232,7 +232,7 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                     if path.leading_colon.is_some() {
                         return Err(syn::Error::new_spanned(
                             error_span,
-                            format!("Entity path has leading colons. Found absolute path in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str),
+                            format!("Entity path has leading colons. Found absolute path in #[lifeguard(entity = \"{entity_path_str}\")]. Use a valid path like \"foo::Entity\" or \"Entity\"."),
                         )
                         .to_compile_error());
                     }
@@ -255,11 +255,11 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                     for (idx, segment) in segments.iter().enumerate() {
                         if segment.is_empty() {
                             let error_msg = if segments.len() == 1 {
-                                format!("Entity path cannot be empty. Found empty string in #[lifeguard(entity = \"{}\")].", entity_path_str)
+                                format!("Entity path cannot be empty. Found empty string in #[lifeguard(entity = \"{entity_path_str}\")].")
                             } else if idx == segments.len() - 1 {
-                                format!("Entity path has trailing colons. Found empty segment at end in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", entity_path_str)
+                                format!("Entity path has trailing colons. Found empty segment at end in #[lifeguard(entity = \"{entity_path_str}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".")
                             } else {
-                                format!("Entity path has consecutive colons. Found empty segment at position {} in #[lifeguard(entity = \"{}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", idx + 1, entity_path_str)
+                                format!("Entity path has consecutive colons. Found empty segment at position {} in #[lifeguard(entity = \"{entity_path_str}\")]. Use a valid path like \"foo::Entity\" or \"Entity\".", idx + 1)
                             };
                             
                             return Err(syn::Error::new_spanned(
@@ -274,7 +274,7 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                         if syn::parse_str::<syn::Ident>(segment).is_err() {
                             return Err(syn::Error::new_spanned(
                                 error_span,
-                                format!("Entity path contains invalid identifier \"{}\" at position {} in #[lifeguard(entity = \"{}\")]. Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", segment, idx + 1, entity_path_str),
+                                format!("Entity path contains invalid identifier \"{segment}\" at position {} in #[lifeguard(entity = \"{entity_path_str}\")]. Identifiers must be valid Rust identifiers (e.g., start with a letter or underscore, contain only alphanumeric characters and underscores).", idx + 1),
                             )
                             .to_compile_error());
                         }

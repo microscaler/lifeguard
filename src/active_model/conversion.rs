@@ -1,6 +1,6 @@
-//! Value conversion utilities for ActiveModel operations.
+//! Value conversion utilities for `ActiveModel` operations.
 //!
-//! This module provides functions to convert SeaQuery `Value` enums into
+//! This module provides functions to convert `SeaQuery` `Value` enums into
 //! `ToSql` trait objects that can be used with `may_postgres` queries.
 //!
 //! Note: This is similar to `query::value_conversion::with_converted_params` but
@@ -11,9 +11,9 @@ use super::error::ActiveModelError;
 use may_postgres::types::ToSql;
 use sea_query::Value;
 
-/// Convert SeaQuery values to may_postgres ToSql parameters and execute a closure
+/// Convert `SeaQuery` values to `may_postgres` `ToSql` parameters and execute a closure
 ///
-/// This helper function converts a slice of SeaQuery `Value` enums into
+/// This helper function converts a slice of `SeaQuery` `Value` enums into
 /// `ToSql` trait objects that can be used with `may_postgres`, then executes
 /// a closure with the converted parameters.
 ///
@@ -24,7 +24,7 @@ use sea_query::Value;
 ///
 /// # Arguments
 ///
-/// * `values` - Slice of SeaQuery `Value` enums to convert
+/// * `values` - Slice of `SeaQuery` `Value` enums to convert
 /// * `f` - Closure that receives the converted parameters and executes the database operation
 ///
 /// # Returns
@@ -34,6 +34,7 @@ use sea_query::Value;
 /// # Errors
 ///
 /// Returns `ActiveModelError::Other` if an unsupported value type is encountered.
+#[allow(clippy::too_many_lines)] // Complex value conversion logic requires many lines (130 lines)
 pub fn with_converted_params<F, R>(values: &[Value], f: F) -> Result<R, ActiveModelError>
 where
     F: FnOnce(&[&dyn ToSql]) -> Result<R, ActiveModelError>,
@@ -49,46 +50,47 @@ where
     let mut doubles: Vec<f64> = Vec::new();
     
     // First pass: collect all values into typed vectors
-    for value in values.iter() {
+    for value in values {
         match value {
             Value::Bool(Some(b)) => bools.push(*b),
             Value::Int(Some(i)) => ints.push(*i),
             Value::BigInt(Some(i)) => big_ints.push(*i),
             Value::String(Some(s)) => strings.push(s.clone()),
             Value::Bytes(Some(b)) => bytes.push(b.clone()),
-            Value::Bool(None) | Value::Int(None) | 
-            Value::BigInt(None) | Value::String(None) | 
-            Value::Bytes(None) => nulls.push(None),
-            Value::TinyInt(Some(i)) => ints.push(*i as i32),
-            Value::SmallInt(Some(i)) => ints.push(*i as i32),
-            Value::TinyUnsigned(Some(u)) => ints.push(*u as i32),
-            Value::SmallUnsigned(Some(u)) => ints.push(*u as i32),
-            Value::Unsigned(Some(u)) => big_ints.push(*u as i64),
+            Value::TinyInt(Some(i)) => ints.push(i32::from(*i)),
+            Value::SmallInt(Some(i)) => ints.push(i32::from(*i)),
+            Value::TinyUnsigned(Some(u)) => ints.push(i32::from(*u)),
+            Value::SmallUnsigned(Some(u)) => ints.push(i32::from(*u)),
+            Value::Unsigned(Some(u)) => big_ints.push(i64::from(*u)),
             Value::BigUnsigned(Some(u)) => {
+                #[allow(clippy::cast_sign_loss)] // i64::MAX is positive, safe to cast to u64
                 if *u > i64::MAX as u64 {
                     return Err(ActiveModelError::Other(format!(
-                        "BigUnsigned value {} exceeds i64::MAX ({}), cannot be safely cast to i64",
-                        u, i64::MAX
+                        "BigUnsigned value {u} exceeds i64::MAX ({}), cannot be safely cast to i64",
+                        i64::MAX
                     )));
                 }
+                #[allow(clippy::cast_possible_wrap)] // Checked for range above
                 big_ints.push(*u as i64);
             },
             Value::Float(Some(f)) => floats.push(*f),
             Value::Double(Some(d)) => doubles.push(*d),
-            Value::TinyInt(None) | Value::SmallInt(None) |
-            Value::TinyUnsigned(None) | Value::SmallUnsigned(None) |
-            Value::Unsigned(None) | Value::BigUnsigned(None) |
-            Value::Float(None) | Value::Double(None) => nulls.push(None),
             Value::Json(Some(j)) => {
                 strings.push(serde_json::to_string(&**j).map_err(|e| {
-                    ActiveModelError::Other(format!("Failed to serialize JSON: {}", e))
+                    ActiveModelError::Other(format!("Failed to serialize JSON: {e}"))
                 })?);
             },
-            Value::Json(None) => nulls.push(None),
+            Value::Bool(None) | Value::Int(None) | 
+            Value::BigInt(None) | Value::String(None) | 
+            Value::Bytes(None)
+            | Value::TinyInt(None) | Value::SmallInt(None) |
+            Value::TinyUnsigned(None) | Value::SmallUnsigned(None) |
+            Value::Unsigned(None) | Value::BigUnsigned(None) |
+            Value::Float(None) | Value::Double(None)
+            | Value::Json(None) => nulls.push(None),
             _ => {
                 return Err(ActiveModelError::Other(format!(
-                    "Unsupported value type in query: {:?}",
-                    value
+                    "Unsupported value type in query: {value:?}"
                 )));
             }
         }
@@ -106,7 +108,7 @@ where
     
     let mut params: Vec<&dyn ToSql> = Vec::new();
     
-    for value in values.iter() {
+    for value in values {
         match value {
             Value::Bool(Some(_)) => {
                 params.push(&bools[bool_idx] as &dyn ToSql);
@@ -168,8 +170,7 @@ where
             }
             _ => {
                 return Err(ActiveModelError::Other(format!(
-                    "Unsupported value type in query: {:?}",
-                    value
+                    "Unsupported value type in query: {value:?}"
                 )));
             }
         }

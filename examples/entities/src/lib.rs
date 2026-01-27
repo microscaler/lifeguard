@@ -1,28 +1,33 @@
-//! Accounting Domain Entities
+//! Example Entities Library
 //!
-//! This library provides Lifeguard entity definitions for an accounting system,
-//! organized by service domain (General Ledger, Invoice, Accounts Receivable, Accounts Payable).
+//! This library provides example Lifeguard entity definitions for demonstration purposes.
+//! 
+//! **Note**: RERP accounting entities have been moved to `rerp/entities/`.
+//! This examples directory is kept for Lifeguard documentation and testing purposes.
 //!
 //! ## Usage
 //!
 //! ```rust
-//! use accounting_entities::accounting::general_ledger::ChartOfAccount;
 //! use lifeguard::LifeModelTrait;
+//! use example_entities::inventory::Product;
 //!
 //! // Access entity metadata
-//! let entity = ChartOfAccount::Entity::default();
+//! let entity = Product::Entity::default();
 //! println!("Table: {}", entity.table_name());
 //! ```
 //!
 //! ## Entity Organization
 //!
 //! Entities are organized by service domain:
-//! - `accounting::general_ledger` - Core accounting entities
-//! - `accounting::invoice` - Invoice management
-//! - `accounting::accounts_receivable` - AR management
-//! - `accounting::accounts_payable` - AP management
+//! - `inventory` - Inventory management entities (products, categories, inventory items)
 
-pub mod accounting;
+pub mod inventory;
+
+// Include generated entity registry from build script
+#[allow(missing_docs)]
+pub mod entity_registry {
+    include!(concat!(env!("OUT_DIR"), "/entity_registry.rs"));
+}
 
 // Re-export for convenience
-pub use accounting::*;
+pub use inventory::*;

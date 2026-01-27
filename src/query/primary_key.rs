@@ -1,12 +1,12 @@
-//! Primary key operations for LifeModel - Epic 02 Story 06
+//! Primary key operations for `LifeModel` - Epic 02 Story 06
 //!
 //! This module provides traits and implementations for type-safe primary key operations
-//! that match SeaORM's API. Primary keys can be queried and manipulated with compile-time type checking.
+//! that match `SeaORM`'s API. Primary keys can be queried and manipulated with compile-time type checking.
 
 /// Trait for primary key operations
 ///
 /// This trait provides methods for working with primary keys at compile time.
-/// It's similar to SeaORM's `PrimaryKeyTrait` and allows type-safe primary key operations.
+/// It's similar to `SeaORM`'s `PrimaryKeyTrait` and allows type-safe primary key operations.
 ///
 /// # Example
 ///
@@ -33,21 +33,11 @@ pub trait PrimaryKeyTrait: Copy + std::fmt::Debug {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use lifeguard::PrimaryKeyTrait;
+    /// - For a single primary key with type `i32`: `type ValueType = i32;`
+    /// - For a single primary key with type `Option<i32>`: `type ValueType = i32;` (Option unwrapped)
+    /// - For a composite primary key `(i32, String)`: `type ValueType = (i32, String);`
+    /// - For a composite primary key `(Option<i32>, String)`: `type ValueType = (i32, String);` (Option unwrapped)
     ///
-    /// // For a single primary key with type i32:
-    /// // type ValueType = i32;
-    ///
-    /// // For a single primary key with type Option<i32>:
-    /// // type ValueType = i32;  // Option unwrapped
-    ///
-    /// // For a composite primary key (i32, String):
-    /// // type ValueType = (i32, String);
-    ///
-    /// // For a composite primary key (Option<i32>, String):
-    /// // type ValueType = (i32, String);  // Option unwrapped
-    /// ```
     type ValueType;
 
     /// Check if the primary key is auto-increment
@@ -72,10 +62,10 @@ pub trait PrimaryKeyTrait: Copy + std::fmt::Debug {
     fn auto_increment(self) -> bool;
 }
 
-/// Trait for mapping between PrimaryKey and Column
+/// Trait for mapping between `PrimaryKey` and `Column`
 ///
-/// This trait provides a way to convert a PrimaryKey enum variant to its
-/// corresponding Column enum variant. This is useful for queries that need
+/// This trait provides a way to convert a `PrimaryKey` enum variant to its
+/// corresponding `Column` enum variant. This is useful for queries that need
 /// to reference the primary key column.
 ///
 /// # Example
@@ -97,7 +87,7 @@ pub trait PrimaryKeyToColumn {
     /// The Column enum type for this entity
     type Column;
 
-    /// Convert a PrimaryKey variant to its corresponding Column variant
+    /// Convert a `PrimaryKey` variant to its corresponding `Column` variant
     ///
     /// # Example
     ///
@@ -105,7 +95,7 @@ pub trait PrimaryKeyToColumn {
     /// use lifeguard::PrimaryKeyToColumn;
     ///
     /// // let pk = UserPrimaryKey::Id;
-    /// // let col = pk.to_column();  // Returns UserColumn::Id
+    /// // let col = pk.to_column();  // Returns `UserColumn::Id`
     /// ```
     fn to_column(self) -> Self::Column;
 }
@@ -113,7 +103,7 @@ pub trait PrimaryKeyToColumn {
 /// Enum representing the arity (number of columns) in a primary key
 ///
 /// This enum indicates the exact number of columns in a primary key, providing
-/// better type safety than SeaORM's simple `Single`/`Tuple` distinction.
+/// better type safety than `SeaORM`'s simple `Single`/`Tuple` distinction.
 /// This enables compile-time verification of composite key sizes and more
 /// specific handling for different arities.
 ///
@@ -209,6 +199,7 @@ pub trait PrimaryKeyArityTrait {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
 
@@ -248,7 +239,7 @@ mod tests {
     #[test]
     fn test_primary_key_trait_auto_increment() {
         let pk = TestPrimaryKey::Id;
-        assert_eq!(pk.auto_increment(), true);
+        assert!(pk.auto_increment());
     }
 
     #[test]
@@ -261,6 +252,7 @@ mod tests {
     #[test]
     fn test_primary_key_value_type() {
         // Test that ValueType is accessible
+        #[allow(clippy::no_effect_underscore_binding)] // Test code - binding is for type checking
         let _value: <TestPrimaryKey as PrimaryKeyTrait>::ValueType = 42i32;
     }
 

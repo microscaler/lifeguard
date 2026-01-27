@@ -1,30 +1,30 @@
-//! Type mapping utilities for converting column type strings to SeaQuery ColumnDef.
+//! Type mapping utilities for converting column type strings to `SeaQuery` `ColumnDef`.
 //!
 //! This module provides the type mapping logic that converts string-based column type
-//! definitions (e.g., "Integer", "String") into SeaQuery's `ColumnDef` types.
+//! definitions (e.g., "Integer", "String") into `SeaQuery`'s `ColumnDef` types.
 
 use sea_query::ColumnDef;
 
-/// Map a column type string to SeaQuery ColumnDef type
+/// Map a column type string to `SeaQuery` `ColumnDef` type
 ///
-/// This function handles the conversion from string-based type names to SeaQuery's
+/// This function handles the conversion from string-based type names to `SeaQuery`'s
 /// column type methods. It's used by `ColumnDefinition::to_column_def()`.
 ///
 /// # Arguments
 ///
 /// * `col_type` - The column type string (e.g., "Integer", "String", "Json")
-/// * `def` - The ColumnDef to configure
+/// * `def` - The `ColumnDef` to configure
 ///
 /// # Type Mapping
 ///
-/// Maps column type strings to SeaQuery column types:
+/// Maps column type strings to `SeaQuery` column types:
 /// - "Integer" / "i32" / "i64" → `.integer()` or `.big_integer()`
 /// - "String" / "Text" → `.string()` or `.text()`
 /// - "Boolean" / "bool" → `.boolean()`
 /// - "Float" / "f32" → `.float()`
 /// - "Double" / "f64" → `.double()`
 /// - "Json" / "Jsonb" → `.json()`
-/// - "Timestamp" / "DateTime" → `.timestamp()`
+/// - `"Timestamp"` / `"DateTime"` → `.timestamp()`
 /// - "Date" → `.date()`
 /// - "Time" → `.time()`
 /// - "Uuid" → `.uuid()`

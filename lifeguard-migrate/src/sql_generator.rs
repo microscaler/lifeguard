@@ -183,8 +183,29 @@ where
     writeln!(sql, ");").map_err(|e| format!("Failed to write SQL: {}", e))?;
     writeln!(sql).map_err(|e| format!("Failed to write SQL: {}", e))?;
     
-    // Generate indexes
+    // Get all column names for validation
+    let all_column_names: std::collections::HashSet<String> = columns
+        .iter()
+        .map(|col| col.as_str().to_string())
+        .collect();
+    
+    // Generate indexes (only for columns that exist in the table)
     for index in &table_def.indexes {
+        // Validate that all columns in the index exist in the table
+        let mut missing_columns = Vec::new();
+        for col_name in &index.columns {
+            if !all_column_names.contains(col_name) {
+                missing_columns.push(col_name.clone());
+            }
+        }
+        
+        // Skip index if any columns don't exist
+        if !missing_columns.is_empty() {
+            eprintln!("⚠️  Warning: Skipping index '{}' on table '{}' because column(s) {} do not exist in the table", 
+                index.name, full_table_name, missing_columns.join(", "));
+            continue;
+        }
+        
         let mut index_sql = String::new();
         
         if index.unique {

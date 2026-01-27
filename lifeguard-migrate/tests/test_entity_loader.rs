@@ -274,3 +274,75 @@ fn test_load_entities_recursive_subdirectories() {
     assert!(table_names.contains(&&"table1".to_string()));
     assert!(table_names.contains(&&"table2".to_string()));
 }
+
+#[test]
+fn test_load_entities_with_lifemodel_not_first() {
+    let temp_dir = TempDir::new().unwrap();
+    let entities_dir = temp_dir.path();
+    
+    // Test case 1: #[derive(Clone, LifeModel)]
+    let entity1 = entities_dir.join("entity1.rs");
+    fs::write(&entity1, r#"
+        #[derive(Clone, LifeModel)]
+        #[table_name = "table1"]
+        pub struct Entity1 { pub id: i32; }
+    "#).unwrap();
+    
+    // Test case 2: #[derive(Debug, Serialize, LifeModel)]
+    let entity2 = entities_dir.join("entity2.rs");
+    fs::write(&entity2, r#"
+        #[derive(Debug, Serialize, LifeModel)]
+        #[table_name = "table2"]
+        pub struct Entity2 { pub id: i32; }
+    "#).unwrap();
+    
+    // Test case 3: #[derive(LifeModel, Clone)] - should also work
+    let entity3 = entities_dir.join("entity3.rs");
+    fs::write(&entity3, r#"
+        #[derive(LifeModel, Clone)]
+        #[table_name = "table3"]
+        pub struct Entity3 { pub id: i32; }
+    "#).unwrap();
+    
+    let result = entity_loader::load_entities(&entities_dir.to_path_buf());
+    assert!(result.is_ok());
+    
+    let entities = result.unwrap();
+    // Should find all 3 entities
+    assert_eq!(entities.len(), 3);
+    
+    // Verify all entities are found
+    let table_names: Vec<&String> = entities.iter().map(|e| &e.table_name).collect();
+    assert!(table_names.contains(&&"table1".to_string()));
+    assert!(table_names.contains(&&"table2".to_string()));
+    assert!(table_names.contains(&&"table3".to_string()));
+}
+
+#[test]
+fn test_load_entities_skips_non_lifemodel_derives() {
+    let temp_dir = TempDir::new().unwrap();
+    let entities_dir = temp_dir.path();
+    
+    // Create file with derive but NOT LifeModel - should be skipped
+    let non_entity = entities_dir.join("not_an_entity.rs");
+    fs::write(&non_entity, r#"
+        #[derive(Clone, Debug)]
+        pub struct NotAnEntity { pub id: i32; }
+    "#).unwrap();
+    
+    // Create file with LifeModel - should be found
+    let entity = entities_dir.join("entity.rs");
+    fs::write(&entity, r#"
+        #[derive(LifeModel)]
+        #[table_name = "entity_table"]
+        pub struct Entity { pub id: i32; }
+    "#).unwrap();
+    
+    let result = entity_loader::load_entities(&entities_dir.to_path_buf());
+    assert!(result.is_ok());
+    
+    let entities = result.unwrap();
+    // Should only find the entity with LifeModel
+    assert_eq!(entities.len(), 1);
+    assert_eq!(entities[0].table_name, "entity_table");
+}

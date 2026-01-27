@@ -1,4 +1,4 @@
-//! Query building and execution for LifeModel entities.
+//! Query building and execution for `LifeModel` entities.
 //!
 //! This module provides the query builder API for building and executing SQL queries
 //! against database entities. It includes traits for entity definitions, query builders
@@ -6,11 +6,11 @@
 //!
 //! # Architecture
 //!
-//! The query module follows Sea-ORM's organizational patterns:
+//! The query module follows `Sea-ORM`'s organizational patterns:
 //! - **Traits**: Core entity and model traits (`LifeModelTrait`, `LifeEntityName`)
 //! - **Select**: SELECT query builder (`SelectQuery`)
 //! - **Execution**: Query execution methods (`all`, `one`, `first`)
-//! - **Value Conversion**: SeaQuery Value to ToSql parameter conversion
+//! - **Value Conversion**: `SeaQuery` `Value` to `ToSql` parameter conversion
 //! - **Error Handling**: Error detection and classification utilities
 //! - **Column**: Type-safe column operations
 //! - **Primary Key**: Primary key operations and traits

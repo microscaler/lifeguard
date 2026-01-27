@@ -1,7 +1,14 @@
-
 //! # Lifeguard
 //!
-//! Coroutine-native PostgreSQL ORM and data access platform for Rust's `may` runtime.
+//! Coroutine-native `PostgreSQL` ORM and data access platform for Rust's `may` runtime.
+
+// Database tools must never panic - ban panic-causing methods in production code
+// Note: Tests are allowed to use unwrap/expect via #[cfg(test)] or #[allow] attributes
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
+#![deny(clippy::unimplemented)]
+#![deny(clippy::todo)]
 //!
 //! See [README on GitHub](https://github.com/microscaler/lifeguard) for full architecture.
 //!
@@ -11,11 +18,11 @@
 //!
 //! ## Architecture
 //!
-//! - **may_postgres**: Coroutine-native PostgreSQL client (foundation)
-//! - **LifeQuery**: SQL builder layer (Epic 02)
-//! - **LifeModel/LifeRecord**: ORM layer (Epic 03)
-//! - **LifeExecutor**: Database execution abstraction (Epic 04)
-//! - **LifeguardPool**: Persistent connection pool (Epic 04)
+//! - **`may_postgres`**: Coroutine-native `PostgreSQL` client (foundation)
+//! - **`LifeQuery`**: SQL builder layer (Epic 02)
+//! - **`LifeModel`/`LifeRecord`**: ORM layer (Epic 03)
+//! - **`LifeExecutor`**: Database execution abstraction (Epic 04)
+//! - **`LifeguardPool`**: Persistent connection pool (Epic 04)
 
 pub mod config;
 
