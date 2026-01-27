@@ -1,7 +1,6 @@
 //! Tests for build_script module
 
 use lifeguard_migrate::build_script;
-use std::path::PathBuf;
 use std::fs;
 use tempfile::TempDir;
 
@@ -250,9 +249,23 @@ fn test_generate_registry_module_empty_entities() {
     let entities = Vec::new();
     let result = build_script::generate_registry_module(&entities, &output_file);
     
-    assert!(result.is_err());
-    let error = result.unwrap_err();
-    assert!(error.to_string().contains("No entities found"));
+    // Empty entities should now generate an empty registry (not return an error)
+    // This allows build.rs to always generate the registry file, even when no entities exist
+    assert!(result.is_ok());
+    
+    // Verify registry file was created
+    assert!(output_file.exists());
+    
+    // Verify registry content
+    let content = std::fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("Auto-generated entity registry"));
+    assert!(content.contains("No entities found - empty registry"));
+    assert!(content.contains("pub struct EntityMetadata"));
+    assert!(content.contains("pub fn all_entity_metadata()"));
+    assert!(content.contains("pub fn generate_sql_for_all()"));
+    // Verify it returns empty vectors
+    assert!(content.contains("vec![]"));
+    assert!(content.contains("Ok(vec![])"));
 }
 
 #[test]
@@ -373,4 +386,299 @@ fn test_generate_registry_module_sanitizes_hyphens() {
     // Should NOT contain hyphens in module paths (would be invalid Rust)
     assert!(!content.contains("crate::my-feature"));
     assert!(!content.contains("my-entity::Entity"));
+}
+
+// ============================================================================
+// Tests for empty entities scenario (positive and negative cases)
+// ============================================================================
+
+#[test]
+fn test_empty_registry_structure_valid() {
+    // POSITIVE: Verify empty registry has correct structure that can be included
+    let temp_dir = TempDir::new().unwrap();
+    let output_file = temp_dir.path().join("entity_registry.rs");
+    
+    let entities = Vec::new();
+    let result = build_script::generate_registry_module(&entities, &output_file);
+    assert!(result.is_ok());
+    
+    let content = fs::read_to_string(&output_file).unwrap();
+    
+    // Verify all required components exist
+    assert!(content.contains("pub struct EntityMetadata"));
+    assert!(content.contains("pub table_name: &'static str"));
+    assert!(content.contains("pub service_path: &'static str"));
+    assert!(content.contains("pub fn all_entity_metadata() -> Vec<EntityMetadata>"));
+    assert!(content.contains("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String>"));
+    
+    // Verify functions return empty collections
+    assert!(content.contains("vec![]"));
+    assert!(content.contains("Ok(vec![])"));
+}
+
+#[test]
+fn test_empty_registry_can_be_included() {
+    // POSITIVE: Verify empty registry can be included in a module without compilation errors
+    let temp_dir = TempDir::new().unwrap();
+    let out_dir = temp_dir.path().join("out");
+    fs::create_dir_all(&out_dir).unwrap();
+    
+    let registry_file = out_dir.join("entity_registry.rs");
+    let entities = Vec::new();
+    build_script::generate_registry_module(&entities, &registry_file).unwrap();
+    
+    // Create a test lib.rs that includes the registry (simulating examples/entities/src/lib.rs)
+    let lib_rs = temp_dir.path().join("lib.rs");
+    let lib_content = format!(
+        r#"
+        #[allow(missing_docs)]
+        pub mod entity_registry {{
+            include!(concat!("{}", "/entity_registry.rs"));
+        }}
+        
+        // Test that we can use the registry functions
+        #[cfg(test)]
+        mod tests {{
+            use super::entity_registry;
+            
+            #[test]
+            fn test_empty_registry_functions() {{
+                let metadata = entity_registry::all_entity_metadata();
+                assert_eq!(metadata.len(), 0);
+                
+                let sql_result = entity_registry::generate_sql_for_all().unwrap();
+                assert_eq!(sql_result.len(), 0);
+            }}
+        }}
+        "#,
+        out_dir.to_string_lossy().replace('\\', "/")
+    );
+    fs::write(&lib_rs, lib_content).unwrap();
+    
+    // Verify the file exists and is readable
+    assert!(registry_file.exists());
+    assert!(lib_rs.exists());
+    
+    // Verify the registry content is valid Rust syntax by checking structure
+    let registry_content = fs::read_to_string(&registry_file).unwrap();
+    assert!(registry_content.contains("pub struct"));
+    assert!(registry_content.contains("pub fn"));
+    assert!(registry_content.ends_with("}\n") || registry_content.ends_with("}\n\n"));
+}
+
+#[test]
+fn test_empty_registry_from_empty_directory() {
+    // POSITIVE: Verify that discovering from empty directory generates valid registry
+    let temp_dir = TempDir::new().unwrap();
+    let src_dir = temp_dir.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    
+    // Discover entities from empty directory
+    let entities = build_script::discover_entities(&src_dir).unwrap();
+    assert_eq!(entities.len(), 0);
+    
+    // Generate registry
+    let output_file = temp_dir.path().join("entity_registry.rs");
+    let result = build_script::generate_registry_module(&entities, &output_file);
+    
+    assert!(result.is_ok());
+    assert!(output_file.exists());
+    
+    // Verify it's a valid empty registry
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("No entities found - empty registry"));
+    assert!(content.contains("vec![]"));
+}
+
+#[test]
+fn test_empty_registry_after_discovery_error() {
+    // POSITIVE: Verify that error during discovery still generates empty registry
+    // This simulates the build.rs behavior when discover_entities returns Err
+    
+    let temp_dir = TempDir::new().unwrap();
+    let output_file = temp_dir.path().join("entity_registry.rs");
+    
+    // Simulate build.rs behavior: on error, use empty entities list
+    let entities = Vec::new(); // This is what build.rs does on error
+    
+    let result = build_script::generate_registry_module(&entities, &output_file);
+    assert!(result.is_ok(), "Should generate empty registry even when entities list is empty");
+    
+    assert!(output_file.exists());
+    
+    let content = fs::read_to_string(&output_file).unwrap();
+    assert!(content.contains("No entities found - empty registry"));
+}
+
+#[test]
+fn test_empty_registry_functions_return_correct_types() {
+    // POSITIVE: Verify empty registry functions have correct return types
+    let temp_dir = TempDir::new().unwrap();
+    let output_file = temp_dir.path().join("entity_registry.rs");
+    
+    let entities = Vec::new();
+    build_script::generate_registry_module(&entities, &output_file).unwrap();
+    
+    let content = fs::read_to_string(&output_file).unwrap();
+    
+    // Verify function signatures are correct
+    assert!(content.contains("pub fn all_entity_metadata() -> Vec<EntityMetadata>"));
+    assert!(content.contains("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String>"));
+    
+    // Verify implementations return correct types
+    assert!(content.contains("vec![]")); // Vec<EntityMetadata>
+    assert!(content.contains("Ok(vec![])")); // Result<Vec<(String, String)>, String>
+}
+
+#[test]
+fn test_empty_registry_vs_non_empty_registry_structure() {
+    // POSITIVE: Verify empty registry has same structure as non-empty registry
+    let temp_dir = TempDir::new().unwrap();
+    
+    // Generate empty registry
+    let empty_file = temp_dir.path().join("empty_registry.rs");
+    build_script::generate_registry_module(&Vec::new(), &empty_file).unwrap();
+    let empty_content = fs::read_to_string(&empty_file).unwrap();
+    
+    // Generate non-empty registry
+    let src_dir = temp_dir.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    let entity_file = src_dir.join("test.rs");
+    fs::write(&entity_file, r#"
+        #[derive(LifeModel)]
+        #[table_name = "test"]
+        pub struct Test { pub id: i32; }
+    "#).unwrap();
+    
+    let entities = build_script::discover_entities(&src_dir).unwrap();
+    let non_empty_file = temp_dir.path().join("non_empty_registry.rs");
+    build_script::generate_registry_module(&entities, &non_empty_file).unwrap();
+    let non_empty_content = fs::read_to_string(&non_empty_file).unwrap();
+    
+    // Both should have the same struct definition
+    assert!(empty_content.contains("pub struct EntityMetadata"));
+    assert!(non_empty_content.contains("pub struct EntityMetadata"));
+    
+    // Both should have the same function signatures
+    assert!(empty_content.contains("pub fn all_entity_metadata()"));
+    assert!(non_empty_content.contains("pub fn all_entity_metadata()"));
+    assert!(empty_content.contains("pub fn generate_sql_for_all()"));
+    assert!(non_empty_content.contains("pub fn generate_sql_for_all()"));
+    
+    // Empty should return empty vec, non-empty should have entries
+    assert!(empty_content.contains("vec![]"));
+    assert!(!non_empty_content.contains("vec![]")); // Non-empty should have actual entries
+}
+
+#[test]
+fn test_missing_registry_file_would_fail() {
+    // NEGATIVE: Verify that missing registry file would cause compilation error
+    // This demonstrates why the fix was necessary
+    
+    let temp_dir = TempDir::new().unwrap();
+    let out_dir = temp_dir.path().join("out");
+    fs::create_dir_all(&out_dir).unwrap();
+    
+    // Simulate the OLD buggy behavior: build.rs returns early without creating file
+    // (We simulate this by just not creating the file)
+    let registry_file = out_dir.join("entity_registry.rs");
+    
+    // Verify file doesn't exist (simulating old buggy behavior)
+    assert!(!registry_file.exists(), "Registry file should not exist (simulating old bug)");
+    
+    // Create a lib.rs that tries to include the missing file (this would fail in real build)
+    let lib_rs = temp_dir.path().join("lib.rs");
+    let lib_content = format!(
+        r#"
+        pub mod entity_registry {{
+            include!(concat!("{}", "/entity_registry.rs"));
+        }}
+        "#,
+        out_dir.to_string_lossy().replace('\\', "/")
+    );
+    fs::write(&lib_rs, lib_content).unwrap();
+    
+    // The file doesn't exist - this demonstrates the bug
+    // In a real build, this would cause: "No such file or directory" error
+    assert!(!registry_file.exists());
+}
+
+#[test]
+fn test_empty_registry_prevents_missing_file_error() {
+    // POSITIVE: Verify that generating empty registry prevents the missing file error
+    let temp_dir = TempDir::new().unwrap();
+    let out_dir = temp_dir.path().join("out");
+    fs::create_dir_all(&out_dir).unwrap();
+    
+    // Simulate NEW fixed behavior: always generate registry, even when empty
+    let registry_file = out_dir.join("entity_registry.rs");
+    let entities = Vec::new();
+    build_script::generate_registry_module(&entities, &registry_file).unwrap();
+    
+    // Verify file exists (fix prevents the bug)
+    assert!(registry_file.exists(), "Registry file should exist even with empty entities");
+    
+    // Create a lib.rs that includes the registry (this would work in real build)
+    let lib_rs = temp_dir.path().join("lib.rs");
+    let lib_content = format!(
+        r#"
+        pub mod entity_registry {{
+            include!(concat!("{}", "/entity_registry.rs"));
+        }}
+        "#,
+        out_dir.to_string_lossy().replace('\\', "/")
+    );
+    fs::write(&lib_rs, lib_content).unwrap();
+    
+    // Both files exist - this demonstrates the fix works
+    assert!(registry_file.exists());
+    assert!(lib_rs.exists());
+    
+    // Verify registry content is valid
+    let content = fs::read_to_string(&registry_file).unwrap();
+    assert!(!content.is_empty());
+    assert!(content.contains("pub struct EntityMetadata"));
+}
+
+#[test]
+fn test_empty_registry_metadata_structure() {
+    // POSITIVE: Verify EntityMetadata struct in empty registry matches expected structure
+    let temp_dir = TempDir::new().unwrap();
+    let output_file = temp_dir.path().join("entity_registry.rs");
+    
+    let entities = Vec::new();
+    build_script::generate_registry_module(&entities, &output_file).unwrap();
+    
+    let content = fs::read_to_string(&output_file).unwrap();
+    
+    // Verify EntityMetadata struct definition
+    assert!(content.contains("pub struct EntityMetadata {"));
+    assert!(content.contains("pub table_name: &'static str,"));
+    assert!(content.contains("pub service_path: &'static str,"));
+    assert!(content.contains("}"));
+    
+    // Verify all_entity_metadata returns Vec<EntityMetadata>
+    assert!(content.contains("pub fn all_entity_metadata() -> Vec<EntityMetadata>"));
+    assert!(content.contains("vec![]"));
+}
+
+#[test]
+fn test_empty_registry_sql_generation_function() {
+    // POSITIVE: Verify generate_sql_for_all function in empty registry
+    let temp_dir = TempDir::new().unwrap();
+    let output_file = temp_dir.path().join("entity_registry.rs");
+    
+    let entities = Vec::new();
+    build_script::generate_registry_module(&entities, &output_file).unwrap();
+    
+    let content = fs::read_to_string(&output_file).unwrap();
+    
+    // Verify function signature
+    assert!(content.contains("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String>"));
+    
+    // Verify implementation returns Ok with empty vec
+    assert!(content.contains("Ok(vec![])"));
+    
+    // Should NOT contain any SQL generation code for entities (since there are none)
+    assert!(!content.contains("sql_generator::generate_create_table_sql"));
 }

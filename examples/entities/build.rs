@@ -17,15 +17,16 @@ fn main() {
     let entities = match build_script::discover_entities(source_dir) {
         Ok(entities) => {
             if entities.is_empty() {
-                println!("cargo:warning=No entities found in src/ directory");
-                return;
+                println!("cargo:warning=No entities found in src/ directory - generating empty registry");
+            } else {
+                println!("cargo:warning=Discovered {} entities", entities.len());
             }
-            println!("cargo:warning=Discovered {} entities", entities.len());
             entities
         }
         Err(e) => {
-            println!("cargo:warning=Failed to discover entities: {}", e);
-            return;
+            println!("cargo:warning=Failed to discover entities: {} - generating empty registry", e);
+            // Continue with empty entities to generate empty registry
+            Vec::new()
         }
     };
     
