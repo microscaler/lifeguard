@@ -11,17 +11,59 @@ use lifeguard::{
     test_helpers::TestDatabase,
 };
 use lifeguard_derive::{LifeModel, LifeRecord};
+use lifeguard::query::column::column_trait::ColumnTrait;
+use sea_query::IntoCondition;
 
-// Test entity: Simple user table
-#[derive(LifeModel, LifeRecord)]
-#[table_name = "test_users"]
-pub struct TestUser {
-    #[primary_key]
-    #[auto_increment]
-    pub id: i32,
-    pub name: String,
-    pub email: String,
-    pub age: Option<i32>,
+pub mod test_user {
+    use super::*;
+    // Test entity: Simple user table
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_users"]
+    pub struct TestUser {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub name: String,
+        pub email: String,
+        pub age: Option<i32>,
+    }
+}
+pub use test_user::{TestUser, TestUserModel, TestUserRecord};
+
+pub mod test_soft_delete_user {
+    use super::*;
+    // Test entity: Soft delete user table
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_soft_delete_users"]
+    #[soft_delete]
+    pub struct TestSoftDeleteUser {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub name: String,
+        pub deleted_at: Option<String>,
+    }
+}
+pub use test_soft_delete_user::{TestSoftDeleteUser, TestSoftDeleteUserModel, TestSoftDeleteUserRecord};
+
+// Helper function to set up soft delete test schema
+fn setup_soft_delete_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute(
+        r#"
+        CREATE TABLE IF NOT EXISTS test_soft_delete_users (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            deleted_at TIMESTAMP
+        )
+        "#,
+        &[],
+    )?;
+    Ok(())
+}
+
+fn cleanup_soft_delete_data(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute("DELETE FROM test_soft_delete_users", &[])?;
+    Ok(())
 }
 
 // Helper function to set up test database schema
@@ -54,6 +96,59 @@ fn query_count(executor: &MayPostgresExecutor, query: &str, params: &[&dyn may_p
     } else {
         Ok(rows[0].get::<_, i64>(0))
     }
+}
+
+#[test]
+fn test_soft_delete_active_model() {
+    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let _client = test_db.connect().expect("Failed to connect to database");
+    
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_soft_delete_schema(&executor).expect("Failed to setup schema");
+    cleanup_soft_delete_data(&executor).expect("Failed to cleanup");
+
+    // Insert a record
+    let mut insert_record = TestSoftDeleteUserRecord::new();
+    insert_record.set_name("To Soft Delete".to_string());
+    let model = insert_record.insert(&executor).expect("Failed to insert");
+
+    // Verify it exists AND is found by LifeModelTrait::find()
+    let count = query_count(
+        &executor,
+        "SELECT COUNT(*) FROM test_soft_delete_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    assert_eq!(count, 1);
+    
+    // Verify LifeModelTrait::find() works
+    let found = test_soft_delete_user::Entity::find()
+        .filter(test_soft_delete_user::Column::Id.eq(model.id))
+        .find_one(&executor)
+        .expect("Failed to query via find()");
+    assert!(found.is_some());
+
+    // Soft Delete it (this will compile into an UPDATE deleted_at instead of DELETE)
+    let delete_record = TestSoftDeleteUserRecord::from_model(&model);
+    delete_record.delete(&executor).expect("Failed to soft delete");
+
+    // Verify it's STILL in the database with deleted_at set!
+    let rows = executor.query_all(
+        "SELECT deleted_at FROM test_soft_delete_users WHERE id = $1",
+        &[&model.id],
+    ).expect("Failed to query database");
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].get::<_, Option<String>>(0).is_some());
+
+    // Verify LifeModelTrait::find() NO longer returns it
+    // because it automatically filters out soft-deleted records!
+    let found_after_delete = test_soft_delete_user::Entity::find()
+        .filter(test_soft_delete_user::Column::Id.eq(model.id))
+        .find_one(&executor)
+        .expect("Failed to query via find()");
+    assert!(found_after_delete.is_none());
+    
+    // Test that find_by_id logic respects the macro's global filter if we implement find_by_id later, 
+    // for now we verified find() is generated cleanly.
 }
 
 #[test]
@@ -220,7 +315,7 @@ fn test_active_model_delete() {
     assert_eq!(count, 1);
 
     // Delete it
-    let mut delete_record = TestUserRecord::from_model(&model);
+    let delete_record = TestUserRecord::from_model(&model);
     delete_record.delete(&executor).expect("Failed to delete");
 
     // Verify it's gone
@@ -340,7 +435,7 @@ fn test_entity_static_methods() {
     record.set_name("Static Insert".to_string());
     record.set_email("static@example.com".to_string());
     
-    let model = TestUser::insert(record, &executor).expect("Failed to insert via static method");
+    let model = test_user::Entity::insert(record, &executor).expect("Failed to insert via static method");
     assert_eq!(model.name, "Static Insert");
     assert!(model.id > 0);
 
@@ -348,13 +443,13 @@ fn test_entity_static_methods() {
     let mut update_record = TestUserRecord::from_model(&model);
     update_record.set_name("Static Update".to_string());
     
-    let updated = TestUser::update(update_record, &executor).expect("Failed to update via static method");
+    let updated = test_user::Entity::update(update_record, &executor).expect("Failed to update via static method");
     assert_eq!(updated.id, model.id);
     assert_eq!(updated.name, "Static Update");
 
     // Test Entity::delete()
     let delete_record = TestUserRecord::from_model(&updated);
-    TestUser::delete(delete_record, &executor).expect("Failed to delete via static method");
+    test_user::Entity::delete(delete_record, &executor).expect("Failed to delete via static method");
 
     // Verify it's gone
     let count = query_count(
@@ -373,14 +468,18 @@ fn test_entity_static_methods() {
 // - update() and delete() should return errors (prevent mass updates/deletes)
 // - insert() and save() should work (no primary key required)
 
-// Test entity WITHOUT primary key
-#[derive(LifeModel, LifeRecord)]
-#[table_name = "test_no_pk_entities"]
-pub struct TestNoPkEntity {
-    pub name: String,
-    pub email: String,
-    pub age: Option<i32>,
+pub mod test_no_pk_entity {
+    use super::*;
+    // Test entity WITHOUT primary key
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_no_pk_entities"]
+    pub struct TestNoPkEntity {
+        pub name: String,
+        pub email: String,
+        pub age: Option<i32>,
+    }
 }
+pub use test_no_pk_entity::{TestNoPkEntity, TestNoPkEntityModel, TestNoPkEntityRecord};
 
 fn setup_no_pk_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
@@ -668,7 +767,7 @@ fn test_with_primary_key_save_upsert_behavior() {
 
     // Third save with non-existent primary key - should insert (upsert fallback)
     let mut record3 = TestUserRecord::new();
-    record3.set_id(Some(99999)); // Non-existent ID
+    record3.set_id(99999); // Non-existent ID
     record3.set_name("Fallback User".to_string());
     record3.set_email("fallback@example.com".to_string());
     let model3 = record3.save(&executor).expect("Failed to save");
@@ -1113,7 +1212,7 @@ fn test_insert_skips_unset_auto_increment_pk() {
     // Note: We explicitly do NOT set record.set_id() - the PK should be auto-generated
 
     // Verify get() returns None for unset PK
-    let id_value = record.get(<TestUser as LifeModelTrait>::Column::Id);
+    let id_value = record.get(test_user::Column::Id);
     assert!(id_value.is_none(), "get() should return None for unset auto-increment PK");
 
     // Insert should succeed and skip the unset PK (let database generate it)
@@ -1156,7 +1255,7 @@ fn test_insert_returns_generated_auto_increment_pk() {
     // Note: We explicitly do NOT set record.set_id() - the PK should be auto-generated
 
     // Verify get() returns None for unset PK (this triggers RETURNING clause)
-    let id_value = record.get(<TestUser as LifeModelTrait>::Column::Id);
+    let id_value = record.get(test_user::Column::Id);
     assert!(id_value.is_none(), "get() should return None for unset auto-increment PK");
 
     // Insert should succeed, use RETURNING to fetch generated PK, and return model with PK set
@@ -1206,10 +1305,10 @@ fn test_update_only_includes_set_fields() {
     // Note: email and age are NOT set - they should NOT appear in UPDATE SET clause
 
     // Verify get() returns None for unset fields
-    let email_value = update_record.get(<TestUser as LifeModelTrait>::Column::Email);
+    let email_value = update_record.get(test_user::Column::Email);
     assert!(email_value.is_none(), "get() should return None for unset email field");
     
-    let age_value = update_record.get(<TestUser as LifeModelTrait>::Column::Age);
+    let age_value = update_record.get(test_user::Column::Age);
     assert!(age_value.is_none(), "get() should return None for unset age field");
 
     // Update should only update the name field, not email or age
@@ -1250,14 +1349,14 @@ fn test_get_returns_none_for_unset_fields_integration() {
     // email and age are NOT set
 
     // Verify get() returns None for unset fields
-    let email_value = record.get(<TestUser as LifeModelTrait>::Column::Email);
+    let email_value = record.get(test_user::Column::Email);
     assert!(email_value.is_none(), "get() should return None for unset email field");
     
-    let age_value = record.get(<TestUser as LifeModelTrait>::Column::Age);
+    let age_value = record.get(test_user::Column::Age);
     assert!(age_value.is_none(), "get() should return None for unset age field");
 
     // Verify get() returns Some for set fields
-    let name_value = record.get(<TestUser as LifeModelTrait>::Column::Name);
+    let name_value = record.get(test_user::Column::Name);
     assert!(name_value.is_some(), "get() should return Some(Value) for set name field");
     match name_value.unwrap() {
         sea_query::Value::String(Some(v)) => assert_eq!(v, "Partial Set"),
@@ -1282,18 +1381,22 @@ fn test_get_returns_none_for_unset_fields_integration() {
 // record_for_hooks but the INSERT/UPDATE query uses self.get() instead of
 // record_for_hooks.get().
 
-// Test entity with hook modifications
-#[derive(LifeModel, LifeRecord)]
-#[table_name = "test_hook_users"]
-pub struct TestHookUser {
-    #[primary_key]
-    #[auto_increment]
-    pub id: i32,
-    pub name: String,
-    pub email: String,
-    pub created_at: Option<String>, // Set by before_insert hook
-    pub updated_at: Option<String>, // Set by before_update hook
+pub mod test_hook_user {
+    use super::*;
+    // Test entity with hook modifications
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_hook_users"]
+    pub struct TestHookUser {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub name: String,
+        pub email: String,
+        pub created_at: Option<String>, // Set by before_insert hook
+        pub updated_at: Option<String>, // Set by before_update hook
+    }
 }
+pub use test_hook_user::{TestHookUser, TestHookUserModel, TestHookUserRecord};
 
 fn setup_hook_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
@@ -1323,18 +1426,18 @@ struct HookModifyingRecord {
 }
 
 impl lifeguard::ActiveModelTrait for HookModifyingRecord {
-    type Entity = TestHookUser;
-    type Model = TestHookUserModel;
+    type Entity = test_hook_user::Entity;
+    type Model = test_hook_user::TestHookUserModel;
     
-    fn get(&self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+    fn get(&self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
         self.inner.get(column)
     }
     
-    fn set(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+    fn set(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
         self.inner.set(column, value)
     }
     
-    fn take(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+    fn take(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
         self.inner.take(column)
     }
     
@@ -1374,12 +1477,12 @@ impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
         use lifeguard::LifeModelTrait;
         let timestamp = "2024-01-01T00:00:00Z".to_string();
         self.set(
-            <TestHookUser as LifeModelTrait>::Column::CreatedAt,
+            test_hook_user::Column::CreatedAt,
             sea_query::Value::String(Some(timestamp.clone()))
         )?;
         // Also modify name to verify hook changes are persisted
         self.set(
-            <TestHookUser as LifeModelTrait>::Column::Name,
+            test_hook_user::Column::Name,
             sea_query::Value::String(Some("Modified by before_insert hook".to_string()))
         )?;
         Ok(())
@@ -1391,12 +1494,12 @@ impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
         use lifeguard::LifeModelTrait;
         let timestamp = "2024-01-02T00:00:00Z".to_string();
         self.set(
-            <TestHookUser as LifeModelTrait>::Column::UpdatedAt,
+            test_hook_user::Column::UpdatedAt,
             sea_query::Value::String(Some(timestamp.clone()))
         )?;
         // Also modify name to verify hook changes are persisted
         self.set(
-            <TestHookUser as LifeModelTrait>::Column::Name,
+            test_hook_user::Column::Name,
             sea_query::Value::String(Some("Modified by before_update hook".to_string()))
         )?;
         Ok(())
@@ -1408,12 +1511,12 @@ impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
         // The WHERE clause must use the ORIGINAL PK to prevent data corruption
         use lifeguard::LifeModelTrait;
         // Get the current ID value
-        if let Some(current_id) = self.get(<TestHookUser as LifeModelTrait>::Column::Id) {
+        if let Some(current_id) = self.get(test_hook_user::Column::Id) {
             if let sea_query::Value::Int(Some(id)) = current_id {
                 // Modify the ID to a different value (for testing purposes)
                 // This tests that the WHERE clause uses original PK, not modified PK
                 self.set(
-                    <TestHookUser as LifeModelTrait>::Column::Id,
+                    test_hook_user::Column::Id,
                     sea_query::Value::Int(Some(id + 1000)) // Set to non-existent ID
                 )?;
             }
@@ -1429,18 +1532,18 @@ struct PkModifyingUpdateRecord {
 }
 
 impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
-    type Entity = TestHookUser;
-    type Model = TestHookUserModel;
+    type Entity = test_hook_user::Entity;
+    type Model = test_hook_user::TestHookUserModel;
     
-    fn get(&self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+    fn get(&self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
         self.inner.get(column)
     }
     
-    fn set(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+    fn set(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
         self.inner.set(column, value)
     }
     
-    fn take(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+    fn take(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
         self.inner.take(column)
     }
     
@@ -1448,16 +1551,22 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
         self.inner.reset()
     }
     
+}
+
+impl PkModifyingUpdateRecord {
     fn to_model(&self) -> TestHookUserModel {
         self.inner.to_model()
     }
-    
+}
+
+impl PkModifyingUpdateRecord {
     fn from_model(model: &TestHookUserModel) -> Self {
         Self {
             inner: TestHookUserRecord::from_model(model),
         }
     }
 }
+
 
 impl lifeguard::ActiveModelBehavior for PkModifyingUpdateRecord {
     fn before_update(&mut self) -> Result<(), lifeguard::ActiveModelError> {
@@ -1466,19 +1575,19 @@ impl lifeguard::ActiveModelBehavior for PkModifyingUpdateRecord {
         // The WHERE clause must use the ORIGINAL PK to prevent data corruption
         use lifeguard::LifeModelTrait;
         // Get the current ID value
-        if let Some(current_id) = self.get(<TestHookUser as LifeModelTrait>::Column::Id) {
+        if let Some(current_id) = self.get(test_hook_user::Column::Id) {
             if let sea_query::Value::Int(Some(id)) = current_id {
                 // Modify the ID to a different value (for testing purposes)
                 // This tests that the WHERE clause uses original PK, not modified PK
                 self.set(
-                    <TestHookUser as LifeModelTrait>::Column::Id,
+                    test_hook_user::Column::Id,
                     sea_query::Value::Int(Some(id + 1000)) // Set to non-existent ID
                 )?;
             }
         }
         // Also modify name to verify hook changes are persisted in SET clause
         self.set(
-            <TestHookUser as LifeModelTrait>::Column::Name,
+            test_hook_user::Column::Name,
             sea_query::Value::String(Some("Modified by before_update hook".to_string()))
         )?;
         Ok(())
@@ -1495,18 +1604,18 @@ struct AfterSaveTrackingRecord {
 }
 
 impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
-    type Entity = TestHookUser;
-    type Model = TestHookUserModel;
+    type Entity = test_hook_user::Entity;
+    type Model = test_hook_user::TestHookUserModel;
     
-    fn get(&self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+    fn get(&self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
         self.inner.get(column)
     }
     
-    fn set(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+    fn set(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
         self.inner.set(column, value)
     }
     
-    fn take(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+    fn take(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
         self.inner.take(column)
     }
     
@@ -1540,14 +1649,14 @@ impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
 }
 
 impl lifeguard::ActiveModelBehavior for AfterSaveTrackingRecord {
-    fn after_save(&self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
+    fn after_save(&mut self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
         // CRITICAL: Verify that the record passed to after_save() has the same PK as the model
         // This tests the fix where save() converts the returned model back to a record
         // so after_save() receives a record consistent with the model
         use lifeguard::LifeModelTrait;
         
         // Get the PK from the record (self)
-        let record_id = self.get(<TestHookUser as LifeModelTrait>::Column::Id);
+        let record_id = self.get(test_hook_user::Column::Id);
         if let Some(sea_query::Value::Int(Some(id))) = record_id {
             self.after_save_record_id.set(Some(id));
         }
@@ -1575,8 +1684,8 @@ fn test_before_insert_hook_modifications_are_persisted() {
     let mut record = HookModifyingRecord {
         inner: TestHookUserRecord::new(),
     };
-    record.set_name("Original Name".to_string()).expect("Failed to set name");
-    record.set_email("test@example.com".to_string()).expect("Failed to set email");
+    record.inner.set_name("Original Name".to_string());
+    record.inner.set_email("test@example.com".to_string());
     // created_at is NOT set - should be set by before_insert hook
 
     // Insert the record - before_insert hook will modify name and set created_at
@@ -1623,15 +1732,15 @@ fn test_before_update_hook_modifications_are_persisted() {
 
     // First, insert a record
     let mut insert_record = TestHookUserRecord::new();
-    insert_record.set_name("Original Name".to_string()).expect("Failed to set name");
-    insert_record.set_email("test@example.com".to_string()).expect("Failed to set email");
+    insert_record.set_name("Original Name".to_string());
+    insert_record.set_email("test@example.com".to_string());
     let original_model = insert_record.insert(&executor).expect("Failed to insert");
 
     // Now update it with a hook-modifying record
     let mut update_record = HookModifyingRecord {
         inner: TestHookUserRecord::from_model(&original_model),
     };
-    update_record.set_name("Update Name".to_string()).expect("Failed to set name");
+    update_record.inner.set_name("Update Name".to_string());
     // updated_at is NOT set - should be set by before_update hook
 
     // Update the record - before_update hook will modify name and set updated_at
@@ -1679,8 +1788,8 @@ fn test_before_insert_hook_modifications_with_multiple_fields() {
     let mut record = HookModifyingRecord {
         inner: TestHookUserRecord::new(),
     };
-    record.set_name("Initial Name".to_string()).expect("Failed to set name");
-    record.set_email("initial@example.com".to_string()).expect("Failed to set email");
+    record.inner.set_name("Initial Name".to_string());
+    record.inner.set_email("initial@example.com".to_string());
     // created_at is NOT set - should be set by before_insert hook
     // name will be modified by before_insert hook
 
@@ -1730,13 +1839,13 @@ fn test_before_delete_hook_uses_original_pk_in_where_clause() {
 
     // Insert two records
     let mut insert_record1 = TestHookUserRecord::new();
-    insert_record1.set_name("Record 1".to_string()).expect("Failed to set name");
-    insert_record1.set_email("record1@example.com".to_string()).expect("Failed to set email");
+    insert_record1.set_name("Record 1".to_string());
+    insert_record1.set_email("record1@example.com".to_string());
     let model1 = insert_record1.insert(&executor).expect("Failed to insert");
 
     let mut insert_record2 = TestHookUserRecord::new();
-    insert_record2.set_name("Record 2".to_string()).expect("Failed to set name");
-    insert_record2.set_email("record2@example.com".to_string()).expect("Failed to set email");
+    insert_record2.set_name("Record 2".to_string());
+    insert_record2.set_email("record2@example.com".to_string());
     let model2 = insert_record2.insert(&executor).expect("Failed to insert");
 
     // Verify both records exist
@@ -1749,7 +1858,7 @@ fn test_before_delete_hook_uses_original_pk_in_where_clause() {
 
     // Create a delete record with the first model's ID
     // The before_delete hook will modify the ID to a non-existent value (id + 1000)
-    let mut delete_record = HookModifyingRecord {
+    let delete_record = HookModifyingRecord {
         inner: TestHookUserRecord::from_model(&model1),
     };
 
@@ -1797,8 +1906,8 @@ fn test_before_delete_hook_with_original_id_deletes_correctly() {
 
     // Insert a record
     let mut insert_record = TestHookUserRecord::new();
-    insert_record.set_name("To Delete".to_string()).expect("Failed to set name");
-    insert_record.set_email("delete@example.com".to_string()).expect("Failed to set email");
+    insert_record.set_name("To Delete".to_string());
+    insert_record.set_email("delete@example.com".to_string());
     let model = insert_record.insert(&executor).expect("Failed to insert");
 
     // Create a delete record (using regular TestHookUserRecord, not HookModifyingRecord)
@@ -1836,13 +1945,13 @@ fn test_before_update_hook_uses_original_pk_in_where_clause() {
 
     // Insert two records
     let mut insert_record1 = TestHookUserRecord::new();
-    insert_record1.set_name("Record 1".to_string()).expect("Failed to set name");
-    insert_record1.set_email("record1@example.com".to_string()).expect("Failed to set email");
+    insert_record1.set_name("Record 1".to_string());
+    insert_record1.set_email("record1@example.com".to_string());
     let model1 = insert_record1.insert(&executor).expect("Failed to insert");
 
     let mut insert_record2 = TestHookUserRecord::new();
-    insert_record2.set_name("Record 2".to_string()).expect("Failed to set name");
-    insert_record2.set_email("record2@example.com".to_string()).expect("Failed to set email");
+    insert_record2.set_name("Record 2".to_string());
+    insert_record2.set_email("record2@example.com".to_string());
     let model2 = insert_record2.insert(&executor).expect("Failed to insert");
 
     // Verify both records exist
@@ -1859,7 +1968,7 @@ fn test_before_update_hook_uses_original_pk_in_where_clause() {
     let mut update_record = PkModifyingUpdateRecord {
         inner: TestHookUserRecord::from_model(&model1),
     };
-    update_record.set_email("updated@example.com".to_string()).expect("Failed to set email");
+    update_record.inner.set_email("updated@example.com".to_string());
 
     // CRITICAL: Update should use ORIGINAL PK (model1.id), NOT the hook-modified value
     // Even though before_update() modifies the ID, the WHERE clause must use the original ID
@@ -1872,7 +1981,7 @@ fn test_before_update_hook_uses_original_pk_in_where_clause() {
     let row = executor.query_one(
         "SELECT name, email FROM test_hook_users WHERE id = $1",
         &[&model1.id],
-    ).expect("Failed to query database").expect("Record 1 should exist");
+    ).expect("Failed to query database");
     let db_name: String = row.get(0);
     let db_email: String = row.get(1);
     
@@ -1885,7 +1994,7 @@ fn test_before_update_hook_uses_original_pk_in_where_clause() {
     let row2 = executor.query_one(
         "SELECT name, email FROM test_hook_users WHERE id = $1",
         &[&model2.id],
-    ).expect("Failed to query database").expect("Record 2 should exist");
+    ).expect("Failed to query database");
     let db_name2: String = row2.get(0);
     let db_email2: String = row2.get(1);
     
@@ -1910,8 +2019,8 @@ fn test_before_update_hook_with_original_id_updates_correctly() {
 
     // Insert a record
     let mut insert_record = TestHookUserRecord::new();
-    insert_record.set_name("Original Name".to_string()).expect("Failed to set name");
-    insert_record.set_email("original@example.com".to_string()).expect("Failed to set email");
+    insert_record.set_name("Original Name".to_string());
+    insert_record.set_email("original@example.com".to_string());
     let model = insert_record.insert(&executor).expect("Failed to insert");
 
     // Create an update record (using regular HookModifyingRecord, which doesn't modify PK in before_update)
@@ -1919,7 +2028,7 @@ fn test_before_update_hook_with_original_id_updates_correctly() {
     let mut update_record = HookModifyingRecord {
         inner: TestHookUserRecord::from_model(&model),
     };
-    update_record.set_email("updated@example.com".to_string()).expect("Failed to set email");
+    update_record.inner.set_email("updated@example.com".to_string());
 
     // Update should work normally (no PK modifications)
     let updated_model = update_record.update(&executor).expect("Failed to update");
@@ -1928,7 +2037,7 @@ fn test_before_update_hook_with_original_id_updates_correctly() {
     let row = executor.query_one(
         "SELECT name, email, updated_at FROM test_hook_users WHERE id = $1",
         &[&model.id],
-    ).expect("Failed to query database").expect("Record should exist");
+    ).expect("Failed to query database");
     let db_name: String = row.get(0);
     let db_email: String = row.get(1);
     let db_updated_at: Option<String> = row.get(2);
@@ -1983,8 +2092,8 @@ fn test_after_save_receives_record_consistent_with_model() {
         after_save_record_id: std::cell::Cell::new(None),
         after_save_model_id: std::cell::Cell::new(None),
     };
-    record.inner.set_name("Save Test".to_string()).expect("Failed to set name");
-    record.inner.set_email("save@example.com".to_string()).expect("Failed to set email");
+    record.inner.set_name("Save Test".to_string());
+    record.inner.set_email("save@example.com".to_string());
     // id is NOT set - should be auto-generated by insert
 
     // save() should insert (no PK set) and call after_save() with record that has the generated PK
@@ -2007,7 +2116,7 @@ fn test_after_save_receives_record_consistent_with_model() {
         after_save_record_id: std::cell::Cell::new(None),
         after_save_model_id: std::cell::Cell::new(None),
     };
-    update_record.inner.set_name("Updated Save Test".to_string()).expect("Failed to set name");
+    update_record.inner.set_name("Updated Save Test".to_string());
 
     // save() should update (PK is set) and call after_save() with record that has the same PK
     let updated_model = update_record.save(&executor).expect("Failed to save");
@@ -2039,27 +2148,28 @@ fn test_after_save_receives_all_hook_modifications_insert() {
     cleanup_hook_test_data(&executor).expect("Failed to cleanup");
 
     // Track what after_save() receives
+    #[derive(Clone, Debug)]
     struct AfterSaveInsertTrackingRecord {
         inner: TestHookUserRecord,
-        after_save_record_name: std::cell::Cell<Option<String>>,
-        after_save_record_created_at: std::cell::Cell<Option<String>>,
-        after_save_model_name: std::cell::Cell<Option<String>>,
-        after_save_model_created_at: std::cell::Cell<Option<String>>,
+        after_save_record_name: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        after_save_record_created_at: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        after_save_model_name: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        after_save_model_created_at: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     }
 
     impl lifeguard::ActiveModelTrait for AfterSaveInsertTrackingRecord {
-        type Entity = TestHookUser;
-        type Model = TestHookUserModel;
+        type Entity = test_hook_user::Entity;
+        type Model = test_hook_user::TestHookUserModel;
         
-        fn get(&self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+        fn get(&self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
             self.inner.get(column)
         }
         
-        fn set(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+        fn set(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
             self.inner.set(column, value)
         }
         
-        fn take(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+        fn take(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
             self.inner.take(column)
         }
         
@@ -2098,35 +2208,35 @@ fn test_after_save_receives_all_hook_modifications_insert() {
             use lifeguard::LifeModelTrait;
             let timestamp = "2024-01-01T00:00:00Z".to_string();
             self.set(
-                <TestHookUser as LifeModelTrait>::Column::CreatedAt,
+                test_hook_user::Column::CreatedAt,
                 sea_query::Value::String(Some(timestamp.clone()))
             )?;
             self.set(
-                <TestHookUser as LifeModelTrait>::Column::Name,
+                test_hook_user::Column::Name,
                 sea_query::Value::String(Some("Modified by before_insert hook".to_string()))
             )?;
             Ok(())
         }
         
-        fn after_save(&self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
+        fn after_save(&mut self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
             // CRITICAL: Verify that the record passed to after_save() has ALL the same fields as the model
             // This tests the fix where save() converts the returned model back to a record
             use lifeguard::LifeModelTrait;
             
             // Get fields from the record (self)
-            let record_name = self.get(<TestHookUser as LifeModelTrait>::Column::Name);
+            let record_name = self.get(test_hook_user::Column::Name);
             if let Some(sea_query::Value::String(Some(name))) = record_name {
-                self.after_save_record_name.set(Some(name));
+                *self.after_save_record_name.lock().unwrap() = Some(name);
             }
             
-            let record_created_at = self.get(<TestHookUser as LifeModelTrait>::Column::CreatedAt);
+            let record_created_at = self.get(test_hook_user::Column::CreatedAt);
             if let Some(sea_query::Value::String(Some(created_at))) = record_created_at {
-                self.after_save_record_created_at.set(Some(created_at));
+                *self.after_save_record_created_at.lock().unwrap() = Some(created_at);
             }
             
             // Get fields from the model
-            self.after_save_model_name.set(Some(model.name.clone()));
-            self.after_save_model_created_at.set(model.created_at.clone());
+            *self.after_save_model_name.lock().unwrap() = Some(model.name.clone());
+            *self.after_save_model_created_at.lock().unwrap() = model.created_at.clone();
             
             Ok(())
         }
@@ -2135,23 +2245,23 @@ fn test_after_save_receives_all_hook_modifications_insert() {
     // Test save() with insert path (no PK set)
     let mut tracking_record = AfterSaveInsertTrackingRecord {
         inner: TestHookUserRecord::new(),
-        after_save_record_name: std::cell::Cell::new(None),
-        after_save_record_created_at: std::cell::Cell::new(None),
-        after_save_model_name: std::cell::Cell::new(None),
-        after_save_model_created_at: std::cell::Cell::new(None),
+        after_save_record_name: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_record_created_at: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_model_name: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_model_created_at: std::sync::Arc::new(std::sync::Mutex::new(None)),
     };
-    tracking_record.inner.set_name("Original Name".to_string()).expect("Failed to set name");
-    tracking_record.inner.set_email("test@example.com".to_string()).expect("Failed to set email");
+    tracking_record.inner.set_name("Original Name".to_string());
+    tracking_record.inner.set_email("test@example.com".to_string());
     // created_at is NOT set - should be set by before_insert hook
     // name will be modified by before_insert hook
 
     let model = tracking_record.save(&executor).expect("Failed to save");
 
     // CRITICAL ASSERTION: after_save() should have received a record with ALL the same fields as the model
-    let record_name = tracking_record.after_save_record_name.get();
-    let record_created_at = tracking_record.after_save_record_created_at.get();
-    let model_name = tracking_record.after_save_model_name.get();
-    let model_created_at = tracking_record.after_save_model_created_at.get();
+    let record_name = tracking_record.after_save_record_name.lock().unwrap().clone();
+    let record_created_at = tracking_record.after_save_record_created_at.lock().unwrap().clone();
+    let model_name = tracking_record.after_save_model_name.lock().unwrap().clone();
+    let model_created_at = tracking_record.after_save_model_created_at.lock().unwrap().clone();
     
     assert!(record_name.is_some(), "after_save() should have received a record with name set");
     assert!(model_name.is_some(), "after_save() should have received a model with name set");
@@ -2182,32 +2292,33 @@ fn test_after_save_receives_all_hook_modifications_update() {
 
     // First, insert a record
     let mut insert_record = TestHookUserRecord::new();
-    insert_record.set_name("Original Name".to_string()).expect("Failed to set name");
-    insert_record.set_email("test@example.com".to_string()).expect("Failed to set email");
+    insert_record.set_name("Original Name".to_string());
+    insert_record.set_email("test@example.com".to_string());
     let model = insert_record.insert(&executor).expect("Failed to insert");
 
     // Track what after_save() receives
+    #[derive(Clone, Debug)]
     struct AfterSaveUpdateTrackingRecord {
         inner: TestHookUserRecord,
-        after_save_record_name: std::cell::Cell<Option<String>>,
-        after_save_record_updated_at: std::cell::Cell<Option<String>>,
-        after_save_model_name: std::cell::Cell<Option<String>>,
-        after_save_model_updated_at: std::cell::Cell<Option<String>>,
+        after_save_record_name: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        after_save_record_updated_at: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        after_save_model_name: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+        after_save_model_updated_at: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     }
 
     impl lifeguard::ActiveModelTrait for AfterSaveUpdateTrackingRecord {
-        type Entity = TestHookUser;
-        type Model = TestHookUserModel;
+        type Entity = test_hook_user::Entity;
+        type Model = test_hook_user::TestHookUserModel;
         
-        fn get(&self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+        fn get(&self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
             self.inner.get(column)
         }
         
-        fn set(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+        fn set(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
             self.inner.set(column, value)
         }
         
-        fn take(&mut self, column: <TestHookUser as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+        fn take(&mut self, column: <test_hook_user::Entity as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
             self.inner.take(column)
         }
         
@@ -2246,34 +2357,34 @@ fn test_after_save_receives_all_hook_modifications_update() {
             use lifeguard::LifeModelTrait;
             let timestamp = "2024-01-02T00:00:00Z".to_string();
             self.set(
-                <TestHookUser as LifeModelTrait>::Column::UpdatedAt,
+                test_hook_user::Column::UpdatedAt,
                 sea_query::Value::String(Some(timestamp.clone()))
             )?;
             self.set(
-                <TestHookUser as LifeModelTrait>::Column::Name,
+                test_hook_user::Column::Name,
                 sea_query::Value::String(Some("Modified by before_update hook".to_string()))
             )?;
             Ok(())
         }
         
-        fn after_save(&self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
+        fn after_save(&mut self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
             // CRITICAL: Verify that the record passed to after_save() has ALL the same fields as the model
             use lifeguard::LifeModelTrait;
             
             // Get fields from the record (self)
-            let record_name = self.get(<TestHookUser as LifeModelTrait>::Column::Name);
+            let record_name = self.get(test_hook_user::Column::Name);
             if let Some(sea_query::Value::String(Some(name))) = record_name {
-                self.after_save_record_name.set(Some(name));
+                *self.after_save_record_name.lock().unwrap() = Some(name);
             }
             
-            let record_updated_at = self.get(<TestHookUser as LifeModelTrait>::Column::UpdatedAt);
+            let record_updated_at = self.get(test_hook_user::Column::UpdatedAt);
             if let Some(sea_query::Value::String(Some(updated_at))) = record_updated_at {
-                self.after_save_record_updated_at.set(Some(updated_at));
+                *self.after_save_record_updated_at.lock().unwrap() = Some(updated_at);
             }
             
             // Get fields from the model
-            self.after_save_model_name.set(Some(model.name.clone()));
-            self.after_save_model_updated_at.set(model.updated_at.clone());
+            *self.after_save_model_name.lock().unwrap() = Some(model.name.clone());
+            *self.after_save_model_updated_at.lock().unwrap() = model.updated_at.clone();
             
             Ok(())
         }
@@ -2282,22 +2393,22 @@ fn test_after_save_receives_all_hook_modifications_update() {
     // Test save() with update path (PK is set)
     let mut update_tracking_record = AfterSaveUpdateTrackingRecord {
         inner: TestHookUserRecord::from_model(&model),
-        after_save_record_name: std::cell::Cell::new(None),
-        after_save_record_updated_at: std::cell::Cell::new(None),
-        after_save_model_name: std::cell::Cell::new(None),
-        after_save_model_updated_at: std::cell::Cell::new(None),
+        after_save_record_name: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_record_updated_at: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_model_name: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_model_updated_at: std::sync::Arc::new(std::sync::Mutex::new(None)),
     };
-    update_tracking_record.inner.set_name("Update Name".to_string()).expect("Failed to set name");
+    update_tracking_record.inner.set_name("Update Name".to_string());
     // updated_at is NOT set - should be set by before_update hook
     // name will be modified by before_update hook
 
     let updated_model = update_tracking_record.save(&executor).expect("Failed to save");
 
     // CRITICAL ASSERTION: after_save() should have received a record with ALL the same fields as the model
-    let update_record_name = update_tracking_record.after_save_record_name.get();
-    let update_record_updated_at = update_tracking_record.after_save_record_updated_at.get();
-    let update_model_name = update_tracking_record.after_save_model_name.get();
-    let update_model_updated_at = update_tracking_record.after_save_model_updated_at.get();
+    let update_record_name = update_tracking_record.after_save_record_name.lock().unwrap().clone();
+    let update_record_updated_at = update_tracking_record.after_save_record_updated_at.lock().unwrap().clone();
+    let update_model_name = update_tracking_record.after_save_model_name.lock().unwrap().clone();
+    let update_model_updated_at = update_tracking_record.after_save_model_updated_at.lock().unwrap().clone();
     
     assert!(update_record_name.is_some(), "after_save() should have received a record with name set");
     assert!(update_model_name.is_some(), "after_save() should have received a model with name set");

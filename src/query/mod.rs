@@ -64,6 +64,11 @@ pub mod select;
 #[doc(inline)]
 pub use select::{SelectQuery, SelectModel};
 
+// Aggregation endpoints
+pub mod aggregate;
+#[doc(inline)]
+pub use aggregate::{LifeAggregate, AggregateQuery};
+
 // Query execution methods
 pub mod execution;
 #[doc(inline)]

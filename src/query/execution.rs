@@ -44,7 +44,7 @@ where
     where
         E::Model: FromRow,
     {
-        let (sql, values) = self.query.build(PostgresQueryBuilder);
+        let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
         
         with_converted_params(&values, |params| {
             let rows = executor.query_all(&sql, params)?;
@@ -87,7 +87,7 @@ where
     where
         E::Model: FromRow,
     {
-        let (sql, values) = self.query.build(PostgresQueryBuilder);
+        let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
         
         with_converted_params(&values, |params| {
             let row = executor.query_one(&sql, params)?;
@@ -192,80 +192,7 @@ where
     /// # struct UserModel { id: i32 };
     /// # impl lifeguard::FromRow for UserModel {
     /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
-    /// # }
-    /// # let executor: &dyn LifeExecutor = todo!();
-    /// let count = UserModel::find()
-    ///     .filter(Expr::col("age").gt(18))
-    ///     .count(executor)?;
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns `LifeError` if the query execution fails.
-    pub fn count<Ex: LifeExecutor>(&self, executor: &Ex) -> Result<usize, LifeError> {
-        // Build a COUNT(*) query by wrapping the original query in a subquery
-        // This preserves all WHERE, GROUP BY, and HAVING conditions
-        // while removing ORDER BY, LIMIT, and OFFSET (which don't affect count)
-        
-        // CRITICAL: Databases DO apply LIMIT/OFFSET in subqueries, so we must remove them
-        // explicitly before wrapping in a subquery. Otherwise, a query with `.limit(10)`
-        // would incorrectly return a count of at most 10 instead of the total matching rows.
-        
-        // Clone the query and build SQL to work with it
-        let (original_sql, values) = self.query.clone().build(PostgresQueryBuilder);
-        
-        // Remove ORDER BY, LIMIT, and OFFSET clauses from the SQL
-        // These clauses appear at the end of the SELECT statement in this order:
-        // SELECT ... [ORDER BY ...] [LIMIT ...] [OFFSET ...]
-        // We need to remove them carefully to preserve the rest of the query
-        let cleaned_sql = {
-            let sql = original_sql.trim();
-            let sql_upper = sql.to_uppercase();
-            
-            // Find the positions of ORDER BY, LIMIT, and OFFSET (case-insensitive)
-            let order_by_pos = sql_upper.rfind(" ORDER BY ");
-            let limit_pos = sql_upper.rfind(" LIMIT ");
-            let offset_pos = sql_upper.rfind(" OFFSET ");
-            
-            // Determine which clause appears last (needs to be removed first)
-            // Find the maximum position among all three clauses
-            let last_clause_pos = offset_pos
-                .into_iter()
-                .chain(limit_pos)
-                .chain(order_by_pos)
-                .max();
-            
-            if let Some(pos) = last_clause_pos {
-                // Remove everything from the last clause to the end
-                // This handles ORDER BY, LIMIT, OFFSET in any combination
-                sql[..pos].trim().to_string()
-            } else {
-                // No ORDER BY, LIMIT, or OFFSET found - use original SQL
-                sql.to_string()
-            }
-        };
-        
-        // Wrap the cleaned query in SELECT COUNT(*) FROM (cleaned_query) AS subquery
-        // This ensures we count all matching rows, not just the limited subset
-        let count_sql = format!("SELECT COUNT(*) FROM ({cleaned_sql}) AS count_subquery");
-        
-        // Use with_converted_params for value conversion
-        with_converted_params(&values, |params| {
-            // Execute the COUNT query
-            let row = executor.query_one(&count_sql, params)?;
-            
-            // Extract the count from the first column (COUNT(*) returns a single i64 value)
-            let count: i64 = row.get(0);
-            
-            // Convert to usize, handling potential overflow
-            if count < 0 {
-                return Err(LifeError::Other(format!("Count cannot be negative: {count}")));
-            }
-            
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Checked for negative above, truncation acceptable for count
-            Ok(count as usize)
-        })
-    }
+
     
     /// Paginate results and get total count
     ///
@@ -391,6 +318,7 @@ where
         // Clone the query to avoid moving it
         let query = SelectQuery {
             query: self.query.query.clone(),
+            with_trashed: self.query.with_trashed,
             _phantom: self.query._phantom,
         };
         query
@@ -448,7 +376,8 @@ where
         
         // Build and execute an efficient COUNT(*) query that preserves WHERE conditions
         // This avoids loading all rows into memory, which is critical for large datasets
-        let count = self.query.count(self.executor)?;
+        let count_i64 = self.query.clone().count().one(self.executor)?;
+        let count = count_i64.try_into().unwrap_or(0);
         self.total_count = Some(count);
         Ok(count)
     }
@@ -463,6 +392,7 @@ where
         // Clone the query to avoid moving it
         let query = SelectQuery {
             query: self.query.query.clone(),
+            with_trashed: self.query.with_trashed,
             _phantom: self.query._phantom,
         };
         query

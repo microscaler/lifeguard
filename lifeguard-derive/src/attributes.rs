@@ -314,6 +314,22 @@ pub struct TableAttributes {
     pub check_constraints: Vec<(Option<String>, String)>,
     /// Skip `FromRow` generation (useful for SQL generation when types don't implement `FromSql`)
     pub skip_from_row: bool,
+    /// Lifecycle hook: before insert
+    pub before_insert: Option<String>,
+    /// Lifecycle hook: after insert
+    pub after_insert: Option<String>,
+    /// Lifecycle hook: before update
+    pub before_update: Option<String>,
+    /// Lifecycle hook: after update
+    pub after_update: Option<String>,
+    /// Lifecycle hook: before delete
+    pub before_delete: Option<String>,
+    /// Lifecycle hook: after delete
+    pub after_delete: Option<String>,
+    /// Auto timestamp flag automatically handles created_at and updated_at
+    pub auto_timestamp: bool,
+    /// Soft delete flag intercepts DELETE operations and updates deleted_at instead
+    pub soft_delete: bool,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -417,6 +433,58 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
                         table_attrs.check_constraints.push((None, value));
                     }
                 }
+            }
+        } else if attr.path().is_ident("auto_timestamp") {
+            table_attrs.auto_timestamp = true;
+        } else if attr.path().is_ident("soft_delete") {
+            table_attrs.soft_delete = true;
+        } else if attr.path().is_ident("before_insert") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                    table_attrs.before_insert = Some(s.value());
+                }
+            } else if let Ok(meta) = attr.meta.require_list() {
+                table_attrs.before_insert = Some(meta.tokens.to_string());
+            }
+        } else if attr.path().is_ident("after_insert") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                    table_attrs.after_insert = Some(s.value());
+                }
+            } else if let Ok(meta) = attr.meta.require_list() {
+                table_attrs.after_insert = Some(meta.tokens.to_string());
+            }
+        } else if attr.path().is_ident("before_update") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                    table_attrs.before_update = Some(s.value());
+                }
+            } else if let Ok(meta) = attr.meta.require_list() {
+                table_attrs.before_update = Some(meta.tokens.to_string());
+            }
+        } else if attr.path().is_ident("after_update") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                    table_attrs.after_update = Some(s.value());
+                }
+            } else if let Ok(meta) = attr.meta.require_list() {
+                table_attrs.after_update = Some(meta.tokens.to_string());
+            }
+        } else if attr.path().is_ident("before_delete") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                    table_attrs.before_delete = Some(s.value());
+                }
+            } else if let Ok(meta) = attr.meta.require_list() {
+                table_attrs.before_delete = Some(meta.tokens.to_string());
+            }
+        } else if attr.path().is_ident("after_delete") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                    table_attrs.after_delete = Some(s.value());
+                }
+            } else if let Ok(meta) = attr.meta.require_list() {
+                table_attrs.after_delete = Some(meta.tokens.to_string());
             }
         }
     }

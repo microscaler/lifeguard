@@ -46,7 +46,21 @@ where
     E: LifeModelTrait,
 {
     pub(crate) query: SelectStatement,  // Made pub(crate) for testing
+    pub(crate) with_trashed: bool,
     pub(crate) _phantom: PhantomData<E>,
+}
+
+impl<E> Clone for SelectQuery<E>
+where
+    E: LifeModelTrait,
+{
+    fn clone(&self) -> Self {
+        Self {
+            query: self.query.clone(),
+            with_trashed: self.with_trashed,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 /// Typed select query that returns a specific Model type
@@ -154,6 +168,7 @@ where
         query.from(table_ref);
         Self {
             query,
+            with_trashed: false,
             _phantom: PhantomData,
         }
     }
@@ -323,6 +338,24 @@ where
     pub fn having(mut self, condition: Expr) -> Self {
         self.query.and_having(condition);
         self
+    }
+    
+    /// Allow soft-deleted records to be included in the results
+    #[must_use]
+    pub fn with_trashed(mut self) -> Self {
+        self.with_trashed = true;
+        self
+    }
+    
+    /// Append soft delete filter if present and not with_trashed
+    pub(crate) fn apply_soft_delete(mut self) -> SelectStatement {
+        if !self.with_trashed {
+            if let Some(col) = E::soft_delete_column() {
+                use crate::query::column::column_trait::ColumnTrait;
+                self.query.and_where(col.is_null());
+            }
+        }
+        self.query
     }
     
     /// Add a JOIN clause (INNER JOIN)
@@ -605,6 +638,36 @@ where
             self.query.expr(expr);
         }
         self
+    }
+
+    /// Create a COUNT aggregation query
+    ///
+    /// Clears any selected columns and ordering, replaces with COUNT(*),
+    /// and returns an AggregateQuery that resolves to a single i64 value.
+    pub fn count(mut self) -> crate::query::aggregate::AggregateQuery<E, i64> {
+        use sea_query::ExprTrait;
+        // Clear existing selects and orders
+        self.query.clear_selects();
+        self.query.clear_order_by();
+        
+        // Add COUNT(*)
+        self.query.expr(sea_query::Expr::col(sea_query::Alias::new("*")).count());
+        
+        crate::query::aggregate::AggregateQuery::new(self.apply_soft_delete())
+    }
+
+    /// Create a SUM aggregation query
+    ///
+    /// Clears any selected columns and ordering, replaces with SUM(column),
+    /// and returns an AggregateQuery that resolves to a single f64 value.
+    pub fn sum<C: sea_query::IntoColumnRef>(mut self, column: C) -> crate::query::aggregate::AggregateQuery<E, f64> {
+        use sea_query::ExprTrait;
+        self.query.clear_selects();
+        self.query.clear_order_by();
+        
+        self.query.expr(sea_query::Expr::col(column.into_column_ref()).sum());
+        
+        crate::query::aggregate::AggregateQuery::new(self.apply_soft_delete())
     }
 }
 

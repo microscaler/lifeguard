@@ -68,6 +68,7 @@ may_minihttp = "0.1.11"
 csv = "1"
 fake = { version = "2.6", features = ["chrono", "derive"] }
 rand = "0.8"
+redis = "0.26"
 
 [dev-dependencies]
 # Test utilities will be added as needed for may_postgres testing

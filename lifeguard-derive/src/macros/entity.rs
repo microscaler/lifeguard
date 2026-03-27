@@ -99,6 +99,21 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         }
     };
     
+    // Check if soft_delete is enabled
+    // The parent expansion (LifeModel) passes #[soft_delete] down if it's enabled
+    let soft_delete = input.attrs.iter().any(|attr| attr.path().is_ident("soft_delete"));
+    
+    let find_impl = if soft_delete {
+        quote! {
+            fn find() -> lifeguard::SelectQuery<Self> {
+                // Return a query that automatically filters out deleted records
+                lifeguard::SelectQuery::new().filter(lifeguard::query::column::column_trait::ColumnTrait::is_null(<Self as lifeguard::LifeModelTrait>::Column::DeletedAt))
+            }
+        }
+    } else {
+        quote! {} // Use default implementation from trait
+    };
+    
     let expanded: TokenStream2 = quote! {
         // Implement Default for Entity (required by LifeEntityName)
         impl Default for #struct_name {
@@ -141,6 +156,8 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
             fn all_columns() -> &'static [Self::Column] {
                 #column_name::all_columns()
             }
+            
+            #find_impl
         }
     };
     

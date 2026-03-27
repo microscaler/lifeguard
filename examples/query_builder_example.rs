@@ -113,7 +113,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count = User::find()
         .filter(Expr::col("age").gte(18))
         .filter(Expr::col("age").lte(65))
-        .count(&executor)?;
+        .count()
+        .one(&executor)?;
     println!("  Count of users aged 18-65: {count}");
     // This uses COUNT(*) query - much more efficient than loading all rows!
 

@@ -59,9 +59,24 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
     };
     
-    // Extract table name from attributes (not used in simplified version)
-    let _table_name = attributes::extract_table_name(&input.attrs)
-        .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
+    // Collect valid column names from struct fields for validation
+    let mut valid_columns = std::collections::HashSet::new();
+    for field in fields {
+        if let Some(field_name) = &field.ident {
+            if attributes::has_attribute(field, "skip") || attributes::has_attribute(field, "ignore") {
+                continue;
+            }
+            valid_columns.insert(attributes::extract_column_name(field)
+                .unwrap_or_else(|| utils::snake_case(&field_name.to_string())));
+        }
+    }
+    
+    // Parse table-level attributes to get hook metadata
+    let table_attrs = match attributes::parse_table_attributes(&input.attrs, &valid_columns) {
+        Ok(attrs) => attrs,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
     
     // Generate Entity name (assumes Entity struct exists from LifeModel)
     let entity_name = Ident::new("Entity", struct_name.span());
@@ -580,6 +595,110 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
     };
     
+    let parse_hook = |hook: &Option<String>| -> Option<proc_macro2::TokenStream> {
+        hook.as_ref().and_then(|h| h.parse().ok())
+    };
+    
+    let before_insert_impl = if let Some(hook_ts) = parse_hook(&table_attrs.before_insert) {
+        if table_attrs.auto_timestamp {
+            quote! {
+                self.created_at = Some(chrono::Utc::now().naive_utc().to_string());
+                self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+                #hook_ts(self)?;
+                Ok(())
+            }
+        } else {
+            quote! {
+                #hook_ts(self)?;
+                Ok(())
+            }
+        }
+    } else if table_attrs.auto_timestamp {
+        quote! {
+            self.created_at = Some(chrono::Utc::now().naive_utc().to_string());
+            self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+            Ok(())
+        }
+    } else {
+        quote! { Ok(()) }
+    };
+
+    let before_update_impl = if let Some(hook_ts) = parse_hook(&table_attrs.before_update) {
+        if table_attrs.auto_timestamp {
+            quote! {
+                self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+                #hook_ts(self)?;
+                Ok(())
+            }
+        } else {
+            quote! {
+                #hook_ts(self)?;
+                Ok(())
+            }
+        }
+    } else if table_attrs.auto_timestamp {
+        quote! {
+            self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+            Ok(())
+        }
+    } else {
+        quote! { Ok(()) }
+    };
+
+    let after_insert_impl = if let Some(hook_ts) = parse_hook(&table_attrs.after_insert) {
+        quote! { #hook_ts(self, model)?; Ok(()) }
+    } else {
+        quote! { Ok(()) }
+    };
+    
+    let after_update_impl = if let Some(hook_ts) = parse_hook(&table_attrs.after_update) {
+        quote! { #hook_ts(self, model)?; Ok(()) }
+    } else {
+        quote! { Ok(()) }
+    };
+    
+    let before_delete_impl = if let Some(hook_ts) = parse_hook(&table_attrs.before_delete) {
+        quote! { #hook_ts(self)?; Ok(()) }
+    } else {
+        quote! { Ok(()) }
+    };
+    
+    let after_delete_impl = if let Some(hook_ts) = parse_hook(&table_attrs.after_delete) {
+        quote! { #hook_ts(self)?; Ok(()) }
+    } else {
+        quote! { Ok(()) }
+    };
+    
+    let build_delete_query_ts = if table_attrs.soft_delete {
+        let set_updated_at = if table_attrs.auto_timestamp {
+            quote! {
+                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::UpdatedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc().to_string()));
+            }
+        } else {
+            quote! {}
+        };
+        
+        quote! {
+            let mut query = Query::update();
+            let entity = #entity_name::default();
+            query.table(entity.clone());
+            
+            // Soft delete: set deleted_at to current timestamp
+            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc().to_string()));
+            #set_updated_at
+            
+            #(#delete_where_clauses)*
+        }
+    } else {
+        quote! {
+            let mut query = Query::delete();
+            let entity = #entity_name::default();
+            query.from_table(entity.clone());
+            
+            #(#delete_where_clauses)*
+        }
+    };
+
     // Generate the expanded code
     let expanded = quote! {
         // Record struct (mutable change-set)
@@ -703,7 +822,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Track which auto-increment PKs were not set and need RETURNING
                 // NOTE: Check record_for_hooks to see if PK is still unset after before_insert() hook
                 let mut needs_returning = false;
-                let mut returning_cols = Vec::new();
+                let mut returning_cols: Vec<<#entity_name as lifeguard::LifeModelTrait>::Column> = Vec::new();
                 #(
                     if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants).is_none() && #primary_key_auto_increment {
                         needs_returning = true;
@@ -881,15 +1000,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let mut record_for_hooks = self.clone();
                 record_for_hooks.before_delete()?;
                 
-                // Build DELETE statement
-                let mut query = Query::delete();
-                let entity = #entity_name::default();
-                query.from_table(entity);
-                
-                // Add WHERE clause for primary keys (use ORIGINAL PK values, not hook-modified)
-                // CRITICAL: Using original PK ensures we delete the correct record even if
-                // before_delete() hook modifies the primary key
-                #(#delete_where_clauses)*
+                // Build DELETE or UPDATE (soft-delete) statement
+                // If soft_delete is enabled, this issues an UPDATE instead of DELETE
+                // The WHERE clause is also appended inside this block
+                #build_delete_query_ts
                 
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
@@ -935,9 +1049,27 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
         }
         
-        // Implement ActiveModelBehavior with default (empty) implementations
-        // Users can override specific hooks as needed
-        impl lifeguard::ActiveModelBehavior for #record_name {}
+        // Implement ActiveModelBehavior with optionally customized hooks
+        impl lifeguard::ActiveModelBehavior for #record_name {
+            fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                #before_insert_impl
+            }
+            fn after_insert(&mut self, model: &Self::Model) -> Result<(), lifeguard::ActiveModelError> {
+                #after_insert_impl
+            }
+            fn before_update(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                #before_update_impl
+            }
+            fn after_update(&mut self, model: &Self::Model) -> Result<(), lifeguard::ActiveModelError> {
+                #after_update_impl
+            }
+            fn before_delete(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                #before_delete_impl
+            }
+            fn after_delete(&mut self) -> Result<(), lifeguard::ActiveModelError> {
+                #after_delete_impl
+            }
+        }
     };
     
     TokenStream::from(expanded)

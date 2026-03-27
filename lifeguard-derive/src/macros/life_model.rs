@@ -1638,6 +1638,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         }
     };
 
+    // Pass soft_delete down to DeriveEntity by declaring it before quote!
+    let soft_delete_attr = if table_attrs.soft_delete {
+        quote! { #[soft_delete] }
+    } else {
+        quote! {}
+    };
+
     // Generate Entity with nested DeriveEntity (like SeaORM)
     // This triggers nested expansion where DeriveEntity generates LifeModelTrait
     let expanded = quote! {
@@ -1739,6 +1746,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         #[table_name = #table_name_lit]
         #[model = #model_name_lit]
         #schema_attr
+        #soft_delete_attr
         pub struct Entity;
 
         // Table name constant (for convenience, matches Entity::table_name())

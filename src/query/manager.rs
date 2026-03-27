@@ -228,7 +228,9 @@ where
     ) -> Result<usize, LifeError> {
         Self::find()
             .filter(condition)
-            .count(executor)
+            .count()
+            .one(executor)
+            .map(|c| c as usize)
     }
 
     /// Check if any models exist matching a condition.

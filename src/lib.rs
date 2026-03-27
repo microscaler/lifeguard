@@ -124,3 +124,7 @@ pub use migration::{
     Migrator, MigrationLockGuard, startup_migrations, startup_migrations_with_timeout,
     acquire_migration_lock, release_migration_lock, is_migration_lock_held,
 };
+
+// Cache Coherence Architecture - Epic 07 Phase 4
+pub mod cache;
+pub use cache::{CacheProvider, CacheError, DefaultCacheProvider, CachedResult};
