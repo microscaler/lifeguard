@@ -87,6 +87,8 @@ pub struct ColumnDefinition {
     pub save_as: Option<String>,
     /// Column comment/documentation
     pub comment: Option<String>,
+    /// Whether the column is explicitly defined as a primary key
+    pub primary_key: bool,
     /// Whether the column is unique
     pub unique: bool,
     /// Whether the column is indexed
@@ -417,6 +419,7 @@ impl ColumnDefinition {
             select_as: None,
             save_as: None,
             comment: None,
+            primary_key: is_primary_key,
             unique: is_primary_key, // Primary keys are typically unique
             indexed: is_primary_key, // Primary keys are typically indexed
             auto_increment: is_auto_increment,
@@ -459,6 +462,7 @@ mod tests {
             select_as: None,
             save_as: None,
             comment: None,
+            primary_key: true,
             unique: true,
             indexed: true,
             auto_increment: false,
@@ -487,6 +491,7 @@ mod tests {
             select_as: None,
             save_as: None,
             comment: None,
+            primary_key: false,
             unique: false,
             indexed: false,
             auto_increment: true,
@@ -518,6 +523,7 @@ mod tests {
             select_as: None,
             save_as: None,
             comment: None,
+            primary_key: false,
             unique: false,
             indexed: false,
             auto_increment: false,

@@ -58,6 +58,8 @@ where
     let mut column_defs = Vec::new();
     let mut primary_key_cols = Vec::new();
     let mut check_constraints = Vec::new();
+    let mut single_column_indexes = Vec::new();
+    let mut column_comments = Vec::new();
     
     // Process each column
     for col in columns {
@@ -80,8 +82,8 @@ where
         }
         
         // Check if this column is a primary key
-        // Heuristic: if it's auto_increment or named "id", it's likely a primary key
-        let is_primary_key = col_def.auto_increment || col_name == "id";
+        // Prioritize explicit #[primary_key] trait mapping, fall back to "id" heuristic or auto_increment
+        let is_primary_key = col_def.primary_key || col_def.auto_increment || col_name == "id";
         if is_primary_key {
             primary_key_cols.push(col_name.to_string());
         }
@@ -117,6 +119,22 @@ where
         // Track unique constraints (single column)
         if col_def.unique {
             col_sql.push_str(" UNIQUE");
+        }
+        
+        // Track indexed flag (single column) - omit if natively indexed by PK or Unique constraints
+        if col_def.indexed && !col_def.unique && !is_primary_key {
+            // Deduplicate: avoid auto-generating if the user explicitly defined a table-level index for this column
+            let already_covered = table_def.indexes.iter().any(|idx| {
+                idx.columns.len() == 1 && idx.columns[0] == col_name
+            });
+            if !already_covered {
+                single_column_indexes.push(col_name.to_string());
+            }
+        }
+        
+        // Track column comments
+        if let Some(ref comment) = col_def.comment {
+            column_comments.push((col_name.to_string(), comment.to_string()));
         }
         
         // Handle foreign keys - add inline to match original style
@@ -240,6 +258,21 @@ where
             sanitize_constraint_name(table_name),
             sanitize_constraint_name(col_name),
             check_expr
+        ).map_err(|e| format!("Failed to write SQL: {}", e))?;
+    }
+    
+    // Generate single-column indexes
+    for col_name in &single_column_indexes {
+        let index_name = format!("idx_{}_{}", sanitize_constraint_name(table_name), sanitize_constraint_name(col_name));
+        writeln!(sql, "CREATE INDEX {} ON {}({});", index_name, full_table_name, col_name)
+            .map_err(|e| format!("Failed to write SQL: {}", e))?;
+    }
+    
+    // Generate column comments
+    for (col_name, comment) in &column_comments {
+        let escaped_comment = comment.replace("'", "''");
+        writeln!(sql, "COMMENT ON COLUMN {}.{} IS '{}';",
+            full_table_name, col_name, escaped_comment
         ).map_err(|e| format!("Failed to write SQL: {}", e))?;
     }
     

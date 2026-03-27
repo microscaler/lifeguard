@@ -1364,6 +1364,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         );
         
         // Extract boolean attributes for use in quote! macro
+        let is_primary_key_attr = col_attrs.is_primary_key;
         let is_unique_attr = col_attrs.is_unique;
         let is_indexed_attr = col_attrs.is_indexed;
         let is_auto_increment_attr = col_attrs.is_auto_increment;
@@ -1378,6 +1379,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 select_as: #select_as_expr,
                 save_as: #save_as_expr,
                 comment: #comment_expr,
+                primary_key: #is_primary_key_attr,
                 unique: #is_unique_attr,
                 indexed: #is_indexed_attr,
                 auto_increment: #is_auto_increment_attr,
