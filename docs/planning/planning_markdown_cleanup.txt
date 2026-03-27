@@ -1,0 +1,236 @@
+# Planning Markdown Files for AI Agent Cleanup
+
+This document lists all markdown files that were used for AI Agent planning, design, analysis, and tracking during development. These files can be reviewed for cleanup, archiving, or consolidation.
+
+Generated: 2026-01-22
+
+## Categories
+
+### 1. Design & Planning Documents
+
+#### Migration System Design
+- `lifeguard-migrate/DESIGN_IMPROVEMENTS.md` - Migration tool design improvements and architecture decisions
+- `docs/MIGRATION_AUDIT.md` - Migration system audit
+- `docs/MIGRATION_PROCESS_DIAGRAMS.md` - Migration process documentation
+- `.agent/migration-outstanding.md` - Outstanding migration work tracking
+
+#### Entity & Codegen Design
+- `lifeguard-derive/DESIGN_TRY_INTO_MODEL.md` - TryIntoModel design
+- `lifeguard-derive/DESIGN_RELATION_METADATA_AND_COMPOSITE_KEYS.md` - Relation metadata design
+- `lifeguard-derive/CRUD_IMPLEMENTATION_PLAN.md` - CRUD operations implementation plan
+- `lifeguard-derive/SAVE_AS_AUTO_INCREMENT_PK.md` - Auto-increment PK design
+
+#### Schema Design (Showcase)
+- `migrations/SCHEMA_DESIGN.md` - RERP accounting schema design (showcase)
+- `migrations/SCHEMA_ERD.md` - Entity relationship diagram (showcase)
+- `migrations/SERVICE_ORGANIZATION.md` - Service organization (showcase)
+
+### 2. Analysis Documents
+
+#### Codebase Analysis
+- `lifeguard-derive/CODEGEN_ANALYSIS.md` - Code generation analysis
+- `lifeguard-derive/EDGE_CASES_ANALYSIS.md` - Edge cases analysis
+- `lifeguard-derive/EDGE_CASES_ATTRIBUTES.md` - Edge cases for attributes
+- `lifeguard-derive/EDGE_CASES_COVERAGE.md` - Edge cases coverage tracking
+- `SEAQUERY_IMPROVEMENTS_AUDIT.md` - SeaQuery improvements audit
+- `MODULARIZATION_PROPOSAL.md` - Modularization proposal
+
+#### Epic-Level Analysis
+- `docs/EPICS/CHICKEN_EGG_ANALYSIS.md` - Dependency analysis
+- `docs/EPICS/COMPETITIVE_ORM_ANALYSIS.md` - Competitive ORM analysis
+- `docs/EPICS/DEPENDENCY_CHAIN_ANALYSIS.md` - Dependency chain analysis
+- `docs/EPICS/MISSING_FEATURES_ANALYSIS.md` - Missing features analysis
+- `docs/EPICS/SEAORM_COVERAGE_SUMMARY.md` - SeaORM coverage summary
+- `docs/EPICS/EPIC_RESTRUCTURE_SUMMARY.md` - Epic restructure summary
+
+#### Feature-Specific Analysis
+- `docs/CONSTRAINT_NAMING_ANALYSIS.md` - Constraint naming analysis
+- `docs/EPICS/Epic_01/TEST_INFRASTRUCTURE_ANALYSIS.md` - Test infrastructure analysis
+- `docs/EPICS/Epic_02/BATCH_OPERATIONS_EDGE_CASES.md` - Batch operations edge cases
+- `docs/EPICS/Epic_02/CRUD_EDGE_CASES.md` - CRUD edge cases
+- `docs/EPICS/Epic_02/CRUD_TESTING_NOTES.md` - CRUD testing notes
+- `docs/wip/LIFEGUARD_REPOSITORY_ANALYSIS.md` - Repository analysis
+
+### 3. Audit Documents
+
+#### Pattern & Registry Audits
+- `.agent/REGISTRY_PATTERN_AUDIT.md` - Registry pattern audit
+- `docs/REGISTRY_PATTERN_AUDIT.md` - Registry pattern audit (duplicate?)
+- `lifeguard-derive/REGISTRY_PATTERN_AUDIT.md` - Registry pattern audit (derive-specific)
+
+#### Testing Audits
+- `lifeguard-derive/TEST_ERRORS_AUDIT.md` - Test errors audit
+- `lifeguard-derive/tests/TEST_FAILURE_AUDIT.md` - Test failure audit
+- `docs/TEST_FAILURE_AUDIT.md` - Test failure audit (duplicate?)
+
+#### Migration Audits
+- `docs/MIGRATION_AUDIT.md` - Migration system audit
+- `docs/EPICS/Epic_02/SEAORM_AUDIT.md` - SeaORM audit
+
+#### Bug Fix Audits
+- `.agent/audit_try_into_model_fix.md` - TryIntoModel fix audit
+- `.agent/bug_has_many_through_join_columns.md` - HasManyThrough bug audit
+
+### 4. Discovery & Prerequisites Documents
+
+- `lifeguard-derive/MIGRATION_PREREQUISITES_DISCOVERY.md` - Migration prerequisites discovery
+- `lifeguard-derive/DERIVE_LINKED_DISCOVERY.md` - DeriveLinked discovery
+- `lifeguard-derive/DERIVE_LINKED_USAGE.md` - DeriveLinked usage
+- `lifeguard-derive/DERIVE_RELATION_USAGE.md` - DeriveRelation usage
+- `lifeguard-derive/ISSUE_UUID_NAIVEDATETIME_TYPE_INFERENCE.md` - Type inference issue
+
+### 5. Epic & Story Planning Documents
+
+#### Epic 01 - Foundation
+- `docs/EPICS/Epic_01/epic.md`
+- `docs/EPICS/Epic_01/story_01.md`
+- `docs/EPICS/Epic_01/story_02.md`
+- `docs/EPICS/Epic_01/story_03.md`
+- `docs/EPICS/Epic_01/story_04.md`
+- `docs/EPICS/Epic_01/story_05.md`
+- `docs/EPICS/Epic_01/story_06.md`
+- `docs/EPICS/Epic_01/story_07.md`
+- `docs/EPICS/Epic_01/story_08.md`
+- `docs/EPICS/Epic_01/STORY_01_COMPLETE.md`
+- `docs/EPICS/Epic_01/STORY_02_COMPLETE.md`
+- `docs/EPICS/Epic_01/STORY_03_COMPLETE.md`
+- `docs/EPICS/Epic_01/STORY_04_COMPLETE.md`
+- `docs/EPICS/Epic_01/STORY_05_COMPLETE.md`
+- `docs/EPICS/Epic_01/REMOVED_FUNCTIONALITY.md`
+
+#### Epic 02 - CRUD & Relations
+- `docs/EPICS/Epic_02/epic.md`
+- `docs/EPICS/Epic_02/story_01.md`
+- `docs/EPICS/Epic_02/story_02.md`
+- `docs/EPICS/Epic_02/story_03.md`
+- `docs/EPICS/Epic_02/story_04.md`
+- `docs/EPICS/Epic_02/story_05.md`
+- `docs/EPICS/Epic_02/story_06.md`
+- `docs/EPICS/Epic_02/story_07.md`
+- `docs/EPICS/Epic_02/story_08.md`
+- `docs/EPICS/Epic_02/story_09.md`
+- `docs/EPICS/Epic_02/story_10.md`
+- `docs/EPICS/Epic_02/story_16.md`
+- `docs/EPICS/Epic_02/story_18.md`
+- `docs/EPICS/Epic_02/story_19.md`
+- `docs/EPICS/Epic_02/story_20.md`
+- `docs/EPICS/Epic_02/STORY_04_COMPLETE.md`
+
+#### Epic 03 - Migrations
+- `docs/EPICS/Epic_03/epic.md`
+- `docs/EPICS/Epic_03/story_01.md`
+- `docs/EPICS/Epic_03/story_02.md`
+- `docs/EPICS/Epic_03/story_03.md`
+- `docs/EPICS/Epic_03/story_04.md`
+- `docs/EPICS/Epic_03/story_05.md`
+- `docs/EPICS/Epic_03/story_06.md`
+
+#### Epic 04 - Advanced Features
+- `docs/EPICS/Epic_04/epic.md`
+- `docs/EPICS/Epic_04/story_01.md`
+- `docs/EPICS/Epic_04/story_02.md`
+- `docs/EPICS/Epic_04/story_03.md`
+- `docs/EPICS/Epic_04/story_04.md`
+- `docs/EPICS/Epic_04/story_05.md`
+
+#### Epic 05 - Performance & Optimization
+- `docs/EPICS/Epic_05/epic.md`
+- `docs/EPICS/Epic_05/story_01.md`
+- `docs/EPICS/Epic_05/story_02.md`
+- `docs/EPICS/Epic_05/story_03.md`
+- `docs/EPICS/Epic_05/story_04.md`
+- `docs/EPICS/Epic_05/story_05.md`
+- `docs/EPICS/Epic_05/story_06.md`
+- `docs/EPICS/Epic_05/story_07.md`
+- `docs/EPICS/Epic_05/story_08.md`
+- `docs/EPICS/Epic_05/story_10.md`
+
+#### Epic 06 - Additional Features
+- `docs/EPICS/Epic_06/epic.md`
+- `docs/EPICS/Epic_06/story_01.md`
+- `docs/EPICS/Epic_06/story_02.md`
+- `docs/EPICS/Epic_06/story_03.md`
+- `docs/EPICS/Epic_06/story_04.md`
+- `docs/EPICS/Epic_06/story_05.md`
+- `docs/EPICS/Epic_06/story_06.md`
+
+#### Epic 07 - Final Features
+- `docs/EPICS/Epic_07/epic.md`
+- `docs/EPICS/Epic_07/story_07.md`
+- `docs/EPICS/Epic_07/story_09.md`
+
+### 6. Status & Implementation Tracking
+
+#### Entity Implementation Status (Showcase)
+- `examples/entities/src/accounting/general_ledger/IMPLEMENTATION_STATUS.md`
+- `examples/entities/src/accounting/general_ledger/MIGRATION_GAPS.md`
+- `examples/entities/MIGRATION_TOOL_TEST.md`
+- `examples/entities/SERVICE_MAPPING.md`
+
+### 7. Agent Memory Bank
+
+#### Context & Progress Tracking
+- `.agent/memory-bank/activeContext.md` - Active development context
+- `.agent/memory-bank/productContext.md` - Product context
+- `.agent/memory-bank/progress.md` - Progress tracking
+- `.agent/memory-bank/projectbrief.md` - Project brief
+- `.agent/memory-bank/systemPatterns.md` - System patterns
+- `.agent/memory-bank/techContext.md` - Technical context
+
+### 8. Bug Tracking
+
+#### Bug Index
+- `.agent/bugs.md` - Bug tracker index
+- `.agent/bug_tracker.md` - Bug tracker (alternative index?)
+
+#### Individual Bug Reports (46 files)
+- `.agent/bugs/BUG-2024-12-19-01.md` through `BUG-2024-12-19-08.md`
+- `.agent/bugs/BUG-2025-01-18-01.md`
+- `.agent/bugs/BUG-2025-01-27-01.md` through `BUG-2025-01-27-15.md`
+- `.agent/bugs/BUG-2026-01-18-01.md` through `BUG-2026-01-18-02.md`
+- `.agent/bugs/BUG-2026-01-19-01.md` through `BUG-2026-01-19-06.md`
+- `.agent/bugs/BUG-2026-01-20-01.md` through `BUG-2026-01-20-09.md`
+- `.agent/bugs/BUG-2026-01-21-01.md` through `BUG-2026-01-21-05.md`
+
+## Summary Statistics
+
+- **Total Planning Documents**: ~150+ markdown files
+- **Epic/Story Documents**: ~70 files
+- **Analysis Documents**: ~20 files
+- **Design Documents**: ~10 files
+- **Audit Documents**: ~10 files
+- **Bug Reports**: 46 files
+- **Memory Bank**: 6 files
+- **Status/Implementation Tracking**: ~5 files
+
+## Recommendations for Cleanup
+
+### Keep (Active Reference)
+- Epic/Story documents for current work
+- Recent bug reports (last 3 months)
+- Active design documents
+- Memory bank files (for context)
+
+### Archive (Historical Reference)
+- Completed story documents (STORY_*_COMPLETE.md)
+- Old bug reports (older than 6 months)
+- Superseded design documents
+- Completed analysis documents
+
+### Consolidate
+- Duplicate audit documents (REGISTRY_PATTERN_AUDIT appears 3 times)
+- Duplicate test audit documents
+- Multiple edge case documents could be merged
+
+### Remove (Obsolete)
+- Superseded design proposals
+- Outdated analysis documents
+- Completed implementation plans (if fully implemented)
+
+## Notes
+
+- Many documents in `docs/EPICS/` are planning documents for future work
+- `.agent/` directory contains active agent context and bug tracking
+- `lifeguard-derive/` contains codegen-specific planning documents
+- `lifeguard-migrate/` contains migration tool design documents
+- Showcase schema documents in `migrations/` are examples, not core planning
