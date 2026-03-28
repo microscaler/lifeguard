@@ -473,6 +473,8 @@ Comprehensive instrumentation for production operations:
 - Spans for: connection acquisition, query execution, cache operations
 - Integration with existing OpenTelemetry infrastructure
 
+**Host-owned globals:** Lifeguard does **not** set a global OpenTelemetry `TracerProvider`. Your service (for example **BRRTRouter**) must install **one** provider and **one** `tracing_subscriber::Registry` stack. Optionally add **`lifeguard::channel_layer()`** to that same `.with(...)` chain so events also go through Lifeguard’s may-channel logger. See **[docs/OBSERVABILITY_APP_INTEGRATION.md](docs/OBSERVABILITY_APP_INTEGRATION.md)** and the **`lifeguard::logging`** rustdoc.
+
 ### LifeReflector Metrics
 
 - `reflector_notifications_total` - Notifications received

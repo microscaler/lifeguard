@@ -47,6 +47,15 @@ pub mod transaction;
 
 pub mod metrics;
 
+// Channel-backed logging (may `mpsc` singleton)
+pub mod logging;
+pub use logging::{
+    enqueue, global_log_sender, try_enqueue, ChannelLogger, LogLevel, LogRecord,
+    CHANNEL_LOG_BRIDGE, init_log_bridge,
+};
+#[cfg(feature = "tracing")]
+pub use logging::{channel_layer, ChannelLayer};
+
 // Pool will be rebuilt in Epic 04
 // pub mod pool;
 
