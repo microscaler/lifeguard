@@ -91,6 +91,24 @@ pub fn extract_column_enum_name(attrs: &[Attribute]) -> Option<syn::Ident> {
     None
 }
 
+/// `#[cursor_tiebreak = "ColumnVariant"]` on Entity — single-column PK column for cursor tie-break (DeriveEntity).
+pub fn extract_cursor_tiebreak(attrs: &[Attribute]) -> Option<syn::Ident> {
+    for attr in attrs {
+        if attr.path().is_ident("cursor_tiebreak") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value
+                {
+                    return syn::parse_str::<syn::Ident>(&s.value()).ok();
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Check if field has a specific attribute
 pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
     field.attrs.iter().any(|attr| attr.path().is_ident(attr_name))

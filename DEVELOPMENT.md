@@ -15,7 +15,8 @@ This guide explains how to prevent clippy errors from being introduced in the fi
 - **Location**: `.pre-commit-config.yaml` in the repository root
 - **Install** (once per clone): `pip install pre-commit && pre-commit install`
 - Runs **`cargo clippy`** with the same flags as CI (`-D warnings`, `-W clippy::pedantic`). (CI does not run `rustfmt --check` yet; use `just fmt-check` before push if you want format guarantees.)
-- To run manually on all files: `pre-commit run --all-files`
+- The hook sets **`always_run: true`** so it is not skipped as `(no files to check)` when a commit only touches non-Rust paths (that skip was why local commits could miss CI clippy failures).
+- To run manually: `pre-commit run cargo-clippy` or `pre-commit run --all-files`
 - To bypass a single commit (not recommended): `git commit --no-verify`
 
 #### 3. **Editor Integration** ✅
@@ -45,7 +46,7 @@ just validate      # Run all checks (format, lint, check, tests)
 1. Run `just lint` or `cargo clippy --all-targets --all-features -- -D warnings`
 2. If errors found, run `just lint-fix` to auto-fix many issues
 3. Fix remaining issues manually
-4. With `pre-commit install`, hooks run `fmt` + `clippy` before the commit completes
+4. With `pre-commit install`, the clippy hook runs before the commit completes
 
 **If CI fails:**
 1. Check the CI logs for clippy errors
@@ -125,7 +126,7 @@ just lint-fix
 
 - **CI**: `.github/workflows/ci.yaml` - Fails on clippy errors (with pedantic mode)
 - **Editor**: `.vscode/settings.json` - Real-time clippy checking (with pedantic mode)
-- **Pre-commit**: `.pre-commit-config.yaml` - `fmt --check` + clippy before commits (CI parity); install via `pre-commit install`
+- **Pre-commit**: `.pre-commit-config.yaml` - clippy before commits (CI parity, `always_run`); install via `pre-commit install`
 - **Justfile**: `justfile` - Convenient commands for linting (with pedantic mode)
 
 ### Pedantic Mode
@@ -147,7 +148,7 @@ Clippy is configured to run in **pedantic mode** (`-W clippy::pedantic`), which 
 2. **Use auto-fix** - Many errors can be fixed automatically
 3. **Fix CI failures immediately** - Don't let them accumulate
 4. **Configure your editor** - Enable rust-analyzer clippy integration
-5. **Use pre-commit** - Catch fmt/clippy errors before they are committed (`pre-commit install`)
+5. **Use pre-commit** - Catch clippy errors before they are committed (`pre-commit install`)
 
 ### Troubleshooting
 

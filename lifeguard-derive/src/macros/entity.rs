@@ -113,6 +113,15 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     } else {
         quote! {} // Use default implementation from trait
     };
+
+    let cursor_tiebreak_impl = match attributes::extract_cursor_tiebreak(&input.attrs) {
+        Some(variant) => quote! {
+            fn cursor_tiebreak_column() -> Option<Self::Column> {
+                Some(#column_name::#variant)
+            }
+        },
+        None => quote! {},
+    };
     
     let expanded: TokenStream2 = quote! {
         // Implement Default for Entity (required by LifeEntityName)
@@ -156,6 +165,8 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
             fn all_columns() -> &'static [Self::Column] {
                 #column_name::all_columns()
             }
+
+            #cursor_tiebreak_impl
             
             #find_impl
         }

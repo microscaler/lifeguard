@@ -183,7 +183,7 @@ where
     where
         E: crate::Related<R> + 'static,
         E::Model: crate::query::loader::RelationInjector<R> + crate::model::ModelTrait,
-        R::Model: crate::query::traits::FromRow + crate::model::ModelTrait,
+        R::Model: crate::query::traits::FromRow + crate::model::ModelTrait + Clone,
     {
         self.loaders.push(Rc::new(crate::query::loader::RelationLoader::<E, R>::new()) as Rc<dyn LoaderExecutor<E>>);
         self

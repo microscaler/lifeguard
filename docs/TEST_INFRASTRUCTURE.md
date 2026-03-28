@@ -91,9 +91,11 @@ In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_s
 
 1. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
 2. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
-3. Applies every `*.sql` file under `migrations/generated/` to the job’s Postgres service (`psql`, sorted paths).
+3. Applies SQL to the job’s Postgres service (`psql`): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
 
 That validates the migration-generation path against a real database before other steps use the same Postgres instance.
+
+Configure the **`PGPASSWORD`** [repository secret](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions) so it matches the password embedded in `DATABASE_URL` / `TEST_DATABASE_URL` and in the workflow’s `services.postgres` `POSTGRES_PASSWORD`. Avoid raw `@`, `:`, `/`, `#`, or `%` in that password unless you percent-encode them for the URL (the `psql` client still uses the raw secret via `PGPASSWORD`).
 
 ### Rust crate integration tests (`db_integration_suite`)
 
@@ -101,7 +103,7 @@ The `lifeguard` package runs database-backed tests from a **single** integration
 
 | Variable | Role |
 |----------|------|
-| `DATABASE_URL` or `TEST_DATABASE_URL` | If set, **skips** starting Postgres via testcontainers; must point at a reachable Postgres. |
+| `TEST_DATABASE_URL` | If set, **skips** starting Postgres via testcontainers; must point at a **dedicated test** Postgres (not `DATABASE_URL` — integration code can run destructive DDL). |
 | `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. |
 
 **Shared Postgres (e.g. Kind + `just dev-up`):** parallel test threads can exhaust connections (`too many clients`) or race on `CREATE TABLE`. Prefer:
@@ -154,7 +156,9 @@ See also [`docs/planning/audits/LIFEGUARD_FOUNDATION_CONTINUATION.md`](planning/
 
 ### Environment Variables
 
-The test infrastructure supports multiple ways to get the connection string:
+**`db_integration_suite` (`tests/context.rs`):** only **`TEST_DATABASE_URL`**. Do not rely on `DATABASE_URL`; helpers may issue destructive SQL.
+
+**`TestDatabase::get_connection_string` (library / unit tests):**
 
 1. **`TEST_DATABASE_URL`** (highest priority)
 2. **`DATABASE_URL`** (fallback)

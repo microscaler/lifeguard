@@ -50,21 +50,29 @@ fn normalize_sql_table_name(raw: &str) -> String {
     }
 }
 
-/// First `CREATE TABLE IF NOT EXISTS name` in a file (PostgreSQL).
-pub fn extract_created_table_from_migration_sql(sql: &str) -> Option<String> {
+/// Every `CREATE TABLE IF NOT EXISTS name` in a file (PostgreSQL), normalized, sorted, deduped.
+pub fn extract_created_tables_from_migration_sql(sql: &str) -> Vec<String> {
     let re = Regex::new(
         r"(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\(",
     )
     .expect("CREATE TABLE regex");
-    re.captures(sql)
-        .and_then(|c| c.get(1))
-        .map(|m| normalize_sql_table_name(m.as_str()))
+    let mut out: Vec<String> = re
+        .captures_iter(sql)
+        .filter_map(|c| c.get(1).map(|m| normalize_sql_table_name(m.as_str())))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Tables targeted by top-level `ALTER TABLE name` (additive migrations).
+///
+/// Accepts PostgreSQL optional clauses before the table name: `IF EXISTS`, `ONLY` (in that order).
 pub fn extract_alter_table_targets_from_migration_sql(sql: &str) -> Vec<String> {
-    let re = Regex::new(r"(?i)ALTER\s+TABLE\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s+")
-        .expect("regex");
+    let re = Regex::new(
+        r"(?i)ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s+",
+    )
+    .expect("ALTER TABLE regex");
     let mut out = Vec::new();
     for cap in re.captures_iter(sql) {
         if let Some(m) = cap.get(1) {
@@ -88,7 +96,7 @@ pub fn order_migrations_by_foreign_key_sql(
     for (name, sql) in &rows {
         let deps: Vec<String> = extract_referenced_tables_from_migration_sql(sql)
             .into_iter()
-            .filter(|d| names.contains(d))
+            .filter(|d| names.contains(d) && d != name)
             .collect();
         tables.push(TableInfo {
             name: name.clone(),
@@ -126,7 +134,8 @@ fn collect_sql_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> 
 
 /// Build `apply_order.txt` under `migrations_dir`: one relative path per line (FK order).
 ///
-/// Files that only `ALTER TABLE` depend on the file that `CREATE TABLE`s the same table.
+/// `REFERENCES` / `ALTER TABLE` targets depend on the migration file that `CREATE TABLE IF NOT EXISTS`
+/// for that table (lexicographically smallest rel when several files create the same name).
 pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
     let migrations_dir = migrations_dir
         .canonicalize()
@@ -139,7 +148,7 @@ pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
     #[derive(Debug)]
     struct FileMeta {
         rel: String,
-        created: Option<String>,
+        created: Vec<String>,
         alters: Vec<String>,
         refs: Vec<String>,
     }
@@ -152,7 +161,7 @@ pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
             .to_string_lossy()
             .replace('\\', "/");
         let content = fs::read_to_string(path).map_err(|e| format!("{}: {}", path.display(), e))?;
-        let created = extract_created_table_from_migration_sql(&content);
+        let created = extract_created_tables_from_migration_sql(&content);
         let alters = extract_alter_table_targets_from_migration_sql(&content);
         let refs = extract_referenced_tables_from_migration_sql(&content);
         metas.push(FileMeta {
@@ -166,7 +175,7 @@ pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
     // table -> canonical creator file rel (lexicographically smallest wins)
     let mut table_creator: HashMap<String, String> = HashMap::new();
     for m in &metas {
-        if let Some(ref t) = m.created {
+        for t in &m.created {
             table_creator
                 .entry(t.clone())
                 .and_modify(|e| {
@@ -191,12 +200,10 @@ pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
                 }
             }
         }
-        if m.created.is_none() {
-            for t in &m.alters {
-                if let Some(creator) = table_creator.get(t) {
-                    if *creator != m.rel {
-                        d.insert(creator.clone());
-                    }
+        for t in &m.alters {
+            if let Some(creator) = table_creator.get(t) {
+                if *creator != m.rel {
+                    d.insert(creator.clone());
                 }
             }
         }
@@ -263,6 +270,67 @@ pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
+    use tempfile::tempdir;
+
+    #[test]
+    fn extract_created_tables_multiple_per_file() {
+        let sql = r"
+CREATE TABLE IF NOT EXISTS zebra (id INT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS public.alpha (id INT PRIMARY KEY REFERENCES zebra(id));
+";
+        assert_eq!(
+            extract_created_tables_from_migration_sql(sql),
+            vec!["alpha".to_string(), "zebra".to_string()]
+        );
+    }
+
+    #[test]
+    fn apply_order_registers_every_create_in_file() {
+        let dir = tempdir().unwrap();
+        let base = dir.path();
+        fs::write(
+            base.join("001_parent.sql"),
+            "CREATE TABLE IF NOT EXISTS parent (id INT PRIMARY KEY);\n",
+        )
+        .unwrap();
+        fs::write(
+            base.join("002_multi.sql"),
+            r"CREATE TABLE IF NOT EXISTS child (id INT PRIMARY KEY, pid INT REFERENCES parent(id));
+CREATE TABLE IF NOT EXISTS grand (id INT PRIMARY KEY, cid INT REFERENCES child(id));
+",
+        )
+        .unwrap();
+        fs::write(
+            base.join("003_other.sql"),
+            "CREATE TABLE IF NOT EXISTS other (id INT PRIMARY KEY, gid INT REFERENCES grand(id));\n",
+        )
+        .unwrap();
+
+        write_apply_order_file(base).unwrap();
+        let order_path = base.join("apply_order.txt");
+        let f = fs::File::open(&order_path).unwrap();
+        let lines: Vec<String> = std::io::BufReader::new(f)
+            .lines()
+            .map_while(Result::ok)
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+            .collect();
+
+        let pos = |name: &str| {
+            lines
+                .iter()
+                .position(|l| l.ends_with(name))
+                .unwrap_or_else(|| panic!("missing {name} in {lines:?}"))
+        };
+        assert!(
+            pos("001_parent.sql") < pos("002_multi.sql"),
+            "parent before multi: {lines:?}"
+        );
+        assert!(
+            pos("002_multi.sql") < pos("003_other.sql"),
+            "multi (creates grand) before other refs grand: {lines:?}"
+        );
+    }
 
     #[test]
     fn references_parsing() {
@@ -271,6 +339,42 @@ mod tests {
             extract_referenced_tables_from_migration_sql(sql),
             vec!["telemetry_locations".to_string()]
         );
+    }
+
+    #[test]
+    fn extract_alter_table_if_exists_table_name_not_if() {
+        let sql = "ALTER TABLE IF EXISTS foo ADD COLUMN bar INT;";
+        assert_eq!(
+            extract_alter_table_targets_from_migration_sql(sql),
+            vec!["foo".to_string()]
+        );
+    }
+
+    #[test]
+    fn extract_alter_table_only_before_name() {
+        let sql = "ALTER TABLE ONLY public.baz ADD CONSTRAINT u UNIQUE (id);";
+        assert_eq!(
+            extract_alter_table_targets_from_migration_sql(sql),
+            vec!["baz".to_string()]
+        );
+    }
+
+    #[test]
+    fn extract_alter_table_if_exists_only_combined() {
+        let sql = "ALTER TABLE IF EXISTS ONLY qux DROP COLUMN old;";
+        assert_eq!(
+            extract_alter_table_targets_from_migration_sql(sql),
+            vec!["qux".to_string()]
+        );
+    }
+
+    #[test]
+    fn order_migrations_self_referential_fk_single_table() {
+        let sql = "CREATE TABLE IF NOT EXISTS employees (id SERIAL PRIMARY KEY, manager_id INT REFERENCES employees(id));";
+        let ordered =
+            order_migrations_by_foreign_key_sql(vec![("employees".into(), sql.into())]).unwrap();
+        assert_eq!(ordered.len(), 1);
+        assert_eq!(ordered[0].0, "employees");
     }
 
     #[test]

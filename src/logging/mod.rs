@@ -2,7 +2,9 @@
 //!
 //! Producers call [`enqueue`] (or the [`lifeguard_log!`] macro). One coroutine drains the
 //! channel and writes lines to stderr so formatting stays sequential without locking on the
-//! send path.
+//! send path. [`flush_log_channel`] and [`ChannelLogger`](log_bridge::ChannelLogger)'s
+//! [`log::Log::flush`] block until prior enqueued records have been written (see reentrancy note
+//! there).
 //!
 //! ## `log` crate
 //!
@@ -46,6 +48,23 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use log_bridge::{init_log_bridge, ChannelLogger, CHANNEL_LOG_BRIDGE};
+
+/// Item on the global may `mpsc` logging queue.
+pub enum LogMsg {
+    /// Normal log line.
+    Record(LogRecord),
+    /// Synchronous barrier: the drain sends `()` on `done` after all prior messages are handled.
+    Flush(std::sync::mpsc::Sender<()>),
+}
+
+impl std::fmt::Debug for LogMsg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Record(r) => f.debug_tuple("Record").field(r).finish(),
+            Self::Flush(_) => f.write_str("Flush(..)"),
+        }
+    }
+}
 
 #[cfg(feature = "tracing")]
 pub use tracing_layer::{channel_layer, ChannelLayer};
@@ -95,6 +114,19 @@ fn level_token(level: LogLevel) -> &'static str {
     }
 }
 
+/// Replace CR/LF so one logical record stays one physical line (mitigates log forging).
+fn sanitize_single_line_field(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\r' => out.push_str("\\r"),
+            '\n' => out.push_str("\\n"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// One log line routed through the global channel.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LogRecord {
@@ -130,29 +162,41 @@ impl LogRecord {
     }
 
     /// Single-line text for sinks (stderr, tests, custom drains).
+    ///
+    /// [`Self::message`] and [`Self::active_span`] are escaped so embedded `\r`/`\n` cannot split
+    /// output into extra physical lines (log-forging resistance).
     pub fn format_line(&self) -> String {
+        let message = sanitize_single_line_field(&self.message);
         let mut line = format!(
             "[{}][{}] {} {}",
             self.timestamp_ms,
             level_token(self.level),
             self.target,
-            self.message
+            message
         );
         if let Some(ref sp) = self.active_span {
+            let sp = sanitize_single_line_field(sp);
             line.push_str(&format!(" [span={sp}]"));
         }
         line
     }
 }
 
-static GLOBAL_TX: OnceLock<mpsc::Sender<LogRecord>> = OnceLock::new();
+static GLOBAL_TX: OnceLock<mpsc::Sender<LogMsg>> = OnceLock::new();
 
-fn start_global_drain() -> mpsc::Sender<LogRecord> {
-    let (tx, rx) = mpsc::channel::<LogRecord>();
+fn start_global_drain() -> mpsc::Sender<LogMsg> {
+    let (tx, rx) = mpsc::channel::<LogMsg>();
     // Keep the drain coroutine alive for the process lifetime (do not join on drop).
     let handle = may::go!(move || {
-        for rec in &rx {
-            eprintln!("{}", rec.format_line());
+        for msg in &rx {
+            match msg {
+                LogMsg::Record(rec) => {
+                    eprintln!("{}", rec.format_line());
+                }
+                LogMsg::Flush(done_tx) => {
+                    let _ = done_tx.send(());
+                }
+            }
         }
     });
     #[allow(clippy::mem_forget)] // Drain coroutine must keep running after init returns.
@@ -161,18 +205,45 @@ fn start_global_drain() -> mpsc::Sender<LogRecord> {
 }
 
 /// Sender used by all producers; clones share the same underlying queue.
-pub fn global_log_sender() -> &'static mpsc::Sender<LogRecord> {
+pub fn global_log_sender() -> &'static mpsc::Sender<LogMsg> {
     GLOBAL_TX.get_or_init(start_global_drain)
 }
 
 /// Send one record to the global drain coroutine. Ignores send errors (e.g. drain stopped).
 pub fn enqueue(record: LogRecord) {
-    let _ = global_log_sender().send(record);
+    let _ = global_log_sender().send(LogMsg::Record(record));
+}
+
+/// Block until every record already queued before this call has been processed by the drain.
+///
+/// If the drain is stopped or the flush message cannot be sent, returns promptly without
+/// blocking indefinitely.
+///
+/// **Reentrancy:** Do not call this from code that runs on the drain path (for example inside a
+/// custom writer invoked while the drain prints a line), or the process may deadlock.
+pub fn flush_log_channel() {
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    if global_log_sender().send(LogMsg::Flush(done_tx)).is_err() {
+        return;
+    }
+    let _ = done_rx.recv();
 }
 
 /// Same as [`enqueue`] but returns whether the send succeeded.
 pub fn try_enqueue(record: LogRecord) -> Result<(), SendError<LogRecord>> {
-    global_log_sender().send(record)
+    global_log_sender()
+        .send(LogMsg::Record(record))
+        .map_err(|SendError(msg)| match msg {
+            LogMsg::Record(r) => SendError(r),
+            LogMsg::Flush(done_tx) => {
+                drop(done_tx);
+                SendError(LogRecord::new(
+                    LogLevel::Error,
+                    "lifeguard::logging",
+                    "internal logging channel state error",
+                ))
+            }
+        })
 }
 
 #[cfg(test)]
@@ -221,6 +292,27 @@ mod tests {
     }
 
     #[test]
+    fn format_line_escapes_newlines_in_message() {
+        let r = LogRecord::new(LogLevel::Warn, "my::target", "a\n[999][INFO] fake next line");
+        let line = r.format_line();
+        assert!(
+            !line.contains('\n') && !line.contains('\r'),
+            "must be one physical line: {line:?}"
+        );
+        assert!(line.contains("\\n"), "line: {line:?}");
+        assert!(line.contains("fake next line"));
+    }
+
+    #[test]
+    fn format_line_escapes_cr_lf_in_message_and_span() {
+        let r = LogRecord::new(LogLevel::Info, "t", "x\ry")
+            .with_active_span("s\np");
+        let line = r.format_line();
+        assert!(!line.contains('\n') && !line.contains('\r'), "line: {line:?}");
+        assert!(line.contains("\\r") && line.contains("\\n"), "line: {line:?}");
+    }
+
+    #[test]
     fn may_channel_drains_in_coroutine() {
         let (tx, rx) = mpsc::channel::<LogRecord>();
         let out = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -236,5 +328,48 @@ mod tests {
         assert_eq!(g.len(), 2);
         assert!(g[0].contains("one"));
         assert!(g[1].contains("two"));
+    }
+
+    /// Mirrors production drain handling of [`LogMsg`] so `flush` barriers are tested without
+    /// relying on the process-global [`OnceLock`](std::sync::OnceLock) sender.
+    #[test]
+    fn log_msg_flush_waits_until_prior_records_processed() {
+        let (tx, rx) = mpsc::channel::<LogMsg>();
+        let out = Arc::new(Mutex::new(Vec::<String>::new()));
+        let out_c = out.clone();
+        let handle = may::go!(move || {
+            for msg in &rx {
+                match msg {
+                    LogMsg::Record(rec) => {
+                        if let Ok(mut g) = out_c.lock() {
+                            g.push(rec.format_line());
+                        }
+                    }
+                    LogMsg::Flush(done_tx) => {
+                        let _ = done_tx.send(());
+                    }
+                }
+            }
+        });
+
+        assert!(tx
+            .send(LogMsg::Record(LogRecord::new(LogLevel::Info, "t", "one")))
+            .is_ok());
+        assert!(tx
+            .send(LogMsg::Record(LogRecord::new(LogLevel::Info, "t", "two")))
+            .is_ok());
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        assert!(tx.send(LogMsg::Flush(done_tx)).is_ok());
+        #[allow(clippy::unwrap_used)]
+        {
+            done_rx.recv().unwrap();
+        }
+
+        let g = out.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(g.len(), 2, "flush must run after both records: {g:?}");
+
+        drop(tx);
+        let _ = handle.join();
     }
 }

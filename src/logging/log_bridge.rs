@@ -1,6 +1,6 @@
 //! Bridge [`log`] records into the may-channel [`super::enqueue`] path.
 
-use super::{enqueue, LogLevel, LogRecord};
+use super::{enqueue, flush_log_channel, LogLevel, LogRecord};
 
 /// Forwards `log::info!` and friends through [`super::global_log_sender`].
 ///
@@ -26,7 +26,13 @@ impl log::Log for ChannelLogger {
         enqueue(LogRecord::new(level, target, message));
     }
 
-    fn flush(&self) {}
+    /// Waits until records already enqueued before this call have been written by the global drain.
+    ///
+    /// Do not call from the drain path (e.g. inside output hooks run while the drainer prints), or
+    /// a deadlock may occur.
+    fn flush(&self) {
+        flush_log_channel();
+    }
 }
 
 /// Set [`CHANNEL_LOG_BRIDGE`] as the process logger and raise the max level to `Trace`.

@@ -30,7 +30,7 @@ junit = { path = "test-results.xml" }
 # Prefer `--exclude lifeguard-integration-tests` or per-package `-p` / `--lib` as needed.
 
 # Lifeguard `tests/*.rs` binaries: cold Testcontainers startup or many parallel DB tests can exceed 60s
-# without being a real hang. (When `DATABASE_URL` is set, `tests/context.rs` skips Postgres container.)
+# without being a real hang. (When `TEST_DATABASE_URL` is set, `tests/context.rs` skips Postgres container.)
 [[profile.default.overrides]]
 filter = 'binary(db_integration_suite)'
 slow-timeout = { period = "180s" }
@@ -49,7 +49,7 @@ junit = { path = "test-results.xml" }
 # Note: Use --exclude flag on command line to exclude packages
 
 # Single-threaded DB integration: avoids DDL races and connection exhaustion on a shared Postgres
-# (e.g. `just dev-up` + `DATABASE_URL`). See docs/TEST_INFRASTRUCTURE.md.
+# (e.g. `just dev-up` + `TEST_DATABASE_URL`). See docs/TEST_INFRASTRUCTURE.md.
 [profile.db-serial]
 retries = 2
 test-threads = 1

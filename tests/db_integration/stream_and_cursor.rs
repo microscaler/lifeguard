@@ -9,6 +9,7 @@ use lifeguard::query::SelectQueryStreamEx;
 use lifeguard::query::traits::LifeModelTrait;
 use lifeguard_derive::{LifeModel, LifeRecord};
 use lifeguard::ActiveModelTrait;
+use sea_query::{Expr, ExprTrait, Order};
 
 fn get_db() -> TestDatabase {
     let ctx = crate::context::get_test_context();
@@ -84,6 +85,31 @@ fn test_pagination_and_streaming() {
     assert_eq!(backwards_results.len(), 2);
     assert_eq!(backwards_results[0].id, 8, "Expected backwards lookup resolving backwards natively limit slices");
     assert_eq!(backwards_results[1].id, 7);
+
+    // Duplicate `val` with distinct ids: keyset on `val` alone is ambiguous; (val, id) tie-break fixes it.
+    for _ in 0..3 {
+        let mut rec = DataPointRecord::new();
+        rec.set_name("dup".into());
+        rec.set_val(99);
+        rec.save(&executor).expect("dup val insert");
+    }
+    let dupes: Vec<_> = Entity::find()
+        .filter(Expr::col("val").eq(99))
+        .order_by("id", Order::Asc)
+        .all(&executor)
+        .expect("list dup val rows");
+    assert_eq!(dupes.len(), 3, "three rows share val=99");
+    let mid_id = dupes[1].id;
+    let tie = Entity::find()
+        .cursor_by("val")
+        .after(99)
+        .after_pk(mid_id)
+        .first(2)
+        .fetch(&executor)
+        .expect("tie-break cursor");
+    assert_eq!(tie.len(), 2);
+    assert_eq!(tie[0].id, dupes[2].id, "next same-val row after mid pk");
+    assert_eq!(tie[1].id, 10, "then higher val from original seed (val=100)");
     
     // ----------------------------------------------------------------------------------
     // PHASE 2: Verify Coroutine Channel Streaming!
@@ -102,6 +128,14 @@ fn test_pagination_and_streaming() {
         total_records += chunk.len();
     }
     
-    assert_eq!(total_records, 10, "Failed to stream the exact number of rows via coroutine loop closure");
-    assert_eq!(chunk_counts, vec![3, 3, 3, 1], "Mismatched FETCH chunk alignment distributions inside transaction!");
+    assert_eq!(
+        total_records,
+        13,
+        "Failed to stream the exact number of rows via coroutine loop closure"
+    );
+    assert_eq!(
+        chunk_counts,
+        vec![3, 3, 3, 3, 1],
+        "Mismatched FETCH chunk alignment distributions inside transaction!"
+    );
 }

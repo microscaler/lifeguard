@@ -1,9 +1,13 @@
 //! Shared Postgres (and optional Redis) URLs for `tests/*.rs` integration binaries.
 //!
-//! When `DATABASE_URL` / `TEST_DATABASE_URL` is unset, we start Docker containers via
-//! testcontainers. Container IDs are registered for removal on process exit using `ctor::dtor`
-//! because Rust does not reliably run `Drop` for `static` items at shutdown—`Box::leak` was
-//! leaving dozens of Postgres/Redis containers behind after `cargo nextest` runs.
+//! When **`TEST_DATABASE_URL`** is unset, we start Docker containers via testcontainers.
+//! We intentionally do **not** read `DATABASE_URL` here: integration helpers such as
+//! [`clean_db`] issue destructive SQL (`DROP TABLE ... CASCADE`), and `DATABASE_URL` is commonly
+//! set to a developer or app database. Require an explicit test URL instead.
+//!
+//! Container IDs are registered for removal on process exit using `ctor::dtor` because Rust does
+//! not reliably run `Drop` for `static` items at shutdown—`Box::leak` was leaving dozens of
+//! Postgres/Redis containers behind after `cargo nextest` runs.
 
 use std::env;
 use std::mem;
@@ -49,10 +53,9 @@ fn non_empty_env(key: &str) -> Option<String> {
     env::var(key).ok().filter(|s| !s.trim().is_empty())
 }
 
-/// Prefer the same URL sources as `TestDatabase::get_connection_string` so `just nt`
-/// (`DATABASE_URL`) and CI Postgres services are used instead of spawning containers per test binary.
+/// Only **`TEST_DATABASE_URL`** (see module docs — no `DATABASE_URL` fallback).
 fn postgres_url_from_env() -> Option<String> {
-    non_empty_env("TEST_DATABASE_URL").or_else(|| non_empty_env("DATABASE_URL"))
+    non_empty_env("TEST_DATABASE_URL")
 }
 
 fn redis_url_from_env() -> Option<String> {
@@ -100,7 +103,8 @@ pub static TEST_CONTEXT: std::sync::LazyLock<LifeguardTestContext> = std::sync::
     &TEST_CONTEXT
 }
 
-// Helper to clean the database before a test if needed
+/// Drops tables with `CASCADE`. Only use with a URL from [`get_test_context`] (i.e.
+/// `TEST_DATABASE_URL` or an isolated testcontainer), never a production `DATABASE_URL`.
 pub fn clean_db(pg_url: &str, tables: &[&str]) {
     if let Ok(client) = may_postgres::connect(pg_url) {
         for table in tables {

@@ -10,6 +10,7 @@ use example_entities::inventory::{
     inventory_item,
 };
 
+use lifeguard_migrate::sql_dependency_order;
 use lifeguard_migrate::sql_generator;
 use lifeguard::LifeEntityName;
 use std::fs;
@@ -104,8 +105,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::write(&output_file, sql_content)?;
         println!("✅ Generated SQL migration for {}: {}", service, output_file.display());
     }
-    
+
+    sql_dependency_order::write_apply_order_file(&output_dir).map_err(|e| {
+        format!("FK-safe apply_order.txt: {e} (fix REFERENCES across migration files or merge SQL)")
+    })?;
+    println!(
+        "\n✅ Wrote {}",
+        output_dir.join("apply_order.txt").display()
+    );
+
     println!("\n✅ Success - All migrations generated!");
-    
+
     Ok(())
 }

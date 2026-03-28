@@ -63,28 +63,30 @@ where
         // Executors explicitly clone connection handlers intrinsically representing identical PG states.
         let local_exec = MayPostgresExecutor::new(executor.client().clone());
 
-        // SAFETY: We own all local bindings natively passing lifetime boundary.
-        unsafe {
-            may::coroutine::spawn(move || {
-                // Establish the dedicated transactional socket mapping the Cursor boundaries.
+        // `may::coroutine::spawn` is `unsafe` in the `may` crate; `may::go!` is the supported wrapper.
+        // The closure only captures `Send` + `'static` values (`MayPostgresExecutor`, channel `tx`, etc.).
+        let _stream_co = may::go!(move || {
+            // Establish the dedicated transactional socket mapping the Cursor boundaries.
             let txn = match local_exec.begin() {
                 Ok(t) => t,
                 Err(e) => {
-                    let _ = tx.send(Err(LifeError::Other(format!("Failed to establish stream transaction: {e}"))));
+                    let _ = tx.send(Err(LifeError::Other(format!(
+                        "Failed to establish stream transaction: {e}"
+                    ))));
                     return;
                 }
             };
-            
+
             // Map parameter pointers capturing localized memory vectors via the conversion stack!
             let stream_result = with_converted_params(&values, |params| -> Result<(), LifeError> {
                 let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
-                
+
                 // 1. Declare Initial Transaction state
                 txn.execute(&declare_statement, params)?;
 
                 // 2. Continuous Loop until exhaustion
                 let fetch_statement = format!("FETCH FORWARD {batch_size} FROM {cursor_name}");
-                
+
                 loop {
                     let rows = txn.query_all(&fetch_statement, &[])?;
                     if rows.is_empty() {
@@ -94,8 +96,9 @@ where
                     // Map subset array natively
                     let mut chunk: Vec<E::Model> = Vec::with_capacity(rows.len());
                     for row in rows {
-                        let inner_model = <E::Model as FromRow>::from_row(&row)
-                            .map_err(|e| LifeError::ParseError(format!("Failed to parse streamed row: {e}")))?;
+                        let inner_model = <E::Model as FromRow>::from_row(&row).map_err(|e| {
+                            LifeError::ParseError(format!("Failed to parse streamed row: {e}"))
+                        })?;
                         chunk.push(inner_model);
                     }
 
@@ -104,7 +107,7 @@ where
                         return Ok(());
                     }
                 }
-                
+
                 Ok(())
             });
 
@@ -116,8 +119,7 @@ where
             // Close the transaction ensuring cursors collapse.
             let _ = txn.commit();
         });
-        }
-        
+
         rx
     }
 }

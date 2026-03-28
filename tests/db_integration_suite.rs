@@ -3,7 +3,7 @@
 //! One `context::TEST_CONTEXT` → one Postgres + one Redis (or env URLs) shared by every module
 //! until this process exits, then `ctor::dtor` removes Docker containers.
 
-// Integration tests: macro-generated structs, long scenarios, and `DATABASE_URL` runs share
+// Integration tests: macro-generated structs, long scenarios, and shared `TEST_CONTEXT` runs share
 // noisy patterns; keep strict `cargo clippy` on the library crate.
 #![allow(dead_code)]
 #![allow(unused_imports)]

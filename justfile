@@ -137,15 +137,15 @@ nt-codegen:
 
 # Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB
 nt-db-suite:
-    @echo "🧪 Running lifeguard db_integration_suite (serial profile; needs DATABASE_URL or Docker)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
+    @echo "🧪 Running lifeguard db_integration_suite (serial profile; needs TEST_DATABASE_URL or Docker)..."
+    @TEST_DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
 
 alias nt-db := nt-db-suite
 
 # Verbose output for db suite only
 nt-db-suite-verbose:
     @echo "🧪 Running lifeguard db_integration_suite (serial, no-capture)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --no-capture -E 'binary(db_integration_suite)'
+    @TEST_DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --no-capture -E 'binary(db_integration_suite)'
 
 # Typical local run: fast workspace (no cluster integration crate) + serial DB suite
 nt-complete: nextest-test nt-db-suite

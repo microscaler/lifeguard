@@ -4,31 +4,86 @@
 //! - `LifeEntityName`: Provides table name information
 //! - `LifeModelTrait`: Main entity trait with CRUD operations
 //!
+//! Generic methods take `executor: &E` where `E: LifeExecutor`. If you hold a trait object as
+//! `let ex: &dyn LifeExecutor`, pass **`&ex`** (so `E` is `&dyn LifeExecutor`, which implements
+//! [`LifeExecutor`](crate::executor::LifeExecutor) via a blanket impl), not `ex` alone.
+//!
 //! # Examples
 //!
 //! ```no_run
-//! use lifeguard::{LifeModelTrait, LifeEntityName, LifeExecutor};
-//! use sea_query::Expr;
+//! use lifeguard::{LifeEntityName, LifeExecutor, LifeModelTrait};
 //!
-//! # struct User;
-//! # struct UserModel { id: i32, name: String };
-//! # impl lifeguard::FromRow for UserModel {
-//! #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+//! # #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+//! # enum UserColumn {
+//! #     Id,
 //! # }
+//! # impl sea_query::Iden for UserColumn {
+//! #     fn unquoted(&self) -> &'static str {
+//! #         match self {
+//! #             UserColumn::Id => "id",
+//! #         }
+//! #     }
+//! # }
+//! # impl sea_query::IdenStatic for UserColumn {
+//! #     fn as_str(&self) -> &'static str {
+//! #         match self {
+//! #             UserColumn::Id => "id",
+//! #         }
+//! #     }
+//! # }
+//! # lifeguard::impl_column_def_helper_for_test!(UserColumn);
+//! # #[derive(Clone, Debug)]
+//! # struct UserModel {
+//! #     id: i32,
+//! #     name: String,
+//! # }
+//! # impl lifeguard::FromRow for UserModel {
+//! #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+//! #         todo!()
+//! #     }
+//! # }
+//! # impl lifeguard::ModelTrait for UserModel {
+//! #     type Entity = User;
+//! #     fn get(&self, col: UserColumn) -> sea_query::Value {
+//! #         match col {
+//! #             UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+//! #         }
+//! #     }
+//! #     fn set(
+//! #         &mut self,
+//! #         _: UserColumn,
+//! #         _: sea_query::Value,
+//! #     ) -> Result<(), lifeguard::ModelError> {
+//! #         Ok(())
+//! #     }
+//! #     fn get_primary_key_value(&self) -> sea_query::Value {
+//! #         sea_query::Value::Int(Some(self.id))
+//! #     }
+//! #     fn get_primary_key_identity(&self) -> lifeguard::relation::identity::Identity {
+//! #         lifeguard::relation::identity::Identity::Unary("id".into())
+//! #     }
+//! # }
+//! # struct User;
 //! # impl lifeguard::LifeEntityName for User {
-//! #     fn table_name(&self) -> &'static str { "users" }
+//! #     fn table_name(&self) -> &'static str {
+//! #         "users"
+//! #     }
 //! # }
 //! # impl Default for User {
-//! #     fn default() -> Self { User }
+//! #     fn default() -> Self {
+//! #         User
+//! #     }
 //! # }
 //! # impl lifeguard::LifeModelTrait for User {
 //! #     type Model = UserModel;
-//! #     type Column = ();
+//! #     type Column = UserColumn;
 //! # }
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # let executor: &dyn LifeExecutor = todo!();
 //!
-//! // Use the entity to query
-//! let users = User::find().all(executor)?;
+//! let _users = User::find().all(&executor)?;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::executor::LifeExecutor;
@@ -91,14 +146,43 @@ pub trait LifeModelTrait: LifeEntityName {
     /// ```no_run
     /// use lifeguard::LifeModelTrait;
     ///
+    /// # #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    /// # enum UserColumn {
+    /// #     Id,
+    /// # }
+    /// # impl sea_query::Iden for UserColumn {
+    /// #     fn unquoted(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # impl sea_query::IdenStatic for UserColumn {
+    /// #     fn as_str(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # lifeguard::impl_column_def_helper_for_test!(UserColumn);
     /// # struct User;
+    /// # impl lifeguard::LifeEntityName for User {
+    /// #     fn table_name(&self) -> &'static str {
+    /// #         "users"
+    /// #     }
+    /// # }
+    /// # impl Default for User {
+    /// #     fn default() -> Self {
+    /// #         User
+    /// #     }
+    /// # }
     /// # impl lifeguard::LifeModelTrait for User {
     /// #     type Model = ();
-    /// #     type Column = ();
+    /// #     type Column = UserColumn;
     /// # }
     /// let columns = User::all_columns();
     /// for column in columns {
-    ///     // Process each column
+    ///     let _ = column;
     /// }
     /// ```
     #[must_use]
@@ -109,6 +193,20 @@ pub trait LifeModelTrait: LifeEntityName {
         // Default implementation returns empty slice
         // Macro will override this with actual implementation
         &[]
+    }
+
+    /// Primary key column for stable [`crate::query::CursorPaginator`] ordering when the cursor
+    /// sort column is not unique.
+    ///
+    /// Implemented for entities with a **single-column** primary key. Returns `None` for composite
+    /// PKs, no PK, or manual `LifeModelTrait` impls without codegen.
+    #[must_use]
+    fn cursor_tiebreak_column() -> Option<Self::Column>
+    where
+        Self::Column: Copy,
+        Self: Sized,
+    {
+        None
     }
 
     /// Start a query builder for finding records.
@@ -125,26 +223,78 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # Example
     ///
     /// ```no_run
-    /// use lifeguard::{LifeModelTrait, LifeExecutor};
+    /// use lifeguard::{LifeEntityName, LifeExecutor, LifeModelTrait};
     ///
+    /// # #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    /// # enum UserColumn {
+    /// #     Id,
+    /// # }
+    /// # impl sea_query::Iden for UserColumn {
+    /// #     fn unquoted(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # impl sea_query::IdenStatic for UserColumn {
+    /// #     fn as_str(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # lifeguard::impl_column_def_helper_for_test!(UserColumn);
     /// # struct User; // Entity
-    /// # struct UserModel { id: i32 }; // Model
+    /// # #[derive(Clone, Debug)]
+    /// # struct UserModel {
+    /// #     id: i32,
+    /// # }
     /// # impl lifeguard::FromRow for UserModel {
-    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
+    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+    /// #         todo!()
+    /// #     }
+    /// # }
+    /// # impl lifeguard::ModelTrait for UserModel {
+    /// #     type Entity = User;
+    /// #     fn get(&self, col: UserColumn) -> sea_query::Value {
+    /// #         match col {
+    /// #             UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+    /// #         }
+    /// #     }
+    /// #     fn set(
+    /// #         &mut self,
+    /// #         _: UserColumn,
+    /// #         _: sea_query::Value,
+    /// #     ) -> Result<(), lifeguard::ModelError> {
+    /// #         Ok(())
+    /// #     }
+    /// #     fn get_primary_key_value(&self) -> sea_query::Value {
+    /// #         sea_query::Value::Int(Some(self.id))
+    /// #     }
+    /// #     fn get_primary_key_identity(&self) -> lifeguard::relation::identity::Identity {
+    /// #         lifeguard::relation::identity::Identity::Unary("id".into())
+    /// #     }
     /// # }
     /// # impl lifeguard::LifeEntityName for User {
-    /// #     fn table_name(&self) -> &'static str { "users" }
+    /// #     fn table_name(&self) -> &'static str {
+    /// #         "users"
+    /// #     }
     /// # }
     /// # impl Default for User {
-    /// #     fn default() -> Self { User }
+    /// #     fn default() -> Self {
+    /// #         User
+    /// #     }
     /// # }
     /// # impl lifeguard::LifeModelTrait for User {
     /// #     type Model = UserModel;
-    /// #     type Column = ();
+    /// #     type Column = UserColumn;
     /// # }
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let executor: &dyn LifeExecutor = todo!();
     ///
-    /// let users = User::find().all(executor)?;
+    /// let _users = User::find().all(&executor)?;
+    /// # Ok(())
+    /// # }
     /// ```
     #[must_use]
     fn find() -> SelectQuery<Self>
@@ -172,24 +322,95 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # Example
     ///
     /// ```no_run
-    /// use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor};
+    /// use lifeguard::{ActiveModelTrait, LifeExecutor, LifeModelTrait};
     ///
+    /// # #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    /// # enum UserColumn {
+    /// #     Id,
+    /// # }
+    /// # impl sea_query::Iden for UserColumn {
+    /// #     fn unquoted(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # impl sea_query::IdenStatic for UserColumn {
+    /// #     fn as_str(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # lifeguard::impl_column_def_helper_for_test!(UserColumn);
     /// # struct User; // Entity
-    /// # struct UserModel { id: i32, name: String }; // Model
-    /// # struct UserRecord; // Record
+    /// # #[derive(Clone, Debug)]
+    /// # struct UserModel {
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// # impl lifeguard::ModelTrait for UserModel {
+    /// #     type Entity = User;
+    /// #     fn get(&self, col: UserColumn) -> sea_query::Value {
+    /// #         match col {
+    /// #             UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+    /// #         }
+    /// #     }
+    /// #     fn set(
+    /// #         &mut self,
+    /// #         _: UserColumn,
+    /// #         _: sea_query::Value,
+    /// #     ) -> Result<(), lifeguard::ModelError> {
+    /// #         Ok(())
+    /// #     }
+    /// #     fn get_primary_key_value(&self) -> sea_query::Value {
+    /// #         sea_query::Value::Int(Some(self.id))
+    /// #     }
+    /// #     fn get_primary_key_identity(&self) -> lifeguard::relation::identity::Identity {
+    /// #         lifeguard::relation::identity::Identity::Unary("id".into())
+    /// #     }
+    /// # }
+    /// # #[derive(Clone, Debug)]
+    /// # struct UserRecord;
     /// # impl lifeguard::ActiveModelTrait for UserRecord {
+    /// #     type Entity = User;
     /// #     type Model = UserModel;
-    /// #     fn insert(&self, _executor: &dyn LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
-    /// #     // ... other methods
+    /// #     fn get(&self, _: UserColumn) -> Option<sea_query::Value> {
+    /// #         None
+    /// #     }
+    /// #     fn set(
+    /// #         &mut self,
+    /// #         _: UserColumn,
+    /// #         _: sea_query::Value,
+    /// #     ) -> Result<(), lifeguard::ActiveModelError> {
+    /// #         Ok(())
+    /// #     }
+    /// #     fn take(&mut self, _: UserColumn) -> Option<sea_query::Value> {
+    /// #         None
+    /// #     }
+    /// #     fn reset(&mut self) {}
+    /// # }
+    /// # impl lifeguard::LifeEntityName for User {
+    /// #     fn table_name(&self) -> &'static str {
+    /// #         "users"
+    /// #     }
+    /// # }
+    /// # impl Default for User {
+    /// #     fn default() -> Self {
+    /// #         User
+    /// #     }
     /// # }
     /// # impl lifeguard::LifeModelTrait for User {
     /// #     type Model = UserModel;
-    /// #     type Column = ();
+    /// #     type Column = UserColumn;
     /// # }
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let executor: &dyn LifeExecutor = todo!();
-    /// # let record = UserRecord; // UserRecord::new();
+    /// # let record = UserRecord;
     ///
-    /// let model = User::insert(record, executor)?;
+    /// let _model = User::insert(record, &executor)?;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Errors
@@ -226,24 +447,95 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # Example
     ///
     /// ```no_run
-    /// use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor};
+    /// use lifeguard::{ActiveModelTrait, LifeExecutor, LifeModelTrait};
     ///
+    /// # #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    /// # enum UserColumn {
+    /// #     Id,
+    /// # }
+    /// # impl sea_query::Iden for UserColumn {
+    /// #     fn unquoted(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # impl sea_query::IdenStatic for UserColumn {
+    /// #     fn as_str(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # lifeguard::impl_column_def_helper_for_test!(UserColumn);
     /// # struct User; // Entity
-    /// # struct UserModel { id: i32, name: String }; // Model
-    /// # struct UserRecord; // Record
+    /// # #[derive(Clone, Debug)]
+    /// # struct UserModel {
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// # impl lifeguard::ModelTrait for UserModel {
+    /// #     type Entity = User;
+    /// #     fn get(&self, col: UserColumn) -> sea_query::Value {
+    /// #         match col {
+    /// #             UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+    /// #         }
+    /// #     }
+    /// #     fn set(
+    /// #         &mut self,
+    /// #         _: UserColumn,
+    /// #         _: sea_query::Value,
+    /// #     ) -> Result<(), lifeguard::ModelError> {
+    /// #         Ok(())
+    /// #     }
+    /// #     fn get_primary_key_value(&self) -> sea_query::Value {
+    /// #         sea_query::Value::Int(Some(self.id))
+    /// #     }
+    /// #     fn get_primary_key_identity(&self) -> lifeguard::relation::identity::Identity {
+    /// #         lifeguard::relation::identity::Identity::Unary("id".into())
+    /// #     }
+    /// # }
+    /// # #[derive(Clone, Debug)]
+    /// # struct UserRecord;
     /// # impl lifeguard::ActiveModelTrait for UserRecord {
+    /// #     type Entity = User;
     /// #     type Model = UserModel;
-    /// #     fn update(&self, _executor: &dyn LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
-    /// #     // ... other methods
+    /// #     fn get(&self, _: UserColumn) -> Option<sea_query::Value> {
+    /// #         None
+    /// #     }
+    /// #     fn set(
+    /// #         &mut self,
+    /// #         _: UserColumn,
+    /// #         _: sea_query::Value,
+    /// #     ) -> Result<(), lifeguard::ActiveModelError> {
+    /// #         Ok(())
+    /// #     }
+    /// #     fn take(&mut self, _: UserColumn) -> Option<sea_query::Value> {
+    /// #         None
+    /// #     }
+    /// #     fn reset(&mut self) {}
+    /// # }
+    /// # impl lifeguard::LifeEntityName for User {
+    /// #     fn table_name(&self) -> &'static str {
+    /// #         "users"
+    /// #     }
+    /// # }
+    /// # impl Default for User {
+    /// #     fn default() -> Self {
+    /// #         User
+    /// #     }
     /// # }
     /// # impl lifeguard::LifeModelTrait for User {
     /// #     type Model = UserModel;
-    /// #     type Column = ();
+    /// #     type Column = UserColumn;
     /// # }
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let executor: &dyn LifeExecutor = todo!();
-    /// # let record = UserRecord; // UserRecord::from_model(&existing_model);
+    /// # let record = UserRecord;
     ///
-    /// let model = User::update(record, executor)?;
+    /// let _model = User::update(record, &executor)?;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Errors
@@ -280,24 +572,95 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # Example
     ///
     /// ```no_run
-    /// use lifeguard::{LifeModelTrait, ActiveModelTrait, LifeExecutor};
+    /// use lifeguard::{ActiveModelTrait, LifeExecutor, LifeModelTrait};
     ///
+    /// # #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    /// # enum UserColumn {
+    /// #     Id,
+    /// # }
+    /// # impl sea_query::Iden for UserColumn {
+    /// #     fn unquoted(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # impl sea_query::IdenStatic for UserColumn {
+    /// #     fn as_str(&self) -> &'static str {
+    /// #         match self {
+    /// #             UserColumn::Id => "id",
+    /// #         }
+    /// #     }
+    /// # }
+    /// # lifeguard::impl_column_def_helper_for_test!(UserColumn);
     /// # struct User; // Entity
-    /// # struct UserModel { id: i32, name: String }; // Model
-    /// # struct UserRecord; // Record
+    /// # #[derive(Clone, Debug)]
+    /// # struct UserModel {
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// # impl lifeguard::ModelTrait for UserModel {
+    /// #     type Entity = User;
+    /// #     fn get(&self, col: UserColumn) -> sea_query::Value {
+    /// #         match col {
+    /// #             UserColumn::Id => sea_query::Value::Int(Some(self.id)),
+    /// #         }
+    /// #     }
+    /// #     fn set(
+    /// #         &mut self,
+    /// #         _: UserColumn,
+    /// #         _: sea_query::Value,
+    /// #     ) -> Result<(), lifeguard::ModelError> {
+    /// #         Ok(())
+    /// #     }
+    /// #     fn get_primary_key_value(&self) -> sea_query::Value {
+    /// #         sea_query::Value::Int(Some(self.id))
+    /// #     }
+    /// #     fn get_primary_key_identity(&self) -> lifeguard::relation::identity::Identity {
+    /// #         lifeguard::relation::identity::Identity::Unary("id".into())
+    /// #     }
+    /// # }
+    /// # #[derive(Clone, Debug)]
+    /// # struct UserRecord;
     /// # impl lifeguard::ActiveModelTrait for UserRecord {
+    /// #     type Entity = User;
     /// #     type Model = UserModel;
-    /// #     fn delete(&self, _executor: &dyn LifeExecutor) -> Result<(), lifeguard::ActiveModelError> { Ok(()) }
-    /// #     // ... other methods
+    /// #     fn get(&self, _: UserColumn) -> Option<sea_query::Value> {
+    /// #         None
+    /// #     }
+    /// #     fn set(
+    /// #         &mut self,
+    /// #         _: UserColumn,
+    /// #         _: sea_query::Value,
+    /// #     ) -> Result<(), lifeguard::ActiveModelError> {
+    /// #         Ok(())
+    /// #     }
+    /// #     fn take(&mut self, _: UserColumn) -> Option<sea_query::Value> {
+    /// #         None
+    /// #     }
+    /// #     fn reset(&mut self) {}
+    /// # }
+    /// # impl lifeguard::LifeEntityName for User {
+    /// #     fn table_name(&self) -> &'static str {
+    /// #         "users"
+    /// #     }
+    /// # }
+    /// # impl Default for User {
+    /// #     fn default() -> Self {
+    /// #         User
+    /// #     }
     /// # }
     /// # impl lifeguard::LifeModelTrait for User {
     /// #     type Model = UserModel;
-    /// #     type Column = ();
+    /// #     type Column = UserColumn;
     /// # }
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let executor: &dyn LifeExecutor = todo!();
-    /// # let record = UserRecord; // UserRecord::from_model(&existing_model);
+    /// # let record = UserRecord;
     ///
-    /// User::delete(record, executor)?;
+    /// User::delete(record, &executor)?;
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Errors

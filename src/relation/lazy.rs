@@ -152,8 +152,8 @@ where
     ///
     /// # Panics
     ///
-    /// This function will panic if `build_where_condition` cannot read required `from_col`
-    /// values from the model (see [`build_where_condition`](crate::build_where_condition)).
+    /// Returns [`LifeError`](crate::LifeError) if [`build_where_condition`](crate::build_where_condition)
+    /// cannot read required `from_col` values (e.g. partially loaded model).
     pub fn load<R>(&self) -> Result<Vec<R::Model>, LifeError>
     where
         R: LifeModelTrait,
@@ -168,7 +168,7 @@ where
         
         // Filter the related table (`to_tbl`) using `to_col` = values from the source model's
         // `from_col` columns (same rule as `FindRelated::find_related`).
-        let where_condition = build_where_condition(&rel_def, self.entity);
+        let where_condition = build_where_condition(&rel_def, self.entity)?;
 
         // Apply the WHERE condition
         query = query.filter(where_condition);

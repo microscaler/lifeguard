@@ -10,17 +10,20 @@
 
 ## Decision
 
-**Keep `Expr::cust` for now**, with these rules:
+**`build_where_condition` (find_related / LazyLoader)** uses `sea_query::Expr::col` with:
 
-1. Table names come from `extract_table_name` in `src/relation/def/condition.rs` on `RelationDef::to_tbl` (not `Debug` formatting).
-2. Column names come from `Identity` / `DynIden` `to_string()` as used elsewhere in join building.
-3. **Reserved identifiers, mixed-case identifiers, and schema-qualified table names** are not guaranteed unless callers use names that Postgres accepts unquoted; this matches typical snake_case table/column usage in Lifeguard today.
+- `ColumnName(Some(table_name.clone()), column)` when `to_tbl` is `TableRef::Table(_, None)` (same `TableName` as in `FROM`, including optional schema).
+- `(alias, column)` when `to_tbl` carries a table alias.
+
+Non-`Table` `TableRef` variants still fall back to `Expr::cust` + `extract_table_name` (rare).
+
+**Join helpers** (`join_tbl_on_condition`, `join_tbl_on_expr`) still use `Expr::cust` with string-concatenated identifiers; revisit separately if joins need the same guarantees.
 
 ## Alternatives considered
 
-- **`Expr::col((table, column))` with typed refs:** Preferable long-term for quoting and schema safety; requires a stable mapping from `TableRef` + `Identity` into `sea_query` column refs across all backends. Deferred until a concrete need (e.g. `"order"` as table name) or multi-schema support.
+- **Full migration of join paths:** Same `ColumnName` approach for `JOIN ON`; deferred to keep this change scoped to the shared related-row filter.
 
 ## Follow-up
 
-- If a production entity uses a reserved word, add a focused integration test and either quote in `cust` or migrate that predicate to `Expr::col`.
-- Revisit when implementing batched `.with()` loaders (same predicate builder should stay centralized).
+- Migrate `join_tbl_on_condition` / `join_tbl_on_expr` to structured column refs when join SQL needs schema/quoting parity.
+- Revisit batched `.with()` loaders (same predicate builder stays centralized in `build_where_condition`).

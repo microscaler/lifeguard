@@ -136,6 +136,26 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
     None
 }
 
+fn relation_attr_on_field<'a>(field: &'a syn::Field, name: &str) -> Option<&'a syn::Attribute> {
+    field.attrs.iter().find(|a| a.path().is_ident(name))
+}
+
+fn parse_relation_entity_path(
+    entity_str: &str,
+    relation_attr: Option<&syn::Attribute>,
+    fallback_ident: &syn::Ident,
+    attr_label: &str,
+) -> Result<syn::Path, syn::Error> {
+    syn::parse_str::<syn::Path>(entity_str).map_err(|e| {
+        let msg = format!("invalid `entity` path in {attr_label}: {e}");
+        if let Some(a) = relation_attr {
+            syn::Error::new_spanned(a, msg)
+        } else {
+            syn::Error::new_spanned(fallback_ident, msg)
+        }
+    })
+}
+
 /// Derive macro for `LifeModel` - generates Entity, Model, Column, `PrimaryKey`, and `FromRow`
 ///
 /// This macro follows `SeaORM`'s pattern exactly:
@@ -327,10 +347,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let is_auto_increment = col_attrs.is_auto_increment;
         let is_ignored = col_attrs.is_ignored;
 
-        // Pass-through GraphQL attributes explicitly
-        let graphql_attrs: Vec<_> = field.attrs.iter()
+        // Pass-through `#[graphql(...)]` only when built with `graphql` (see `graphql_derive` below).
+        // Otherwise attributes would be orphaned without `#[derive(SimpleObject)]`.
+        #[cfg(feature = "graphql")]
+        let graphql_attrs: Vec<_> = field
+            .attrs
+            .iter()
             .filter(|attr| attr.path().is_ident("graphql"))
             .collect();
+        #[cfg(not(feature = "graphql"))]
+        let graphql_attrs: Vec<&syn::Attribute> = Vec::new();
 
         // Validate: primary key fields cannot be skipped/ignored
         if is_primary_key && is_ignored {
@@ -383,9 +409,33 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             
             // Build auto-generated relation traits
             if let Some(rel) = &col_attrs.has_many {
-                let entity_path: syn::Path = syn::parse_str(&rel.entity).expect("Invalid entity path in #[has_many]");
+                let rel_attr = relation_attr_on_field(field, "has_many");
+                let entity_path = match parse_relation_entity_path(
+                    &rel.entity,
+                    rel_attr,
+                    field_name,
+                    "#[has_many]",
+                ) {
+                    Ok(p) => p,
+                    Err(e) => return e.to_compile_error().into(),
+                };
                 let from_col = rel.from.as_deref().unwrap_or("id");
-                let to_col = rel.to.as_deref().expect("to column required for has_many");
+                let to_col = match rel.to.as_deref() {
+                    Some(t) => t,
+                    None => {
+                        let e = match rel_attr {
+                            Some(a) => syn::Error::new_spanned(
+                                a,
+                                "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                            ),
+                            None => syn::Error::new_spanned(
+                                field_name,
+                                "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                            ),
+                        };
+                        return e.to_compile_error().into();
+                    }
+                };
                 relation_impls.push(quote! {
                     impl lifeguard::Related<#entity_path> for Entity {
                         fn to() -> lifeguard::relation::RelationDef {
@@ -395,7 +445,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
                                 from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
                                 to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
-                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::Any,
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::All,
                             }
                         }
                     }
@@ -419,7 +469,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
                                 from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
                                 to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
-                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::Any,
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::All,
                             }
                         }
                     }
@@ -431,9 +481,33 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 });
             }
             if let Some(rel) = &col_attrs.has_one {
-                let entity_path: syn::Path = syn::parse_str(&rel.entity).expect("Invalid entity path in #[has_one]");
+                let rel_attr = relation_attr_on_field(field, "has_one");
+                let entity_path = match parse_relation_entity_path(
+                    &rel.entity,
+                    rel_attr,
+                    field_name,
+                    "#[has_one]",
+                ) {
+                    Ok(p) => p,
+                    Err(e) => return e.to_compile_error().into(),
+                };
                 let from_col = rel.from.as_deref().unwrap_or("id");
-                let to_col = rel.to.as_deref().expect("to column required for has_one");
+                let to_col = match rel.to.as_deref() {
+                    Some(t) => t,
+                    None => {
+                        let e = match rel_attr {
+                            Some(a) => syn::Error::new_spanned(
+                                a,
+                                "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                            ),
+                            None => syn::Error::new_spanned(
+                                field_name,
+                                "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                            ),
+                        };
+                        return e.to_compile_error().into();
+                    }
+                };
                 relation_impls.push(quote! {
                     impl lifeguard::Related<#entity_path> for Entity {
                         fn to() -> lifeguard::relation::RelationDef {
@@ -443,7 +517,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
                                 from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
                                 to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
-                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::Any,
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::All,
                             }
                         }
                     }
@@ -1709,6 +1783,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let cursor_tiebreak_attr = if primary_key_variant_idents.len() == 1 {
+        let v = &primary_key_variant_idents[0].0;
+        let lit = syn::LitStr::new(&v.to_string(), v.span());
+        quote! { #[cursor_tiebreak = #lit] }
+    } else {
+        quote! {}
+    };
+
     #[cfg(feature = "graphql")]
     let graphql_derive = quote! { 
         #[derive(lifeguard::async_graphql::SimpleObject)] 
@@ -1819,6 +1901,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         #[model = #model_name_lit]
         #schema_attr
         #soft_delete_attr
+        #cursor_tiebreak_attr
         pub struct Entity;
 
         // Table name constant (for convenience, matches Entity::table_name())
@@ -1923,4 +2006,27 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+#[cfg(test)]
+mod relation_parse_error_tests {
+    use super::{parse_relation_entity_path, relation_attr_on_field};
+    use syn::parse_quote;
+
+    #[test]
+    fn invalid_entity_path_returns_syn_error_with_message() {
+        let field: syn::Field = parse_quote! {
+            #[has_many(entity = "crate::bad::!!!", to = "x")]
+            rel: Option<Vec<()>>
+        };
+        let field_name = field.ident.as_ref().unwrap();
+        let rel_attr = relation_attr_on_field(&field, "has_many");
+        let err = parse_relation_entity_path("crate::bad::!!!", rel_attr, field_name, "#[has_many]")
+            .expect_err("invalid path should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("invalid `entity` path") || msg.contains("expected identifier"),
+            "unexpected message: {msg}"
+        );
+    }
 }

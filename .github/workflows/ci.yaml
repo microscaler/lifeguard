@@ -12,22 +12,37 @@ jobs:
   test:
     runs-on: ubuntu-latest
     # Postgres is the `services.postgres` container below; the job connects via localhost:5432.
-    # `TEST_DATABASE_URL` matches `TestDatabase` / `tests/context.rs` priority; `DATABASE_URL` is the fallback.
+    # Redis is `services.redis` on localhost:6379 — required when env supplies DB URLs: `tests/context.rs`
+    # uses TEST_REDIS_URL/REDIS_URL on that path; otherwise it would default to 127.0.0.1:6379 with no server.
+    # `TEST_DATABASE_URL` is required for `tests/context.rs` (integration binary); `DATABASE_URL` remains for lib/tests using `TestDatabase::get_connection_string`.
+    # Repository secret `PGPASSWORD`: same value for `services.postgres`, JDBC-style URLs below, and `psql` (via `PGPASSWORD`). Not available to workflows from fork PRs.
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
+      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
+      REDIS_URL: redis://127.0.0.1:6379
+      TEST_REDIS_URL: redis://127.0.0.1:6379
 
     services:
       postgres:
         image: postgres:15
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.PGPASSWORD }}
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
         options: >-
           --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -64,8 +79,19 @@ jobs:
           set -euo pipefail
           rm -rf migrations/generated
           (cd examples/entities && cargo run --bin generate-migrations)
-          export PGPASSWORD=postgres
-          mapfile -t sql_files < <(find migrations/generated -name '*.sql' -type f | sort)
+          gen="migrations/generated"
+          order_file="$gen/apply_order.txt"
+          sql_files=()
+          if [ -f "$order_file" ]; then
+            while IFS= read -r line || [[ -n "${line:-}" ]]; do
+              line="${line//$'\r'/}"
+              [[ -z "${line// }" || "$line" =~ ^[[:space:]]*# ]] && continue
+              sql_files+=("$gen/$line")
+            done < "$order_file"
+          fi
+          if [ "${#sql_files[@]}" -eq 0 ]; then
+            mapfile -t sql_files < <(find "$gen" -name '*.sql' -type f | sort)
+          fi
           if [ "${#sql_files[@]}" -eq 0 ]; then
             echo '::error::No SQL files under migrations/generated after generate-migrations'
             exit 1

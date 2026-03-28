@@ -3,9 +3,10 @@
 //! This module provides traits for defining and querying entity relationships,
 //! including `RelationTrait`, `Related`, `FindRelated`, and helper traits.
 
-use crate::query::{SelectQuery, LifeModelTrait, LifeEntityName};
+use crate::executor::LifeError;
 use crate::model::ModelTrait;
-use crate::relation::def::{RelationDef, build_where_condition};
+use crate::query::{LifeEntityName, LifeModelTrait, SelectQuery};
+use crate::relation::def::{build_where_condition, RelationDef};
 use sea_query::{Expr, Iden};
 
 /// Trait for defining entity relationships
@@ -394,7 +395,7 @@ where
 /// # let user: UserModel = UserModel { id: 1 };
 /// # let executor: &dyn LifeExecutor = todo!();
 /// // Find all posts for this user
-/// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+/// // let posts: Vec<PostModel> = user.find_related::<Post>()?.all(executor)?;
 /// ```
 pub trait FindRelated: ModelTrait {
     /// Find related entities of type `R`
@@ -415,7 +416,8 @@ pub trait FindRelated: ModelTrait {
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery<R>` filtered by the current model's primary key
+    /// `Ok(SelectQuery<R>)` filtered from this model’s relation keys, or [`LifeError::Other`] if a
+    /// required `from_col` value cannot be read (see [`build_where_condition`](crate::build_where_condition)).
     ///
     /// # Example
     ///
@@ -441,9 +443,9 @@ pub trait FindRelated: ModelTrait {
     /// # let user: UserModel = UserModel { id: 1 };
     /// # let executor: &dyn LifeExecutor = todo!();
     /// // Find all posts for this user
-    /// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
+    /// // let posts: Vec<PostModel> = user.find_related::<Post>()?.all(executor)?;
     /// ```
-    fn find_related<R>(&self) -> SelectQuery<R>
+    fn find_related<R>(&self) -> Result<SelectQuery<R>, LifeError>
     where
         R: LifeModelTrait,
         Self::Entity: Related<R>;
@@ -455,7 +457,7 @@ where
     M: ModelTrait,
     M::Entity: LifeEntityName,
 {
-    fn find_related<R>(&self) -> SelectQuery<R>
+    fn find_related<R>(&self) -> Result<SelectQuery<R>, LifeError>
     where
         R: LifeModelTrait,
         Self::Entity: Related<R>,
@@ -471,10 +473,10 @@ where
         
         // Filter the related entity's table using `to_tbl`/`to_col` and source-side values
         // from `from_col` (see `build_where_condition` in `relation::def::condition`).
-        let condition = build_where_condition(&rel_def, self);
+        let condition = build_where_condition(&rel_def, self)?;
         query = query.filter(condition);
         
-        query
+        Ok(query)
     }
 }
 
@@ -540,7 +542,7 @@ where
 /// # let user: UserModel = UserModel { id: 1 };
 /// # let executor: &dyn LifeExecutor = todo!();
 /// // Find all comments for this user through their posts
-/// // let comments: Vec<CommentModel> = user.find_linked::<Post, Comment>().all(executor)?;
+/// // let comments: Vec<CommentModel> = user.find_linked::<Post, Comment>()?.all(executor)?;
 /// ```
 pub trait FindLinked: ModelTrait {
     /// Find linked entities through a multi-hop relationship
@@ -555,7 +557,8 @@ pub trait FindLinked: ModelTrait {
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery<T>` filtered by the current model's primary key
+    /// `Ok(SelectQuery<T>)` for the linked path, or [`LifeError::Other`] if a required relation key
+    /// cannot be read from this model (see [`build_where_condition`](crate::build_where_condition)).
     ///
     /// # Example
     ///
@@ -580,9 +583,9 @@ pub trait FindLinked: ModelTrait {
     /// # let user: UserModel = UserModel { id: 1 };
     /// # let executor: &dyn LifeExecutor = todo!();
     /// // Find all comments for this user through their posts
-    /// // let comments: Vec<CommentModel> = user.find_linked::<Post, Comment>().all(executor)?;
+    /// // let comments: Vec<CommentModel> = user.find_linked::<Post, Comment>()?.all(executor)?;
     /// ```
-    fn find_linked<I, T>(&self) -> SelectQuery<T>
+    fn find_linked<I, T>(&self) -> Result<SelectQuery<T>, LifeError>
     where
         I: LifeModelTrait + Iden,
         T: LifeModelTrait + Iden,
@@ -595,7 +598,7 @@ where
     M: ModelTrait,
     M::Entity: LifeEntityName,
 {
-    fn find_linked<I, T>(&self) -> SelectQuery<T>
+    fn find_linked<I, T>(&self) -> Result<SelectQuery<T>, LifeError>
     where
         I: LifeModelTrait + Iden,
         T: LifeModelTrait + Iden,
@@ -607,7 +610,7 @@ where
         // Ensure we have at least one hop (should have 2 for a proper linked relationship)
         if path.is_empty() {
             // Return empty query if no path defined
-            return SelectQuery::new();
+            return Ok(SelectQuery::new());
         }
         
         // Build query with joins through intermediate entities
@@ -631,11 +634,11 @@ where
         // Filter by the current model's primary key
         // Use the first hop's relation definition to build the WHERE condition
         if let Some(first_hop) = path.first() {
-            let condition = build_where_condition(first_hop, self);
+            let condition = build_where_condition(first_hop, self)?;
             query = query.filter(condition);
         }
         
-        query
+        Ok(query)
     }
 }
 
@@ -962,7 +965,7 @@ mod tests {
         // This verifies that Models (which only implement ModelTrait, not LifeModelTrait)
         // can use FindRelated trait
         let user = UserModel { id: 1 };
-        let _query = user.find_related::<PostEntity>();
+        let _query = user.find_related::<PostEntity>().expect("find_related");
         // Just verify it compiles - the actual query execution would require an executor
     }
 
@@ -1316,7 +1319,7 @@ mod tests {
         let user = UserModel { id: 1 };
         
         // Verify find_linked() returns a query
-        let _query = user.find_linked::<PostEntity, CommentEntity>();
+        let _query = user.find_linked::<PostEntity, CommentEntity>().expect("find_linked");
         // Just verify it compiles - the actual query execution would require an executor
     }
 
@@ -1579,7 +1582,7 @@ mod tests {
         let user = UserModel { id: 1 };
         
         // First hop: User → Comments (through Posts)
-        let _comments_query = user.find_linked::<PostEntity, CommentEntity>();
+        let _comments_query = user.find_linked::<PostEntity, CommentEntity>().expect("find_linked");
         
         // Verify it compiles - actual execution would require executor setup
     }
@@ -1702,7 +1705,9 @@ mod tests {
         }
         
         let model = TestModel;
-        let query = model.find_linked::<IntermediateEntity, TargetEntity>();
+        let query = model
+            .find_linked::<IntermediateEntity, TargetEntity>()
+            .expect("find_linked");
         
         // Verify query was created (even if path is empty)
         let _ = query;

@@ -50,8 +50,8 @@ pub mod metrics;
 // Channel-backed logging (may `mpsc` singleton)
 pub mod logging;
 pub use logging::{
-    enqueue, global_log_sender, try_enqueue, ChannelLogger, LogLevel, LogRecord,
-    CHANNEL_LOG_BRIDGE, init_log_bridge,
+    enqueue, flush_log_channel, global_log_sender, try_enqueue, ChannelLogger, LogLevel, LogMsg,
+    LogRecord, CHANNEL_LOG_BRIDGE, init_log_bridge,
 };
 #[cfg(feature = "tracing")]
 pub use logging::{channel_layer, ChannelLayer};

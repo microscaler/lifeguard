@@ -168,7 +168,7 @@ fn test_find_related_returns_query() {
     let user = user_record.insert(&executor).expect("Failed to insert user");
 
     // Test that find_related() returns a query
-    let query = user.find_related::<PostEntity>();
+    let query = user.find_related::<PostEntity>().expect("find_related");
     let _ = query; // Just verify it compiles
 }
 
@@ -215,6 +215,7 @@ fn test_find_related_has_many_relationship() {
 
     // Find all posts for the first user using find_related()
     let posts = user.find_related::<PostEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query related posts");
 
@@ -251,6 +252,7 @@ fn test_find_related_empty_result() {
 
     // Find related posts (should be empty)
     let posts = user.find_related::<PostEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query related posts");
 
@@ -293,6 +295,7 @@ fn test_find_related_multiple_users() {
 
     // Find posts for user1
     let user1_posts = user1.find_related::<PostEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query user1 posts");
     assert_eq!(user1_posts.len(), 1, "User1 should have 1 post");
@@ -300,6 +303,7 @@ fn test_find_related_multiple_users() {
 
     // Find posts for user2
     let user2_posts = user2.find_related::<PostEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query user2 posts");
     assert_eq!(user2_posts.len(), 1, "User2 should have 1 post");
@@ -337,6 +341,7 @@ fn test_find_related_with_query_modifications() {
 
     // Find related posts and limit to 1
     let posts = user.find_related::<PostEntity>()
+        .expect("find_related")
         .limit(1)
         .all(&executor)
         .expect("Failed to query related posts");
@@ -369,6 +374,7 @@ fn test_find_related_with_nonexistent_user_id() {
 
     // Find related posts (should be empty)
     let posts = user.find_related::<PostEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query related posts");
 
@@ -556,6 +562,7 @@ fn test_find_related_composite_key() {
 
     // Find resources for the first tenant (should find 2 resources)
     let resources = tenant.find_related::<ResourceEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query related resources");
 
@@ -593,6 +600,7 @@ fn test_find_related_composite_key_empty() {
 
     // Find related resources (should be empty)
     let resources = tenant.find_related::<ResourceEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query related resources");
 
@@ -667,6 +675,7 @@ fn test_build_where_condition_uses_from_tbl() {
     // This would fail with the bug because it would try to use users.user_id
     // instead of posts.user_id, causing a SQL error
     let posts = user.find_related::<PostEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query related posts - this would fail with the bug");
     
@@ -708,6 +717,7 @@ fn test_find_related_belongs_to_relationship() {
     // This should use Post -> User (belongs_to) relationship
     // The WHERE clause should be: users.id = post.user_id (not users.id = post.id)
     let users = post.find_related::<UserEntity>()
+        .expect("find_related")
         .all(&executor)
         .expect("Failed to query related user");
 

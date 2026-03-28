@@ -134,3 +134,90 @@ fn test_dataloader_n_plus_one_batch_execution() {
     assert_eq!(bob_posts.len(), 1, "Bob should sequentially contain just 1 related post entity mapped to his batch lookup."); 
     assert_eq!(bob_posts[0].title, "Bob Post 1");
 }
+
+/// Users for BelongsTo DataLoader (separate tables from `post_mod` / `user_mod`).
+pub mod bt_user {
+    use super::*;
+    #[derive(LifeModel, LifeRecord, Clone, Debug)]
+    #[table_name = "test_dataloader_bt_users"]
+    pub struct User {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub username: String,
+    }
+}
+
+pub mod bt_post {
+    use super::*;
+    #[derive(LifeModel, LifeRecord, Clone, Debug)]
+    #[table_name = "test_dataloader_bt_posts"]
+    pub struct Post {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub title: String,
+        pub author_id: i32,
+        #[belongs_to(entity = "crate::dataloader_n_plus_one::bt_user::Entity", from = "author_id", to = "id")]
+        pub rel_author: Option<super::bt_user::UserModel>,
+    }
+}
+
+fn setup_belongs_to_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    executor.execute("DROP TABLE IF EXISTS test_dataloader_bt_posts CASCADE", &[])?;
+    executor.execute("DROP TABLE IF EXISTS test_dataloader_bt_users CASCADE", &[])?;
+    executor.execute(
+        r"
+        CREATE TABLE test_dataloader_bt_users (
+            id SERIAL PRIMARY KEY,
+            username TEXT NOT NULL
+        )
+        ",
+        &[],
+    )?;
+    executor.execute(
+        r"
+        CREATE TABLE test_dataloader_bt_posts (
+            id SERIAL PRIMARY KEY,
+            title TEXT NOT NULL,
+            author_id INTEGER NOT NULL REFERENCES test_dataloader_bt_users(id)
+        )
+        ",
+        &[],
+    )?;
+    Ok(())
+}
+
+#[test]
+fn test_dataloader_belongs_to_duplicate_parent_fk() {
+    let mut db = get_db();
+    let _client = db.connect().expect("Failed to connect to database");
+    let executor = db.executor().expect("Failed to create executor");
+    setup_belongs_to_schema(&executor).unwrap();
+
+    let mut u = bt_user::UserRecord::new();
+    u.set_username("SharedAuthor".to_string());
+    let user = u.save(&executor).expect("insert user");
+
+    let mut p1 = bt_post::PostRecord::new();
+    p1.set_title("Post A".to_string());
+    p1.set_author_id(user.id);
+    p1.save(&executor).expect("post a");
+
+    let mut p2 = bt_post::PostRecord::new();
+    p2.set_title("Post B".to_string());
+    p2.set_author_id(user.id);
+    p2.save(&executor).expect("post b");
+
+    let posts = bt_post::Entity::find()
+        .load(bt_user::Entity)
+        .all(&executor)
+        .expect("batch load authors");
+
+    assert_eq!(posts.len(), 2);
+    for p in &posts {
+        let a = p.rel_author.as_ref().expect("each post shares author; both must hydrate");
+        assert_eq!(a.id, user.id);
+        assert_eq!(a.username, "SharedAuthor");
+    }
+}
