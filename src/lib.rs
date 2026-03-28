@@ -56,7 +56,10 @@ pub mod test_helpers;
 // Public API will be rebuilt in Epic 04
 // pub use pool::LifeguardPool;
 
-// Optional GraphQL generation ecosystem bridges dynamically
+// Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
+// Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
+// and enable the scalar features they use (e.g. `chrono`, `uuid`, `decimal`); the workspace
+// crate pins these in `[workspace.dependencies]` for tests and internal packages.
 #[cfg(feature = "graphql")]
 pub use async_graphql;
 

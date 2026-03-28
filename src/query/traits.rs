@@ -179,7 +179,7 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # struct UserRecord; // Record
     /// # impl lifeguard::ActiveModelTrait for UserRecord {
     /// #     type Model = UserModel;
-    /// #     fn insert<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
+    /// #     fn insert(&self, _executor: &dyn LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
     /// #     // ... other methods
     /// # }
     /// # impl lifeguard::LifeModelTrait for User {
@@ -233,7 +233,7 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # struct UserRecord; // Record
     /// # impl lifeguard::ActiveModelTrait for UserRecord {
     /// #     type Model = UserModel;
-    /// #     fn update<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
+    /// #     fn update(&self, _executor: &dyn LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> { todo!() }
     /// #     // ... other methods
     /// # }
     /// # impl lifeguard::LifeModelTrait for User {
@@ -287,7 +287,7 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # struct UserRecord; // Record
     /// # impl lifeguard::ActiveModelTrait for UserRecord {
     /// #     type Model = UserModel;
-    /// #     fn delete<E: LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> { Ok(()) }
+    /// #     fn delete(&self, _executor: &dyn LifeExecutor) -> Result<(), lifeguard::ActiveModelError> { Ok(()) }
     /// #     // ... other methods
     /// # }
     /// # impl lifeguard::LifeModelTrait for User {

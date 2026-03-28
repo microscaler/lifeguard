@@ -10,10 +10,8 @@ use lifeguard_derive::{LifeModel, LifeRecord};
 use lifeguard::ActiveModelTrait;
 use lifeguard::query::traits::LifeModelTrait; // Ensure LifeModelTrait is in scope for .find()
 
-mod context;
-
 fn get_db() -> TestDatabase {
-    let ctx = context::get_test_context();
+    let ctx = crate::context::get_test_context();
     TestDatabase::with_url(&ctx.pg_url)
 }
 

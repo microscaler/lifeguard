@@ -8,53 +8,57 @@
 //! - Post belongs_to User (many-to-one)
 
 use lifeguard::{
-    ActiveModelTrait, FindRelated, LifeModelTrait, LifeExecutor, MayPostgresExecutor,
-    Related, SelectQuery, test_helpers::TestDatabase, ModelTrait, LifeEntityName,
-    RelationDef, RelationType,
+    ActiveModelTrait, FindRelated, LifeExecutor, MayPostgresExecutor, Related,
+    test_helpers::TestDatabase, ModelTrait, RelationDef, RelationType,
 };
 use lifeguard::relation::identity::Identity;
 use sea_query::{TableRef, TableName, ConditionType, IntoIden};
-use lifeguard_derive::{LifeModel, LifeRecord};
-use sea_query::{Expr, Iden, IdenStatic};
 
-// ============================================================================
-// Test Entities
-// ============================================================================
-
-#[derive(LifeModel, LifeRecord)]
-#[table_name = "test_users_related"]
-pub struct TestUser {
-    #[primary_key]
-    #[auto_increment]
-    pub id: i32,
-    pub name: String,
-    pub email: String,
-}
-
-#[derive(LifeModel, LifeRecord)]
-#[table_name = "test_posts_related"]
-pub struct TestPost {
-    #[primary_key]
-    #[auto_increment]
-    pub id: i32,
-    pub title: String,
-    pub content: String,
-    pub user_id: i32, // Foreign key to test_users_related
+fn get_db() -> TestDatabase {
+    let ctx = crate::context::get_test_context();
+    TestDatabase::with_url(&ctx.pg_url)
 }
 
 // ============================================================================
-// Entity and Column Definitions for Related Trait
+// Test Entities (separate modules so each `LifeModel` has its own `Entity`, `Column`, …)
 // ============================================================================
-// Note: LifeModel macro generates TestUserEntity, TestUserModel, TestUserColumn, etc.
-// We use those generated types here.
 
-// ============================================================================
-// Related Trait Implementation
-// ============================================================================
+pub mod users {
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_users_related"]
+    pub struct TestUser {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub name: String,
+        pub email: String,
+    }
+}
+
+pub mod posts {
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_posts_related"]
+    pub struct TestPost {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub title: String,
+        pub content: String,
+        pub user_id: i32,
+    }
+}
+
+use posts::Entity as PostEntity;
+use posts::TestPostRecord;
+use users::Entity as UserEntity;
+use users::{TestUserModel, TestUserRecord};
 
 // Post belongs_to User (many-to-one)
-// This means: Post has a foreign key user_id that references User.id
-impl Related<TestUserEntity> for TestPostEntity {
+impl Related<UserEntity> for PostEntity {
     fn to() -> RelationDef {
         RelationDef {
             rel_type: RelationType::BelongsTo,
@@ -62,6 +66,9 @@ impl Related<TestUserEntity> for TestPostEntity {
             to_tbl: TableRef::Table(TableName(None, "test_users_related".into_iden()), None),
             from_col: Identity::Unary("user_id".into()),
             to_col: Identity::Unary("id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
             is_owner: true,
             skip_fk: false,
             on_condition: None,
@@ -71,8 +78,7 @@ impl Related<TestUserEntity> for TestPostEntity {
 }
 
 // User has_many Posts (one-to-many)
-// This means: User.id is referenced by Post.user_id
-impl Related<TestPostEntity> for TestUserEntity {
+impl Related<PostEntity> for UserEntity {
     fn to() -> RelationDef {
         RelationDef {
             rel_type: RelationType::HasMany,
@@ -80,6 +86,9 @@ impl Related<TestPostEntity> for TestUserEntity {
             to_tbl: TableRef::Table(TableName(None, "test_posts_related".into_iden()), None),
             from_col: Identity::Unary("id".into()),
             to_col: Identity::Unary("user_id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
             is_owner: true,
             skip_fk: false,
             on_condition: None,
@@ -134,18 +143,18 @@ fn cleanup_test_data(executor: &MayPostgresExecutor) -> Result<(), lifeguard::ex
 #[test]
 fn test_related_trait_to_method() {
     // Test that Related::to() returns a RelationDef
-    let rel_def: RelationDef = TestPostEntity::to();
+    let rel_def: RelationDef = PostEntity::to();
     // Just verify it compiles and returns a RelationDef
     let _ = rel_def;
     
-    let rel_def: RelationDef = TestUserEntity::to();
+    let rel_def: RelationDef = UserEntity::to();
     let _ = rel_def;
 }
 
 #[test]
 fn test_find_related_returns_query() {
     // Test that find_related() returns a SelectQuery
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -159,14 +168,14 @@ fn test_find_related_returns_query() {
     let user = user_record.insert(&executor).expect("Failed to insert user");
 
     // Test that find_related() returns a query
-    let query = user.find_related::<TestPostEntity>();
+    let query = user.find_related::<PostEntity>();
     let _ = query; // Just verify it compiles
 }
 
 #[test]
 fn test_find_related_has_many_relationship() {
     // Test has_many relationship: User has_many Posts
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -205,7 +214,7 @@ fn test_find_related_has_many_relationship() {
     let _post3 = post3_record.insert(&executor).expect("Failed to insert post3");
 
     // Find all posts for the first user using find_related()
-    let posts = user.find_related::<TestPostEntity>()
+    let posts = user.find_related::<PostEntity>()
         .all(&executor)
         .expect("Failed to query related posts");
 
@@ -227,7 +236,7 @@ fn test_find_related_has_many_relationship() {
 #[test]
 fn test_find_related_empty_result() {
     // Test find_related() when there are no related entities
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -241,7 +250,7 @@ fn test_find_related_empty_result() {
     let user = user_record.insert(&executor).expect("Failed to insert user");
 
     // Find related posts (should be empty)
-    let posts = user.find_related::<TestPostEntity>()
+    let posts = user.find_related::<PostEntity>()
         .all(&executor)
         .expect("Failed to query related posts");
 
@@ -251,7 +260,7 @@ fn test_find_related_empty_result() {
 #[test]
 fn test_find_related_multiple_users() {
     // Test that find_related() correctly filters by the specific user's ID
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -283,14 +292,14 @@ fn test_find_related_multiple_users() {
     let _post2 = post2_record.insert(&executor).expect("Failed to insert post2");
 
     // Find posts for user1
-    let user1_posts = user1.find_related::<TestPostEntity>()
+    let user1_posts = user1.find_related::<PostEntity>()
         .all(&executor)
         .expect("Failed to query user1 posts");
     assert_eq!(user1_posts.len(), 1, "User1 should have 1 post");
     assert_eq!(user1_posts[0].user_id, user1.id, "Post should belong to user1");
 
     // Find posts for user2
-    let user2_posts = user2.find_related::<TestPostEntity>()
+    let user2_posts = user2.find_related::<PostEntity>()
         .all(&executor)
         .expect("Failed to query user2 posts");
     assert_eq!(user2_posts.len(), 1, "User2 should have 1 post");
@@ -300,7 +309,7 @@ fn test_find_related_multiple_users() {
 #[test]
 fn test_find_related_with_query_modifications() {
     // Test that find_related() returns a query that can be further modified
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -327,7 +336,7 @@ fn test_find_related_with_query_modifications() {
     let _post2 = post2_record.insert(&executor).expect("Failed to insert post2");
 
     // Find related posts and limit to 1
-    let posts = user.find_related::<TestPostEntity>()
+    let posts = user.find_related::<PostEntity>()
         .limit(1)
         .all(&executor)
         .expect("Failed to query related posts");
@@ -343,7 +352,7 @@ fn test_find_related_with_query_modifications() {
 fn test_find_related_with_nonexistent_user_id() {
     // Test find_related() with a user that doesn't exist in the database
     // This should still work - it will just return an empty result
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -352,14 +361,14 @@ fn test_find_related_with_nonexistent_user_id() {
 
     // Create a user model with an ID that doesn't exist in the database
     // We'll manually create a model instance
-    let user = TestUser {
+    let user = TestUserModel {
         id: 99999, // Non-existent ID
         name: "Ghost User".to_string(),
         email: "ghost@example.com".to_string(),
     };
 
     // Find related posts (should be empty)
-    let posts = user.find_related::<TestPostEntity>()
+    let posts = user.find_related::<PostEntity>()
         .all(&executor)
         .expect("Failed to query related posts");
 
@@ -370,37 +379,50 @@ fn test_find_related_with_nonexistent_user_id() {
 fn test_related_trait_compiles() {
     // Compile-time test: Verify that Related trait can be implemented
     // This test just ensures the trait is properly defined
-    let _rel_def: RelationDef = TestPostEntity::to();
-    let _rel_def: RelationDef = TestUserEntity::to();
+    let _rel_def: RelationDef = PostEntity::to();
+    let _rel_def: RelationDef = UserEntity::to();
 }
 
 // ============================================================================
 // Composite Key Tests
 // ============================================================================
 
-#[derive(LifeModel, LifeRecord)]
-#[table_name = "test_tenants_composite"]
-pub struct TestTenant {
-    #[primary_key]
-    pub id: i32,
-    #[primary_key]
-    pub region_id: i32,
-    pub name: String,
+pub mod tenants {
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_tenants_composite"]
+    pub struct TestTenant {
+        #[primary_key]
+        pub id: i32,
+        #[primary_key]
+        pub region_id: i32,
+        pub name: String,
+    }
 }
 
-#[derive(LifeModel, LifeRecord)]
-#[table_name = "test_resources_composite"]
-pub struct TestResource {
-    #[primary_key]
-    #[auto_increment]
-    pub id: i32,
-    pub name: String,
-    pub tenant_id: i32,
-    pub region_id: i32,
+pub mod resources {
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_resources_composite"]
+    pub struct TestResource {
+        #[primary_key]
+        #[auto_increment]
+        pub id: i32,
+        pub name: String,
+        pub tenant_id: i32,
+        pub region_id: i32,
+    }
 }
+
+use resources::Entity as ResourceEntity;
+use resources::TestResourceRecord;
+use tenants::Entity as TenantEntity;
+use tenants::TestTenantRecord;
 
 // Resource belongs_to Tenant (composite key relationship)
-impl Related<TestTenantEntity> for TestResourceEntity {
+impl Related<TenantEntity> for ResourceEntity {
     fn to() -> RelationDef {
         RelationDef {
             rel_type: RelationType::BelongsTo,
@@ -408,6 +430,9 @@ impl Related<TestTenantEntity> for TestResourceEntity {
             to_tbl: TableRef::Table(TableName(None, "test_tenants_composite".into_iden()), None),
             from_col: Identity::Binary("tenant_id".into(), "region_id".into()),
             to_col: Identity::Binary("id".into(), "region_id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
             is_owner: true,
             skip_fk: false,
             on_condition: None,
@@ -417,7 +442,7 @@ impl Related<TestTenantEntity> for TestResourceEntity {
 }
 
 // Tenant has_many Resources (composite key relationship)
-impl Related<TestResourceEntity> for TestTenantEntity {
+impl Related<ResourceEntity> for TenantEntity {
     fn to() -> RelationDef {
         RelationDef {
             rel_type: RelationType::HasMany,
@@ -425,6 +450,9 @@ impl Related<TestResourceEntity> for TestTenantEntity {
             to_tbl: TableRef::Table(TableName(None, "test_resources_composite".into_iden()), None),
             from_col: Identity::Binary("id".into(), "region_id".into()),
             to_col: Identity::Binary("tenant_id".into(), "region_id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
             is_owner: true,
             skip_fk: false,
             on_condition: None,
@@ -473,11 +501,11 @@ fn cleanup_composite_test_data(executor: &MayPostgresExecutor) -> Result<(), lif
 #[test]
 fn test_composite_key_related_trait() {
     // Test that Related trait works with composite keys
-    let rel_def: RelationDef = TestResourceEntity::to();
+    let rel_def: RelationDef = ResourceEntity::to();
     assert_eq!(rel_def.from_col.arity(), 2);
     assert_eq!(rel_def.to_col.arity(), 2);
     
-    let rel_def: RelationDef = TestTenantEntity::to();
+    let rel_def: RelationDef = TenantEntity::to();
     assert_eq!(rel_def.from_col.arity(), 2);
     assert_eq!(rel_def.to_col.arity(), 2);
 }
@@ -485,7 +513,7 @@ fn test_composite_key_related_trait() {
 #[test]
 fn test_find_related_composite_key() {
     // Test find_related() with composite primary keys
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -527,7 +555,7 @@ fn test_find_related_composite_key() {
     let _resource3 = resource3_record.insert(&executor).expect("Failed to insert resource3");
 
     // Find resources for the first tenant (should find 2 resources)
-    let resources = tenant.find_related::<TestResourceEntity>()
+    let resources = tenant.find_related::<ResourceEntity>()
         .all(&executor)
         .expect("Failed to query related resources");
 
@@ -549,7 +577,7 @@ fn test_find_related_composite_key() {
 #[test]
 fn test_find_related_composite_key_empty() {
     // Test find_related() with composite keys when no related entities exist
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -564,7 +592,7 @@ fn test_find_related_composite_key_empty() {
     let tenant = tenant_record.insert(&executor).expect("Failed to insert tenant");
 
     // Find related resources (should be empty)
-    let resources = tenant.find_related::<TestResourceEntity>()
+    let resources = tenant.find_related::<ResourceEntity>()
         .all(&executor)
         .expect("Failed to query related resources");
 
@@ -574,7 +602,7 @@ fn test_find_related_composite_key_empty() {
 #[test]
 fn test_composite_key_identity_values_match() {
     // Edge case: Verify that composite key Identity and values match
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -600,9 +628,11 @@ fn test_composite_key_identity_values_match() {
 
 #[test]
 fn test_build_where_condition_uses_from_tbl() {
-    // Test that build_where_condition uses from_tbl (not to_tbl) for the foreign key column
-    // This verifies the fix for the bug where to_tbl was incorrectly used
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    // `find_related` selects from the related table (`to_tbl`). The WHERE clause must qualify
+    // columns on that table (e.g. `test_posts_related.user_id`), with values taken from the
+    // source model's `from_col` fields (e.g. user's `id`), not `from_tbl.col` (which is absent
+    // from the query's FROM list).
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -623,7 +653,7 @@ fn test_build_where_condition_uses_from_tbl() {
     let _post = post_record.insert(&executor).expect("Failed to insert post");
 
     // Get the relation definition for Post -> User (BelongsTo)
-    let rel_def = TestPostEntity::to();
+    let rel_def = PostEntity::to();
     
     // Verify the relation definition structure
     // For BelongsTo: Post belongs to User
@@ -636,7 +666,7 @@ fn test_build_where_condition_uses_from_tbl() {
     // The key test: verify that find_related() works correctly
     // This would fail with the bug because it would try to use users.user_id
     // instead of posts.user_id, causing a SQL error
-    let posts = user.find_related::<TestPostEntity>()
+    let posts = user.find_related::<PostEntity>()
         .all(&executor)
         .expect("Failed to query related posts - this would fail with the bug");
     
@@ -644,11 +674,8 @@ fn test_build_where_condition_uses_from_tbl() {
     assert_eq!(posts.len(), 1, "Should find 1 post for the user");
     assert_eq!(posts[0].user_id, user.id, "Post should belong to the user");
     
-    // This test verifies that build_where_condition correctly uses from_tbl
-    // (test_posts_related) instead of to_tbl (test_users_related) when building
-    // the WHERE clause. The bug would have generated: users.user_id = 1
-    // which would fail because user_id doesn't exist in the users table.
-    // The fix generates: posts.user_id = 1, which is correct.
+    // Regression: a broken implementation referenced `test_users_related.id` inside a query
+    // that only FROMs `test_posts_related`, causing "missing FROM-clause entry" errors.
 }
 
 #[test]
@@ -657,7 +684,7 @@ fn test_find_related_belongs_to_relationship() {
     // This verifies the fix for the bug where find_related() used R::to() instead of Self::Entity::to()
     // When calling post.find_related::<User>(), it should use Post -> User (belongs_to) relationship
     // not User -> Post (has_many) relationship
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -680,7 +707,7 @@ fn test_find_related_belongs_to_relationship() {
     // Find the user related to this post using find_related()
     // This should use Post -> User (belongs_to) relationship
     // The WHERE clause should be: users.id = post.user_id (not users.id = post.id)
-    let users = post.find_related::<TestUserEntity>()
+    let users = post.find_related::<UserEntity>()
         .all(&executor)
         .expect("Failed to query related user");
 
@@ -690,7 +717,7 @@ fn test_find_related_belongs_to_relationship() {
     assert_eq!(users[0].id, post.user_id, "User ID should match post's user_id foreign key");
     
     // This test verifies that find_related() correctly uses Self::Entity::to() instead of R::to()
-    // When calling post.find_related::<User>(), it uses TestPostEntity::to() which returns
+    // When calling post.find_related::<User>(), it uses PostEntity::to() which returns
     // Post -> User (belongs_to) with from_col = "user_id" and to_col = "id"
     // The WHERE clause generated is: users.id = post.user_id (correct)
     // The bug would have used User::to() which returns User -> Post (has_many) with

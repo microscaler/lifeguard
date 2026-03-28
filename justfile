@@ -91,29 +91,36 @@ test-unit-verbose:
     @DATABASE_URL={{DATABASE_URL}} cargo test --lib -- --nocapture --no-fail-fast
 
 # Run tests with nextest (faster test execution)
-# Excludes integration tests (lifeguard-integration-tests) which require database
+# Excludes: lifeguard-integration-tests package, and lifeguard's `db_integration_suite` binary.
+# Rationale: `DATABASE_URL` points at a shared dev Postgres; running 50+ parallel DDL tests causes
+# duplicate type / "too many clients" failures. Use `just nt-db-suite` (serial) for that binary.
 nextest-test:
-    @echo "🧪 Running tests with nextest (excluding integration tests)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests
+    @echo "🧪 Running tests with nextest (excluding DB-heavy integration binaries)..."
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
 alias nt := nextest-test
 
 # Run tests with nextest (no capture - passes through stdout/stderr directly)
-# Excludes integration tests (lifeguard-integration-tests) which require database
 nt-verbose:
     @echo "🧪 Running tests with nextest (no capture - full output)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture --exclude lifeguard-integration-tests
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
 # Run tests with nextest (CI profile)
-# Excludes integration tests (lifeguard-integration-tests) which require database
 nt-ci:
     @echo "🧪 Running tests with nextest (CI profile)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci --exclude lifeguard-integration-tests
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
-# Run unit tests only with nextest
+# Run unit tests only with nextest (same selection as nextest-test)
 nt-unit:
-    @echo "🧪 Running unit tests with nextest..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --test-group unit
+    @echo "🧪 Running tests with nextest (excluding DB-heavy integration binaries)..."
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
+
+# Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB
+nt-db-suite:
+    @echo "🧪 Running lifeguard db_integration_suite (serial profile; needs DATABASE_URL or Docker)..."
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
+
+alias nt-db := nt-db-suite
 
 # Run integration tests (requires database connection)
 test-integration:

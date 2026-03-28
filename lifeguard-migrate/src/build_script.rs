@@ -3,10 +3,9 @@
 //! This module provides functions that can be used in user's build.rs
 //! to automatically discover entities and generate a registry module.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
-use std::env;
 use regex;
 
 /// Entity information discovered from source files
@@ -222,6 +221,71 @@ fn snake_case(s: &str) -> String {
     result
 }
 
+/// `src/.../models/foo.rs` → `models` or `accounting/general_ledger` style path under `src`.
+fn entity_service_path(entity: &EntityInfo) -> String {
+    entity
+        .file_path
+        .parent()
+        .and_then(|p| {
+            let mut parts: Vec<_> = p.iter().collect();
+            if let Some(src_idx) = parts.iter().position(|c| {
+                c.to_string_lossy() == "src" || c.to_string_lossy() == "entities"
+            }) {
+                parts.drain(..=src_idx);
+                let path_str = parts
+                    .iter()
+                    .map(|c| c.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                if path_str.is_empty() {
+                    None
+                } else {
+                    Some(path_str)
+                }
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "default".to_string())
+}
+
+/// Topologically order entities using `#[foreign_key = "..."]` targets that exist in the same crate.
+pub fn order_entities_for_registry(entities: &[EntityInfo]) -> Result<Vec<EntityInfo>, String> {
+    use crate::dependency_ordering::{topological_sort, validate_foreign_key_references, TableInfo};
+    use crate::sql_dependency_order::extract_foreign_key_targets_from_rust_source;
+    if entities.is_empty() {
+        return Ok(Vec::new());
+    }
+    let known: HashMap<String, ()> = entities.iter().map(|e| (e.table_name.clone(), ())).collect();
+    let mut tables: Vec<TableInfo> = Vec::new();
+    for e in entities {
+        let content = fs::read_to_string(&e.file_path)
+            .map_err(|err| format!("read {}: {}", e.file_path.display(), err))?;
+        let deps: Vec<String> = extract_foreign_key_targets_from_rust_source(&content)
+            .into_iter()
+            .filter(|t| known.contains_key(t))
+            .collect();
+        tables.push(TableInfo {
+            name: e.table_name.clone(),
+            sql: String::new(),
+            dependencies: deps,
+        });
+    }
+    validate_foreign_key_references(&tables)?;
+    let order = topological_sort(&tables)?;
+    let mut by_table: HashMap<String, EntityInfo> = HashMap::new();
+    for e in entities {
+        by_table.insert(e.table_name.clone(), e.clone());
+    }
+    let mut ordered = Vec::new();
+    for n in order {
+        if let Some(ent) = by_table.remove(&n) {
+            ordered.push(ent);
+        }
+    }
+    Ok(ordered)
+}
+
 /// Generate registry module from discovered entities
 ///
 /// This generates a registry module that includes all discovered entities.
@@ -259,64 +323,10 @@ pub fn generate_registry_module(
         fs::write(output_path, registry_content)?;
         return Ok(());
     }
-    
-    // Group entities by service path (directory structure)
-    let mut entities_by_service: HashMap<String, Vec<&EntityInfo>> = HashMap::new();
-    
-    for entity in entities {
-        // Extract service path from file path
-        // e.g., src/accounting/general_ledger/chart_of_accounts.rs -> accounting/general_ledger
-        let service_path = entity.file_path
-            .parent()
-            .and_then(|p| {
-                // Find "src" or "entities" directory
-                let mut parts: Vec<_> = p.iter().collect();
-                if let Some(src_idx) = parts.iter().position(|c| {
-                    c.to_string_lossy() == "src" || c.to_string_lossy() == "entities"
-                }) {
-                    parts.drain(..=src_idx);
-                    let path_str = parts.iter()
-                        .map(|c| c.to_string_lossy().to_string())
-                        .collect::<Vec<_>>()
-                        .join("/");
-                    if path_str.is_empty() {
-                        None
-                    } else {
-                        Some(path_str)
-                    }
-                } else {
-                    None
-                }
-            })
-            .unwrap_or_else(|| "default".to_string());
-        
-        entities_by_service
-            .entry(service_path)
-            .or_insert_with(Vec::new)
-            .push(entity);
-    }
-    
-    // Find crate root using CARGO_MANIFEST_DIR (set by Cargo during build)
-    // If not available, try to find it by looking for Cargo.toml
-    let crate_root = match env::var("CARGO_MANIFEST_DIR") {
-        Ok(dir) => PathBuf::from(dir),
-        Err(_) => {
-            entities.first()
-                .and_then(|e| {
-                    // Find the crate root by looking for Cargo.toml
-                    let mut path = e.file_path.as_path();
-                    while let Some(parent) = path.parent() {
-                        if parent.join("Cargo.toml").exists() {
-                            return Some(parent.to_path_buf());
-                        }
-                        path = parent;
-                    }
-                    None
-                })
-                .ok_or_else(|| "Failed to find crate root (CARGO_MANIFEST_DIR not set and Cargo.toml not found)".to_string())?
-        }
-    };
-    
+
+    let entities_ordered = order_entities_for_registry(entities)
+        .map_err(|s| -> Box<dyn std::error::Error> { s.into() })?;
+
     // Generate registry module content
     // Note: This content will be included in lib.rs as: pub mod entity_registry { include!(...); }
     // So we don't wrap it in another mod declaration here
@@ -336,36 +346,29 @@ pub fn generate_registry_module(
     registry_content.push_str("pub fn all_entity_metadata() -> Vec<EntityMetadata> {\n");
     registry_content.push_str("    vec![\n");
     
-    for (service_path, service_entities) in &entities_by_service {
-        for entity in service_entities {
-            // Build module path from service_path and file name (which is the module name)
-            // e.g., "inventory" + "category" -> "crate::inventory::category"
-            // e.g., "accounting/general_ledger" + "chart_of_accounts" -> "crate::accounting::general_ledger::chart_of_accounts"
-            // Sanitize both service_path and file_name to handle hyphens and invalid characters
-            let module_path = if service_path == "default" || service_path.is_empty() {
-                format!("crate::{}", sanitize_module_segment(&entity.file_name))
-            } else {
-                // service_path is like "inventory" or "accounting/general_ledger" or "my-feature"
-                // Convert to module path: "inventory" -> "crate::inventory::category"
-                // Sanitize service_path (handles hyphens like "my-feature" -> "my_feature")
-                let service_mod = sanitize_service_path_to_module(service_path);
-                let file_name_sanitized = sanitize_module_segment(&entity.file_name);
-                format!("crate::{}::{}", service_mod, file_name_sanitized)
-            };
-            
-            registry_content.push_str(&format!(
-                "        EntityMetadata {{\n"
-            ));
-            registry_content.push_str(&format!(
-                "            table_name: {}::Entity::TABLE_NAME,\n",
-                module_path
-            ));
-            registry_content.push_str(&format!(
-                "            service_path: r#\"{}\"#,\n",
-                service_path
-            ));
-            registry_content.push_str("        },\n");
-        }
+    for entity in &entities_ordered {
+        let service_path = entity_service_path(entity);
+        // Build module path from service_path and file name (which is the module name)
+        let module_path = if service_path == "default" || service_path.is_empty() {
+            format!("crate::{}", sanitize_module_segment(&entity.file_name))
+        } else {
+            let service_mod = sanitize_service_path_to_module(&service_path);
+            let file_name_sanitized = sanitize_module_segment(&entity.file_name);
+            format!("crate::{}::{}", service_mod, file_name_sanitized)
+        };
+
+        registry_content.push_str(&format!(
+            "        EntityMetadata {{\n"
+        ));
+        registry_content.push_str(&format!(
+            "            table_name: {}::Entity::TABLE_NAME,\n",
+            module_path
+        ));
+        registry_content.push_str(&format!(
+            "            service_path: r#\"{}\"#,\n",
+            service_path
+        ));
+        registry_content.push_str("        },\n");
     }
     
     registry_content.push_str("    ]\n");
@@ -376,51 +379,36 @@ pub fn generate_registry_module(
     registry_content.push_str("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
     registry_content.push_str("    let mut results = Vec::new();\n\n");
     
-    for (service_path, service_entities) in &entities_by_service {
-        for entity in service_entities {
-            // Build module path from service_path and file name (which is the module name)
-            // e.g., "inventory" + "category" -> "crate::inventory::category"
-            // e.g., "accounting/general_ledger" + "chart_of_accounts" -> "crate::accounting::general_ledger::chart_of_accounts"
-            // Sanitize both service_path and file_name to handle hyphens and invalid characters
-            let module_path = if service_path == "default" || service_path.is_empty() {
-                format!("crate::{}", sanitize_module_segment(&entity.file_name))
-            } else {
-                // service_path is like "inventory" or "accounting/general_ledger" or "my-feature"
-                // Convert to module path: "inventory" -> "crate::inventory::category"
-                // Sanitize service_path (handles hyphens like "my-feature" -> "my_feature")
-                let service_mod = sanitize_service_path_to_module(service_path);
-                let file_name_sanitized = sanitize_module_segment(&entity.file_name);
-                format!("crate::{}::{}", service_mod, file_name_sanitized)
-            };
-            let struct_name = &entity.struct_name;
-            
-            registry_content.push_str(&format!(
-                "    // Generate SQL for {}::Entity\n",
-                module_path
-            ));
-            registry_content.push_str(&format!(
-                "    {{\n"
-            ));
-            registry_content.push_str(&format!(
-                "        use {}::Entity;\n",
-                module_path
-            ));
-            registry_content.push_str(&format!(
-                "        let table_def = Entity::table_definition();\n"
-            ));
-            registry_content.push_str(&format!(
-                "        match sql_generator::generate_create_table_sql::<Entity>(table_def) {{\n"
-            ));
-            registry_content.push_str(&format!(
-                "            Ok(sql) => results.push((Entity::TABLE_NAME.to_string(), sql)),\n"
-            ));
-            registry_content.push_str(&format!(
-                "            Err(e) => return Err(format!(\"Failed to generate SQL for {}: {{}}\", e)),\n",
-                struct_name
-            ));
-            registry_content.push_str("        }\n");
-            registry_content.push_str("    }\n\n");
-        }
+    for entity in &entities_ordered {
+        let service_path = entity_service_path(entity);
+        let module_path = if service_path == "default" || service_path.is_empty() {
+            format!("crate::{}", sanitize_module_segment(&entity.file_name))
+        } else {
+            let service_mod = sanitize_service_path_to_module(&service_path);
+            let file_name_sanitized = sanitize_module_segment(&entity.file_name);
+            format!("crate::{}::{}", service_mod, file_name_sanitized)
+        };
+        let struct_name = &entity.struct_name;
+
+        registry_content.push_str(&format!(
+            "    // Generate SQL for {}::Entity\n",
+            module_path
+        ));
+        registry_content.push_str(&format!("    {{\n"));
+        registry_content.push_str(&format!("        use {}::Entity;\n", module_path));
+        registry_content.push_str("        let table_def = Entity::table_definition();\n");
+        registry_content.push_str(
+            "        match sql_generator::generate_create_table_sql::<Entity>(table_def) {\n",
+        );
+        registry_content.push_str(
+            "            Ok(sql) => results.push((Entity::TABLE_NAME.to_string(), sql)),\n",
+        );
+        registry_content.push_str(&format!(
+            "            Err(e) => return Err(format!(\"Failed to generate SQL for {}: {{}}\", e)),\n",
+            struct_name
+        ));
+        registry_content.push_str("        }\n");
+        registry_content.push_str("    }\n\n");
     }
     
     registry_content.push_str("    Ok(results)\n");

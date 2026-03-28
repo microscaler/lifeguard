@@ -1423,6 +1423,38 @@ mod tests {
         _verify_entity_type::<UserModel>();
     }
 
+    /// Phase A (foundation): `build_where_condition` / relations use SQL column names here.
+    #[test]
+    fn test_user_model_get_by_column_name_covers_all_sql_columns() {
+        let model = UserModel {
+            id: 1,
+            name: "n".to_string(),
+            email: "e".to_string(),
+        };
+        for col in ["id", "name", "email"] {
+            assert!(
+                model.get_by_column_name(col).is_some(),
+                "get_by_column_name({col:?}) should be Some for LifeModel-generated UserModel"
+            );
+        }
+        assert!(model.get_by_column_name("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_renamed_columns_model_get_by_column_name_uses_sql_names() {
+        use super::column_name_tests::UserWithRenamedColumnsModel;
+
+        let model = UserWithRenamedColumnsModel {
+            id: 1,
+            firstName: "Ada".to_string(),
+            email: "a@b.c".to_string(),
+        };
+        assert!(model.get_by_column_name("user_name").is_some());
+        assert!(model.get_by_column_name("email_address").is_some());
+        assert!(model.get_by_column_name("id").is_some());
+        assert!(model.get_by_column_name("firstName").is_none());
+    }
+
     #[test]
     fn test_model_trait_get() {
         // Test ModelTrait::get() method
@@ -3802,19 +3834,19 @@ mod active_model_trait_tests {
                 self.inner.reset()
             }
             
-            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn insert(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn update(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn save(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+            fn delete(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -3881,19 +3913,19 @@ mod active_model_trait_tests {
             
             fn reset(&mut self) {}
             
-            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn insert(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn update(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn save(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+            fn delete(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -3945,19 +3977,19 @@ mod active_model_trait_tests {
                 self.inner.reset()
             }
             
-            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn insert(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn update(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn save(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+            fn delete(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<(), ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -4053,19 +4085,19 @@ mod active_model_trait_tests {
                 self.inner.reset()
             }
             
-            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn insert(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn update(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn save(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+            fn delete(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -4130,19 +4162,19 @@ mod active_model_trait_tests {
                 self.inner.reset()
             }
             
-            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn insert(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn update(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn save(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+            fn delete(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -4231,19 +4263,19 @@ mod active_model_trait_tests {
                 self.inner.reset()
             }
             
-            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn insert(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn update(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn save(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+            fn delete(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -4314,19 +4346,19 @@ mod active_model_trait_tests {
                 self.inner.reset()
             }
             
-            fn insert<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn insert(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn update(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn save(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: lifeguard::LifeExecutor>(&self, _executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+            fn delete(&self, _executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
                 Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
             }
             

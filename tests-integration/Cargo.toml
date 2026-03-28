@@ -9,7 +9,8 @@ name = "migration_test"
 path = "migration_test.rs"
 
 [dependencies]
-# Lifeguard core library
-lifeguard = { path = "../", version = "0.1.0" }
+# Lifeguard core library (graphql feature aligned with workspace async-graphql pin)
+lifeguard = { path = "../", version = "0.1.0", features = ["graphql"] }
+async-graphql.workspace = true
 # SQL query builder
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }

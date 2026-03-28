@@ -31,6 +31,14 @@
 //!
 //! This is useful when you're not sure if you'll need the related data,
 //! or when you want to conditionally load relationships.
+//!
+//! # Predicate semantics
+//!
+//! [`LazyLoader::load`](LazyLoader::load) applies the same `WHERE` rule as
+//! [`FindRelated::find_related`](crate::FindRelated::find_related): it calls
+//! [`build_where_condition`](crate::build_where_condition) with
+//! [`Related::to()`](crate::Related::to), so filters reference the **related** table (`to_tbl` /
+//! `to_col`) with values from the parent model’s `from_col` fields.
 
 use crate::executor::{LifeExecutor, LifeError};
 use crate::model::ModelTrait;
@@ -144,62 +152,23 @@ where
     ///
     /// # Panics
     ///
-    /// This function will panic if:
-    /// - `to_col` and primary key have mismatched arities for `HasMany` relationships
-    /// - Required relationship fields are missing
+    /// This function will panic if `build_where_condition` cannot read required `from_col`
+    /// values from the model (see [`build_where_condition`](crate::build_where_condition)).
     pub fn load<R>(&self) -> Result<Vec<R::Model>, LifeError>
     where
         R: LifeModelTrait,
         M::Entity: Related<R>,
         R::Model: crate::query::traits::FromRow,
     {
-        use crate::relation::def::types::RelationType;
-        
         // Get the relationship definition
         let rel_def: RelationDef = <M::Entity as Related<R>>::to();
 
         // Build the query using the relationship definition
         let mut query = SelectQuery::<R>::new();
         
-        // Build WHERE condition from the parent entity's primary key
-        // For has_many relationships, we need to use to_col (FK in target table) instead of from_col (PK in source table)
-        // because we're querying the target table (to_tbl), not the source table (from_tbl)
-        let where_condition = if rel_def.rel_type == RelationType::HasMany {
-            // For has_many: query target table (to_tbl) filtered by to_col (FK) = source PK
-            // Example: SELECT * FROM posts WHERE posts.user_id = user.id
-            // NOT: SELECT * FROM posts WHERE users.id = user.id (wrong - users table not in query)
-            use crate::relation::def::condition::extract_table_name;
-            use sea_query::{Condition, Expr, ExprTrait};
-            
-            let mut condition = Condition::all();
-            let pk_identity = self.entity.get_primary_key_identity();
-            let pk_values = self.entity.get_primary_key_values();
-            
-            // Ensure arities match
-            assert_eq!(
-                rel_def.to_col.arity(),
-                pk_identity.arity(),
-                "Foreign key columns (to_col) and primary key must have matching arity for has_many"
-            );
-            
-            // Match to_col (FK in target table) to source PK values
-            for (fk_col, pk_val) in rel_def.to_col.iter().zip(pk_values.iter()) {
-                let fk_col_str = fk_col.to_string();
-                let to_tbl_str = extract_table_name(&rel_def.to_tbl);
-                
-                // Create WHERE condition: to_table.fk_col = source_pk_value
-                // Use the same pattern as build_where_condition in condition.rs
-                let col_expr = format!("{to_tbl_str}.{fk_col_str}");
-                let expr = Expr::cust(col_expr).eq(Expr::val(pk_val.clone()));
-                condition = condition.add(expr);
-            }
-            
-            condition
-        } else {
-            // For belongs_to and has_one, use the standard build_where_condition
-            // which uses from_col (correct for these relationship types)
-            build_where_condition(&rel_def, self.entity)
-        };
+        // Filter the related table (`to_tbl`) using `to_col` = values from the source model's
+        // `from_col` columns (same rule as `FindRelated::find_related`).
+        let where_condition = build_where_condition(&rel_def, self.entity);
 
         // Apply the WHERE condition
         query = query.filter(where_condition);

@@ -126,5 +126,20 @@ Lifeguard meshes tightly with internal architectures (like BRRT routing validati
 * **Hauliage Platform Impact:** Unlocks future-proofing for the **`bff`**. Shifting the Hauliage mobile and web apps towards GraphQL endpoints drops the heavy maintenance burden of generating custom REST controllers for every discrete UI view.
 * **Roll-out Story:** The React Native Mobile team needs a heavily minimized profile view to save user bandwidth. Because the BFF adopted the GraphQL feature flags, they simply write a bespoke GraphQL query on the client. The server responds flawlessly without any backend engineer having to construct a new `GET /profile/minimal` endpoint.
 
+## Foundation work aligned with this audit (not gap closure)
+
+The following changes **do not** close the SeaORM parity gaps above; they keep the **current** ORM honest and testable so future work on those gaps builds on correct primitives:
+
+| Area in this document | How recent work aligns |
+|-------------------------|-------------------------|
+| **§2 DataLoader / relations** | `find_related` and `LazyLoader` now build `WHERE` clauses on the **related** table (`to_tbl` / `to_col`) with values from the source row (`from_col`, via `get_by_column_name` with a primary-key name fallback). That matches how batched / eager loaders must filter child rows and avoids invalid SQL when the parent row is not in the query’s `FROM` list. |
+| **§5 Cursor / streaming** | Integration coverage for `stream_and_cursor` lives in the same single binary as other DB tests, sharing one Postgres (and Redis URL in context) per process—appropriate for exercising streaming without spinning containers per test module. |
+| **§1 Nested graph (indirect)** | `active_model_graph` tests share the same harness; graph persistence remains a **future** item—this only ensures the graph-oriented tests run under the same lifecycle as the rest of the suite. |
+| **Test infrastructure** | One integration binary (`db_integration_suite`) + `tests/context.rs`: one pair of Postgres/Redis (or env URLs) per **process**, `ctor::dtor` cleanup for testcontainers—reduces container churn and matches how CI/local runs should stress the library, without implementing §3 CLI or §4 schema diffing. |
+
+When adding `.with()`-style loaders (§2) or nested `save_graph` (§1), relation definitions and `build_where_condition` semantics above should stay the single source of truth for “filter related rows by this parent instance.”
+
+**Continuation & robustness (tabulated):** see [docs/planning/audits/LIFEGUARD_FOUNDATION_CONTINUATION.md](docs/planning/audits/LIFEGUARD_FOUNDATION_CONTINUATION.md) for next implementation steps, risk hardening, and CI verification.
+
 ## Conclusion
 Lifeguard commands a distinct niche inside the `may` ecosystem with a heavily optimized, memory-safe footprint utilizing distributed query caching/Redlock architectures. By tackling the **Nested Object Persistence** and **Entity First Workflows**, it can fully cross the precipice into a functionally identical, syntactically superior alternative to Tokio-bound equivalents.

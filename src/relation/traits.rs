@@ -336,47 +336,13 @@ where
 
 /// Trait for finding related entities from a model instance
 ///
-/// This trait enables querying related entities through relationships defined
-/// via `RelationTrait`. It provides a convenient API for finding related entities
-/// without manually constructing join queries.
+/// Implementations return static [`RelationDef`](crate::RelationDef) metadata for the edge from
+/// **`Self` (entity)** to **`R` (related entity)**. See that type’s **“Orientation for `Related`”**
+/// section for how `from_tbl`, `to_tbl`, `from_col`, and `to_col` must be filled for
+/// `BelongsTo` vs `HasMany`.
 ///
-/// # Example
-///
-/// ```no_run
-/// use lifeguard::{Related, LifeModelTrait, SelectQuery, LifeExecutor};
-/// use sea_query::Expr;
-///
-/// // Define entities
-/// struct User;
-/// struct Post;
-///
-/// impl LifeModelTrait for User {
-///     type Model = UserModel;
-///     type Column = UserColumn;
-/// }
-///
-/// impl LifeModelTrait for Post {
-///     type Model = PostModel;
-///     type Column = PostColumn;
-/// }
-///
-/// // Define relationship: Post belongs_to User
-/// impl Related<User> for Post {
-///     fn to() -> SelectQuery<User> {
-///         // This would typically use RelationTrait to build the query
-///         // For now, this is a placeholder that needs implementation
-///         todo!()
-///     }
-/// }
-///
-/// // Use it to find related entities
-/// # struct UserModel { id: i32 };
-/// # struct PostModel { id: i32, user_id: i32 };
-/// # let user: UserModel = UserModel { id: 1 };
-/// # let executor: &dyn LifeExecutor = todo!();
-/// // Find all posts for a user (if User has_many Posts relationship is defined)
-/// // let posts: Vec<PostModel> = user.find_related::<Post>().all(executor)?;
-/// ```
+/// [`FindRelated::find_related`](FindRelated::find_related) and [`LazyLoader::load`](crate::LazyLoader::load)
+/// both use [`build_where_condition`](crate::build_where_condition) so the lazy and eager paths stay consistent.
 pub trait Related<R>
 where
     Self: LifeModelTrait,
@@ -433,8 +399,15 @@ where
 pub trait FindRelated: ModelTrait {
     /// Find related entities of type `R`
     ///
-    /// This method uses the `Related<R>` trait implementation to build a query
-    /// for related entities, then filters by the current model's primary key.
+    /// Builds a [`SelectQuery<R>`](SelectQuery) whose **`FROM` is the related table** (`to_tbl` in
+    /// [`RelationDef`](crate::RelationDef)). The `WHERE` clause is produced by
+    /// [`build_where_condition`](crate::build_where_condition): it references **`to_tbl` + `to_col`**
+    /// only (never `from_tbl` alone), with values taken from this model’s `from_col` fields
+    /// ([`ModelTrait::get_by_column_name`](crate::ModelTrait::get_by_column_name), plus a
+    /// primary-key-name fallback for simple parent rows).
+    ///
+    /// Do not assume you can qualify the filter with the source table unless that table is also
+    /// part of the query’s `FROM`/`JOIN` list.
     ///
     /// # Type Parameters
     ///
@@ -496,10 +469,8 @@ where
         // Create a new query for the related entity
         let mut query = SelectQuery::new();
         
-        // Build WHERE condition from RelationDef and model primary key values
-        // This uses build_where_condition() which handles both single and composite keys
-        // Note: build_where_condition() currently has a placeholder implementation
-        // that will be fully functional after Phase 4 adds get_primary_key_identity()
+        // Filter the related entity's table using `to_tbl`/`to_col` and source-side values
+        // from `from_col` (see `build_where_condition` in `relation::def::condition`).
         let condition = build_where_condition(&rel_def, self);
         query = query.filter(condition);
         

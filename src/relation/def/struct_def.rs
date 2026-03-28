@@ -18,6 +18,24 @@ use std::sync::Arc;
 /// - Through table for `has_many_through` relationships
 /// - Additional metadata (ownership, foreign key constraints, etc.)
 ///
+/// # Orientation for [`Related`](crate::Related)
+///
+/// For `impl Related<R> for SelfEntity`, `to()` must describe the edge **from `SelfEntity` toward `R`**:
+///
+/// - **`from_tbl`**: table of **`SelfEntity`** (the entity type on the left of `Related<R>`).
+/// - **`to_tbl`**: table of **`R`** (the related entity type). `SelectQuery<R>` / `find_related` use
+///   **`to_tbl` in `FROM`**; predicates from [`build_where_condition`](crate::build_where_condition)
+///   must qualify columns on **`to_tbl`** (via `to_col`), not on `from_tbl` alone.
+/// - **`from_col` / `to_col`**: zipped in order; arity must match. Values for the filter are read from
+///   the **source model** using each `from_col` name via [`ModelTrait::get_by_column_name`](crate::ModelTrait::get_by_column_name)
+///   (with a primary-key name fallback for macro-generated parents—see `build_where_condition` docs).
+///
+/// **BelongsTo** (`Post` → `User`): `from_tbl = posts`, `to_tbl = users`, `from_col = user_id` (FK on post),
+/// `to_col = id` (PK on user). **`find_related` from a `PostModel`** yields `WHERE users.id = post.user_id`.
+///
+/// **HasMany** (`User` → `Post`): `from_tbl = users`, `to_tbl = posts`, `from_col = id` (parent PK on user),
+/// `to_col = user_id` (FK on post). **`find_related` from a `UserModel`** yields `WHERE posts.user_id = user.id`.
+///
 /// # Example
 ///
 /// ```no_run
@@ -44,13 +62,13 @@ use std::sync::Arc;
 pub struct RelationDef {
     /// Type of relationship
     pub rel_type: RelationType,
-    /// Source table reference
+    /// Table for **`Self`** in `impl Related<R> for Self` (source side of the edge).
     pub from_tbl: TableRef,
-    /// Target table reference
+    /// Table for **`R`** (related entity); this is the table `find_related` / `SelectQuery<R>` selects from.
     pub to_tbl: TableRef,
-    /// Foreign key column(s) in source table
+    /// Column name(s) on **`from_tbl`** used to read values from the source model (`get_by_column_name`).
     pub from_col: Identity,
-    /// Primary key column(s) in target table
+    /// Column name(s) on **`to_tbl`** that appear in the `WHERE` clause (paired with `from_col` by index).
     pub to_col: Identity,
     /// Through table reference for `has_many_through` relationships
     /// `None` for direct relationships (`has_one`, `has_many`, `belongs_to`)

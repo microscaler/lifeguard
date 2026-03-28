@@ -15,10 +15,8 @@ use lifeguard::{
 use lifeguard_derive::{LifeModel, LifeRecord};
 
 
-mod context;
-
 fn get_db() -> TestDatabase {
-    let ctx = context::get_test_context();
+    let ctx = crate::context::get_test_context();
     TestDatabase::with_url(&ctx.pg_url)
 }
 
