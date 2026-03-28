@@ -176,6 +176,26 @@ pub trait LifeExecutor {
     }
 }
 
+/// Blanket implementation to allow trait objects (`&dyn LifeExecutor`) to be passed
+/// to generic functions expecting `<E: LifeExecutor>` without hitting `Sized` compiler errors.
+impl<'a> LifeExecutor for &'a dyn LifeExecutor {
+    fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
+        (*self).execute(query, params)
+    }
+
+    fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
+        (*self).query_one(query, params)
+    }
+
+    fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
+        (*self).query_all(query, params)
+    }
+
+    fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
+        (*self).cache_provider()
+    }
+}
+
 /// Implementation of `LifeExecutor` for `may_postgres::Client`
 ///
 /// This is the primary executor implementation that directly uses a `may_postgres::Client`.

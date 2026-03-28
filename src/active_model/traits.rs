@@ -189,7 +189,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// This is a placeholder for future implementation. The actual implementation
     /// will need to generate `INSERT` SQL and execute it via the executor.
-    fn insert<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+    fn insert(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
         Err(ActiveModelError::Other("insert() not yet implemented".to_string()))
     }
 
@@ -215,7 +215,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// This is a placeholder for future implementation. The actual implementation
     /// will need to generate `UPDATE` SQL and execute it via the executor.
-    fn update<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+    fn update(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
         Err(ActiveModelError::Other("update() not yet implemented".to_string()))
     }
 
@@ -240,7 +240,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// This is a placeholder for future implementation. The actual implementation
     /// will need to check if the record exists and either insert or update accordingly.
-    fn save<E: LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+    fn save(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
         Err(ActiveModelError::Other("save() not yet implemented".to_string()))
     }
 
@@ -328,8 +328,8 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     /// # Note
     /// 
     /// This method is automatically implemented and overridden by the `#[derive(LifeRecord)]` macro.
-    fn save_graph<E: crate::LifeExecutor + ?Sized>(&mut self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
-        Err(ActiveModelError::Other("save_graph() must be overridden by #[derive(LifeRecord)]".to_string()))
+    fn save_graph(&mut self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
+        Err(ActiveModelError::Other("save_graph() overridden by macro".to_string()))
     }
 
     /// Delete the `ActiveModel` from the database
@@ -354,7 +354,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// This is a placeholder for future implementation. The actual implementation
     /// will need to generate `DELETE` SQL and execute it via the executor.
-    fn delete<E: LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+    fn delete(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<(), ActiveModelError> {
         Err(ActiveModelError::Other("delete() not yet implemented".to_string()))
     }
 
