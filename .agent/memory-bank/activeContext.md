@@ -8,6 +8,7 @@
 - Memory Bank initialized with codegen learnings
 
 ## Recent Changes
+- **Unsigned row decode (2026-03-28):** `lifeguard::from_row_unsigned_try_from_failed` + derive emits `TryFrom` for `u8`/`u16`/`u32`/`u64` in `from_row` / `life_model` / `partial_model`; `FromRow` standalone uses `try_get`. Landed on branch `fix/JSF-compliance-issues` (committed locally, not pushed).
 - **lifeguard-derive Clippy (2026-03-28):** Fixed `explicit_iter_loop` in `from_row.rs` and `manual_let_else` in `relation.rs` / `partial_model.rs` so `cargo clippy -p lifeguard-derive --all-targets --all-features -- -D warnings` passes (pedantic-style lints from full-workspace clippy).
 - **PRD JSF panic safety — implemented P1–P4 (2026-03-28):** P1–P3 as before. **P4:** `lifeguard-derive` `#![deny(clippy::unwrap_used)]`; `utils::field_ident` in `life_record` / `life_model` / `from_row` / `try_into_model` / `partial_model`; generated `graph_mut` uses `get_or_insert_with`; `Relation::def()` → `Option<RelationDef>` + tests/PRD §12; scoped `unwrap_used` allows in derive test modules only. Verified: `cargo clippy -p lifeguard-derive --all-targets --all-features -- -D warnings`, `cargo test -p lifeguard-derive`.
 - **JSF / unwrap-expect audit vs BRRTRouter docs (2026-03-28):** Written summary for production hardening (library vs derive vs generated user code vs binaries); no code changes in this step.

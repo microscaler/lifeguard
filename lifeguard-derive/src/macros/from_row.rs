@@ -99,13 +99,15 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 
                 quote! {
                     {
-                        let val: #signed_type = row.get(#column_name_str)?;
-                        val as #field_type
+                        let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
+                        #field_type::try_from(val).map_err(|_| {
+                            lifeguard::from_row_unsigned_try_from_failed(row, #column_name_str)
+                        })?
                     }
                 }
             } else {
                 quote! {
-                    row.get(#column_name_str)?
+                    row.try_get::<&str, #field_type>(#column_name_str)?
                 }
             }
         };

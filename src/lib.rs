@@ -89,7 +89,7 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 // Query builder - Epic 02 Story 03
 pub mod query;
 pub use query::{
-    SelectQuery, SelectModel, FromRow, LifeEntityName, LifeModelTrait,
+    SelectQuery, SelectModel, from_row_unsigned_try_from_failed, FromRow, LifeEntityName, LifeModelTrait,
     ColumnTrait, ColumnDefinition,
     PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
     ModelManager, StoredProcedure,

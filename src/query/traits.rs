@@ -677,6 +677,27 @@ pub trait LifeModelTrait: LifeEntityName {
     }
 }
 
+/// Builds a [`may_postgres::Error`] when a column decodes from SQL but fails a Rust-side range check
+/// (for example, a negative `BIGINT` cannot become `u64` via [`TryFrom`]).
+///
+/// `may_postgres::Error` has no public constructor for this class of failure; this uses a
+/// [`may_postgres::Row::try_get`] path that fails for typical integral columns (Rust type mismatch),
+/// with a fallback for unusual wire types (same idea as invalid JSON handling on [`FromRow`] for
+/// [`serde_json::Value`]).
+pub fn from_row_unsigned_try_from_failed(row: &may_postgres::Row, column_name: &str) -> may_postgres::Error {
+    match row.try_get::<&str, &[u8]>(column_name) {
+        Err(e) => e,
+        Ok(_) => {
+            // BYTEA-compatible value on a column the model treats as integral: OOB index always errors.
+            #[allow(clippy::expect_used)]
+            {
+                row.try_get::<usize, i32>(row.len())
+                    .expect_err("out-of-bounds column index must fail")
+            }
+        }
+    }
+}
+
 /// Trait for types that can be created from a database row
 pub trait FromRow: Sized {
     /// Convert a database row to this type

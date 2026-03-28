@@ -1417,7 +1417,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     quote! {
                         {
                             let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
-                            val as #field_type
+                            #field_type::try_from(val).map_err(|_| {
+                                lifeguard::from_row_unsigned_try_from_failed(row, #column_name_str)
+                            })?
                         }
                     }
                 } else {

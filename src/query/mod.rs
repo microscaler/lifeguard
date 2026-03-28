@@ -108,4 +108,4 @@ pub mod manager;
 pub use manager::{ModelManager, StoredProcedure};
 
 // FromRow trait is in traits module
-pub use traits::FromRow;
+pub use traits::{from_row_unsigned_try_from_failed, FromRow};
