@@ -1764,7 +1764,7 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
 }
 
 impl PkModifyingUpdateRecord {
-    fn to_model(&self) -> TestHookUserModel {
+    fn to_model(&self) -> Result<TestHookUserModel, lifeguard::ActiveModelError> {
         self.inner.to_model()
     }
 }

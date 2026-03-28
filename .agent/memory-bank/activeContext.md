@@ -1,12 +1,17 @@
 # Active Context
 
 ## Current Work
+- **JSF-style safety audit — PRD P1–P4 landed in tree (2026-03-28):** Library + derive hygiene per `docs/planning/audits/PRD_JSF_PANIC_SAFETY.md`; remaining long-tail items (if any) are policy/architecture (e.g. metrics init) or out-of-scope binaries, not open Phase 4 tasks.
 - ModelTrait edge case coverage implementation completed
 - Comprehensive test suite added (Option<T> and JSON types)
 - Documentation improvements for edge cases and limitations
 - Memory Bank initialized with codegen learnings
 
 ## Recent Changes
+- **Unsigned row decode (2026-03-28):** `lifeguard::from_row_unsigned_try_from_failed` + derive emits `TryFrom` for `u8`/`u16`/`u32`/`u64` in `from_row` / `life_model` / `partial_model`; `FromRow` standalone uses `try_get`. Landed on branch `fix/JSF-compliance-issues` (committed locally, not pushed).
+- **lifeguard-derive Clippy (2026-03-28):** Fixed `explicit_iter_loop` in `from_row.rs` and `manual_let_else` in `relation.rs` / `partial_model.rs` so `cargo clippy -p lifeguard-derive --all-targets --all-features -- -D warnings` passes (pedantic-style lints from full-workspace clippy).
+- **PRD JSF panic safety — implemented P1–P4 (2026-03-28):** P1–P3 as before. **P4:** `lifeguard-derive` `#![deny(clippy::unwrap_used)]`; `utils::field_ident` in `life_record` / `life_model` / `from_row` / `try_into_model` / `partial_model`; generated `graph_mut` uses `get_or_insert_with`; `Relation::def()` → `Option<RelationDef>` + tests/PRD §12; scoped `unwrap_used` allows in derive test modules only. Verified: `cargo clippy -p lifeguard-derive --all-targets --all-features -- -D warnings`, `cargo test -p lifeguard-derive`.
+- **JSF / unwrap-expect audit vs BRRTRouter docs (2026-03-28):** Written summary for production hardening (library vs derive vs generated user code vs binaries); no code changes in this step.
 - **`#[cursor_tiebreak]` opt-in (2026-03-28):** `LifeModel` no longer injects `#[cursor_tiebreak = …]` for every single-PK entity; only forwards when the user sets `#[cursor_tiebreak = "ColumnVariant"]` on the struct (`extract_cursor_tiebreak`). Composite PK + attribute → compile error. `LifeModel` / `LifeRecord` derive attribute lists updated. Integration `DataPoint` uses `#[cursor_tiebreak = "Id"]` for `after_pk` test. Rustdoc in `query/traits.rs` and `query/cursor.rs` updated. `cargo test -p lifeguard-derive`, `db_integration_suite::test_pagination_and_streaming`, clippy `-D warnings` passed.
 - **`lifeguard-derive` `entity.rs` `derive_entity` line count (2026-03-28):** Extracted `generate_life_model_trait_impl` plus `resolve_entity_model_name` / `resolve_entity_column_enum_name` / `default_stripped_suffix_ident` so `derive_entity` is under `clippy::too_many_lines` without crate-level allow; token fragments passed by reference (`needless_pass_by_value`). `cargo clippy -p lifeguard-derive -- -D warnings -W clippy::pedantic` and `cargo test -p lifeguard-derive` passed.
 - **`find_linked` empty `Linked::via()` (2026-03-28):** Empty path no longer returns `Ok(SelectQuery::new())` (unrestricted target table); returns `LifeError::Other("find_linked: Linked::via() returned an empty path")`. Rustdoc updated; `test_find_linked_empty_path` asserts Err. `cargo test -p lifeguard --lib relation::traits::tests::test_find_linked_empty_path` and clippy `-D warnings` passed.
@@ -54,6 +59,7 @@
 8. **Primary Key Tracking**: Track first `#[primary_key]` field, generate warning if none found
 
 ## Branch
+- `fix/JSF-compliance-issues` — committed `0d04c00` (JSF PRD P1–P3 + implementation); pushed to `origin/fix/JSF-compliance-issues` (`git push -u` — `farm git push` had no upstream). No Cursor co-author trailer.
 - `fix/tests` — pushed `e5cf177` (relations/logging/migrations/CI); no Cursor co-author trailer.
 
 ## Next Steps

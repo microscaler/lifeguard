@@ -34,85 +34,88 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
     };
     
     // Generate field extraction code
-    let from_row_fields: Vec<TokenStream2> = fields
-        .iter()
-        .map(|field| {
-            let field_name = field.ident.as_ref().unwrap();
-            let field_type = &field.ty;
-            
-            // Get column name from attribute or use snake_case of field name
-            let column_name = field
-                .attrs
-                .iter()
-                .find(|attr| attr.path().is_ident("column_name"))
-                .and_then(|attr| {
-                    attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value())
-                })
-                .unwrap_or_else(|| {
-                    // Convert field name to snake_case
-                    let name = field_name.to_string();
-                    utils::snake_case(&name)
-                });
-            
-            let column_name_str = column_name.as_str();
-            
-            // Handle unsigned integer types by converting to signed first
-            let get_expr = {
-                // Check if this is an unsigned integer type
-                let is_unsigned = match field_type {
+    let mut from_row_fields: Vec<TokenStream2> = Vec::new();
+    for field in fields {
+        let field_name = match utils::field_ident(field) {
+            Ok(i) => i,
+            Err(e) => return e.to_compile_error().into(),
+        };
+        let field_type = &field.ty;
+
+        // Get column name from attribute or use snake_case of field name
+        let column_name = field
+            .attrs
+            .iter()
+            .find(|attr| attr.path().is_ident("column_name"))
+            .and_then(|attr| {
+                attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value())
+            })
+            .unwrap_or_else(|| {
+                // Convert field name to snake_case
+                let name = field_name.to_string();
+                utils::snake_case(&name)
+            });
+
+        let column_name_str = column_name.as_str();
+
+        // Handle unsigned integer types by converting to signed first
+        let get_expr = {
+            // Check if this is an unsigned integer type
+            let is_unsigned = match field_type {
+                syn::Type::Path(syn::TypePath {
+                    path: syn::Path { segments, .. },
+                    ..
+                }) => {
+                    if let Some(segment) = segments.first() {
+                        let ident_str = segment.ident.to_string();
+                        matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            };
+
+            if is_unsigned {
+                // For unsigned types, convert to signed equivalent first
+                #[allow(clippy::single_match_else)]
+                let signed_type = match field_type {
                     syn::Type::Path(syn::TypePath {
                         path: syn::Path { segments, .. },
                         ..
                     }) => {
                         if let Some(segment) = segments.first() {
-                            let ident_str = segment.ident.to_string();
-                            matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
-                        } else {
-                            false
-                        }
-                    }
-                    _ => false,
-                };
-                
-                if is_unsigned {
-                    // For unsigned types, convert to signed equivalent first
-                    #[allow(clippy::single_match_else)]
-                    let signed_type = match field_type {
-                        syn::Type::Path(syn::TypePath {
-                            path: syn::Path { segments, .. },
-                            ..
-                        }) => {
-                            if let Some(segment) = segments.first() {
-                                match segment.ident.to_string().as_str() {
-                                    "u8" => quote! { i16 },
-                                    "u32" | "u64" => quote! { i64 },
-                                    _ => quote! { i32 },
-                                }
-                            } else {
-                                quote! { i32 }
+                            match segment.ident.to_string().as_str() {
+                                "u8" => quote! { i16 },
+                                "u32" | "u64" => quote! { i64 },
+                                _ => quote! { i32 },
                             }
-                        }
-                        _ => quote! { i32 },
-                    };
-                    
-                    quote! {
-                        {
-                            let val: #signed_type = row.get(#column_name_str)?;
-                            val as #field_type
+                        } else {
+                            quote! { i32 }
                         }
                     }
-                } else {
-                    quote! {
-                        row.get(#column_name_str)?
+                    _ => quote! { i32 },
+                };
+
+                quote! {
+                    {
+                        let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
+                        #field_type::try_from(val).map_err(|_| {
+                            lifeguard::from_row_unsigned_try_from_failed(row, #column_name_str)
+                        })?
                     }
                 }
-            };
-            
-            quote! {
-                #field_name: #get_expr,
+            } else {
+                quote! {
+                    row.try_get::<&str, #field_type>(#column_name_str)?
+                }
             }
-        })
-        .collect();
+        };
+
+        from_row_fields.push(quote! {
+            #field_name: #get_expr,
+        });
+    }
     
     let expanded: TokenStream2 = quote! {
         // Implement FromRow trait for Model

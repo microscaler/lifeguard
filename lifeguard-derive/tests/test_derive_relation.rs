@@ -331,9 +331,9 @@ fn test_derive_relation_def_method() {
     // Test that Relation enum has def() method that returns RelationDef
     // This matches SeaORM's Relation::Posts.def() pattern
     
-    // Test def() method exists and returns RelationDef
-    let rel_def_comments: RelationDef = Relation::Comments.def();
-    let rel_def_user: RelationDef = Relation::User.def();
+    // Test def() method exists and returns RelationDef for annotated variants
+    let rel_def_comments: RelationDef = Relation::Comments.def().expect("Comments relation");
+    let rel_def_user: RelationDef = Relation::User.def().expect("User relation");
     
     // Verify that def() returns the same RelationDef as Related::to()
     let rel_def_from_related: RelationDef = <Entity as Related<CommentEntity>>::to();
@@ -343,9 +343,9 @@ fn test_derive_relation_def_method() {
     assert_eq!(rel_def_comments.rel_type, rel_def_from_related.rel_type);
     
     // Test that all variants have def() method
-    let _ = Relation::Comments.def();
-    let _ = Relation::User.def();
-    let _ = Relation::Tags.def();
+    let _ = Relation::Comments.def().expect("Comments");
+    let _ = Relation::User.def().expect("User");
+    let _ = Relation::Tags.def().expect("Tags");
 }
 
 #[test]
@@ -1057,12 +1057,12 @@ fn test_derive_relation_duplicate_same_config() {
     // Test that both variants work with def() method
     // This verifies that when multiple variants target the same entity with the same config,
     // both variants get match arms in def() method (no non-exhaustive match error)
-    let _rel_def_created: RelationDef = Relation::CreatedPosts.def();
-    let _rel_def_edited: RelationDef = Relation::EditedPosts.def();
+    let _rel_def_created: RelationDef = Relation::CreatedPosts.def().expect("CreatedPosts");
+    let _rel_def_edited: RelationDef = Relation::EditedPosts.def().expect("EditedPosts");
     
     // Both should return the same RelationDef since they have the same config
-    let rel_def_created = Relation::CreatedPosts.def();
-    let rel_def_edited = Relation::EditedPosts.def();
+    let rel_def_created = Relation::CreatedPosts.def().expect("CreatedPosts");
+    let rel_def_edited = Relation::EditedPosts.def().expect("EditedPosts");
     assert_eq!(rel_def_created.rel_type, rel_def_edited.rel_type);
 }
 
@@ -1151,12 +1151,11 @@ mod mixed_annotated_unannotated_test {
     lifeguard::impl_column_def_helper_for_test!(PostColumn);
     
     // Mixed annotated and unannotated variants
-    // Annotated variant should work, unannotated variant should panic when def() is called
+    // Annotated variant should return Some(RelationDef); unannotated returns None
     #[derive(DeriveRelation)]
     pub enum Relation {
         #[lifeguard(has_many = "PostEntity")]
         Posts,
-        // Unannotated variant - should have a match arm that panics
         UnannotatedVariant,
     }
 }
@@ -1166,14 +1165,12 @@ fn test_derive_relation_mixed_annotated_unannotated() {
     use mixed_annotated_unannotated_test::*;
     
     // Test that annotated variant works
-    let _rel_def: RelationDef = Relation::Posts.def();
+    let _rel_def: RelationDef = Relation::Posts.def().expect("Posts relation");
     
-    // Test that unannotated variant panics when def() is called
-    // This verifies that unannotated variants get match arms that panic
-    let result = std::panic::catch_unwind(|| {
-        let _ = Relation::UnannotatedVariant.def();
-    });
-    assert!(result.is_err(), "Unannotated variant should panic when def() is called");
+    assert!(
+        Relation::UnannotatedVariant.def().is_none(),
+        "unannotated relation variant should yield None from def()"
+    );
 }
 
 // Test module for self-referential relationships WITHOUT explicit columns
@@ -1259,7 +1256,7 @@ fn test_derive_relation_self_referential_no_columns_def_method() {
     // After the fix, this should return a valid RelationDef
     
     // Test def() method exists and returns RelationDef
-    let rel_def: RelationDef = Relation::Children.def();
+    let rel_def: RelationDef = Relation::Children.def().expect("Children relation");
     
     // Verify that def() returns the same RelationDef as Related::to()
     let rel_def_from_related: RelationDef = <Entity as Related<Entity>>::to();

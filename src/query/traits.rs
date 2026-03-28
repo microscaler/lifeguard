@@ -677,6 +677,26 @@ pub trait LifeModelTrait: LifeEntityName {
     }
 }
 
+/// Builds a [`may_postgres::Error`] when a column decodes from SQL but fails a Rust-side range check
+/// (for example, a negative `BIGINT` cannot become `u64` via [`TryFrom`]).
+///
+/// `may_postgres::Error` has no first-class API for unsigned range failures; this uses a
+/// [`may_postgres::Row::try_get`] path that fails for typical integral columns (Rust type mismatch),
+/// with a fallback for unusual wire types (OOB column index) so the function always returns `Err`.
+pub fn from_row_unsigned_try_from_failed(row: &may_postgres::Row, column_name: &str) -> may_postgres::Error {
+    match row.try_get::<&str, &[u8]>(column_name) {
+        Err(e) => e,
+        Ok(_) => {
+            // BYTEA-compatible value on a column the model treats as integral: OOB index always errors.
+            #[allow(clippy::expect_used)]
+            {
+                row.try_get::<usize, i32>(row.len())
+                    .expect_err("out-of-bounds column index must fail")
+            }
+        }
+    }
+}
+
 /// Trait for types that can be created from a database row
 pub trait FromRow: Sized {
     /// Convert a database row to this type
@@ -696,16 +716,13 @@ use serde_json::Value as JsonValue;
 impl FromRow for JsonValue {
     fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
         if row.is_empty() {
-            let _: String = row.try_get::<_, String>(999)?;
-            unreachable!()
+            // No columns: force a column-bounds error (same family as invalid index on empty).
+            return row.try_get::<_, i32>(0).map(|_| JsonValue::Null);
         }
-        let text: String = row.get(0);
+        let text: String = row.try_get(0)?;
         match serde_json::from_str(&text) {
             Ok(json) => Ok(json),
-            Err(_e) => {
-                let _: i32 = row.try_get::<_, i32>(0)?;
-                unreachable!()
-            }
+            Err(e) => Err(may_postgres::Error::user_column_decode_failed(0, e.to_string())),
         }
     }
 }

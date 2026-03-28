@@ -7,6 +7,7 @@
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
 #![deny(clippy::panic)]
+#![deny(clippy::unreachable)]
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
 // Pedantic is opt-in via `-W clippy::pedantic` in CI; allow the group crate-wide so `-D warnings`
@@ -88,7 +89,7 @@ pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
 // Query builder - Epic 02 Story 03
 pub mod query;
 pub use query::{
-    SelectQuery, SelectModel, FromRow, LifeEntityName, LifeModelTrait,
+    SelectQuery, SelectModel, from_row_unsigned_try_from_failed, FromRow, LifeEntityName, LifeModelTrait,
     ColumnTrait, ColumnDefinition,
     PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
     ModelManager, StoredProcedure,

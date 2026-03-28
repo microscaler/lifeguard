@@ -2,6 +2,9 @@
 //!
 //! This crate provides derive macros for `LifeModel` and `LifeRecord`.
 
+// JSF-style hygiene: avoid unwrap in macro implementation code; scoped allows only where needed.
+#![deny(clippy::unwrap_used)]
+
 mod attributes;
 mod macros;
 mod type_conversion;
@@ -54,7 +57,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// This macro generates:
 /// - `Record` struct (mutable change-set with Option<T> fields)
 /// - `from_model()` method (create from `LifeModel` for updates)
-/// - `to_model()` method (convert to `LifeModel`, None fields use defaults)
+/// - `to_model()` → `Result<LifeModel, ActiveModelError>` (required fields must be set)
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field

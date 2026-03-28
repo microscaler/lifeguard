@@ -23,3 +23,6 @@ scripts/__pycache__/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .DS_Store
+
+# Optional local clone of microscaler/may_postgres for fork work; crates pin `rev` in Cargo.toml.
+/may_postgres/

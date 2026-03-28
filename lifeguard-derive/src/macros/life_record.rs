@@ -35,7 +35,7 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
 /// This macro generates:
 /// - `Record` struct (mutable change-set with Option<T> fields)
 /// - `from_model()` method (create from `LifeModel` for updates)
-/// - `to_model()` method (convert to `LifeModel`, None fields use defaults)
+/// - `to_model()` → `Result<LifeModel, ActiveModelError>` (required fields must be set)
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
@@ -94,7 +94,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut ignored_field_names = Vec::new();
     let mut ignored_field_defaults = Vec::new();
     let mut from_model_fields = Vec::new();
-    let mut to_model_fields = Vec::new();
+    let mut to_model_lets: Vec<proc_macro2::TokenStream> = Vec::new();
+    let mut to_model_struct_fields: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut dirty_fields_check = Vec::new();
     let mut setter_methods = Vec::new();
 
@@ -121,7 +122,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
 
     for field in fields.iter() {
-        let field_name = field.ident.as_ref().unwrap();
+        let field_name = match utils::field_ident(field) {
+            Ok(i) => i,
+            Err(e) => return e.to_compile_error().into(),
+        };
         let field_type = &field.ty;
 
         // Check if field type is already Option<T>
@@ -177,8 +181,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 #field_name: model.#field_name.clone(),
             });
 
-            // Add to to_model_fields - copy directly to model
-            to_model_fields.push(quote! {
+            // Add to to_model struct - copy directly to model
+            to_model_struct_fields.push(quote! {
                 #field_name: self.#field_name.clone(),
             });
 
@@ -242,24 +246,22 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             });
         }
 
-        // Generate to_model field extraction
-        // For Option<T> fields, clone directly (Record field is Option<T>, Model field is Option<T>)
-        // For non-Option fields, unwrap (Record field is Option<T>, Model field is T)
+        // Generate to_model bindings + struct fields (Result-based; no runtime expect on required fields)
         if is_already_option {
-            // Field is already Option<T>, clone directly
-            to_model_fields.push(quote! {
-                #field_name: self.#field_name.clone(),
+            to_model_lets.push(quote! {
+                let #field_name = self.#field_name.clone();
             });
+            to_model_struct_fields.push(quote! { #field_name, });
         } else if is_nullable {
-            // Non-Option field, but nullable - use default if None
-            to_model_fields.push(quote! {
-                #field_name: self.#field_name.clone().unwrap_or_default(),
+            to_model_lets.push(quote! {
+                let #field_name = self.#field_name.clone().unwrap_or_default();
             });
+            to_model_struct_fields.push(quote! { #field_name, });
         } else {
-            // Non-Option field, required - panic if None
-            to_model_fields.push(quote! {
-                #field_name: self.#field_name.clone().expect(&format!("Field {} is required but not set", stringify!(#field_name))),
+            to_model_lets.push(quote! {
+                let #field_name = self.#field_name.clone().ok_or_else(|| lifeguard::ActiveModelError::FieldRequired(stringify!(#field_name).to_string()))?;
             });
+            to_model_struct_fields.push(quote! { #field_name, });
         }
 
         // Generate dirty field check
@@ -736,12 +738,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
         impl #record_name {
             /// Initialize GraphState if empty and return a mutable reference to it.
-            #[allow(clippy::missing_panics_doc)]
             pub fn graph_mut(&mut self) -> &mut lifeguard::active_model::graph::GraphState<Self> {
-                if self.__graph.0.is_none() {
-                    self.__graph.0 = Some(Box::new(lifeguard::active_model::graph::GraphState::<Self>::new()));
-                }
-                self.__graph.0.as_mut().unwrap()
+                self.__graph.0
+                    .get_or_insert_with(|| {
+                        Box::new(lifeguard::active_model::graph::GraphState::<Self>::new())
+                    })
+                    .as_mut()
             }
 
             /// Create a new empty record (all fields None)
@@ -767,13 +769,16 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
             }
 
-            /// Convert the record to a Model
-            /// None fields use defaults (Default::default() for nullable, panic for required)
-            /// For inserts, ensure all required fields are set before calling this
-            pub fn to_model(&self) -> #model_name {
-                #model_name {
-                    #(#to_model_fields)*
-                }
+            /// Convert the record to a model.
+            ///
+            /// Required (non-nullable) fields must be `Some`; if any are unset, returns
+            /// [`ActiveModelError::FieldRequired`](lifeguard::ActiveModelError::FieldRequired).
+            /// Nullable columns use [`Default::default()`] when unset.
+            pub fn to_model(&self) -> Result<#model_name, lifeguard::ActiveModelError> {
+                #(#to_model_lets)*
+                Ok(#model_name {
+                    #(#to_model_struct_fields)*
+                })
             }
 
             /// Get a list of dirty (changed) field names
@@ -841,10 +846,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
 
             fn graph_mut(&mut self) -> &mut lifeguard::active_model::graph::GraphState<Self> {
-                if self.__graph.0.is_none() {
-                    self.__graph.0 = Some(Box::new(lifeguard::active_model::graph::GraphState::<Self>::new()));
-                }
-                self.__graph.0.as_mut().unwrap()
+                self.__graph.0
+                    .get_or_insert_with(|| {
+                        Box::new(lifeguard::active_model::graph::GraphState::<Self>::new())
+                    })
+                    .as_mut()
             }
 
             fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
@@ -933,7 +939,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
 
                 // Construct the model from the updated record
-                let model = updated_record.to_model();
+                let model = updated_record.to_model()?;
 
                 // Call after_insert hook
                 updated_record.after_insert(&model)?;

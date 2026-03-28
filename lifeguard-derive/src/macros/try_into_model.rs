@@ -54,6 +54,7 @@ use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, Field};
 
 use crate::attributes;
+use crate::utils;
 
 /// Derive macro for `DeriveTryIntoModel` - generates `TryIntoModel` trait implementations
 /// 
@@ -138,7 +139,10 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     let mut field_mappings: Vec<TokenStream2> = Vec::new();
     
     for field in fields {
-        let field_name = field.ident.as_ref().unwrap();
+        let field_name = match utils::field_ident(field) {
+            Ok(i) => i,
+            Err(e) => return e.to_compile_error().into(),
+        };
         
         // CRITICAL: Extract all field attributes in a SINGLE pass.
         // 

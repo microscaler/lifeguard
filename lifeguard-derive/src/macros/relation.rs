@@ -8,7 +8,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, Data, DataEnum, DeriveInput, Variant};
+use syn::{parse_macro_input, parse_quote, Data, DataEnum, DeriveInput, Variant};
 
 /// Type alias for complex relation extraction return type
 type RelationExtractionResult = Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>, TokenStream2)>;
@@ -115,8 +115,13 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
         let mut path_tokens = quote! {};
         for segment in prefix_segments {
             // At this point, we've validated that segment is not empty and is a valid identifier
-            let ident = syn::parse_str::<syn::Ident>(segment)
-                .expect("Segment should be valid identifier after validation");
+            let Ok(ident) = syn::parse_str::<syn::Ident>(segment) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse path segment \"{segment}\" after validation"),
+                )
+                .to_compile_error());
+            };
             path_tokens = quote! { #path_tokens::#ident };
         }
         quote! { #path_tokens::Column }
@@ -148,9 +153,13 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
     match column_variants.len() {
         1 => {
             let col_variant = &column_variants[0];
-            // At this point, we've validated that col_variant is a valid identifier
-            let col_ident = syn::parse_str::<syn::Ident>(col_variant)
-                .expect("Column variant should be valid identifier after validation");
+            let Ok(col_ident) = syn::parse_str::<syn::Ident>(col_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col_variant}\" after validation"),
+                )
+                .to_compile_error());
+            };
             Ok(quote! {
                 {
                     use lifeguard::LifeModelTrait;
@@ -163,11 +172,20 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
         2 => {
             let col1_variant = &column_variants[0];
             let col2_variant = &column_variants[1];
-            // At this point, we've validated that both variants are valid identifiers
-            let col1_ident = syn::parse_str::<syn::Ident>(col1_variant)
-                .expect("Column variant should be valid identifier after validation");
-            let col2_ident = syn::parse_str::<syn::Ident>(col2_variant)
-                .expect("Column variant should be valid identifier after validation");
+            let Ok(col1_ident) = syn::parse_str::<syn::Ident>(col1_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col1_variant}\" after validation"),
+                )
+                .to_compile_error());
+            };
+            let Ok(col2_ident) = syn::parse_str::<syn::Ident>(col2_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col2_variant}\" after validation"),
+                )
+                .to_compile_error());
+            };
             Ok(quote! {
                 {
                     use lifeguard::LifeModelTrait;
@@ -185,13 +203,27 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
             let col1_variant = &column_variants[0];
             let col2_variant = &column_variants[1];
             let col3_variant = &column_variants[2];
-            // At this point, we've validated that all variants are valid identifiers
-            let col1_ident = syn::parse_str::<syn::Ident>(col1_variant)
-                .expect("Column variant should be valid identifier after validation");
-            let col2_ident = syn::parse_str::<syn::Ident>(col2_variant)
-                .expect("Column variant should be valid identifier after validation");
-            let col3_ident = syn::parse_str::<syn::Ident>(col3_variant)
-                .expect("Column variant should be valid identifier after validation");
+            let Ok(col1_ident) = syn::parse_str::<syn::Ident>(col1_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col1_variant}\" after validation"),
+                )
+                .to_compile_error());
+            };
+            let Ok(col2_ident) = syn::parse_str::<syn::Ident>(col2_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col2_variant}\" after validation"),
+                )
+                .to_compile_error());
+            };
+            let Ok(col3_ident) = syn::parse_str::<syn::Ident>(col3_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col3_variant}\" after validation"),
+                )
+                .to_compile_error());
+            };
             Ok(quote! {
                 {
                     use lifeguard::LifeModelTrait;
@@ -209,17 +241,22 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
         }
         _n => {
             // 4 or more columns - use Many variant
-            // At this point, we've validated that all variants are valid identifiers
-            let cols: Vec<_> = column_variants.iter().map(|col_variant| {
-                let col_ident = syn::parse_str::<syn::Ident>(col_variant)
-                    .expect("Column variant should be valid identifier after validation");
-                quote! {
+            let mut cols = Vec::new();
+            for col_variant in &column_variants {
+                let Ok(col_ident) = syn::parse_str::<syn::Ident>(col_variant) else {
+                    return Err(syn::Error::new(
+                        error_span,
+                        format!("internal error: failed to parse column variant \"{col_variant}\" after validation"),
+                    )
+                    .to_compile_error());
+                };
+                cols.push(quote! {
                     {
                         let col = #column_path_expr::#col_ident;
                         sea_query::DynIden::from(col.as_str())
                     }
-                }
-            }).collect();
+                });
+            }
             Ok(quote! {
                 {
                     use lifeguard::LifeModelTrait;
@@ -395,11 +432,9 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             if is_dummy_path {
                 // Always emit error cases (dummy paths)
                 related_impls.push(related_impl);
-                // Add a match arm for error cases (dummy paths) that panics to avoid non-exhaustive match error
+                // Error case: compile error is in related_impl; def() returns None for this variant
                 def_match_arms.push(quote! {
-                    #enum_name::#variant_name => {
-                        panic!("Relation variant `{}` has invalid entity path. See compile error above.", stringify!(#variant_name))
-                    },
+                    #enum_name::#variant_name => None,
                 });
             } else {
                 // Only generate one Related impl per unique target entity path to avoid conflicts
@@ -437,13 +472,8 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                             error_msg,
                         );
                         related_impls.push(error.to_compile_error());
-                        // Still add a match arm for this variant to avoid non-exhaustive match
-                        // The match arm will panic at runtime since this is an error case
-                        // But we need it for the match to be exhaustive
                         def_match_arms.push(quote! {
-                            #enum_name::#variant_name => {
-                                panic!("Multiple relations target the same entity with different column configurations. See compile error above.")
-                            },
+                            #enum_name::#variant_name => None,
                         });
                         // Skip the rest of this iteration
                         continue;
@@ -452,16 +482,12 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                     // But still add a match arm that reuses the same RelationDef
                     let existing_def_str = existing_def_relation_def.to_string();
                     if existing_def_str.trim().is_empty() {
-                        // If existing_def_relation_def is empty, it means the original relation had a column parsing error
-                        // We still need to add a match arm that panics to avoid non-exhaustive match error
                         def_match_arms.push(quote! {
-                            #enum_name::#variant_name => {
-                                panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
-                            },
+                            #enum_name::#variant_name => None,
                         });
                     } else {
                         def_match_arms.push(quote! {
-                            #enum_name::#variant_name => #existing_def_relation_def,
+                            #enum_name::#variant_name => Some(#existing_def_relation_def),
                         });
                     }
                     continue;
@@ -477,17 +503,12 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 // In such cases, def_relation_def is empty and should not be added to def_match_arms
                 let def_relation_def_str = def_relation_def.to_string();
                 if def_relation_def_str.trim().is_empty() {
-                    // If def_relation_def is empty, it means there was an error in column parsing
-                    // We still push the related_impl (which contains the error) but need to add a match arm
-                    // that panics to avoid non-exhaustive match error
                     def_match_arms.push(quote! {
-                        #enum_name::#variant_name => {
-                            panic!("Relation variant `{}` has invalid column configuration. See compile error above.", stringify!(#variant_name))
-                        },
+                        #enum_name::#variant_name => None,
                     });
                 } else {
                     def_match_arms.push(quote! {
-                        #enum_name::#variant_name => #def_relation_def,
+                        #enum_name::#variant_name => Some(#def_relation_def),
                     });
                 }
             }
@@ -516,15 +537,10 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 }
             }
         } else {
-            // If process_relation_variant returns None, it means there was no relationship info
-            // This is not an error case, just a variant without relationship attributes
-            // We still need to add a match arm for this variant to make def() exhaustive
-            // For unannotated variants, we'll panic at runtime since they have no RelationDef
+            // Variant without #[lifeguard(...)] — def() returns None
             let variant_name = variant.ident.clone();
             def_match_arms.push(quote! {
-                #enum_name::#variant_name => {
-                    panic!("Relation variant `{}` does not have a `#[lifeguard(...)]` attribute and cannot be used with `def()` method.", stringify!(#variant_name))
-                },
+                #enum_name::#variant_name => None,
             });
         }
     }
@@ -561,28 +577,26 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
         }
     };
     
-    // Generate def() method implementation for Relation enum
-    // Generate if we have match arms for all variants (exhaustive match)
-    // Even if there are errors, we should generate def() with match arms to avoid non-exhaustive match errors
-    // The match arms for error cases will panic at runtime
+    // Generate def() method implementation for Relation enum (exhaustive match)
     let def_impl = if def_match_arms.is_empty() {
         quote! {}
     } else {
         quote! {
             impl #enum_name {
-                /// Returns the RelationDef for this relation variant
+                /// Returns the [`RelationDef`](lifeguard::relation::def::RelationDef) for this variant when the variant
+                /// has a `#[lifeguard(...)]` attribute and metadata could be generated.
                 ///
-                /// This method provides access to relationship metadata for each variant,
-                /// matching SeaORM's `Relation::Posts.def()` pattern.
+                /// Returns `None` for variants without relationship attributes or for variants that only
+                /// produced compile errors (fix errors first).
                 ///
                 /// # Example
                 ///
                 /// ```no_run
                 /// use lifeguard::relation::def::RelationDef;
                 ///
-                /// let rel_def: RelationDef = Relation::Posts.def();
+                /// let rel_def: RelationDef = Relation::Posts.def().expect("annotated relation");
                 /// ```
-                pub fn def(&self) -> lifeguard::RelationDef {
+                pub fn def(&self) -> Option<lifeguard::RelationDef> {
                     match self {
                         #(#def_match_arms)*
                     }
@@ -655,7 +669,7 @@ fn process_relation_variant(
                 // Return compile error if parsing fails
                 return Some((
                     err.to_compile_error(),
-                    syn::parse_str("Entity").unwrap(), // Dummy path - won't be used for RelatedEntity
+                    parse_quote!(Entity), // Dummy path - won't be used for RelatedEntity
                     variant.ident.clone(),
                     None, // from_col
                     None, // to_col
@@ -675,7 +689,7 @@ fn process_relation_variant(
                     "has_many_through relationship requires a 'through' attribute specifying the join table entity. Use #[lifeguard(has_many_through = \"target::Entity\", through = \"join_table::Entity\")]",
                 )
                 .to_compile_error(),
-                syn::parse_str("Entity").unwrap(), // Dummy path for error case
+                parse_quote!(Entity), // Dummy path for error case
                 variant.ident.clone(),
                 None, // from_col
                 None, // to_col
@@ -732,9 +746,13 @@ fn process_relation_variant(
                     segments: syn::punctuated::Punctuated::new(),
                 };
                 for segment in segments {
-                    // At this point, we've validated that segment is not empty and is a valid identifier
-                    let ident = syn::parse_str::<syn::Ident>(segment)
-                        .expect("Segment should be valid identifier after validation");
+                    let Ok(ident) = syn::parse_str::<syn::Ident>(segment) else {
+                        return Err(syn::Error::new(
+                            variant.ident.span(),
+                            format!("internal error: failed to parse entity path segment \"{segment}\" after validation"),
+                        )
+                        .to_compile_error());
+                    };
                     path.segments.push(syn::PathSegment {
                         ident,
                         arguments: syn::PathArguments::None,
@@ -744,17 +762,19 @@ fn process_relation_variant(
             }
         };
         
+        let dummy_entity: syn::Path = parse_quote!(Entity);
+        
         // Parse target entity path (e.g., "super::posts::Entity")
         let target_entity_path: syn::Path = match parse_entity_path(target, "entity path") {
             Ok(path) => path,
-            Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None, quote! {})),
+            Err(err) => return Some((err, dummy_entity.clone(), variant.ident.clone(), None, None, quote! {})),
         };
         
         // Parse through entity path for has_many_through relationships
         let (through_entity_path, through_table_name) = if let Some(through) = through_entity.as_ref() {
             let through_path: syn::Path = match parse_entity_path(through, "through entity path") {
                 Ok(path) => path,
-                Err(err) => return Some((err, syn::parse_str("Entity").unwrap(), variant.ident.clone(), None, None, quote! {})),
+                Err(err) => return Some((err, dummy_entity.clone(), variant.ident.clone(), None, None, quote! {})),
             };
             let through_table = quote! {
                 {

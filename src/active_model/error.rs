@@ -16,6 +16,8 @@ pub enum ActiveModelError {
     ColumnNotFound(String),
     /// Primary key required but not set
     PrimaryKeyRequired,
+    /// Required model field was unset (`None`) on the active record when calling `to_model()`
+    FieldRequired(String),
     /// Record not found (e.g., UPDATE/DELETE affected zero rows)
     RecordNotFound,
     /// Database operation failed
@@ -40,6 +42,9 @@ impl std::fmt::Display for ActiveModelError {
             }
             ActiveModelError::PrimaryKeyRequired => {
                 write!(f, "Primary key is required for this operation")
+            }
+            ActiveModelError::FieldRequired(field) => {
+                write!(f, "Required field not set: {field}")
             }
             ActiveModelError::RecordNotFound => {
                 write!(f, "Record not found (no rows affected)")

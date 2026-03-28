@@ -251,24 +251,24 @@ pub trait RelationTrait: LifeModelTrait {
     ///
     /// # Returns
     ///
-    /// Returns a `SelectQuery` builder for the related entities with automatically generated join conditions
+    /// Returns a `SelectQuery` builder for the related entities with automatically generated join conditions.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `rel_def` is not a `HasManyThrough` relationship or if required fields are missing.
-    fn has_many_through_with_def<R, T>(&self, rel: R, through: T, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    /// Returns [`LifeError`](crate::executor::LifeError) when `rel_def` is not `HasManyThrough` or
+    /// required through-table metadata is missing (same cases as [`RelationDef::join_on_exprs`](crate::relation::def::RelationDef::join_on_exprs)).
+    fn has_many_through_with_def<R, T>(
+        &self,
+        rel: R,
+        through: T,
+        rel_def: crate::relation::def::RelationDef,
+    ) -> Result<SelectQuery<R>, LifeError>
     where
         R: LifeModelTrait + Iden,
         T: LifeModelTrait + Iden,
     {
-        // Note: join_on_exprs() now returns Result, but this trait method cannot return Result.
-        // This is a programming error (invalid relationship definition), so we use expect().
-        // TODO: Change this trait method to return Result in a future breaking change.
-        #[allow(clippy::expect_used)] // Trait method signature doesn't support Result - this is a programming error
-        let (first_join, second_join) = rel_def.join_on_exprs().expect(
-            "has_many_through_with_def called with invalid HasManyThrough relationship definition"
-        );
-        self.has_many_through(rel, through, first_join, second_join)
+        let (first_join, second_join) = rel_def.join_on_exprs()?;
+        Ok(self.has_many_through(rel, through, first_join, second_join))
     }
 }
 
