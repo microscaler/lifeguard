@@ -198,8 +198,9 @@ pub trait LifeModelTrait: LifeEntityName {
     /// Primary key column for stable [`crate::query::CursorPaginator`] ordering when the cursor
     /// sort column is not unique.
     ///
-    /// Implemented for entities with a **single-column** primary key. Returns `None` for composite
-    /// PKs, no PK, or manual `LifeModelTrait` impls without codegen.
+    /// **Opt-in:** set `#[cursor_tiebreak = "PkColumnVariant"]` on the `LifeModel` struct (single-column
+    /// PK only). Returns `None` if omitted, for composite PKs, or for manual `LifeModelTrait` impls
+    /// without that attribute.
     #[must_use]
     fn cursor_tiebreak_column() -> Option<Self::Column>
     where

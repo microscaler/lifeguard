@@ -18,6 +18,7 @@ fn get_db() -> TestDatabase {
 
 #[derive(LifeModel, LifeRecord, Clone, Debug)]
 #[table_name = "test_stream_cursors"]
+#[cursor_tiebreak = "Id"]
 pub struct DataPoint {
     #[primary_key]
     #[auto_increment]

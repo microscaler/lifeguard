@@ -1798,9 +1798,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
-    let cursor_tiebreak_attr = if primary_key_variant_idents.len() == 1 {
-        let v = &primary_key_variant_idents[0].0;
-        let lit = syn::LitStr::new(&v.to_string(), v.span());
+    let cursor_tiebreak_user = attributes::extract_cursor_tiebreak(&input.attrs);
+    if let Some(ref tie) = cursor_tiebreak_user {
+        if primary_key_variant_idents.len() != 1 {
+            return syn::Error::new_spanned(
+                tie,
+                "#[cursor_tiebreak] is only valid for entities with a single-column primary key",
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+    let cursor_tiebreak_attr = if let Some(variant) = cursor_tiebreak_user {
+        let lit = syn::LitStr::new(&variant.to_string(), variant.span());
         quote! { #[cursor_tiebreak = #lit] }
     } else {
         quote! {}

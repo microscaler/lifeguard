@@ -91,7 +91,9 @@ pub fn extract_column_enum_name(attrs: &[Attribute]) -> Option<syn::Ident> {
     None
 }
 
-/// `#[cursor_tiebreak = "ColumnVariant"]` on Entity — single-column PK column for cursor tie-break (`DeriveEntity`).
+/// `#[cursor_tiebreak = "ColumnVariant"]` on the `LifeModel` struct (forwarded to `DeriveEntity`) —
+/// opt-in primary-key column variant for cursor pagination `after_pk` / `before_pk` when the cursor column
+/// is non-unique. Valid only with a single-column primary key.
 pub fn extract_cursor_tiebreak(attrs: &[Attribute]) -> Option<syn::Ident> {
     for attr in attrs {
         if attr.path().is_ident("cursor_tiebreak") {

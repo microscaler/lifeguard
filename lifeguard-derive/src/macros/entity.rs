@@ -6,13 +6,74 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, Attribute, DeriveInput};
 
 use crate::attributes;
 use crate::utils;
 
+fn default_stripped_suffix_ident(struct_name: &syn::Ident, strip_suffix: &str, append: &str) -> syn::Ident {
+    let s = struct_name.to_string();
+    let base = if let Some(prefix) = s.strip_suffix(strip_suffix) {
+        prefix.to_string()
+    } else {
+        s
+    };
+    syn::Ident::new(&format!("{base}{append}"), struct_name.span())
+}
+
+fn resolve_entity_model_name(struct_name: &syn::Ident, attrs: &[Attribute]) -> syn::Ident {
+    match attributes::extract_model_name(attrs) {
+        Some(ident) => ident,
+        None => {
+            if *struct_name == "Entity" {
+                syn::Ident::new("Model", struct_name.span())
+            } else {
+                default_stripped_suffix_ident(struct_name, "Entity", "Model")
+            }
+        }
+    }
+}
+
+fn resolve_entity_column_enum_name(struct_name: &syn::Ident, attrs: &[Attribute]) -> syn::Ident {
+    match attributes::extract_column_enum_name(attrs) {
+        Some(ident) => ident,
+        None => {
+            if *struct_name == "Entity" {
+                syn::Ident::new("Column", struct_name.span())
+            } else {
+                default_stripped_suffix_ident(struct_name, "Entity", "Column")
+            }
+        }
+    }
+}
+
+fn generate_life_model_trait_impl(
+    struct_name: &syn::Ident,
+    model_name: &syn::Ident,
+    column_name: &syn::Ident,
+    cursor_tiebreak_impl: &TokenStream2,
+    soft_delete_column_impl: &TokenStream2,
+    find_impl: &TokenStream2,
+) -> TokenStream2 {
+    quote! {
+        impl lifeguard::LifeModelTrait for #struct_name {
+            type Model = #model_name;
+            type Column = #column_name;
+
+            fn all_columns() -> &'static [Self::Column] {
+                #column_name::all_columns()
+            }
+
+            #cursor_tiebreak_impl
+
+            #soft_delete_column_impl
+
+            #find_impl
+        }
+    }
+}
+
 /// Generate Entity, `EntityName`, Iden, and `IdenStatic` implementations
-#[allow(clippy::too_many_lines)] // Single expansion entry point; splitting would obscure codegen flow
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     
@@ -25,58 +86,10 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     let schema_name = attributes::extract_schema_name(&input.attrs);
     
     // Following SeaORM's EXACT pattern: DeriveEntity generates EntityName, Iden, IdenStatic, and EntityTrait
-    // This is called via NESTED macro expansion from DeriveEntityModel (or our LifeModel)
-    // The key insight: EntityTrait is generated in a SEPARATE expansion phase, not the same one
-    // This allows the compiler to resolve types properly across expansion phases
-    
-    // Extract Model name from attributes
-    // In SeaORM, Model is always named "Model", but we use "{Struct}Model"
-    // We pass it via #[model = "ModelName"] attribute from LifeModel
-    let model_name = match attributes::extract_model_name(&input.attrs) {
-        Some(ident) => ident,
-        None => {
-            // Default: assume Model is named "Model" (SeaORM convention)
-            // or "{Entity}Model" if Entity is not "Entity"
-            if *struct_name == "Entity" {
-                syn::Ident::new("Model", struct_name.span())
-            } else {
-                // Remove "Entity" suffix if present, add "Model"
-                let base = struct_name.to_string();
-                let base = if base.ends_with("Entity") {
-                    &base[..base.len() - 6]
-                } else {
-                    &base
-                };
-                syn::Ident::new(&format!("{base}Model"), struct_name.span())
-            }
-        }
-    };
-    
-    // Extract Column enum name from attributes
-    // Note: Column is generated in the parent expansion (LifeModel), so we need to extract
-    // it from attributes. The parent macro passes it via #[column = "ColumnName"] attribute.
-    // For now, we'll use a default pattern: if Entity is "Entity", Column is "Column"
-    // Otherwise, it's "{Entity}Column" or just "Column" if Entity ends with "Entity"
-    let column_name = match attributes::extract_column_enum_name(&input.attrs) {
-        Some(ident) => ident,
-        None => {
-            // Default: assume Column is named "Column" (SeaORM convention)
-            // or "{Entity}Column" if Entity is not "Entity"
-            if *struct_name == "Entity" {
-                syn::Ident::new("Column", struct_name.span())
-            } else {
-                // Remove "Entity" suffix if present, add "Column"
-                let base = struct_name.to_string();
-                let base = if base.ends_with("Entity") {
-                    &base[..base.len() - 6]
-                } else {
-                    &base
-                };
-                syn::Ident::new(&format!("{base}Column"), struct_name.span())
-            }
-        }
-    };
-    
+    // via NESTED expansion from LifeModel so Entity::Model resolves in a later phase.
+    let model_name = resolve_entity_model_name(struct_name, &input.attrs);
+    let column_name = resolve_entity_column_enum_name(struct_name, &input.attrs);
+
     // Following SeaORM's EXACT pattern: DeriveEntity generates trait implementations
     // for an already-declared Entity struct. The struct itself is NOT generated here.
     // This is called via NESTED macro expansion from DeriveEntityModel (or our LifeModel).
@@ -134,7 +147,16 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         },
         None => quote! {},
     };
-    
+
+    let life_model_trait_impl = generate_life_model_trait_impl(
+        struct_name,
+        &model_name,
+        &column_name,
+        &cursor_tiebreak_impl,
+        &soft_delete_column_impl,
+        &find_impl,
+    );
+
     let expanded: TokenStream2 = quote! {
         // Implement Default for Entity (required by LifeEntityName)
         impl Default for #struct_name {
@@ -166,24 +188,8 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
             }
         }
         
-        // CRITICAL: Generate LifeModelTrait implementation here (in the nested expansion)
-        // This is the key difference - EntityTrait is generated in DeriveEntity, not DeriveEntityModel
-        // This allows the compiler to resolve Entity::Model in a separate expansion phase
-        // By the time this expands, Model should already exist from the parent expansion
-        impl lifeguard::LifeModelTrait for #struct_name {
-            type Model = #model_name;
-            type Column = #column_name;
-            
-            fn all_columns() -> &'static [Self::Column] {
-                #column_name::all_columns()
-            }
-
-            #cursor_tiebreak_impl
-
-            #soft_delete_column_impl
-            
-            #find_impl
-        }
+        // CRITICAL: LifeModelTrait is generated in DeriveEntity (nested expansion) so Entity::Model resolves.
+        #life_model_trait_impl
     };
     
     TokenStream::from(expanded)

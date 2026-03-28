@@ -21,8 +21,9 @@ use crate::query::SelectQuery;
 ///
 /// If the cursor column can repeat across rows, use [`Self::after_pk`] / [`Self::before_pk`]
 /// together with [`Self::after`] / [`Self::before`] so ordering matches
-/// `(cursor column, primary key)` and pages do not skip or duplicate rows. Entities with a
-/// single-column primary key expose this via [`LifeModelTrait::cursor_tiebreak_column`].
+/// `(cursor column, primary key)` and pages do not skip or duplicate rows. Enable
+/// [`LifeModelTrait::cursor_tiebreak_column`] with `#[cursor_tiebreak = "PkColumnVariant"]` on the
+/// model (single-column PK only).
 pub struct CursorPaginator<E, C>
 where
     E: LifeModelTrait,
