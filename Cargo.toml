@@ -59,6 +59,9 @@ regex = "1.10"  # For migration file name parsing
 # JSON support is always enabled (core functionality)
 sea-query = { version = "1.0.0-rc.29", features = ["with-json", "with-chrono"] }
 
+# GraphQL API generation
+async-graphql = { version = "7", optional = true }
+
 # Security: Force protobuf 3.7.2 to address CVE-2025-53605
 # Adding as direct dependency forces all transitive dependencies to use this version
 protobuf = "3.7.2"
@@ -84,3 +87,4 @@ tracing = ["dep:tracing"]
 mock = []
 # Enable test helpers for integration tests
 test-helpers = []
+graphql = ["lifeguard-derive/graphql", "dep:async-graphql"]

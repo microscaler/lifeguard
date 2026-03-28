@@ -56,6 +56,10 @@ pub mod test_helpers;
 // Public API will be rebuilt in Epic 04
 // pub use pool::LifeguardPool;
 
+// Optional GraphQL generation ecosystem bridges dynamically
+#[cfg(feature = "graphql")]
+pub use async_graphql;
+
 // Re-export connection types for convenience
 pub use connection::{
     connect, validate_connection_string, check_connection_health,
