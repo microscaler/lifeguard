@@ -181,7 +181,43 @@ where
     /// # Errors
     ///
     /// Returns `LifeError` if the query execution or row parsing fails.
-    fn find_by_id<Ex: LifeExecutor>(executor: &Ex, id: i64) -> Result<Option<<Self as LifeModelTrait>::Model>, LifeError>;
+    fn find_by_id<Ex: LifeExecutor>(
+        executor: &Ex,
+        id: i64,
+    ) -> Result<Option<<Self as LifeModelTrait>::Model>, LifeError>
+    where
+        <Self as LifeModelTrait>::Model: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        use sea_query::ExprTrait;
+
+        let table_name = Self::default().table_name();
+        let cache_key = format!("lifeguard:model:{table_name}:{id}");
+
+        // 1. Transparent Cache Verification
+        if let Some(cache) = executor.cache_provider() {
+            if let Ok(crate::cache::CachedResult::Hit(json_str)) = cache.get(&cache_key) {
+                if let Ok(model) = serde_json::from_str(&json_str) {
+                    return Ok(Some(model));
+                }
+            }
+        }
+
+        // 2. Fallback to Primary DB Layer (using hardcoded "id" column)
+        let model = Self::find()
+            .filter(sea_query::Expr::col(sea_query::Alias::new("id")).eq(sea_query::Expr::value(id)))
+            .find_one(executor)?;
+
+        // 3. Transparent Cache Write-Through
+        if let Some(ref m) = model {
+            if let Some(cache) = executor.cache_provider() {
+                if let Ok(json_str) = serde_json::to_string(m) {
+                    let _ = cache.set(&cache_key, &json_str, Some(3600)); // Default TTL 1 hour
+                }
+            }
+        }
+
+        Ok(model)
+    }
 
     /// Find all models matching a condition.
     ///

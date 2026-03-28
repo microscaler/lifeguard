@@ -672,7 +672,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let build_delete_query_ts = if table_attrs.soft_delete {
         let set_updated_at = if table_attrs.auto_timestamp {
             quote! {
-                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::UpdatedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc().to_string()));
+                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::UpdatedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc()));
             }
         } else {
             quote! {}
@@ -684,7 +684,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             query.table(entity.clone());
             
             // Soft delete: set deleted_at to current timestamp
-            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc().to_string()));
+            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc()));
             #set_updated_at
             
             #(#delete_where_clauses)*
@@ -879,6 +879,24 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Call after_insert hook
                 updated_record.after_insert(&model)?;
                 
+                // Transparent Cache Write-Through
+                if let Some(cache) = executor.cache_provider() {
+                    let table_name = <#entity_name as lifeguard::LifeEntityName>::table_name(&#entity_name::default());
+                    if let Some(pk_value) = lifeguard::ModelTrait::get_primary_key_values(&model).first() {
+                        let id_str = match pk_value {
+                            sea_query::Value::BigInt(Some(v)) => v.to_string(),
+                            sea_query::Value::Int(Some(v)) => v.to_string(),
+                            _ => "".to_string(),
+                        };
+                        if !id_str.is_empty() {
+                            let cache_key = format!("lifeguard:model:{}:{}", table_name, id_str);
+                            if let Ok(json_str) = serde_json::to_string(&model) {
+                                let _ = cache.set(&cache_key, &json_str, Some(3600));
+                            }
+                        }
+                    }
+                }
+                
                 // Return the model
                 Ok(model)
             }
@@ -948,11 +966,42 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     return Err(lifeguard::ActiveModelError::RecordNotFound);
                 }
                 
-                // Construct the model
-                let model = record_for_hooks.to_model();
+                // Construct the model by fetching it from the database to ensure all fields are properly loaded
+                let mut find_query = <#entity_name as lifeguard::LifeModelTrait>::find();
+                #(
+                    if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                        use lifeguard::ColumnTrait;
+                        find_query = find_query.filter(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants.eq(pk_value.clone()));
+                    }
+                )*
+                let model = find_query.find_one(executor)
+                    .map_err(|e| lifeguard::ActiveModelError::DatabaseError(e.to_string()))?
+                    .ok_or(lifeguard::ActiveModelError::RecordNotFound)?;
+                
+                // The record used in the after_update hook needs to represent the updated state
+                // We recreate it from the fetched model
+                let mut record_for_hooks = Self::from_model(&model);
                 
                 // Call after_update hook
                 record_for_hooks.after_update(&model)?;
+                
+                // Transparent Cache Write-Through
+                if let Some(cache) = executor.cache_provider() {
+                    let table_name = <#entity_name as lifeguard::LifeEntityName>::table_name(&#entity_name::default());
+                    if let Some(pk_value) = lifeguard::ModelTrait::get_primary_key_values(&model).first() {
+                        let id_str = match pk_value {
+                            sea_query::Value::BigInt(Some(v)) => v.to_string(),
+                            sea_query::Value::Int(Some(v)) => v.to_string(),
+                            _ => "".to_string(),
+                        };
+                        if !id_str.is_empty() {
+                            let cache_key = format!("lifeguard:model:{}:{}", table_name, id_str);
+                            if let Ok(json_str) = serde_json::to_string(&model) {
+                                let _ = cache.set(&cache_key, &json_str, Some(3600));
+                            }
+                        }
+                    }
+                }
                 
                 // Return the updated model
                 Ok(model)
@@ -971,8 +1020,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // then return a model that includes all modifications (including auto-increment PKs from RETURNING)
                 let model = #save_pk_logic?;
                 
+                // The record used in the after_save hook needs to represent the updated state
+                // We recreate it from the returned model to ensure consistency
+                let mut record_for_after_save = Self::from_model(&model);
+                
                 // Call after_save hook
-                record_for_hooks.after_save(&model)?;
+                record_for_after_save.after_save(&model)?;
                 
                 Ok(model)
             }
@@ -1022,6 +1075,24 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 // Call after_delete hook
                 record_for_hooks.after_delete()?;
+                
+                // Transparent Cache Invalidation
+                if let Some(cache) = executor.cache_provider() {
+                    let table_name = <#entity_name as lifeguard::LifeEntityName>::table_name(&#entity_name::default());
+                    #(
+                        if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                            let id_str = match pk_value {
+                                sea_query::Value::BigInt(Some(v)) => v.to_string(),
+                                sea_query::Value::Int(Some(v)) => v.to_string(),
+                                _ => "".to_string(),
+                            };
+                            if !id_str.is_empty() {
+                                let cache_key = format!("lifeguard:model:{}:{}", table_name, id_str);
+                                let _ = cache.invalidate(&cache_key);
+                            }
+                        }
+                    )*
+                }
                 
                 Ok(())
             }

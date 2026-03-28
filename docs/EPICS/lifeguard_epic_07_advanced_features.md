@@ -85,9 +85,20 @@ Broaden the `LifeQuery` builder explicitly wrapping the underlying `sea-query` c
 ## 4. Cache Coherence Architecture (LifeReflector)
 
 ### Why it's needed
-Outlined originally in *Epic 05*, heavy `Entity::find_by_id()` calls stress PostgreSQL connections unnecessarily for high-read platforms.
+Outlined originally in *Epic 05*, heavy `Entity::find_by_id()` calls stress PostgreSQL connections unnecessarily for high-read platforms. We needed to mitigate connection exhaustion natively inside the ORM queries without relying on the developer to wrap their application code in a Redis layer.
 
-### Implementation Strategy
-Build a standalone worker/trait definition `CacheProvider` hooking into a distributed key-value store (e.g., Redis). Integrates fundamentally with the Lifecycle hooks (i.e. `after_update` triggers an eviction protocol automatically tracking `Entity` keys across the synchronized cache boundary natively inside the ORM layer, completely transparent to the microservice developer).
+### Phase 4 MVP Implementation Status (Completed)
+We have successfully implemented the core transparent caching layer, known as **LifeReflector**, bounded by minimal PostgreSQL overheads:
+1. **Abstract Cache Interface**: Scaffolded `lifeguard/src/cache/mod.rs` and the `CacheProvider` trait exposing `.get()`, `.set()`, and `.invalidate()`. Integrated `RedisCacheProvider` natively.
+2. **Transparent Read-Through**: Wrapped `Entity::find_by_id(pk)` inside `query/manager.rs` to automatically fetch from `CacheProvider` before executing SQL logic.
+3. **Synchronous Write-Through Hooks**: Overrode `ActiveModelBehavior` macros (`insert`, `update`, `delete`) to synchronously update/invalidate the Redis cache the moment a record completes its transaction. This effectively solves the "CDC Delay Paradox".
+4. **WAL Lag Polling Coroutine**: Implemented `WalLagMonitor` (`src/pool/wal.rs`) utilizing a background `may::coroutine` to poll Postgres replica lag (`pg_is_in_recovery()`, LSN replay diffs) every 500ms safely outside of the request pipeline.
+5. **LifeReflector Daemon Scaffold**: Created the standalone background worker loop (`src/cache/reflector.rs`) executing PostgreSQL `LISTEN/NOTIFY` for out-of-band CDC.
 
-> **Note on Scope**: For the Phase 4 MVP, caching is explicitly restricted to `find_by_id()` (Primary Key lookups). Reverse-lookup secondary indexing and `find_by()` query invalidations are deferred for later consideration as they require composite coherence mapping logic in Redis.
+### Deferred Architecture / Considerations Held-Off
+
+During implementation, critical trade-offs were evaluated. We held off on the following mechanisms to ship a stable MVP:
+
+- **Raft Consensus for Leader Election**: We **abandoned** the original design intent of utilizing a P2P Raft network (e.g. `openraft`) for the LifeReflector worker nodes. Instead, we implemented **Redis Distributed Locks (Redlock)**. Standing up a distributed consensus protocol just to synchronize a cache invalidator adds unjustifiable operational complexity when the architecture already intrinsically requires Redis.
+- **Secondary Index / Cross-Column Caching**: Caching is strictly limited to Primary Key point-read lookups (`lifeguard:model:entity:id`). We **deferred** complex reverse-lookup implementations or `find_by()` query invalidations, as they demand brittle active-set coherency tracking that goes beyond initial MVP limits.
+- **Exclusive Reliance on `LISTEN/NOTIFY`**: Instead of relying *solely* on `LISTEN/NOTIFY` as initially conceptualized in the LifeReflector blog spec, we implemented dual guarantees. Synchronous macro hooks (Write-Through) act as the primary defense against cache stampedes natively from Lifeguard ORM interactions, while async `LISTEN/NOTIFY` acts solely as a fallback mapping for manual database administrator mutations.

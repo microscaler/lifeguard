@@ -25,12 +25,14 @@ pub(crate) fn is_no_rows_error(error: &LifeError) -> bool {
             // Check the underlying PostgreSQL error message
             // may_postgres typically returns errors with specific messages for "no rows"
             let error_msg = pg_error.to_string().to_lowercase();
+            let debug_msg = format!("{pg_error:?}").to_lowercase();
             // Only match specific "no rows" patterns, not the broad "not found"
             error_msg.contains("no rows")
                 || error_msg.contains("no row")
                 || error_msg.contains("row not found")
                 || error_msg.contains("no rows returned")
                 || error_msg.contains("expected one row")
+                || debug_msg.contains("rowcount")
         }
         LifeError::QueryError(msg) => {
             // Check QueryError messages - be specific about "no rows" patterns

@@ -53,6 +53,14 @@ impl TestDatabase {
         })
     }
 
+    /// Create a new test database with a specific connection string
+    pub fn with_url(url: impl Into<String>) -> Self {
+        Self {
+            connection_string: url.into(),
+            client: None,
+        }
+    }
+
     /// Get connection string from various sources
     ///
     /// # Errors

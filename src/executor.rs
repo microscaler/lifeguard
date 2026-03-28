@@ -169,6 +169,11 @@ pub trait LifeExecutor {
     /// # Ok::<(), LifeError>(())
     /// ```
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError>;
+
+    /// Retrieve the transparent cache provider if configured for this executor
+    fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
+        None
+    }
 }
 
 /// Implementation of `LifeExecutor` for `may_postgres::Client`

@@ -49,6 +49,13 @@ where
     let mut floats: Vec<f32> = Vec::new();
     let mut doubles: Vec<f64> = Vec::new();
     
+    // Chrono types
+    let mut chrono_dates: Vec<chrono::NaiveDate> = Vec::new();
+    let mut chrono_times: Vec<chrono::NaiveTime> = Vec::new();
+    let mut chrono_date_times: Vec<chrono::NaiveDateTime> = Vec::new();
+    let mut chrono_date_times_utc: Vec<chrono::DateTime<chrono::Utc>> = Vec::new();
+    let mut chrono_date_times_local: Vec<chrono::DateTime<chrono::Local>> = Vec::new();
+    
     // First pass: collect all values into typed vectors
     for value in values {
         match value {
@@ -75,6 +82,14 @@ where
             },
             Value::Float(Some(f)) => floats.push(*f),
             Value::Double(Some(d)) => doubles.push(*d),
+            
+            // Chrono types
+            Value::ChronoDate(Some(d)) => chrono_dates.push(*d),
+            Value::ChronoTime(Some(t)) => chrono_times.push(*t),
+            Value::ChronoDateTime(Some(dt)) => chrono_date_times.push(*dt),
+            Value::ChronoDateTimeUtc(Some(dt)) => chrono_date_times_utc.push(*dt),
+            Value::ChronoDateTimeLocal(Some(dt)) => chrono_date_times_local.push(*dt),
+
             Value::Json(Some(j)) => {
                 strings.push(serde_json::to_string(&**j).map_err(|e| {
                     ActiveModelError::Other(format!("Failed to serialize JSON: {e}"))
@@ -88,6 +103,11 @@ where
             Value::Unsigned(None) | Value::BigUnsigned(None) |
             Value::Float(None) | Value::Double(None)
             | Value::Json(None) => nulls.push(None),
+            
+            Value::ChronoDate(None) | Value::ChronoTime(None) |
+            Value::ChronoDateTime(None) | Value::ChronoDateTimeUtc(None) |
+            Value::ChronoDateTimeLocal(None) => nulls.push(None),
+
             _ => {
                 return Err(ActiveModelError::Other(format!(
                     "Unsupported value type in query: {value:?}"
@@ -106,6 +126,12 @@ where
     let mut float_idx = 0;
     let mut double_idx = 0;
     
+    let mut chrono_date_idx = 0;
+    let mut chrono_time_idx = 0;
+    let mut chrono_datetime_idx = 0;
+    let mut chrono_datetime_utc_idx = 0;
+    let mut chrono_datetime_local_idx = 0;
+
     let mut params: Vec<&dyn ToSql> = Vec::new();
     
     for value in values {
@@ -130,6 +156,29 @@ where
                 params.push(&bytes[byte_idx] as &dyn ToSql);
                 byte_idx += 1;
             }
+            
+            // Chrono types
+            Value::ChronoDate(Some(_)) => {
+                params.push(&chrono_dates[chrono_date_idx] as &dyn ToSql);
+                chrono_date_idx += 1;
+            }
+            Value::ChronoTime(Some(_)) => {
+                params.push(&chrono_times[chrono_time_idx] as &dyn ToSql);
+                chrono_time_idx += 1;
+            }
+            Value::ChronoDateTime(Some(_)) => {
+                params.push(&chrono_date_times[chrono_datetime_idx] as &dyn ToSql);
+                chrono_datetime_idx += 1;
+            }
+            Value::ChronoDateTimeUtc(Some(_)) => {
+                params.push(&chrono_date_times_utc[chrono_datetime_utc_idx] as &dyn ToSql);
+                chrono_datetime_utc_idx += 1;
+            }
+            Value::ChronoDateTimeLocal(Some(_)) => {
+                params.push(&chrono_date_times_local[chrono_datetime_local_idx] as &dyn ToSql);
+                chrono_datetime_local_idx += 1;
+            }
+
             Value::Bool(None) | Value::Int(None) | 
             Value::BigInt(None) | Value::String(None) | 
             Value::Bytes(None) => {
@@ -160,6 +209,14 @@ where
                 params.push(&nulls[null_idx] as &dyn ToSql);
                 null_idx += 1;
             }
+            
+            Value::ChronoDate(None) | Value::ChronoTime(None) |
+            Value::ChronoDateTime(None) | Value::ChronoDateTimeUtc(None) |
+            Value::ChronoDateTimeLocal(None) => {
+                params.push(&nulls[null_idx] as &dyn ToSql);
+                null_idx += 1;
+            }
+
             Value::Json(Some(_)) => {
                 params.push(&strings[string_idx] as &dyn ToSql);
                 string_idx += 1;

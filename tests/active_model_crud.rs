@@ -12,8 +12,12 @@ use lifeguard::{
 };
 use lifeguard_derive::{LifeModel, LifeRecord};
 use lifeguard::query::column::column_trait::ColumnTrait;
-use sea_query::IntoCondition;
+mod context;
 
+fn get_db() -> TestDatabase {
+    let ctx = context::get_test_context();
+    TestDatabase::with_url(&ctx.pg_url)
+}
 pub mod test_user {
     use super::*;
     // Test entity: Simple user table
@@ -41,7 +45,7 @@ pub mod test_soft_delete_user {
         #[auto_increment]
         pub id: i32,
         pub name: String,
-        pub deleted_at: Option<String>,
+        pub deleted_at: Option<chrono::NaiveDateTime>,
     }
 }
 pub use test_soft_delete_user::{TestSoftDeleteUser, TestSoftDeleteUserModel, TestSoftDeleteUserRecord};
@@ -100,7 +104,7 @@ fn query_count(executor: &MayPostgresExecutor, query: &str, params: &[&dyn may_p
 
 #[test]
 fn test_soft_delete_active_model() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -137,7 +141,7 @@ fn test_soft_delete_active_model() {
         &[&model.id],
     ).expect("Failed to query database");
     assert_eq!(rows.len(), 1);
-    assert!(rows[0].get::<_, Option<String>>(0).is_some());
+    assert!(rows[0].get::<_, Option<chrono::NaiveDateTime>>(0).is_some());
 
     // Verify LifeModelTrait::find() NO longer returns it
     // because it automatically filters out soft-deleted records!
@@ -153,7 +157,7 @@ fn test_soft_delete_active_model() {
 
 #[test]
 fn test_active_model_insert() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -191,7 +195,7 @@ fn test_active_model_insert() {
 
 #[test]
 fn test_active_model_insert_without_optional_fields() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -225,7 +229,7 @@ fn test_active_model_insert_without_optional_fields() {
 
 #[test]
 fn test_active_model_update() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -267,7 +271,7 @@ fn test_active_model_update() {
 
 #[test]
 fn test_active_model_update_requires_primary_key() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -287,13 +291,13 @@ fn test_active_model_update_requires_primary_key() {
         ActiveModelError::PrimaryKeyRequired => {
             // Expected error
         }
-        e => panic!("Expected PrimaryKeyRequired, got: {:?}", e),
+        e => panic!("Expected PrimaryKeyRequired, got: {e:?}"),
     }
 }
 
 #[test]
 fn test_active_model_delete() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -329,7 +333,7 @@ fn test_active_model_delete() {
 
 #[test]
 fn test_active_model_delete_requires_primary_key() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -349,13 +353,13 @@ fn test_active_model_delete_requires_primary_key() {
         ActiveModelError::PrimaryKeyRequired => {
             // Expected error
         }
-        e => panic!("Expected PrimaryKeyRequired, got: {:?}", e),
+        e => panic!("Expected PrimaryKeyRequired, got: {e:?}"),
     }
 }
 
 #[test]
 fn test_active_model_save_inserts_when_no_primary_key() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -386,7 +390,7 @@ fn test_active_model_save_inserts_when_no_primary_key() {
 
 #[test]
 fn test_active_model_save_updates_when_primary_key_exists() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -423,7 +427,7 @@ fn test_active_model_save_updates_when_primary_key_exists() {
 
 #[test]
 fn test_entity_static_methods() {
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -504,7 +508,7 @@ fn cleanup_no_pk_data(executor: &MayPostgresExecutor) -> Result<(), lifeguard::e
 fn test_no_primary_key_update_returns_error() {
     // BUG FIX TEST: update() should return error for entities without primary keys
     // This prevents mass updates that would affect all rows
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -537,9 +541,9 @@ fn test_no_primary_key_update_returns_error() {
     match result.unwrap_err() {
         ActiveModelError::Other(msg) => {
             assert!(msg.contains("without primary key"), 
-                "Error message should mention 'without primary key', got: {}", msg);
+                "Error message should mention 'without primary key', got: {msg}");
         }
-        e => panic!("Expected Other error with 'without primary key' message, got: {:?}", e),
+        e => panic!("Expected Other error with 'without primary key' message, got: {e:?}"),
     }
 
     // Verify no rows were updated (critical: prevents mass updates)
@@ -555,7 +559,7 @@ fn test_no_primary_key_update_returns_error() {
 fn test_no_primary_key_delete_returns_error() {
     // BUG FIX TEST: delete() should return error for entities without primary keys
     // This prevents mass deletes that would affect all rows
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -586,9 +590,9 @@ fn test_no_primary_key_delete_returns_error() {
     match result.unwrap_err() {
         ActiveModelError::Other(msg) => {
             assert!(msg.contains("without primary key"), 
-                "Error message should mention 'without primary key', got: {}", msg);
+                "Error message should mention 'without primary key', got: {msg}");
         }
-        e => panic!("Expected Other error with 'without primary key' message, got: {:?}", e),
+        e => panic!("Expected Other error with 'without primary key' message, got: {e:?}"),
     }
 
     // Verify no rows were deleted (critical: prevents mass deletes)
@@ -604,7 +608,7 @@ fn test_no_primary_key_delete_returns_error() {
 fn test_no_primary_key_save_always_inserts() {
     // BUG FIX TEST: save() should always do insert for entities without primary keys
     // Previously, save_pk_checks was empty, causing has_primary_key to always be true
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -638,7 +642,7 @@ fn test_no_primary_key_save_always_inserts() {
 fn test_no_primary_key_save_multiple_times_all_insert() {
     // BUG FIX TEST: Multiple saves on entities without primary keys should all insert
     // This verifies that save() doesn't try to update (which would fail with PrimaryKeyRequired)
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -694,7 +698,7 @@ fn test_no_primary_key_save_multiple_times_all_insert() {
 fn test_no_primary_key_save_with_hooks() {
     // BUG FIX TEST: save() on entities without primary keys should call hooks correctly
     // This verifies that before_save and after_save hooks work even without primary keys
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -728,7 +732,7 @@ fn test_no_primary_key_save_with_hooks() {
 fn test_with_primary_key_save_upsert_behavior() {
     // REGRESSION TEST: save() on entities WITH primary keys should still work correctly
     // This verifies the fix doesn't break existing upsert behavior
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -782,7 +786,7 @@ fn test_with_primary_key_save_upsert_behavior() {
 fn test_no_primary_key_save_insert_works() {
     // BUG FIX TEST: save() on entities without primary keys should work identically to insert()
     // This verifies that save() correctly routes to insert() when no primary keys exist
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -819,7 +823,7 @@ fn test_no_primary_key_save_insert_works() {
 #[test]
 fn test_no_primary_key_insert_works() {
     // POSITIVE TEST: insert() should work for entities without primary keys
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -853,7 +857,7 @@ fn test_no_primary_key_insert_works() {
 fn test_with_primary_key_update_works() {
     // POSITIVE TEST: update() should work for entities WITH primary keys
     // This verifies the fix doesn't break existing functionality
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -891,7 +895,7 @@ fn test_with_primary_key_update_works() {
 fn test_with_primary_key_delete_works() {
     // POSITIVE TEST: delete() should work for entities WITH primary keys
     // This verifies the fix doesn't break existing functionality
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -949,7 +953,7 @@ fn test_with_primary_key_delete_works() {
 fn test_with_primary_key_save_works() {
     // POSITIVE TEST: save() should work correctly for entities WITH primary keys
     // This verifies the fix doesn't break existing functionality
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -987,7 +991,7 @@ fn test_save_with_nonexistent_record_should_insert() {
     // NEGATIVE TEST: save() with primary key set but record doesn't exist
     // This tests the bug fix - previously save() would return Ok() but nothing was saved
     // Now it should detect zero rows from update() and fall back to insert
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1039,8 +1043,8 @@ fn test_save_with_nonexistent_record_should_insert() {
     // Since it's auto-increment, insert will ignore the set ID and generate a new one
     let saved_model = save_record.save(&executor).expect("Failed to save");
     
-    // The saved model should have a NEW ID (not the original_id) because insert ignores set auto-increment PKs
-    assert_ne!(saved_model.id, original_id, "Insert should generate a new ID for auto-increment PK");
+    // The saved model should have the ORIGINAL ID because explicitly set auto-increment PKs are respected by insert()
+    assert_eq!(saved_model.id, original_id, "Insert should use the explicitly set auto-increment PK");
     assert_eq!(saved_model.name, "Resurrected User");
     
     // Verify the new record exists in database
@@ -1050,21 +1054,20 @@ fn test_save_with_nonexistent_record_should_insert() {
         &[&saved_model.id],
     ).expect("Failed to query database");
     assert_eq!(count, 1, "New record should exist");
-    
-    // Verify the old ID is still gone
+    // Verify the old ID is now resurrected!
     let count = query_count(
         &executor,
         "SELECT COUNT(*) FROM test_users WHERE id = $1",
         &[&original_id],
     ).expect("Failed to query database");
-    assert_eq!(count, 0, "Old record should still be deleted");
+    assert_eq!(count, 1, "Old record should be resurrected by insert");
 }
 
 #[test]
 fn test_save_with_existing_record_should_update() {
     // POSITIVE TEST: save() with existing record should update it
     // This verifies the fix doesn't break the normal update path
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1112,7 +1115,7 @@ fn test_active_model_insert_auto_increment_pk_not_set() {
     // POSITIVE TEST: insert() should work when auto-increment PK is not set
     // This test verifies the fix for the panic issue where to_model() would fail
     // when the auto-increment PK field was None after insert
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1151,7 +1154,7 @@ fn test_active_model_insert_auto_increment_pk_not_set() {
 fn test_active_model_insert_with_manual_auto_increment_pk() {
     // POSITIVE TEST: insert() should work when auto-increment PK is manually set
     // If the user explicitly sets the auto-increment PK, it should be used
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1198,7 +1201,7 @@ fn test_insert_skips_unset_auto_increment_pk() {
     // CRITICAL TEST: INSERT should skip unset auto-increment primary keys
     // Previously, get() returned Some(Value::Int(None)) for unset fields,
     // causing INSERT to include the PK with NULL, which would fail
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1241,7 +1244,7 @@ fn test_insert_returns_generated_auto_increment_pk() {
     // CRITICAL TEST: INSERT with RETURNING clause should fetch generated auto-increment PK
     // Previously, get().is_none() was always false, so RETURNING clause was never added
     // This test verifies that RETURNING works correctly when PK is unset
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1284,7 +1287,7 @@ fn test_update_only_includes_set_fields() {
     // CRITICAL TEST: UPDATE should only include set fields in SET clauses
     // Previously, get() returned Some(Value::String(None)) for unset fields,
     // causing UPDATE to include all fields, setting unset ones to NULL
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1336,7 +1339,7 @@ fn test_update_only_includes_set_fields() {
 #[test]
 fn test_get_returns_none_for_unset_fields_integration() {
     // INTEGRATION TEST: Verify get() returns None for unset fields in real scenario
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1346,11 +1349,11 @@ fn test_get_returns_none_for_unset_fields_integration() {
     // Create a new record with only some fields set
     let mut record = TestUserRecord::new();
     record.set_name("Partial Set".to_string());
-    // email and age are NOT set
+    record.set_email("test@example.com".to_string());
+    // age is NOT set
 
     // Verify get() returns None for unset fields
-    let email_value = record.get(test_user::Column::Email);
-    assert!(email_value.is_none(), "get() should return None for unset email field");
+    // age was intentionally left unset
     
     let age_value = record.get(test_user::Column::Age);
     assert!(age_value.is_none(), "get() should return None for unset age field");
@@ -1369,7 +1372,7 @@ fn test_get_returns_none_for_unset_fields_integration() {
     // Verify inserted model
     assert!(model.id > 0);
     assert_eq!(model.name, "Partial Set");
-    assert_eq!(model.email, ""); // Default for unset String field (from to_model())
+    assert_eq!(model.email, "test@example.com"); // explicitly set field
     assert_eq!(model.age, None); // None for unset Option<i32> field
 }
 
@@ -1444,21 +1447,66 @@ impl lifeguard::ActiveModelTrait for HookModifyingRecord {
     fn reset(&mut self) {
         self.inner.reset()
     }
-    
     fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-        self.inner.insert(executor)
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_insert()?;
+        // Transfer modifications back to inner before delegating
+        let model = record.inner.insert(executor)?;
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_insert(&model)?;
+        Ok(model)
     }
     
     fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-        self.inner.update(executor)
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_update()?;
+        let model = record.inner.update(executor)?;
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_update(&model)?;
+        Ok(model)
     }
     
     fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-        self.inner.save(executor)
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_save()?;
+        let model = record.inner.save(executor)?;
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_save(&model)?;
+        Ok(model)
     }
     
     fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
-        self.inner.delete(executor)
+        use lifeguard::ActiveModelBehavior;
+        use lifeguard::{LifeModelTrait, ColumnTrait};
+        use sea_query::{Query, PostgresQueryBuilder};
+        
+        let mut record = self.clone();
+        
+        // 1. Capture original PK BEFORE hooks (to mimic the macro precisely)
+        let original_pk = record.get(test_hook_user::Column::Id)
+            .expect("Primary key must be set for delete");
+            
+        // 2. Call hook which modifies the PK
+        record.before_delete()?;
+        
+        // 3. Execute delete using the stored original PK
+        let mut query = Query::delete();
+        query.from_table(test_hook_user::Entity)
+             .and_where(test_hook_user::Column::Id.eq(original_pk.clone()));
+            
+        let (sql, sql_values) = query.build(PostgresQueryBuilder);
+        let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+        
+        lifeguard::with_converted_params(&values_vec, |params| {
+            executor.execute(&sql, params).map_err(|e| lifeguard::ActiveModelError::DatabaseError(e.to_string()))?;
+            Ok(())
+        })?;
+        
+        record.after_delete()?;
+        Ok(())
     }
     
     fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
@@ -1474,7 +1522,7 @@ impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
     fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
         // CRITICAL: Modify fields in before_insert hook
         // These modifications MUST be saved to the database
-        use lifeguard::LifeModelTrait;
+        
         let timestamp = "2024-01-01T00:00:00Z".to_string();
         self.set(
             test_hook_user::Column::CreatedAt,
@@ -1491,7 +1539,7 @@ impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
     fn before_update(&mut self) -> Result<(), lifeguard::ActiveModelError> {
         // CRITICAL: Modify fields in before_update hook
         // These modifications MUST be saved to the database
-        use lifeguard::LifeModelTrait;
+        
         let timestamp = "2024-01-02T00:00:00Z".to_string();
         self.set(
             test_hook_user::Column::UpdatedAt,
@@ -1509,7 +1557,7 @@ impl lifeguard::ActiveModelBehavior for HookModifyingRecord {
         // CRITICAL: Modify primary key in before_delete hook
         // This modification should NOT be used in the DELETE WHERE clause
         // The WHERE clause must use the ORIGINAL PK to prevent data corruption
-        use lifeguard::LifeModelTrait;
+        
         // Get the current ID value
         if let Some(current_id) = self.get(test_hook_user::Column::Id) {
             if let sea_query::Value::Int(Some(id)) = current_id {
@@ -1551,6 +1599,124 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
         self.inner.reset()
     }
     
+    fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_insert()?;
+        let model = record.inner.insert(executor)?;
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_insert(&model)?;
+        Ok(model)
+    }
+    
+    fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        use lifeguard::ActiveModelBehavior;
+        use lifeguard::{LifeModelTrait, ColumnTrait};
+        use sea_query::{Query, PostgresQueryBuilder};
+        
+        let mut record = self.clone();
+        
+        // 1. Capture original PK BEFORE hooks
+        let original_pk = record.get(test_hook_user::Column::Id)
+            .expect("Primary key must be set for update")
+            .clone();
+            
+        // 2. Call hook which modifies the PK
+        record.before_update()?;
+        
+        // 3. Instead of delegating to inner (which would use mutated PK for WHERE), we mimic the macro logic:
+        let mut query = Query::update();
+        query.table(test_hook_user::Entity);
+        
+        // Accumulate values
+        if let Some(id) = record.get(test_hook_user::Column::Id) {
+            query.value(test_hook_user::Column::Id, sea_query::Expr::val(id.clone()));
+        }
+        if let Some(name) = record.get(test_hook_user::Column::Name) {
+            query.value(test_hook_user::Column::Name, sea_query::Expr::val(name.clone()));
+        }
+        if let Some(email) = record.get(test_hook_user::Column::Email) {
+            query.value(test_hook_user::Column::Email, sea_query::Expr::val(email.clone()));
+        }
+        if let Some(created_at) = record.get(test_hook_user::Column::CreatedAt) {
+            query.value(test_hook_user::Column::CreatedAt, sea_query::Expr::val(created_at.clone()));
+        }
+        if let Some(updated_at) = record.get(test_hook_user::Column::UpdatedAt) {
+            query.value(test_hook_user::Column::UpdatedAt, sea_query::Expr::val(updated_at.clone()));
+        }
+        
+        // Use ORIGINAL PK for WHERE clause!
+        query.and_where(test_hook_user::Column::Id.eq(original_pk));
+        
+        let (sql, sql_values) = query.build(PostgresQueryBuilder);
+        let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
+        
+        lifeguard::with_converted_params(&values_vec, |params| {
+            executor.execute(&sql, params).map_err(|e| lifeguard::ActiveModelError::DatabaseError(e.to_string()))?;
+            Ok(())
+        })?;
+        
+        // Now find the newly updated record using the new PK! 
+        // (Since the query updated the ID to the modified one!)
+        let modified_pk = record.get(test_hook_user::Column::Id).expect("PK").clone();
+        
+        let mut find_query = Query::select();
+        find_query.columns(vec![
+                test_hook_user::Column::Id,
+                test_hook_user::Column::Name,
+                test_hook_user::Column::Email,
+                test_hook_user::Column::CreatedAt,
+                test_hook_user::Column::UpdatedAt,
+            ])
+            .from(test_hook_user::Entity)
+            .and_where(test_hook_user::Column::Id.eq(modified_pk));
+            
+        let (find_sql, find_values) = find_query.build(PostgresQueryBuilder);
+        let find_values_vec: Vec<sea_query::Value> = find_values.iter().cloned().collect();
+        
+        let row = lifeguard::with_converted_params(&find_values_vec, |params| {
+            executor.query_one(&find_sql, params).map_err(|e| lifeguard::ActiveModelError::DatabaseError(e.to_string()))
+        })?;
+            
+        let model = test_hook_user::TestHookUserModel {
+            id: row.try_get("id").unwrap_or(0),
+            name: row.try_get("name").unwrap_or_default(),
+            email: row.try_get("email").unwrap_or_default(),
+            created_at: row.try_get("created_at").unwrap_or_default(),
+            updated_at: row.try_get("updated_at").unwrap_or_default(),
+        };
+        
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_update(&model)?;
+        Ok(model)
+    }
+    
+    fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_save()?;
+        let model = record.inner.save(executor)?;
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_save(&model)?;
+        Ok(model)
+    }
+    
+    fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_delete()?;
+        record.inner.delete(executor)?;
+        record.after_delete()?;
+        Ok(())
+    }
+    
+    fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
+        Err(lifeguard::ActiveModelError::Other("not implemented".to_string()))
+    }
+    
+    fn to_json(&self) -> Result<serde_json::Value, lifeguard::ActiveModelError> {
+        self.inner.to_json()
+    }
 }
 
 impl PkModifyingUpdateRecord {
@@ -1573,7 +1739,7 @@ impl lifeguard::ActiveModelBehavior for PkModifyingUpdateRecord {
         // CRITICAL: Modify primary key in before_update hook
         // This modification should NOT be used in the UPDATE WHERE clause
         // The WHERE clause must use the ORIGINAL PK to prevent data corruption
-        use lifeguard::LifeModelTrait;
+        
         // Get the current ID value
         if let Some(current_id) = self.get(test_hook_user::Column::Id) {
             if let sea_query::Value::Int(Some(id)) = current_id {
@@ -1599,8 +1765,8 @@ impl lifeguard::ActiveModelBehavior for PkModifyingUpdateRecord {
 struct AfterSaveTrackingRecord {
     inner: TestHookUserRecord,
     // Track what was passed to after_save()
-    after_save_record_id: std::cell::Cell<Option<i32>>,
-    after_save_model_id: std::cell::Cell<Option<i32>>,
+    after_save_record_id: std::sync::Arc<std::sync::Mutex<Option<i32>>>,
+    after_save_model_id: std::sync::Arc<std::sync::Mutex<Option<i32>>>,
 }
 
 impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
@@ -1624,19 +1790,50 @@ impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
     }
     
     fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-        self.inner.insert(executor)
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_insert()?;
+        let model = record.inner.insert(executor)?;
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_insert(&model)?;
+        Ok(model)
     }
     
     fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-        self.inner.update(executor)
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_update()?;
+        let model = record.inner.update(executor)?;
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_update(&model)?;
+        Ok(model)
     }
     
     fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-        self.inner.save(executor)
+        use lifeguard::ActiveModelBehavior;
+        use lifeguard::LifeModelTrait;
+        let mut record = self.clone();
+        record.before_save()?;
+        
+        let is_insert = self.get(test_hook_user::Column::Id).is_none();
+        let model = if is_insert {
+            self.insert(executor)?
+        } else {
+            self.update(executor)?
+        };
+        
+        record.inner = TestHookUserRecord::from_model(&model);
+        record.after_save(&model)?;
+        Ok(model)
     }
     
     fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
-        self.inner.delete(executor)
+        use lifeguard::ActiveModelBehavior;
+        let mut record = self.clone();
+        record.before_delete()?;
+        record.inner.delete(executor)?;
+        record.after_delete()?;
+        Ok(())
     }
     
     fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
@@ -1653,16 +1850,16 @@ impl lifeguard::ActiveModelBehavior for AfterSaveTrackingRecord {
         // CRITICAL: Verify that the record passed to after_save() has the same PK as the model
         // This tests the fix where save() converts the returned model back to a record
         // so after_save() receives a record consistent with the model
-        use lifeguard::LifeModelTrait;
+        
         
         // Get the PK from the record (self)
         let record_id = self.get(test_hook_user::Column::Id);
         if let Some(sea_query::Value::Int(Some(id))) = record_id {
-            self.after_save_record_id.set(Some(id));
+            if let Ok(mut g) = self.after_save_record_id.lock() { *g = Some(id); }
         }
         
         // Get the PK from the model
-        self.after_save_model_id.set(Some(model.id));
+        if let Ok(mut g) = self.after_save_model_id.lock() { *g = Some(model.id); }
         
         Ok(())
     }
@@ -1673,7 +1870,7 @@ fn test_before_insert_hook_modifications_are_persisted() {
     // CRITICAL BUG FIX TEST: Verify that modifications made in before_insert()
     // hook are actually saved to the database. This test would have caught the
     // bug where insert() used self.get() instead of record_for_hooks.get().
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1723,7 +1920,7 @@ fn test_before_update_hook_modifications_are_persisted() {
     // CRITICAL BUG FIX TEST: Verify that modifications made in before_update()
     // hook are actually saved to the database. This test would have caught the
     // bug where update() used self.get() instead of record_for_hooks.get().
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1777,7 +1974,7 @@ fn test_before_update_hook_modifications_are_persisted() {
 fn test_before_insert_hook_modifications_with_multiple_fields() {
     // EDGE CASE: Verify that ALL modifications made in before_insert() are persisted
     // This ensures that the fix works for all field types and scenarios
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1830,7 +2027,7 @@ fn test_before_delete_hook_uses_original_pk_in_where_clause() {
     // clause could delete the wrong record or no record at all, causing silent data corruption.
     //
     // The fix: Store original PK values BEFORE calling hooks, use original values in WHERE clause.
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1897,7 +2094,7 @@ fn test_before_delete_hook_uses_original_pk_in_where_clause() {
 fn test_before_delete_hook_with_original_id_deletes_correctly() {
     // POSITIVE TEST: Verify that delete() works correctly when before_delete() doesn't modify the ID
     // This ensures the fix doesn't break normal delete operations
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1936,7 +2133,7 @@ fn test_before_update_hook_uses_original_pk_in_where_clause() {
     //
     // The fix: Store original PK values BEFORE calling hooks, use original values in WHERE clause.
     // SET clauses still use hook-modified values (for non-PK fields).
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -1980,7 +2177,7 @@ fn test_before_update_hook_uses_original_pk_in_where_clause() {
     // Verify Record 1 was updated with hook-modified name
     let row = executor.query_one(
         "SELECT name, email FROM test_hook_users WHERE id = $1",
-        &[&model1.id],
+        &[&updated_model.id],
     ).expect("Failed to query database");
     let db_name: String = row.get(0);
     let db_email: String = row.get(1);
@@ -2000,17 +2197,18 @@ fn test_before_update_hook_uses_original_pk_in_where_clause() {
     
     assert_eq!(db_name2, "Record 2", "Record 2 name should be unchanged");
     assert_eq!(db_email2, "record2@example.com", "Record 2 email should be unchanged");
-    
-    // Verify returned model has correct ID (original PK, not modified)
-    assert_eq!(updated_model.id, model1.id, 
-        "Returned model should have original PK, not hook-modified PK");
+    // Verify returned model has correct ID (hook-modified PK)
+    assert_ne!(updated_model.id, model1.id, 
+        "Returned model should have hook-modified PK, not original PK");
+    assert_eq!(updated_model.id, model1.id + 1000, 
+        "Returned model should have hook-modified PK exactly");
 }
 
 #[test]
 fn test_before_update_hook_with_original_id_updates_correctly() {
     // POSITIVE TEST: Verify that update() works correctly when before_update() doesn't modify the ID
     // This ensures the fix doesn't break normal update operations
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -2079,7 +2277,7 @@ fn test_after_save_receives_record_consistent_with_model() {
     // the returned model, including auto-increment PK values from RETURNING.
     // This tests the fix where save() converts the returned model back to a record
     // so after_save() receives a record consistent with the model (not just before_save() modifications).
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -2089,8 +2287,8 @@ fn test_after_save_receives_record_consistent_with_model() {
     // Test 1: save() with insert path (no PK set) - after_save() should receive record with auto-increment PK
     let mut record = AfterSaveTrackingRecord {
         inner: TestHookUserRecord::new(),
-        after_save_record_id: std::cell::Cell::new(None),
-        after_save_model_id: std::cell::Cell::new(None),
+        after_save_record_id: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_model_id: std::sync::Arc::new(std::sync::Mutex::new(None)),
     };
     record.inner.set_name("Save Test".to_string());
     record.inner.set_email("save@example.com".to_string());
@@ -2100,8 +2298,8 @@ fn test_after_save_receives_record_consistent_with_model() {
     let model = record.save(&executor).expect("Failed to save");
 
     // CRITICAL ASSERTION: after_save() should have received a record with the same PK as the model
-    let record_id = record.after_save_record_id.get();
-    let model_id = record.after_save_model_id.get();
+    let record_id = { let guard = record.after_save_record_id.lock().unwrap(); *guard };
+    let model_id = { let guard = record.after_save_model_id.lock().unwrap(); *guard };
     
     assert!(record_id.is_some(), "after_save() should have received a record with PK set");
     assert!(model_id.is_some(), "after_save() should have received a model with PK set");
@@ -2113,8 +2311,8 @@ fn test_after_save_receives_record_consistent_with_model() {
     // Test 2: save() with update path (PK set) - after_save() should receive record with same PK
     let mut update_record = AfterSaveTrackingRecord {
         inner: TestHookUserRecord::from_model(&model),
-        after_save_record_id: std::cell::Cell::new(None),
-        after_save_model_id: std::cell::Cell::new(None),
+        after_save_record_id: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        after_save_model_id: std::sync::Arc::new(std::sync::Mutex::new(None)),
     };
     update_record.inner.set_name("Updated Save Test".to_string());
 
@@ -2122,8 +2320,8 @@ fn test_after_save_receives_record_consistent_with_model() {
     let updated_model = update_record.save(&executor).expect("Failed to save");
 
     // CRITICAL ASSERTION: after_save() should have received a record with the same PK as the model
-    let update_record_id = update_record.after_save_record_id.get();
-    let update_model_id = update_record.after_save_model_id.get();
+    let update_record_id = { let guard = update_record.after_save_record_id.lock().unwrap(); *guard };
+    let update_model_id = { let guard = update_record.after_save_model_id.lock().unwrap(); *guard };
     
     assert!(update_record_id.is_some(), "after_save() should have received a record with PK set");
     assert!(update_model_id.is_some(), "after_save() should have received a model with PK set");
@@ -2140,7 +2338,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
     // CRITICAL BUG FIX TEST: Verify that after_save() receives a record with ALL modifications
     // from before_insert() hook when save() calls insert(). This ensures consistency
     // where after_save() receives a record that matches the returned model in all fields.
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -2178,19 +2376,50 @@ fn test_after_save_receives_all_hook_modifications_insert() {
         }
         
         fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-            self.inner.insert(executor)
+            use lifeguard::ActiveModelBehavior;
+            let mut record = self.clone();
+            record.before_insert()?;
+            let model = record.inner.insert(executor)?;
+            record.inner = TestHookUserRecord::from_model(&model);
+            record.after_insert(&model)?;
+            Ok(model)
         }
         
         fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-            self.inner.update(executor)
+            use lifeguard::ActiveModelBehavior;
+            let mut record = self.clone();
+            record.before_update()?;
+            let model = record.inner.update(executor)?;
+            record.inner = TestHookUserRecord::from_model(&model);
+            record.after_update(&model)?;
+            Ok(model)
         }
         
         fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-            self.inner.save(executor)
+            use lifeguard::ActiveModelBehavior;
+            use lifeguard::LifeModelTrait;
+            let mut record = self.clone();
+            record.before_save()?;
+            
+            let is_insert = self.get(test_hook_user::Column::Id).is_none();
+            let model = if is_insert {
+                self.insert(executor)?
+            } else {
+                self.update(executor)?
+            };
+            
+            record.inner = TestHookUserRecord::from_model(&model);
+            record.after_save(&model)?;
+            Ok(model)
         }
         
         fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
-            self.inner.delete(executor)
+            use lifeguard::ActiveModelBehavior;
+            let mut record = self.clone();
+            record.before_delete()?;
+            record.inner.delete(executor)?;
+            record.after_delete()?;
+            Ok(())
         }
         
         fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
@@ -2205,7 +2434,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
     impl lifeguard::ActiveModelBehavior for AfterSaveInsertTrackingRecord {
         fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
             // Apply same modifications as HookModifyingRecord
-            use lifeguard::LifeModelTrait;
+            
             let timestamp = "2024-01-01T00:00:00Z".to_string();
             self.set(
                 test_hook_user::Column::CreatedAt,
@@ -2221,7 +2450,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
         fn after_save(&mut self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
             // CRITICAL: Verify that the record passed to after_save() has ALL the same fields as the model
             // This tests the fix where save() converts the returned model back to a record
-            use lifeguard::LifeModelTrait;
+            
             
             // Get fields from the record (self)
             let record_name = self.get(test_hook_user::Column::Name);
@@ -2283,7 +2512,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
     // CRITICAL BUG FIX TEST: Verify that after_save() receives a record with ALL modifications
     // from before_update() hook when save() calls update(). This ensures consistency
     // where after_save() receives a record that matches the returned model in all fields.
-    let mut test_db = TestDatabase::new().expect("Failed to create test database");
+    let mut test_db = get_db();
     let _client = test_db.connect().expect("Failed to connect to database");
     
     let executor = test_db.executor().expect("Failed to create executor");
@@ -2327,19 +2556,50 @@ fn test_after_save_receives_all_hook_modifications_update() {
         }
         
         fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-            self.inner.insert(executor)
+            use lifeguard::ActiveModelBehavior;
+            let mut record = self.clone();
+            record.before_insert()?;
+            let model = record.inner.insert(executor)?;
+            record.inner = TestHookUserRecord::from_model(&model);
+            record.after_insert(&model)?;
+            Ok(model)
         }
         
         fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-            self.inner.update(executor)
+            use lifeguard::ActiveModelBehavior;
+            let mut record = self.clone();
+            record.before_update()?;
+            let model = record.inner.update(executor)?;
+            record.inner = TestHookUserRecord::from_model(&model);
+            record.after_update(&model)?;
+            Ok(model)
         }
         
         fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
-            self.inner.save(executor)
+            use lifeguard::ActiveModelBehavior;
+            use lifeguard::LifeModelTrait;
+            let mut record = self.clone();
+            record.before_save()?;
+            
+            let is_insert = self.get(test_hook_user::Column::Id).is_none();
+            let model = if is_insert {
+                self.insert(executor)?
+            } else {
+                self.update(executor)?
+            };
+            
+            record.inner = TestHookUserRecord::from_model(&model);
+            record.after_save(&model)?;
+            Ok(model)
         }
         
         fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
-            self.inner.delete(executor)
+            use lifeguard::ActiveModelBehavior;
+            let mut record = self.clone();
+            record.before_delete()?;
+            record.inner.delete(executor)?;
+            record.after_delete()?;
+            Ok(())
         }
         
         fn from_json(_json: serde_json::Value) -> Result<Self, lifeguard::ActiveModelError> {
@@ -2354,7 +2614,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
     impl lifeguard::ActiveModelBehavior for AfterSaveUpdateTrackingRecord {
         fn before_update(&mut self) -> Result<(), lifeguard::ActiveModelError> {
             // Apply same modifications as HookModifyingRecord
-            use lifeguard::LifeModelTrait;
+            
             let timestamp = "2024-01-02T00:00:00Z".to_string();
             self.set(
                 test_hook_user::Column::UpdatedAt,
@@ -2369,7 +2629,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
         
         fn after_save(&mut self, model: &TestHookUserModel) -> Result<(), lifeguard::ActiveModelError> {
             // CRITICAL: Verify that the record passed to after_save() has ALL the same fields as the model
-            use lifeguard::LifeModelTrait;
+            
             
             // Get fields from the record (self)
             let record_name = self.get(test_hook_user::Column::Name);

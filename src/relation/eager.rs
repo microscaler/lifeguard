@@ -147,8 +147,21 @@ fn value_to_sql_string(value: &Value) -> String {
         }
         Value::Char(None) => "NULL".to_string(),
         
-        // Date/Time types (if supported in future)
-        // For now, these would need to be handled when added to sea_query::Value
+        // Date/Time types (if enabled dynamically or universally depending on sea-query config)
+        Value::ChronoDate(Some(d)) => format!("'{d}'"),
+        Value::ChronoTime(Some(t)) => format!("'{t}'"),
+        Value::ChronoDateTime(Some(dt)) => format!("'{dt}'"),
+        Value::ChronoDateTimeUtc(Some(dt)) => format!("'{dt}'"),
+        Value::ChronoDateTimeLocal(Some(dt)) => format!("'{dt}'"),
+        
+        Value::ChronoDate(None)
+        | Value::ChronoTime(None)
+        | Value::ChronoDateTime(None)
+        | Value::ChronoDateTimeUtc(None)
+        | Value::ChronoDateTimeLocal(None) => "NULL".to_string(),
+        
+        #[allow(unreachable_patterns)]
+        _ => "NULL".to_string(),
     }
 }
 

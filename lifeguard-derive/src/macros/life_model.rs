@@ -1178,45 +1178,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     row.try_get::<&str, #field_type>(#column_name_str)?
                 }
             }
-            // Handle chrono::NaiveDateTime - get as string and parse
+            // Handle chrono::NaiveDateTime - get as SystemTime then convert
             else if is_naive_datetime {
                 if is_nullable {
                     quote! {
-                        {
-                            let dt_str: Option<String> = match row.try_get(#column_name_str) {
-                                Ok(v) => v,
-                                Err(e) => return Err(e),
-                            };
-                            match dt_str {
-                                None => None,
-                                Some(s) => {
-                                    let dt = chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.f")
-                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S"))
-                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f"))
-                                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S"));
-                                    match dt {
-                                        Ok(d) => Some(d),
-                                        Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
-                                    }
-                                }
-                            }
-                        }
+                        row.try_get::<&str, Option<std::time::SystemTime>>(#column_name_str)?
+                            .map(|st| chrono::DateTime::<chrono::Utc>::from(st).naive_utc())
                     }
                 } else {
                     quote! {
                         {
-                            let dt_str: String = match row.try_get(#column_name_str) {
-                                Ok(v) => v,
-                                Err(e) => return Err(e),
-                            };
-                            let dt = chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S%.f")
-                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M:%S"))
-                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S%.f"))
-                                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%dT%H:%M:%S"));
-                            match dt {
-                                Ok(d) => d,
-                                Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
-                            }
+                            let st = row.try_get::<&str, std::time::SystemTime>(#column_name_str)?;
+                            chrono::DateTime::<chrono::Utc>::from(st).naive_utc()
                         }
                     }
                 }

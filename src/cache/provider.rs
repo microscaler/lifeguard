@@ -15,10 +15,10 @@ pub enum CacheError {
 impl std::fmt::Display for CacheError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Connection(msg) => write!(f, "Cache connection failed: {}", msg),
-            Self::Serialization(msg) => write!(f, "Cache serialization failed: {}", msg),
-            Self::NotFound(msg) => write!(f, "Cache key not found: {}", msg),
-            Self::Internal(msg) => write!(f, "Internal cache error: {}", msg),
+            Self::Connection(msg) => write!(f, "Cache connection failed: {msg}"),
+            Self::Serialization(msg) => write!(f, "Cache serialization failed: {msg}"),
+            Self::NotFound(msg) => write!(f, "Cache key not found: {msg}"),
+            Self::Internal(msg) => write!(f, "Internal cache error: {msg}"),
         }
     }
 }

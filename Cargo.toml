@@ -29,7 +29,7 @@ path = "examples/test_sql_generation.rs"
 [dependencies]
 # Coroutine runtime
 may = "0.3"
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master", features = ["with-chrono-0_4"] }
 
 # Procedural macros for ORM
 lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }
@@ -57,7 +57,7 @@ regex = "1.10"  # For migration file name parsing
 
 # SQL Builder (borrowed, runtime-agnostic)
 # JSON support is always enabled (core functionality)
-sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
+sea-query = { version = "1.0.0-rc.29", features = ["with-json", "with-chrono"] }
 
 # Security: Force protobuf 3.7.2 to address CVE-2025-53605
 # Adding as direct dependency forces all transitive dependencies to use this version
@@ -71,7 +71,9 @@ rand = "0.8"
 redis = "0.26"
 
 [dev-dependencies]
-# Test utilities will be added as needed for may_postgres testing
+# Test utilities
+testcontainers = "0.15"
+testcontainers-modules = { version = "0.3", features = ["postgres", "redis"] }
 
 [features]
 default = ["metrics", "tracing"]

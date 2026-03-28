@@ -10,3 +10,4 @@
 // pub mod manager;
 // pub mod types;
 pub mod config;
+pub mod wal;
