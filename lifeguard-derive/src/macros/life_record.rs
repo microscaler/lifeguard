@@ -94,6 +94,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     // For ActiveModelTrait implementation
     let mut active_model_get_match_arms = Vec::new();
     let mut active_model_set_match_arms = Vec::new();
+    let mut active_model_get_col_match_arms = Vec::new();
+    let mut active_model_set_col_match_arms = Vec::new();
     let mut active_model_take_match_arms = Vec::new();
     let mut active_model_reset_fields = Vec::new();
     
@@ -290,6 +292,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
         });
         
+        active_model_get_col_match_arms.push(quote! {
+            #db_column_name => {
+                #field_to_value_conversion
+            }
+        });
+        
         // For set(), generate type conversion code
         // Use inner_type for type conversion (e.g., String from Option<String>)
         let value_to_field_conversion = type_conversion::generate_value_to_option_field(
@@ -300,6 +308,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         active_model_set_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
                 #value_to_field_conversion
+                Ok(())
+            }
+        });
+        
+        active_model_set_col_match_arms.push(quote! {
+            #db_column_name => {
+                #value_to_field_conversion
+                Ok(())
             }
         });
         
@@ -705,9 +721,19 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         #[derive(Debug, Clone)]
         pub struct #record_name {
             #(#record_fields)*
+            pub __graph: lifeguard::active_model::graph::GraphContainer,
         }
         
         impl #record_name {
+            /// Initialize GraphState if empty and return a mutable reference to it.
+            /// This is used to declare BelongsTo or HasMany graph edges.
+            pub fn graph_mut(&mut self) -> &mut lifeguard::active_model::graph::GraphState {
+                if self.__graph.0.is_none() {
+                    self.__graph.0 = Some(Box::new(lifeguard::active_model::graph::GraphState::new()));
+                }
+                self.__graph.0.as_deref_mut().unwrap()
+            }
+            
             /// Create a new empty record (all fields None)
             /// Useful for inserts where you set only the fields you need
             pub fn new() -> Self {
@@ -718,6 +744,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     #(
                         #ignored_field_names: #ignored_field_defaults,
                     )*
+                    __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
             
@@ -726,6 +753,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             pub fn from_model(model: &#model_name) -> Self {
                 Self {
                     #(#from_model_fields)*
+                    __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
             
@@ -781,6 +809,20 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             fn take(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
                 match column {
                     #(#active_model_take_match_arms)*
+                }
+            }
+            
+            fn get_col(&self, col_name: &str) -> Option<sea_query::Value> {
+                match col_name {
+                    #(#active_model_get_col_match_arms)*
+                    _ => None,
+                }
+            }
+            
+            fn set_col(&mut self, col_name: &str, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                match col_name {
+                    #(#active_model_set_col_match_arms)*
+                    _ => Err(lifeguard::ActiveModelError::Other(format!("Column string not found on record: {}", col_name)))
                 }
             }
             
@@ -1026,6 +1068,47 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 
                 // Call after_save hook
                 record_for_after_save.after_save(&model)?;
+                
+                Ok(model)
+            }
+            
+            fn save_graph<E: lifeguard::LifeExecutor>(&mut self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+                // 1. Drain graph edges safely
+                let mut edges = Vec::new();
+                if let Some(graph) = &mut self.__graph.0 {
+                    edges = std::mem::take(&mut graph.edges);
+                }
+                
+                // 2. Filter BelongsTo and HasMany
+                let mut belongs_to_edges = Vec::new();
+                let mut has_many_edges = Vec::new();
+                
+                for edge in edges {
+                    match edge {
+                        lifeguard::active_model::graph::GraphEdge::BelongsTo(action) => {
+                            belongs_to_edges.push(action);
+                        },
+                        lifeguard::active_model::graph::GraphEdge::HasMany(action) => {
+                            has_many_edges.push(action);
+                        }
+                    }
+                }
+                
+                // 3. Execute BelongsTo hooks (mutates self to update foreign keys with parent's PK)
+                for action in belongs_to_edges {
+                    action(self, executor)?;
+                }
+                
+                // 4. Save the root record
+                let model = lifeguard::ActiveModelTrait::save(self, executor)?;
+                
+                // 5. Update the root record with newly generated database PKs
+                *self = Self::from_model(&model);
+                
+                // 6. Execute HasMany hooks (reads PKs from self to sync down to children)
+                for action in has_many_edges {
+                    action(self, executor)?;
+                }
                 
                 Ok(model)
             }

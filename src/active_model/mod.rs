@@ -50,6 +50,11 @@ pub mod error;
 #[doc(inline)]
 pub use error::ActiveModelError;
 
+// Graph sorting and nesting mechanics
+pub mod graph;
+#[doc(inline)]
+pub use graph::{GraphState, GraphEdge};
+
 // Value conversion utilities
 pub(crate) mod conversion;
 pub use conversion::with_converted_params;
