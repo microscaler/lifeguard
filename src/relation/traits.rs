@@ -557,8 +557,9 @@ pub trait FindLinked: ModelTrait {
     ///
     /// # Returns
     ///
-    /// `Ok(SelectQuery<T>)` for the linked path, or [`LifeError::Other`] if a required relation key
-    /// cannot be read from this model (see [`build_where_condition`](crate::build_where_condition)).
+    /// `Ok(SelectQuery<T>)` for the linked path, [`LifeError::Other`] if [`Linked::via`] returns an
+    /// empty path (avoids an unrestricted query over `T`), or if a required relation key cannot be
+    /// read from this model (see [`build_where_condition`](crate::build_where_condition)).
     ///
     /// # Example
     ///
@@ -607,10 +608,11 @@ where
         // Get the linked path from Linked trait
         let path = <Self::Entity as Linked<I, T>>::via();
         
-        // Ensure we have at least one hop (should have 2 for a proper linked relationship)
+        // Empty `via()` would yield an unrestricted `SelectQuery<T>`; require an explicit path.
         if path.is_empty() {
-            // Return empty query if no path defined
-            return Ok(SelectQuery::new());
+            return Err(LifeError::Other(
+                "find_linked: Linked::via() returned an empty path".to_string(),
+            ));
         }
         
         // Build query with joins through intermediate entities
@@ -1589,7 +1591,7 @@ mod tests {
 
     #[test]
     fn test_find_linked_empty_path() {
-        // Test that find_linked() handles empty path gracefully
+        // Empty `via()` must not return an unrestricted target query
         use crate::relation::traits::FindLinked;
         
         #[derive(Default, Copy, Clone)]
@@ -1705,11 +1707,13 @@ mod tests {
         }
         
         let model = TestModel;
-        let query = model
+        let err = model
             .find_linked::<IntermediateEntity, TargetEntity>()
-            .expect("find_linked");
-        
-        // Verify query was created (even if path is empty)
-        let _ = query;
+            .expect_err("empty via() should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("empty path"),
+            "unexpected error message: {msg}"
+        );
     }
 }
