@@ -1314,7 +1314,7 @@ pub fn generate_value_to_option_field(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::single_char_pattern)]
+    #![allow(clippy::single_char_pattern, clippy::unwrap_used)]
 
     use super::*;
     use syn::parse_str;

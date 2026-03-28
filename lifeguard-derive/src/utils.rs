@@ -1,5 +1,17 @@
 //! Utility functions for code generation
 
+use syn::spanned::Spanned;
+
+/// Field identifier for named struct fields; tuple fields yield a compile-time error.
+pub fn field_ident(field: &syn::Field) -> Result<&syn::Ident, syn::Error> {
+    field.ident.as_ref().ok_or_else(|| {
+        syn::Error::new(
+            field.span(),
+            "this derive only supports structs with named fields (tuple struct fields have no name)",
+        )
+    })
+}
+
 /// Convert string to `snake_case`
 pub fn snake_case(s: &str) -> String {
     let mut result = String::new();
@@ -7,7 +19,7 @@ pub fn snake_case(s: &str) -> String {
         if c.is_uppercase() && i > 0 {
             result.push('_');
         }
-        result.push(c.to_lowercase().next().unwrap());
+        result.push(c.to_lowercase().next().unwrap_or(c));
     }
     result
 }
@@ -20,7 +32,7 @@ pub fn pascal_case(s: &str) -> String {
         if c == '_' {
             capitalize = true;
         } else if capitalize {
-            result.push(c.to_uppercase().next().unwrap());
+            result.push(c.to_uppercase().next().unwrap_or(c));
             capitalize = false;
         } else {
             result.push(c);
@@ -41,7 +53,7 @@ pub fn camel_case(s: &str) -> String {
         if c == '_' {
             capitalize = true;
         } else if capitalize {
-            result.push(c.to_uppercase().next().unwrap());
+            result.push(c.to_uppercase().next().unwrap_or(c));
             capitalize = false;
         } else {
             result.push(c);

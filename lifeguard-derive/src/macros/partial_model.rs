@@ -68,7 +68,10 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
     let mut from_row_fields: Vec<TokenStream2> = Vec::new();
     
     for field in fields.iter() {
-        let field_name = field.ident.as_ref().unwrap();
+        let field_name = match utils::field_ident(field) {
+            Ok(i) => i,
+            Err(e) => return e.to_compile_error().into(),
+        };
         let field_type = &field.ty;
         
         // Get column name from attribute or use snake_case of field name
@@ -285,11 +288,18 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                         segments: syn::punctuated::Punctuated::new(),
                     };
                     for segment in segments {
-                        // At this point, we've validated that segment is not empty and is a valid identifier
-                        // Parse the segment as an identifier to get proper span handling
-                        // This is safe because we've already validated it above
-                        let ident = syn::parse_str::<syn::Ident>(segment)
-                            .expect("Segment should be valid identifier after validation");
+                        let ident = match syn::parse_str::<syn::Ident>(segment) {
+                            Ok(i) => i,
+                            Err(_) => {
+                                return Err(syn::Error::new_spanned(
+                                    error_span,
+                                    format!(
+                                        "internal error: failed to parse entity path segment \"{segment}\" after validation"
+                                    ),
+                                )
+                                .to_compile_error());
+                            }
+                        };
                         path.segments.push(syn::PathSegment {
                             ident,
                             arguments: syn::PathArguments::None,

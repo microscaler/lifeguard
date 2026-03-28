@@ -34,10 +34,12 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
     };
     
     // Generate field extraction code
-    let from_row_fields: Vec<TokenStream2> = fields
-        .iter()
-        .map(|field| {
-            let field_name = field.ident.as_ref().unwrap();
+    let mut from_row_fields: Vec<TokenStream2> = Vec::new();
+    for field in fields.iter() {
+            let field_name = match utils::field_ident(field) {
+                Ok(i) => i,
+                Err(e) => return e.to_compile_error().into(),
+            };
             let field_type = &field.ty;
             
             // Get column name from attribute or use snake_case of field name
@@ -108,11 +110,10 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
                 }
             };
             
-            quote! {
+            from_row_fields.push(quote! {
                 #field_name: #get_expr,
-            }
-        })
-        .collect();
+            });
+    }
     
     let expanded: TokenStream2 = quote! {
         // Implement FromRow trait for Model

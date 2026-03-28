@@ -2,6 +2,9 @@
 //!
 //! This crate provides derive macros for `LifeModel` and `LifeRecord`.
 
+// JSF-style hygiene: avoid unwrap in macro implementation code; scoped allows only where needed.
+#![deny(clippy::unwrap_used)]
+
 mod attributes;
 mod macros;
 mod type_conversion;

@@ -122,7 +122,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
 
     for field in fields.iter() {
-        let field_name = field.ident.as_ref().unwrap();
+        let field_name = match utils::field_ident(field) {
+            Ok(i) => i,
+            Err(e) => return e.to_compile_error().into(),
+        };
         let field_type = &field.ty;
 
         // Check if field type is already Option<T>
@@ -735,12 +738,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
         impl #record_name {
             /// Initialize GraphState if empty and return a mutable reference to it.
-            #[allow(clippy::missing_panics_doc)]
             pub fn graph_mut(&mut self) -> &mut lifeguard::active_model::graph::GraphState<Self> {
-                if self.__graph.0.is_none() {
-                    self.__graph.0 = Some(Box::new(lifeguard::active_model::graph::GraphState::<Self>::new()));
-                }
-                self.__graph.0.as_mut().unwrap()
+                self.__graph.0
+                    .get_or_insert_with(|| {
+                        Box::new(lifeguard::active_model::graph::GraphState::<Self>::new())
+                    })
+                    .as_mut()
             }
 
             /// Create a new empty record (all fields None)
@@ -843,10 +846,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
 
             fn graph_mut(&mut self) -> &mut lifeguard::active_model::graph::GraphState<Self> {
-                if self.__graph.0.is_none() {
-                    self.__graph.0 = Some(Box::new(lifeguard::active_model::graph::GraphState::<Self>::new()));
-                }
-                self.__graph.0.as_mut().unwrap()
+                self.__graph.0
+                    .get_or_insert_with(|| {
+                        Box::new(lifeguard::active_model::graph::GraphState::<Self>::new())
+                    })
+                    .as_mut()
             }
 
             fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {

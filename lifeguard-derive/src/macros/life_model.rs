@@ -333,7 +333,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     let mut relation_impls = Vec::new();
 
     for field in fields {
-        let field_name = field.ident.as_ref().unwrap();
+        let field_name = match utils::field_ident(field) {
+            Ok(i) => i,
+            Err(e) => return e.to_compile_error().into(),
+        };
         let field_type = &field.ty;
         let column_name = attributes::extract_column_name(field)
             .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
@@ -1436,9 +1439,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         
         // Build ColumnDefinition struct literal
         // If column_type is not explicitly provided, infer it from Rust type
-        let column_type_expr = if col_attrs.column_type.is_some() {
-            // Use explicit column_type if provided
-            let ct = col_attrs.column_type.as_ref().unwrap();
+        let column_type_expr = if let Some(ct) = col_attrs.column_type.as_ref() {
             let ct_lit = syn::LitStr::new(ct, field_name.span());
             quote! { Some(#ct_lit.to_string()) }
         } else {
@@ -2035,6 +2036,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
 #[cfg(test)]
 mod relation_parse_error_tests {
+    #![allow(clippy::unwrap_used)] // Test fixtures use `parse_quote!` named fields only
+
     use super::{parse_relation_entity_path, relation_attr_on_field};
     use syn::parse_quote;
 
