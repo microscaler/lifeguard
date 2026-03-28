@@ -190,6 +190,14 @@ where
         self
     }
     
+    /// Initialize a Cursor Pagination builder anchored against a specific indexed column.
+    ///
+    /// Extends SeaQuery filtering resolving indexing dynamically
+    /// to avoid `OFFSET` degradation algorithms.
+    pub fn cursor_by<C: sea_query::IntoColumnRef + Clone>(self, column: C) -> crate::query::cursor::CursorPaginator<E, C> {
+        crate::query::cursor::CursorPaginator::new(self, column)
+    }
+
     /// Add a filter condition
     ///
     /// # Example

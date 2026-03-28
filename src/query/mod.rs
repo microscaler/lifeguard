@@ -59,6 +59,14 @@ pub(crate) mod error_handling;
 // Value conversion utilities
 pub(crate) mod value_conversion;
 
+// Cursor keyset abstraction
+pub mod cursor;
+pub use cursor::CursorPaginator;
+
+// Server-Side coroutine extensions
+pub mod stream;
+pub use stream::SelectQueryStreamEx;
+
 // SELECT query builder
 pub mod select;
 #[doc(inline)]
