@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **Git commits (2026-03-28 session):** Hauliage `5491151` on `main` — amended with full message (Tilt/Kind/setup-db/migrator/migrations); **not pushed.** Lifeguard `c175ac3` on `fix/tests` — `db_integration_suite`, nextest profile split, `sql_dependency_order` + registry ordering, CI/docs/justfile updates.
 - **Hauliage Postgres host ports (2026-03-28):** Tilt `k8s_resource(postgres, port_forwards=['5432:5432'])`. Kind `extraPortMappings` uses **host 5433** → NodePort 30432 so Kind and Tilt do not both bind 5432. Recreate Kind cluster after `kind-config.yaml` edits. CI: GHA `services: postgres` on 5432.
 - **Hauliage `setup-db.sh` / `hauliage-db-init` (2026-03-28):** Fixed unclosed heredoc, added `kubectl rollout status` + `kubectl wait` for pod Ready, explicit `kubectl exec ... -c postgres`, in-pod `psql -h 127.0.0.1 -p 5432` with `POSTGRES_USER` expanded only inside the container (single-quoted `sh -c`). Tilt no longer masks failures (`|| true` removed). Optional `HAULIAGE_DB_INIT_TIMEOUT` (default `600s`).
 - **Migration FK order (2026-03-28):** `lifeguard-migrate` adds `sql_dependency_order` + `build_script::order_entities_for_registry` (topo-sort from `#[foreign_key]`). `generate_registry_module` emits SQL in that order. Hauliage `hauliage_migrator` merges consignments/fleet/telemetry `generate_sql_for_all()` and orders with `order_migrations_by_foreign_key_sql`, then writes `migrations/apply_order.txt` via `write_apply_order_file`. `setup-db.sh` prefers `apply_order.txt` over `find|sort`.
