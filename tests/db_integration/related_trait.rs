@@ -1,11 +1,11 @@
-//! Integration tests for Related and FindRelated traits
+//! Integration tests for Related and `FindRelated` traits
 //!
-//! These tests validate that the Related trait and FindRelated extension trait
-//! work correctly with a real PostgreSQL database.
+//! These tests validate that the Related trait and `FindRelated` extension trait
+//! work correctly with a real `PostgreSQL` database.
 //!
 //! Test relationships:
-//! - User has_many Posts (one-to-many)
-//! - Post belongs_to User (many-to-one)
+//! - User `has_many` Posts (one-to-many)
+//! - Post `belongs_to` User (many-to-one)
 
 use lifeguard::{
     ActiveModelTrait, FindRelated, LifeExecutor, MayPostgresExecutor, Related,
@@ -104,26 +104,26 @@ impl Related<PostEntity> for UserEntity {
 fn setup_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     // Create users table
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_users_related (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             email TEXT NOT NULL
         )
-        "#,
+        ",
         &[],
     )?;
 
     // Create posts table
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_posts_related (
             id SERIAL PRIMARY KEY,
             title TEXT NOT NULL,
             content TEXT NOT NULL,
             user_id INTEGER NOT NULL REFERENCES test_users_related(id)
         )
-        "#,
+        ",
         &[],
     )?;
 
@@ -464,20 +464,20 @@ impl Related<ResourceEntity> for TenantEntity {
 fn setup_composite_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     // Create tenants table with composite primary key
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_tenants_composite (
             id INTEGER NOT NULL,
             region_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             PRIMARY KEY (id, region_id)
         )
-        "#,
+        ",
         &[],
     )?;
 
     // Create resources table with composite foreign key
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_resources_composite (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
@@ -485,7 +485,7 @@ fn setup_composite_test_schema(executor: &MayPostgresExecutor) -> Result<(), lif
             region_id INTEGER NOT NULL,
             FOREIGN KEY (tenant_id, region_id) REFERENCES test_tenants_composite(id, region_id)
         )
-        "#,
+        ",
         &[],
     )?;
 

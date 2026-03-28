@@ -3,7 +3,7 @@
 //! Validates `CursorPaginator` static slice boundaries and `SelectQueryStreamEx` receiver queues natively.
 
 use lifeguard::{
-    test_helpers::TestDatabase, LifeExecutor, MayPostgresExecutor, SelectQuery,
+    test_helpers::TestDatabase, LifeExecutor, MayPostgresExecutor,
 };
 use lifeguard::query::SelectQueryStreamEx;
 use lifeguard::query::traits::LifeModelTrait;
@@ -28,13 +28,13 @@ pub struct DataPoint {
 fn setup_schema(executor: &MayPostgresExecutor) {
     executor.execute("DROP TABLE IF EXISTS test_stream_cursors CASCADE", &[]).unwrap();
     executor.execute(
-        r#"
+        r"
         CREATE TABLE test_stream_cursors (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             val INTEGER NOT NULL
         )
-        "#,
+        ",
         &[],
     ).unwrap();
 }
@@ -97,9 +97,7 @@ fn test_pagination_and_streaming() {
     
     while let Ok(res) = receiver.recv() {
         let chunk = res.expect("Receiver yielded database error inside thread");
-        if chunk.is_empty() {
-            panic!("Stream emitted an empty chunk instead of gracefully terminating!");
-        }
+        assert!(!chunk.is_empty(), "Stream emitted an empty chunk instead of gracefully terminating!");
         chunk_counts.push(chunk.len());
         total_records += chunk.len();
     }

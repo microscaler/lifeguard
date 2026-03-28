@@ -71,7 +71,7 @@ pub trait LifeModelTrait: LifeEntityName {
     type Column: sea_query::IdenStatic + crate::query::column::column_trait::ColumnDefHelper;
 
     /// Returns the soft delete column if this entity supports soft deletion
-    fn soft_delete_column() -> Option<Self::Column> {
+    #[must_use] fn soft_delete_column() -> Option<Self::Column> {
         None
     }
 

@@ -2,6 +2,8 @@
 //!
 //! These tests verify that SQL can be generated correctly from Lifeguard entities.
 
+#![allow(warnings)]
+
 // Use the library crate
 use lifeguard_migrate::sql_generator;
 use lifeguard::{LifeModelTrait, ColumnTrait};

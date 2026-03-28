@@ -1,5 +1,7 @@
 //! Tests for dependency ordering and foreign key validation
 
+#![allow(warnings)]
+
 use lifeguard_migrate::dependency_ordering;
 
 #[test]

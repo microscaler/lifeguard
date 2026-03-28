@@ -7,6 +7,8 @@
 //! when tests run in parallel. Each TestCases instance creates temporary directories
 //! and Cargo.toml files, and parallel execution can cause file corruption.
 
+#![allow(warnings)]
+
 #[macro_use]
 extern crate lazy_static;
 

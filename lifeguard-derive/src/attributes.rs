@@ -373,9 +373,9 @@ pub struct TableAttributes {
     pub before_delete: Option<String>,
     /// Lifecycle hook: after delete
     pub after_delete: Option<String>,
-    /// Auto timestamp flag automatically handles created_at and updated_at
+    /// Auto timestamp flag automatically handles `created_at` and `updated_at`
     pub auto_timestamp: bool,
-    /// Soft delete flag intercepts DELETE operations and updates deleted_at instead
+    /// Soft delete flag intercepts DELETE operations and updates `deleted_at` instead
     pub soft_delete: bool,
 }
 
@@ -385,6 +385,7 @@ pub struct TableAttributes {
 /// * `attrs` - Struct attributes to parse
 /// * `valid_columns` - Set of valid column names that exist on the struct (for validation)
 #[allow(dead_code)] // Used by macro expansion
+#[allow(clippy::too_many_lines)] // Single attribute-dispatch loop; splitting would obscure control flow
 pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collections::HashSet<String>) -> Result<TableAttributes, syn::Error> {
     let mut table_attrs = TableAttributes::default();
     

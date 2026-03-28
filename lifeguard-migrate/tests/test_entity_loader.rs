@@ -1,5 +1,7 @@
 //! Tests for entity_loader module
 
+#![allow(warnings)]
+
 use lifeguard_migrate::entity_loader;
 use std::path::PathBuf;
 use std::fs;

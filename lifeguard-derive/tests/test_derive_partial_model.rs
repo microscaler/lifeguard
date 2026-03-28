@@ -8,6 +8,8 @@
 //! encounter E0284 errors during macro expansion. The codegen approach generates
 //! source files before compilation, avoiding these expansion-phase issues.
 
+#![allow(warnings)]
+
 use lifeguard::PartialModelTrait;
 use lifeguard::{LifeModelTrait, LifeEntityName};
 

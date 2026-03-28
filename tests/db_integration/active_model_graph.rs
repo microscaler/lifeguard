@@ -1,12 +1,12 @@
-//! Integration tests for ActiveModel Nested Graph Persistence (`save_graph`)
+//! Integration tests for `ActiveModel` Nested Graph Persistence (`save_graph`)
 //!
 //! These tests validate that the recursive topological graph walking logic
 //! correctly identifies hierarchies, inserts them in the correct transaction order
-//! (BelongsTo -> Root -> HasMany), and dynamically propagates newly assigned
+//! (`BelongsTo` -> Root -> `HasMany`), and dynamically propagates newly assigned
 //! auto-increment sequences down strings of Primary and Foreign key dependencies.
 //!
-//! Note: These tests require a running PostgreSQL database. Set TEST_DATABASE_URL
-//! environment variable or use the test infrastructure from test_helpers.
+//! Note: These tests require a running `PostgreSQL` database. Set `TEST_DATABASE_URL`
+//! environment variable or use the test infrastructure from `test_helpers`.
 
 use lifeguard::{
     ActiveModelTrait, LifeExecutor, MayPostgresExecutor,
@@ -73,32 +73,32 @@ pub use post_mod::*;
 // Helper function to set up test database schema
 fn setup_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_organizations (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL
         )
-        "#,
+        ",
         &[],
     )?;
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_users_graph (
             user_id SERIAL PRIMARY KEY,
             username TEXT NOT NULL,
             organization_id INTEGER NOT NULL REFERENCES test_organizations(id)
         )
-        "#,
+        ",
         &[],
     )?;
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_posts (
             id SERIAL PRIMARY KEY,
             title TEXT NOT NULL,
             author_id INTEGER NOT NULL REFERENCES test_users_graph(user_id)
         )
-        "#,
+        ",
         &[],
     )?;
     Ok(())

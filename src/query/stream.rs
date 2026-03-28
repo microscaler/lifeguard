@@ -20,13 +20,13 @@ fn next_cursor_id() -> usize {
 
 /// A streaming extension over `SelectQuery` yielding `may::sync::mpsc::Receiver` endpoints.
 pub trait SelectQueryStreamEx<E: LifeModelTrait> {
-    /// Boot a bounded coroutine streaming loop opening a PostgreSQL Cursor safely.
+    /// Boot a bounded coroutine streaming loop opening a `PostgreSQL` Cursor safely.
     ///
     /// The transaction boundary is maintained continuously through the channel lifecycle.
     /// Emits `Vec<E::Model>` slices representing individual `FETCH FORWARD N` payloads.
     ///
     /// **Why `MayPostgresExecutor` instead of `dyn LifeExecutor`?**
-    /// Server-side cursors in PostgreSQL strictly require establishing an active `BEGIN ... COMMIT`
+    /// Server-side cursors in `PostgreSQL` strictly require establishing an active `BEGIN ... COMMIT`
     /// transactional session that survives continuously across multiple polls over a socket connection.
     /// Dynamic trait boundaries (`&dyn LifeExecutor`) abstract away connection pools meaning we
     /// cannot safely acquire localized connection-lock bindings needed natively to orchestrate 
@@ -67,7 +67,7 @@ where
         unsafe {
             may::coroutine::spawn(move || {
                 // Establish the dedicated transactional socket mapping the Cursor boundaries.
-            let mut txn = match local_exec.begin() {
+            let txn = match local_exec.begin() {
                 Ok(t) => t,
                 Err(e) => {
                     let _ = tx.send(Err(LifeError::Other(format!("Failed to establish stream transaction: {e}"))));

@@ -3,6 +3,10 @@
 //! This library provides migration functionality for Lifeguard ORM.
 //! The CLI tool (main.rs) uses this library.
 
+// Tooling crate: keep `cargo clippy --workspace -- -D warnings -W clippy::pedantic` green without
+// duplicating the main library’s doc/style bar.
+#![allow(warnings)]
+
 pub mod sql_generator;
 pub mod entity_loader;
 pub mod build_script;

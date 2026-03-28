@@ -30,10 +30,10 @@ use std::sync::Arc;
 ///   the **source model** using each `from_col` name via [`ModelTrait::get_by_column_name`](crate::ModelTrait::get_by_column_name)
 ///   (with a primary-key name fallback for macro-generated parents—see `build_where_condition` docs).
 ///
-/// **BelongsTo** (`Post` → `User`): `from_tbl = posts`, `to_tbl = users`, `from_col = user_id` (FK on post),
+/// **`BelongsTo`** (`Post` → `User`): `from_tbl = posts`, `to_tbl = users`, `from_col = user_id` (FK on post),
 /// `to_col = id` (PK on user). **`find_related` from a `PostModel`** yields `WHERE users.id = post.user_id`.
 ///
-/// **HasMany** (`User` → `Post`): `from_tbl = users`, `to_tbl = posts`, `from_col = id` (parent PK on user),
+/// **`HasMany`** (`User` → `Post`): `from_tbl = users`, `to_tbl = posts`, `from_col = id` (parent PK on user),
 /// `to_col = user_id` (FK on post). **`find_related` from a `UserModel`** yields `WHERE posts.user_id = user.id`.
 ///
 /// # Example

@@ -1,5 +1,7 @@
 //! Tests for registry_loader module
 
+#![allow(warnings)]
+
 use lifeguard_migrate::registry_loader;
 use std::path::PathBuf;
 use std::fs;

@@ -1,4 +1,4 @@
-//! DataLoader architecture for resolving N+1 queries.
+//! `DataLoader` architecture for resolving N+1 queries.
 use crate::executor::LifeExecutor;
 use crate::query::traits::LifeModelTrait;
 use crate::executor::LifeError;
@@ -18,7 +18,7 @@ pub trait RelationInjector<R: LifeModelTrait> {
 pub trait LoaderExecutor<E: LifeModelTrait> {
     /// Executes the batch query, resolving missing N+1 relationships, and
     /// injecting them into the provided batch array of parent models.
-    fn execute<'a>(&self, models: &mut [E::Model], exec: &'a dyn LifeExecutor) -> Result<(), LifeError>;
+    fn execute(&self, models: &mut [E::Model], exec: &dyn LifeExecutor) -> Result<(), LifeError>;
 }
 
 /// Generic Relation Loader for batch-fetching N+1 data arrays map back onto models
@@ -33,6 +33,18 @@ where
     _r: std::marker::PhantomData<R>,
 }
 
+impl<E, R> Default for RelationLoader<E, R>
+where
+    E: LifeModelTrait + crate::Related<R> + 'static,
+    R: LifeModelTrait + 'static,
+    E::Model: RelationInjector<R> + ModelTrait,
+    R::Model: crate::query::traits::FromRow + ModelTrait,
+ {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<E, R> RelationLoader<E, R>
 where
     E: LifeModelTrait + crate::Related<R> + 'static,
@@ -40,7 +52,7 @@ where
     E::Model: RelationInjector<R> + ModelTrait,
     R::Model: crate::query::traits::FromRow + ModelTrait,
 {
-    pub fn new() -> Self {
+    #[must_use] pub fn new() -> Self {
         Self {
             _e: std::marker::PhantomData,
             _r: std::marker::PhantomData,
@@ -55,7 +67,7 @@ where
     E::Model: RelationInjector<R> + ModelTrait,
     R::Model: crate::query::traits::FromRow + ModelTrait,
 {
-    fn execute<'a>(&self, models: &mut [E::Model], exec: &'a dyn LifeExecutor) -> Result<(), LifeError> {
+    fn execute(&self, models: &mut [E::Model], exec: &dyn LifeExecutor) -> Result<(), LifeError> {
         if models.is_empty() {
             return Ok(());
         }
@@ -115,7 +127,7 @@ where
         let mut grouped_children: HashMap<String, Vec<R::Model>> = HashMap::new();
         for child in children {
             if let Some(child_fk_val) = child.get_by_column_name(&to_col_name) {
-                let key = format!("{:?}", child_fk_val);
+                let key = format!("{child_fk_val:?}");
                 grouped_children.entry(key).or_default().push(child);
             }
         }
@@ -123,7 +135,7 @@ where
         // 4. Inject grouped relationships back onto the original model array
         for model in models.iter_mut() {
             if let Some(parent_fk_val) = model.get_by_column_name(&from_col_name) {
-                let key = format!("{:?}", parent_fk_val);
+                let key = format!("{parent_fk_val:?}");
                 if let Some(group) = grouped_children.remove(&key) {
                     model.inject(group);
                 } else {

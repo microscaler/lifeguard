@@ -5,6 +5,9 @@
 //! 2. DeriveEntity (nested) generates LifeModelTrait
 //! 3. All generated code compiles and works together
 
+#![allow(warnings)]
+#![allow(clippy::approx_constant)] // Float literals in generated model tests
+
 use lifeguard_derive::{LifeModel, LifeRecord};
 
 // Simple user entity for testing

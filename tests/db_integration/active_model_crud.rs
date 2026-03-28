@@ -1,10 +1,10 @@
-//! Integration tests for ActiveModel CRUD operations
+//! Integration tests for `ActiveModel` CRUD operations
 //!
-//! These tests validate that ActiveModelTrait CRUD methods work correctly
-//! with a real PostgreSQL database.
+//! These tests validate that `ActiveModelTrait` CRUD methods work correctly
+//! with a real `PostgreSQL` database.
 //!
-//! Note: These tests require a running PostgreSQL database. Set TEST_DATABASE_URL
-//! environment variable or use the test infrastructure from test_helpers.
+//! Note: These tests require a running `PostgreSQL` database. Set `TEST_DATABASE_URL`
+//! environment variable or use the test infrastructure from `test_helpers`.
 
 use lifeguard::{
     ActiveModelTrait, ActiveModelError, LifeModelTrait, LifeExecutor, MayPostgresExecutor,
@@ -31,7 +31,7 @@ pub mod test_user {
         pub age: Option<i32>,
     }
 }
-pub use test_user::{TestUser, TestUserModel, TestUserRecord};
+pub use test_user::TestUserRecord;
 
 pub mod test_soft_delete_user {
     use super::*;
@@ -47,18 +47,18 @@ pub mod test_soft_delete_user {
         pub deleted_at: Option<chrono::NaiveDateTime>,
     }
 }
-pub use test_soft_delete_user::{TestSoftDeleteUser, TestSoftDeleteUserModel, TestSoftDeleteUserRecord};
+pub use test_soft_delete_user::TestSoftDeleteUserRecord;
 
 // Helper function to set up soft delete test schema
 fn setup_soft_delete_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_soft_delete_users (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             deleted_at TIMESTAMP
         )
-        "#,
+        ",
         &[],
     )?;
     Ok(())
@@ -72,14 +72,14 @@ fn cleanup_soft_delete_data(executor: &MayPostgresExecutor) -> Result<(), lifegu
 // Helper function to set up test database schema
 fn setup_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_users (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             email TEXT NOT NULL,
             age INTEGER
         )
-        "#,
+        ",
         &[],
     )?;
     Ok(())
@@ -482,17 +482,17 @@ pub mod test_no_pk_entity {
         pub age: Option<i32>,
     }
 }
-pub use test_no_pk_entity::{TestNoPkEntity, TestNoPkEntityModel, TestNoPkEntityRecord};
+pub use test_no_pk_entity::TestNoPkEntityRecord;
 
 fn setup_no_pk_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_no_pk_entities (
             name TEXT NOT NULL,
             email TEXT NOT NULL,
             age INTEGER
         )
-        "#,
+        ",
         &[],
     )?;
     Ok(())
@@ -1398,11 +1398,11 @@ pub mod test_hook_user {
         pub updated_at: Option<String>, // Set by before_update hook
     }
 }
-pub use test_hook_user::{TestHookUser, TestHookUserModel, TestHookUserRecord};
+pub use test_hook_user::{TestHookUserModel, TestHookUserRecord};
 
 fn setup_hook_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_hook_users (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
@@ -1410,7 +1410,7 @@ fn setup_hook_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguar
             created_at TEXT,
             updated_at TEXT
         )
-        "#,
+        ",
         &[],
     )?;
     Ok(())
@@ -1444,7 +1444,7 @@ impl lifeguard::ActiveModelTrait for HookModifyingRecord {
     }
     
     fn reset(&mut self) {
-        self.inner.reset()
+        self.inner.reset();
     }
     fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
@@ -1595,7 +1595,7 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
     }
     
     fn reset(&mut self) {
-        self.inner.reset()
+        self.inner.reset();
     }
     
     fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
@@ -1785,7 +1785,7 @@ impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
     }
     
     fn reset(&mut self) {
-        self.inner.reset()
+        self.inner.reset();
     }
     
     fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
@@ -2371,7 +2371,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
         }
         
         fn reset(&mut self) {
-            self.inner.reset()
+            self.inner.reset();
         }
         
         fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
@@ -2551,7 +2551,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
         }
         
         fn reset(&mut self) {
-            self.inner.reset()
+            self.inner.reset();
         }
         
         fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {

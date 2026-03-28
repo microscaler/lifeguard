@@ -5,7 +5,6 @@
 //! because Rust does not reliably run `Drop` for `static` items at shutdown—`Box::leak` was
 //! leaving dozens of Postgres/Redis containers behind after `cargo nextest` runs.
 
-use once_cell::sync::Lazy;
 use std::env;
 use std::mem;
 use std::process::Command;
@@ -86,21 +85,18 @@ fn start_pg_and_redis_containers() -> (String, String) {
     (pg_url, redis_url)
 }
 
-pub static TEST_CONTEXT: Lazy<LifeguardTestContext> = Lazy::new(|| {
-    match postgres_url_from_env() {
-        Some(pg_url) => {
-            let redis_url = redis_url_from_env()
-                .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
-            LifeguardTestContext { pg_url, redis_url }
-        }
-        None => {
-            let (pg_url, redis_url) = start_pg_and_redis_containers();
-            LifeguardTestContext { pg_url, redis_url }
-        }
+pub static TEST_CONTEXT: std::sync::LazyLock<LifeguardTestContext> = std::sync::LazyLock::new(|| {
+    if let Some(pg_url) = postgres_url_from_env() {
+        let redis_url = redis_url_from_env()
+            .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
+        LifeguardTestContext { pg_url, redis_url }
+    } else {
+        let (pg_url, redis_url) = start_pg_and_redis_containers();
+        LifeguardTestContext { pg_url, redis_url }
     }
 });
 
-pub fn get_test_context() -> &'static LifeguardTestContext {
+#[must_use] pub fn get_test_context() -> &'static LifeguardTestContext {
     &TEST_CONTEXT
 }
 

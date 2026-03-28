@@ -9,6 +9,8 @@
 //! This test suite ensures that the bug where indexes were created on non-existent
 //! columns (e.g., parent table columns on child entities) is fixed.
 
+#![allow(warnings)]
+
 use lifeguard_derive::LifeModel;
 use lifeguard::LifeModelTrait;
 

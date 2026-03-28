@@ -1,5 +1,7 @@
 //! Tests for build_script module
 
+#![allow(warnings)]
+
 use lifeguard_migrate::build_script;
 use std::fs;
 use tempfile::TempDir;

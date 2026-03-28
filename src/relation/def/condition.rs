@@ -264,8 +264,8 @@ pub fn join_tbl_on_expr(
 /// Values are read from the **source** (`from_tbl`) side of the join: for each pair
 /// `(from_col_i, to_col_i)`, we use `model.get_by_column_name(from_col_i)` and compare to
 /// `to_tbl.to_col_i`. This covers:
-/// - **HasMany** (e.g. User → Post): `posts.user_id = user.id` (`from_col` = parent PK on users)
-/// - **BelongsTo** (e.g. Post → User): `users.id = post.user_id` (`from_col` = FK on posts)
+/// - **`HasMany`** (e.g. User → Post): `posts.user_id = user.id` (`from_col` = parent PK on users)
+/// - **`BelongsTo`** (e.g. Post → User): `users.id = post.user_id` (`from_col` = FK on posts)
 ///
 /// # Panics
 ///
@@ -282,6 +282,7 @@ pub fn join_tbl_on_expr(
 /// - [`RelationDef`](crate::RelationDef) orientation for `Related<R>`.
 /// - Integration tests in `tests/db_integration/related_trait.rs`.
 /// - Custom `ModelTrait` authors: `docs/planning/lifeguard-derive/AUTHORING_MODEL_TRAIT.md`.
+#[allow(clippy::panic)] // Panic cases are described in `# Panics` above.
 #[must_use]
 pub fn build_where_condition<M>(
     rel_def: &RelationDef,
@@ -302,7 +303,7 @@ where
     let pk_names: Vec<String> = model
         .get_primary_key_identity()
         .iter()
-        .map(|iden| iden.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
     let pk_values = model.get_primary_key_values();
     assert_eq!(
@@ -672,7 +673,7 @@ mod tests {
         let _ = join_expr;
     }
 
-    /// BelongsTo: `WHERE` must use **related** table (`to_tbl`), values from FK on source model via `get_by_column_name`.
+    /// `BelongsTo`: `WHERE` must use **related** table (`to_tbl`), values from FK on source model via `get_by_column_name`.
     #[test]
     fn test_build_where_condition_belongs_to_uses_to_tbl_only() {
         use crate::model::{ModelError, ModelTrait};
@@ -800,7 +801,7 @@ mod tests {
         );
     }
 
-    /// HasMany: parent PK via fallback when `get_by_column_name` returns `None` for `from_col` name.
+    /// `HasMany`: parent PK via fallback when `get_by_column_name` returns `None` for `from_col` name.
     #[test]
     fn test_build_where_condition_has_many_pk_fallback() {
         use crate::model::{ModelError, ModelTrait};

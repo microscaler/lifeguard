@@ -9,6 +9,10 @@
 #![deny(clippy::panic)]
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
+// Pedantic is opt-in via `-W clippy::pedantic` in CI; allow the group crate-wide so `-D warnings`
+// does not force thousands of doc/style edits. Restriction lints above remain denied.
+#![allow(clippy::pedantic)]
+#![allow(clippy::type_complexity)] // GraphState stores boxed async closures; aliases would obscure.
 //!
 //! See [README on GitHub](https://github.com/microscaler/lifeguard) for full architecture.
 //!

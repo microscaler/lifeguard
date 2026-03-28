@@ -4,7 +4,7 @@ use may_postgres::Row;
 use sea_query::{PostgresQueryBuilder, SelectStatement};
 use std::marker::PhantomData;
 
-/// Trait for unpacking scalar integer/float results from PostgreSQL rows
+/// Trait for unpacking scalar integer/float results from `PostgreSQL` rows
 pub trait LifeAggregate: Sized {
     /// Extract the aggregate value from the given database row
     fn from_aggregate_row(row: &Row) -> Result<Self, crate::LifeError>;
@@ -41,7 +41,7 @@ where
     E: LifeModelTrait,
     R: LifeAggregate,
 {
-    pub fn new(query: SelectStatement) -> Self {
+    #[must_use] pub fn new(query: SelectStatement) -> Self {
         Self {
             query,
             _phantom_model: PhantomData,
