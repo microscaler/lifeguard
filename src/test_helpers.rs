@@ -134,12 +134,19 @@ impl TestDatabase {
         &self.connection_string
     }
 
-    /// Connect to the database and return a client
+    /// Connect to the database and return a client.
+    ///
+    /// Subsequent calls return a [`Client::clone`] handle sharing the same underlying
+    /// connection (see `may_postgres::Client`), so tests that call `connect()` and then
+    /// `executor()` do not open a second server session.
     ///
     /// # Errors
     ///
     /// Returns `ConnectionError` if the connection fails.
     pub fn connect(&mut self) -> Result<Client, ConnectionError> {
+        if let Some(existing) = self.client.as_ref() {
+            return Ok(existing.clone());
+        }
         let client = connect(&self.connection_string)?;
         self.client = Some(client.clone());
         Ok(client)

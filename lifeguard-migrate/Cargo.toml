@@ -48,6 +48,8 @@ lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
 may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
 
 [dev-dependencies]
+# Same async-graphql as lifeguard graphql feature — required when `LifeModel` expands with graphql enabled.
+async-graphql.workspace = true
 # Temporary directory for tests
 tempfile = "3.10"
 # For testing with entities

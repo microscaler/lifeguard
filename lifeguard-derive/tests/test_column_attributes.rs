@@ -22,6 +22,8 @@
 //! - ✅ Edge cases: Option<T>, nullable combinations, special values
 //! - ✅ Defaults: Fields without attributes have correct defaults
 
+#![allow(warnings)]
+
 use lifeguard_derive::LifeModel;
 use lifeguard::LifeModelTrait;
 

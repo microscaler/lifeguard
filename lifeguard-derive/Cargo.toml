@@ -16,9 +16,14 @@ proc-macro2 = "1.0"
 
 [dev-dependencies]
 may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "master" }
-lifeguard = { path = "..", version = "0.1.0" }
+lifeguard = { path = "..", version = "0.1.0", features = ["graphql"] }
+# Same async-graphql as lifeguard graphql feature — required for nested `SimpleObject` expansion on `LifeModel`.
+async-graphql.workspace = true
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
 serde = { version = "1.0", features = ["derive"] }  # Required for Serialize/Deserialize derives in generated Models
 serde_json = "1.0"  # For testing JSON fields
 trybuild = "1.0"
 lazy_static = "1.4"  # For shared TestCases instance to avoid race conditions
+
+[features]
+graphql = []

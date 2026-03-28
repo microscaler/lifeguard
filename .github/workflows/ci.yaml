@@ -11,15 +11,24 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Postgres is the `services.postgres` container below; the job connects via localhost:5432.
+    # Redis is `services.redis` on localhost:6379 — required when env supplies DB URLs: `tests/context.rs`
+    # uses TEST_REDIS_URL/REDIS_URL on that path; otherwise it would default to 127.0.0.1:6379 with no server.
+    # `TEST_DATABASE_URL` is required for `tests/context.rs` (integration binary); `DATABASE_URL` remains for lib/tests using `TestDatabase::get_connection_string`.
+    # Repository secret `PGPASSWORD`: same value for `services.postgres`, JDBC-style URLs below, and `psql` (via `PGPASSWORD`). Not available to workflows from fork PRs.
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
+      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
+      REDIS_URL: redis://127.0.0.1:6379
+      TEST_REDIS_URL: redis://127.0.0.1:6379
 
     services:
       postgres:
         image: postgres:15
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ${{ secrets.PGPASSWORD }}
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
@@ -28,17 +37,26 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2025-06-30
-          override: true
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -51,8 +69,41 @@ jobs:
       - name: Lint
         run: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic
 
+      # Migration tooling: drop committed generated SQL, regenerate from `examples/entities`, apply
+      # with psql before any job step that uses Postgres (workspace tests, db_integration_suite, coverage).
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Regenerate entity migrations and apply to Postgres
+        run: |
+          set -euo pipefail
+          rm -rf migrations/generated
+          (cd examples/entities && cargo run --bin generate-migrations)
+          gen="migrations/generated"
+          order_file="$gen/apply_order.txt"
+          sql_files=()
+          if [ -f "$order_file" ]; then
+            while IFS= read -r line || [[ -n "${line:-}" ]]; do
+              line="${line//$'\r'/}"
+              [[ -z "${line// }" || "$line" =~ ^[[:space:]]*# ]] && continue
+              sql_files+=("$gen/$line")
+            done < "$order_file"
+          fi
+          if [ "${#sql_files[@]}" -eq 0 ]; then
+            mapfile -t sql_files < <(find "$gen" -name '*.sql' -type f | sort)
+          fi
+          if [ "${#sql_files[@]}" -eq 0 ]; then
+            echo '::error::No SQL files under migrations/generated after generate-migrations'
+            exit 1
+          fi
+          for f in "${sql_files[@]}"; do
+            echo "Applying $f"
+            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      # Pin nextest: newer releases (e.g. 0.9.132+) require rustc 1.91+; CI uses nightly-2025-06-30.
       - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
+        run: cargo install cargo-nextest --locked --version 0.9.128
 
       - name: Run lifeguard-derive tests
         run: |
@@ -65,8 +116,13 @@ jobs:
           cargo test --no-fail-fast
         continue-on-error: true  # Allow to fail if codegen crate doesn't exist yet
 
+      # Exclude `db_integration_suite`: parallel DDL on one Postgres flakes (duplicate types, max connections).
+      # Job `env` supplies DATABASE_URL / TEST_DATABASE_URL to all steps.
       - name: Run workspace tests
-        run: cargo nextest run --workspace --all-features --profile ci
+        run: cargo nextest run --workspace --all-features --profile ci -E 'not binary(db_integration_suite)'
+
+      - name: Run lifeguard db_integration_suite (serial)
+        run: cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
 
       - name: Install llvm-tools
         run: rustup component add llvm-tools-preview
@@ -74,8 +130,11 @@ jobs:
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov --locked
 
+      # `llvm-cov` runs `cargo test` (not nextest). Integration tests in `db_integration_suite` must not
+      # run in parallel against one DB — same as local `cargo test` without `--test-threads=1`.
       - name: Code coverage
+        env:
+          RUST_TEST_THREADS: 1
         run: |
           cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
           cargo llvm-cov --all-features --workspace --summary-only
-

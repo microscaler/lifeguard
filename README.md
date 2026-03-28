@@ -4,13 +4,18 @@
 
 # 🛟 Lifeguard: Coroutine-Driven Database Runtime for Rust
 
-**Lifeguard** is a **complete, production-grade ORM and data access platform** built from the ground up for Rust's `may` coroutine runtime. This is not a wrapper or adapter—it's a **parallel universe ORM** that provides SeaORM-like functionality but is architected natively for coroutines.
+**Lifeguard** is a **coroutine-native PostgreSQL ORM and data access platform** built for Rust's `may` runtime. It aims for SeaORM-like ergonomics without async/`Tokio`: stackful coroutines and `may_postgres` as the database client.
+
+### Current status (repository truth)
+
+- **In this crate today:** `LifeExecutor` / `MayPostgresExecutor`, `connect` and connection helpers, `SelectQuery` and the query stack, `#[derive(LifeModel)]` / `#[derive(LifeRecord)]` (`lifeguard-derive`), relations (including loaders and `find_related` / linked paths), migrations (`lifeguard::migration`, `lifeguard-migrate`), transactions, raw SQL helpers, partial models, optional **metrics** and **tracing** features, and **channel logging** (`lifeguard::logging`).
+- **Not exported yet:** `LifeguardPool` — the `pool` module is still disabled in `src/lib.rs`; use `connect` + `MayPostgresExecutor` (or your own pooling strategy) until pool work lands.
+- **Separate product:** distributed cache coherence (**LifeReflector**) is documented below but lives in [lifeguard-reflector](https://github.com/microscaler/lifeguard-reflector), not in this repository.
+- **Docs vs code:** Mermaid diagrams and some marketing sections describe the **target** platform (cache tier, replica routing, pool). Treat [docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md), `cargo doc`, and `examples/` as the ground truth for what compiles.
 
 ---
 
 ## 🔥 Why Lifeguard?
-
-**Lifeguard** is a **complete, production-grade ORM and data access platform** built from the ground up for Rust's `may` coroutine runtime. This is not a wrapper or adapter—it's a **parallel universe ORM** that provides SeaORM-like functionality but is architected natively for coroutines.
 
 **The Problem:** Existing Rust ORMs (SeaORM, Diesel, SQLx) are built for async/await and Tokio. The `may` coroutine runtime uses stackful coroutines, not async futures. These are **fundamentally incompatible architectures**—you cannot bridge them without significant performance penalties.
 
@@ -48,8 +53,10 @@ A complete ORM system with two primary abstractions:
 - Change tracking (dirty fields)
 
 ```rust
-#[derive(LifeModel)]
-#[table = "users"]
+use lifeguard_derive::{LifeModel, LifeRecord};
+
+#[derive(LifeModel, LifeRecord)]
+#[table_name = "users"]
 struct User {
     #[primary_key]
     id: i64,
@@ -57,32 +64,15 @@ struct User {
     is_active: bool,
 }
 
-#[derive(LifeRecord)]
-struct NewUser {
-    email: String,
-}
-
-// Usage - no async/await needed!
-let user = NewUser { email: "test@example.com".into() }
-    .insert(&pool)?;
-
-let found = User::find_by_id(&pool, user.id)?;
-let users = User::find()
-    .filter(User::Email.eq("test@example.com"))
-    .all(&pool)?;
+// Inserts/selects go through LifeExecutor + SelectQuery / ActiveModelTrait;
+// see lifeguard-derive tests and examples/ for full patterns (no Tokio required).
 ```
 
-### Connection Pool: LifeguardPool
+### Connection pool: LifeguardPool (planned)
 
-A sophisticated connection pool designed for extreme scale:
+**Target design** for extreme scale (persistent `may_postgres` connections, semaphore-bounded acquire, health checks, coroutine-native I/O). The **public `LifeguardPool` API is not wired in this crate yet** (`pool` remains out of `lib.rs`).
 
-- **Persistent connections:** Pre-allocated, long-lived Postgres connections (no on-demand creation)
-- **Semaphore-based concurrency:** Bounded acquisition prevents connection storms
-- **Health monitoring:** Automatic detection and reconnection of failed connections
-- **Aggressive reuse:** Every connection handles thousands of requests per second
-- **Coroutine-native:** No async runtime, pure coroutine I/O
-
-**For High-Scale Applications:** When database connections are limited (e.g., 100-500 connections) but traffic is extreme (millions of requests per second), connection pooling becomes critical. LifeguardPool makes a small number of connections (the 300 Spartans) handle massive traffic (the Persian Empire) through aggressive connection reuse and intelligent pooling tactics.
+**Today:** open connections with [`connect`](./src/connection.rs) and run queries through [`MayPostgresExecutor`](./src/executor.rs) / [`LifeExecutor`](./src/executor.rs). See [`examples/query_builder_example.rs`](./examples/query_builder_example.rs) for patterns.
 
 ### The Killer Feature: LifeReflector
 
@@ -94,25 +84,27 @@ A **standalone microservice** that maintains cluster-wide cache coherence:
 
 - **Leader-elected Raft system:** Only one active reflector at a time (no duplicate work)
 - **Postgres LISTEN/NOTIFY integration:** Subscribes to database change events
-- **Intelligent cache refresh:** Only updates keys that exist in Redis (TTL-based active set)
-- **Zero-stale reads:** Redis always reflects current database state
+- **Intelligent cache refresh:** Only **re-writes** keys that already exist in Redis (TTL-based **active set**—no stale copy to fix if the key was never cached)
+- **Read path populates Redis:** Cache miss → load from Postgres → `SETEX` (with TTL); new rows enter Redis when something **reads** them (or via warm-up), not from `NOTIFY` alone
 - **Horizontal scaling:** All microservices benefit from single reflector
 
-**How It Works:**
-1. LifeRecord writes to Postgres → triggers `NOTIFY`
-2. LifeReflector (leader) receives notification
-3. Checks if key exists in Redis (active item)
-4. If exists → refreshes from database → updates Redis
-5. If not → ignores (inactive item, TTL expired)
-6. All microservices read from Redis → always fresh data
+**How it works:**
 
-**Result:** Oracle Coherence-level cache consistency with Postgres + Redis, but lighter, faster, and open source.
+1. **Reads (population):** A service checks **Redis first**. On a **miss**, it reads from **Postgres** and **writes the row into Redis** (e.g. `SETEX` + TTL). First-time and cold rows are cached here—this is how Redis gets populated.
+2. **LifeRecord** (or the writer) commits to **Postgres**; the database path emits **`NOTIFY`** (payload identifies the row).
+3. **LifeReflector** (leader) receives the notification.
+4. Reflector checks whether that entity **key already exists** in Redis (active cached item).
+5. **If it exists** → Reflector **re-reads from Postgres** and **updates Redis** so no client keeps a pre-write value.
+6. **If it does not exist** → Reflector **ignores** the notify: there is **no cached row to invalidate**—nothing in Redis was wrong. The next read miss still runs step (1) and loads fresh data from Postgres into Redis.
+7. **Cross-service reads:** Once a key is in Redis, other services can read it from Redis; steps 2–6 keep **already-cached** keys aligned with Postgres after writes.
+
+**Result:** Oracle Coherence–style **coherence for the active set** in Redis: lazy (or warmed) population on reads, plus **notify-driven refresh** only where a stale cache entry could otherwise exist. See the **sequence diagram** below (cache miss branch → Postgres → `SETEX`).
 
 **Enterprise Component**: LifeReflector is available as a separate enterprise component with source-available licensing for paid customers. For more information, see the [Lifeguard Reflector repository](https://github.com/microscaler/lifeguard-reflector) or contact enterprise@microscaler.io.
 
-### Transparent Caching System
+### Transparent caching system (target)
 
-Lifeguard provides transparent caching that uses PostgreSQL as the gods designed it:
+**Target behavior** (not fully wired as “magic” on every read path in this crate today): Lifeguard’s design calls for caching that still respects PostgreSQL primaries and replicas:
 
 - **Check Redis first:** Sub-millisecond reads if cached
 - **Read from replicas:** When healthy (WAL lag < threshold)
@@ -139,9 +131,11 @@ Advanced read routing with WAL lag awareness:
 - `mixed` - Automatic selection (Redis → replica → primary)
 - `strong` - Causal consistency (wait for replica to catch up)
 
-### Complete Feature Set
+### Complete feature set (vision vs crate)
 
-**ORM Features (SeaORM Parity):**
+The lists below mix **shipped**, **partial**, and **planned** capabilities. For a maintained feature matrix, see [SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md).
+
+**ORM features (SeaORM parity target):**
 - ✅ Complete CRUD operations
 - ✅ Type-safe query builders
 - ✅ Relations (has_one, has_many, belongs_to, many_to_many)
@@ -172,9 +166,11 @@ Advanced read routing with WAL lag awareness:
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏗️ Architecture overview
 
-### New Architecture (Post-Rebuild)
+Diagrams summarize the **target** platform (including pool and external reflector). Components in grey or noted above may not be exposed from this crate yet.
+
+### Target architecture
 
 ```mermaid
 graph TD
@@ -373,79 +369,30 @@ sequenceDiagram
 
 ---
 
-## 💻 Getting Started
-
-**Note:** Lifeguard is currently being rebuilt from scratch. The following examples show the target API (not yet implemented).
+## 💻 Getting started
 
 ### Installation
 
 ```toml
 [dependencies]
 lifeguard = { git = "https://github.com/microscaler/lifeguard" }
+lifeguard-derive = { git = "https://github.com/microscaler/lifeguard", package = "lifeguard-derive" }
 ```
 
-### Basic Usage
+Enable optional features as needed, for example `metrics`, `tracing`, or `graphql` (see root `Cargo.toml`).
 
-```rust
-use lifeguard::*;
+### Usage (today)
 
-// Create connection pool
-let pool = LifeguardPool::new("postgresql://user:pass@localhost/dbname")?;
+1. Connect with `lifeguard::connect` and wrap the client in `MayPostgresExecutor`.
+2. Define entities with `#[derive(LifeModel, LifeRecord)]` and `#[table_name = "..."]` (see [`lifeguard-derive/tests/test_minimal.rs`](./lifeguard-derive/tests/test_minimal.rs)).
+3. Build queries with `SelectQuery` and related APIs; see [`examples/query_builder_example.rs`](./examples/query_builder_example.rs).
 
-// Define model
-#[derive(LifeModel)]
-#[table = "users"]
-struct User {
-    #[primary_key]
-    id: i64,
-    email: String,
-    is_active: bool,
-}
+There is **no** public `LifeguardPool::new` in this revision—pooling is still on the roadmap.
 
-// Query (no async/await needed!)
-let user = User::find_by_id(&pool, 1)?;
-let users = User::find()
-    .filter(User::Email.eq("test@example.com"))
-    .all(&pool)?;
+### Developer workflow
 
-// Insert
-#[derive(LifeRecord)]
-struct NewUser {
-    email: String,
-}
-
-let user = NewUser { email: "test@example.com".into() }
-    .insert(&pool)?;
-```
-
-### With Caching (Transparent)
-
-```rust
-// Caching is transparent - no code changes needed!
-// Lifeguard automatically:
-// 1. Checks Redis first
-// 2. Falls back to database if cache miss
-// 3. Caches result for future reads
-// 4. LifeReflector keeps cache fresh
-
-let user = User::find_by_id(&pool, 1)?; // May come from Redis or DB
-```
-
-### With Replicas (Automatic Health Monitoring)
-
-```rust
-// Configure read preferences
-let pool = LifeguardPool::new(url)?
-    .with_read_preference(ReadPreference::Mixed); // Redis → replica → primary
-
-// Lifeguard automatically:
-// 1. Checks Redis first
-// 2. Routes to healthy replicas
-// 3. Falls back to primary if replicas lagged
-// 4. Monitors WAL lag continuously
-
-let users = User::find().all(&pool)?; // Automatically routed
-```
+- **[DEVELOPMENT.md](./DEVELOPMENT.md)** — Clippy (CI parity), pre-commit, `just` recipes.
+- **[docs/TEST_INFRASTRUCTURE.md](./docs/TEST_INFRASTRUCTURE.md)** — Postgres/Redis for integration tests and CI.
 
 
 ---
@@ -473,6 +420,8 @@ Comprehensive instrumentation for production operations:
 - Spans for: connection acquisition, query execution, cache operations
 - Integration with existing OpenTelemetry infrastructure
 
+**Host-owned globals:** Lifeguard does **not** set a global OpenTelemetry `TracerProvider`. Your service (for example **BRRTRouter**) must install **one** provider and **one** `tracing_subscriber::Registry` stack. Optionally add **`lifeguard::channel_layer()`** to that same `.with(...)` chain so events also go through Lifeguard’s may-channel logger. See **[docs/OBSERVABILITY_APP_INTEGRATION.md](docs/OBSERVABILITY_APP_INTEGRATION.md)** and the **`lifeguard::logging`** rustdoc.
+
 ### LifeReflector Metrics
 
 - `reflector_notifications_total` - Notifications received
@@ -487,98 +436,33 @@ Comprehensive instrumentation for production operations:
 
 ## 🧪 Testing
 
-Lifeguard includes a comprehensive testkit for testing database operations:
+- **Library tests:** `cargo test -p lifeguard`, workspace members (`lifeguard-derive`, `lifeguard-migrate`, etc.), and (when configured) `cargo nextest` per [DEVELOPMENT.md](./DEVELOPMENT.md) / [justfile](./justfile).
+- **Integration database:** `lifeguard::test_helpers::TestDatabase` and env vars such as `TEST_DATABASE_URL` — see [docs/TEST_INFRASTRUCTURE.md](./docs/TEST_INFRASTRUCTURE.md).
 
-```rust
-use lifeguard::testkit::*;
-
-#[test]
-fn test_user_operations() {
-    let pool = test_pool!();
-    
-    let user = NewUser { email: "test@example.com".into() }
-        .insert(&pool)?;
-    
-    assert_eq!(user.email, "test@example.com");
-}
-```
-
-The testkit provides:
-- Test database setup/teardown
-- Transaction rollback after each test (clean state)
-- Fixture loading helpers
-- Test database isolation
+There is **no** `lifeguard::testkit` / `test_pool!` macro in this repository; use `test_helpers` and the integration-test binaries under `tests/`.
 
 ---
 
 ## 🗺️ Roadmap
 
-### Epic 01: Foundation (Weeks 1-3)
-- ✅ Remove SeaORM and Tokio dependencies
-- ✅ Integrate `may_postgres` as database client
-- ✅ Implement `LifeExecutor` trait
-- ✅ Redesign `LifeguardPool` for `may_postgres`
-- ✅ Basic metrics and observability
-- ✅ Transaction support
-- ✅ Raw SQL helpers
+Epic-style checklists in older docs were overstated relative to this crate. Use these instead:
 
-### Epic 02: ORM Core (Weeks 3-6)
-- ✅ Build `LifeModel` derive macro
-- ✅ Build `LifeRecord` derive macro
-- ✅ Implement basic CRUD operations
-- ✅ Integrate SeaQuery for SQL building
-- ✅ Type-safe query builders
-- ✅ Batch operations
-- ✅ Upsert support
-- ✅ Pagination helpers
-- ✅ Entity hooks & lifecycle events
-- ✅ Validators
-- ✅ Soft deletes
-- ✅ Auto-managed timestamps
-- ✅ Session/Unit of Work pattern
-- ✅ Scopes
-- ✅ Model Managers
-- ✅ F() Expressions
+| Area | Status |
+|------|--------|
+| `may_postgres`, `LifeExecutor`, transactions, raw SQL | Shipped |
+| `LifeModel` / `LifeRecord`, query builder, relations, loaders | Shipped (ongoing hardening) |
+| Migrations (`lifeguard::migration`, `lifeguard-migrate`, example `generate-migrations`) | Shipped (tooling evolves) |
+| Optional metrics / tracing / channel logging | Shipped behind features |
+| Exported `LifeguardPool`, replica/read-preference API, transparent Redis on every query | Planned / not public API yet |
+| LifeReflector, enterprise cache coherence | [Separate repository](https://github.com/microscaler/lifeguard-reflector) |
 
-### Epic 03: Migrations (Weeks 6-8)
-- ✅ Implement `LifeMigration` trait
-- ✅ Build migration runner
-- ✅ Create CLI tooling (`lifeguard migrate`)
-- ✅ Support core PostgreSQL features
-- ✅ Programmatic migrations and data seeding
-- ✅ Advanced migration operations
-
-### Epic 04: v1 Release (Weeks 8-10)
-- ✅ Complete PostgreSQL feature support
-- ✅ Testkit infrastructure
-- ✅ Comprehensive documentation
-- ✅ Integration with BRRTRouter
-- ✅ Performance benchmarks
-
-### Epic 05: Advanced Features (Weeks 10-14)
-- ✅ LifeReflector (distributed cache coherence)
-- ✅ Redis integration
-- ✅ Replica read support with WAL lag awareness
-- ✅ Complete relation support
-- ✅ Materialized views
-- ✅ Query cache support
-- ✅ Cache statistics & monitoring
-
-### Epic 06: Enterprise Features (Weeks 15 - 20)
-- ✅ PostGIS support
-- ✅ Partitioning
-- ✅ Triggers and stored procedures
-- ✅ Schema introspection tools (Diesel `table!` equivalent)
-- ✅ Code generation from database
-- ✅ Schema-first design
-
-See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
+Story-level detail: [docs/planning/epics-stories/](./docs/planning/epics-stories/) · Feature audit: [docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) · [docs/EPICS/](./docs/EPICS/) (curated notes).
 
 ---
 
-## 🎯 Competitive Metrics: Lifeguard vs Rust ORMs
+## 🎯 Competitive metrics: Lifeguard vs Rust ORMs
 
-*Implementation status based on current codebase analysis (see `lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md`)*
+*Historical comparison table: rows mix **shipped** behavior, **partial** work, and **vision**. Prefer [docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) and `cargo doc` over this matrix for decisions.*
 
 | Feature | Lifeguard Promise | Implementation Status | SeaORM | Diesel | SQLx |
 |---------|-------------------|----------------------|--------|--------|------|
@@ -640,43 +524,15 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 - ⚠️ = Limited or manual implementation required
 - ❌ = Not supported
 
-### Implementation Status Summary
+### Implementation status summary (short)
 
-**✅ Fully Implemented (Core ORM - 67% of SeaORM parity):**
-- Core traits (LifeModelTrait, ModelTrait, ActiveModelTrait, ColumnTrait, PrimaryKeyTrait)
-- Complete CRUD operations (insert, update, save, delete)
-- Relations system (has_one, has_many, belongs_to, has_many_through) with composite key support
-- Query builder (19/20 methods, 95% coverage)
-- Eager/lazy loading with multiple strategies
-- Pagination, batch operations, upsert
-- Entity hooks (ActiveModelBehavior with 8 lifecycle hooks)
-- JSON support (core feature, always enabled)
-- Partial models (DerivePartialModel)
-- Multi-hop relationships (DeriveLinked - competitive advantage)
+**Strong in-tree today:** core traits (`LifeModelTrait`, `ModelTrait`, `ActiveModelTrait`, …), CRUD/save paths, `SelectQuery` stack, relations and eager/loader paths (including composite keys and linked traversals), migrations framework, JSON column support, derive-time options such as **`soft_delete`** and **`auto_timestamp`**, partial models, lifecycle hooks.
 
-**🟡 Partially Implemented / Future:**
-- Migrations (infrastructure may exist, but DeriveMigrationName macro missing)
-- Subqueries, CTEs, Window Functions (planned for future)
-- PostgreSQL advanced features (JSONB ✅, others future)
-- Observability (metrics infrastructure exists, full implementation pending)
+**Partial or roadmap:** higher-level validators/scopes/session-UoW, some SQL builder extras (subqueries/CTEs/windows), schema inference from DB, exported pool and replica routing APIs as described in marketing sections above.
 
-**❌ Not Yet Implemented (Promised but Missing):**
-- Validators (field & model-level)
-- Soft deletes
-- Auto-managed timestamps
-- Session/Unit of Work pattern
-- Scopes (named query scopes)
-- Model Managers (custom query methods)
-- F() Expressions (database-level expressions)
-- Schema inference (Diesel `table!` equivalent)
+**Outside this repo:** LifeReflector and full “transparent cache on every read” as a productized path.
 
-**🟡 Architectural Features (Not in SeaORM mapping, status unclear):**
-- LifeReflector (distributed cache coherence)
-- Replica read support with WAL-based routing
-- Read preferences (primary, replica, mixed, strong)
-- TTL-based active set caching
-
-**Overall Progress:** ~67% of SeaORM feature parity achieved. Core ORM functionality is complete and production-ready. Advanced features (validators, soft deletes, scopes) and architectural features (LifeReflector, replica routing) are pending.
+For percentages and row-by-row status, use the mapping document linked above rather than this README table alone.
 
 ### Key Differentiators
 
@@ -700,7 +556,7 @@ See [EPICS](./docs/EPICS/) for detailed stories and progress tracking.
 - ❌ PostgreSQL-only (by design - enables advanced features)
 - ❌ Requires `may` coroutine runtime (not Tokio)
 - ❌ Smaller ecosystem (newer project)
-- ⚠️ Some promised features not yet implemented (validators, soft deletes, scopes, etc.)
+- ⚠️ Some roadmap items remain (validators, scopes, session/UoW, exported pool/replica APIs, etc.); see mapping doc
 
 ### Performance Comparison (Estimated)
 
@@ -766,18 +622,18 @@ These are **two incompatible worlds** with the only commonality being Rust itsel
 
 ## 📚 Documentation
 
-- [Architecture Overview](./docs/ARCHITECTURE.md)
-- [Epics & Stories](./docs/EPICS/)
-- [SeaORM Feature Audit](./docs/EPICS/Epic_02/SEAORM_AUDIT.md)
-- [Competitive ORM Analysis](./docs/EPICS/COMPETITIVE_ORM_ANALYSIS.md)
-- [Missing Features Analysis](./docs/EPICS/MISSING_FEATURES_ANALYSIS.md)
-- [Blog Post](./docs/wip/LIFEGUARD_BLOG_POST.md)
+- [Developer workflow & Clippy / pre-commit](./DEVELOPMENT.md)
+- [Tests & CI Postgres/Redis](./docs/TEST_INFRASTRUCTURE.md)
+- [Observability & host-owned OTel/tracing](./docs/OBSERVABILITY_APP_INTEGRATION.md)
+- [SeaORM ↔ Lifeguard mapping](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md)
+- [Epic notes](./docs/EPICS/) · [Story tree](./docs/planning/epics-stories/)
+- [Planning index](./docs/planning/README.md)
 
 ---
 
 ## 🤝 Contributing
 
-Lifeguard is being rebuilt from scratch. We welcome:
+Lifeguard is under active development. We welcome:
 - 📝 Documentation improvements
 - 🐛 Bug reports
 - 💡 Feature suggestions
@@ -790,4 +646,4 @@ See [EPICS](./docs/EPICS/) for current development priorities.
 
 ## 📜 License
 
-Licensed under Apache-2.0.
+Licensed under **MIT OR Apache-2.0** at your option ([`Cargo.toml`](./Cargo.toml)). The [`LICENSE`](./LICENSE) file in this repository contains the Apache-2.0 text.

@@ -178,7 +178,7 @@ pub trait LifeExecutor {
 
 /// Blanket implementation to allow trait objects (`&dyn LifeExecutor`) to be passed
 /// to generic functions expecting `<E: LifeExecutor>` without hitting `Sized` compiler errors.
-impl<'a> LifeExecutor for &'a dyn LifeExecutor {
+impl LifeExecutor for &dyn LifeExecutor {
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
         (*self).execute(query, params)
     }

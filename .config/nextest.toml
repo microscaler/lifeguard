@@ -26,9 +26,14 @@ junit = { path = "test-results.xml" }
 # Note: Use --exclude flag on command line or --package flag to include/exclude packages
 # The filter key is not valid in profile sections, so we rely on command-line flags
 
-# Test groups for organizing tests
-# Note: test-groups are defined at the workspace level, not in profiles
-# They can be used with --test-group flag
+# Test groups: not used by current `just` recipes (cargo-nextest CLI may not expose --test-group).
+# Prefer `--exclude lifeguard-integration-tests` or per-package `-p` / `--lib` as needed.
+
+# Lifeguard `tests/*.rs` binaries: cold Testcontainers startup or many parallel DB tests can exceed 60s
+# without being a real hang. (When `TEST_DATABASE_URL` is set, `tests/context.rs` skips Postgres container.)
+[[profile.default.overrides]]
+filter = 'binary(db_integration_suite)'
+slow-timeout = { period = "180s" }
 
 # Override slow timeout for integration tests
 [profile.ci]
@@ -42,6 +47,22 @@ status-level = "all"  # Show all test statuses
 junit = { path = "test-results.xml" }
 # Exclude integration tests in CI profile as well (run separately if needed)
 # Note: Use --exclude flag on command line to exclude packages
+
+# Single-threaded DB integration: avoids DDL races and connection exhaustion on a shared Postgres
+# (e.g. `just dev-up` + `TEST_DATABASE_URL`). See docs/TEST_INFRASTRUCTURE.md.
+[profile.db-serial]
+retries = 2
+test-threads = 1
+slow-timeout = { period = "300s" }
+leak-timeout = { period = "5s" }
+failure-output = "immediate-final"
+success-output = "never"
+status-level = "all"
+junit = { path = "test-results.xml" }
+
+[[profile.db-serial.overrides]]
+filter = 'binary(db_integration_suite)'
+test-threads = 1
 
 # Development profile with verbose output
 [profile.dev]

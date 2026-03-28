@@ -1,7 +1,7 @@
 //! Cache provider trait definitions and implementation stubs
 //!
 //! This module defines the `CacheProvider` trait formatting the boundaries
-//! for LifeReflector's caching mechanisms (i.e. Redis write-through/fallbacks).
+//! for `LifeReflector`'s caching mechanisms (i.e. Redis write-through/fallbacks).
 
 /// Represents cache-layer operational errors.
 #[derive(Debug)]

@@ -1,6 +1,6 @@
-//! LifeReflector Architecture Placeholder
+//! `LifeReflector` Architecture Placeholder
 //!
-//! Provides the core LifeReflector background worker loop. This relies on PostgreSQL
+//! Provides the core `LifeReflector` background worker loop. This relies on `PostgreSQL`
 //! LISTEN/NOTIFY and Redis Distributed Locks (Redlock) for leader election.
 
 use may::coroutine;
@@ -9,25 +9,25 @@ use log::{info, error};
 use std::sync::Arc;
 use crate::cache::provider::CacheProvider;
 
-/// LifeReflector Background Worker
+/// `LifeReflector` Background Worker
 /// Ensures Cache Coherence dynamically via Change Data Capture
 pub struct LifeReflector {
     pg_url: String,
-    redis_url: String,
-    cache_provider: Arc<dyn CacheProvider>,
+    _redis_url: String,
+    _cache_provider: Arc<dyn CacheProvider>,
 }
 
 impl LifeReflector {
-    /// Initialize a new LifeReflector instance
+    /// Initialize a new `LifeReflector` instance
     pub fn new(pg_url: String, redis_url: String, cache_provider: Arc<dyn CacheProvider>) -> Self {
         Self {
             pg_url,
-            redis_url,
-            cache_provider,
+            _redis_url: redis_url,
+            _cache_provider: cache_provider,
         }
     }
 
-    /// Spawns the background worker for LifeReflector
+    /// Spawns the background worker for `LifeReflector`
     pub fn spawn(self) {
         unsafe {
             coroutine::spawn::<_, ()>(move || {

@@ -4,6 +4,8 @@
 //! The generated code uses fully qualified paths (crate::UserEntity), avoiding the E0284
 //! type inference errors that occur during macro expansion.
 
+#![allow(warnings)]
+
 use lifeguard::PartialModelTrait;
 use lifeguard::{LifeModelTrait, LifeEntityName};
 

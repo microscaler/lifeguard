@@ -1314,6 +1314,8 @@ pub fn generate_value_to_option_field(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::single_char_pattern)]
+
     use super::*;
     use syn::parse_str;
 
@@ -1461,8 +1463,6 @@ mod tests {
     #[test]
     fn test_type_to_string_only_const_generics() {
         // Test that types with only const generics (no type generics) don't produce empty brackets
-        use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Expr};
-        
         // Create a PathSegment with only a const argument
         // Note: syn::parse_str can't easily parse const generics, so we'll test the behavior
         // by ensuring that when we have a type with generics but filter out all type args,

@@ -5,6 +5,12 @@
 //! which are then compiled normally (avoiding E0284 type inference errors that occur
 //! during macro expansion).
 
+// CLI codegen: string-building helpers; keep CI clippy aligned with `-W clippy::pedantic` on libs.
+#![allow(clippy::pedantic)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::format_push_string)]
+#![allow(clippy::single_char_add_str)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

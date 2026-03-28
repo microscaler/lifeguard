@@ -3,6 +3,8 @@
 //! These tests verify that the DeriveRelation macro correctly generates
 //! Related trait implementations from Relation enum definitions.
 
+#![allow(warnings)]
+
 use lifeguard_derive::DeriveRelation;
 use lifeguard::{Related, RelationDef, LifeModelTrait, LifeEntityName};
 use lifeguard::relation::RelationMetadata;

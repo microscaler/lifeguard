@@ -75,6 +75,65 @@ This will forward `localhost:5432` to the PostgreSQL service in the cluster.
 just dev-down
 ```
 
+### cargo-nextest
+
+Install a **pinned** binary if `cargo install cargo-nextest --locked` fails with “requires rustc 1.91 or newer” (newer nextest needs a newer compiler than this repo’s pinned nightly or your local toolchain):
+
+```bash
+cargo install cargo-nextest --locked --version 0.9.128
+```
+
+CI uses the same pin in `.github/workflows/ci.yaml`. When you upgrade the workspace `rust-toolchain` / nightly past 1.91, you can bump the nextest version in CI and the command above.
+
+### GitHub Actions: entity migrations on Postgres
+
+In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_suite`, the job:
+
+1. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
+2. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
+3. Applies SQL to the job’s Postgres service (`psql`): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
+
+That validates the migration-generation path against a real database before other steps use the same Postgres instance.
+
+Configure the **`PGPASSWORD`** [repository secret](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions) so it matches the password embedded in `DATABASE_URL` / `TEST_DATABASE_URL` and in the workflow’s `services.postgres` `POSTGRES_PASSWORD`. Avoid raw `@`, `:`, `/`, `#`, or `%` in that password unless you percent-encode them for the URL (the `psql` client still uses the raw secret via `PGPASSWORD`).
+
+### Rust crate integration tests (`db_integration_suite`)
+
+The `lifeguard` package runs database-backed tests from a **single** integration binary (`tests/db_integration_suite.rs`) that shares one Postgres URL (and a Redis URL in context) per process.
+
+| Variable | Role |
+|----------|------|
+| `TEST_DATABASE_URL` | If set, **skips** starting Postgres via testcontainers; must point at a **dedicated test** Postgres (not `DATABASE_URL` — integration code can run destructive DDL). |
+| `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. |
+
+**Shared Postgres (e.g. Kind + `just dev-up`):** parallel test threads can exhaust connections (`too many clients`) or race on `CREATE TABLE`. Prefer:
+
+```bash
+export TEST_DATABASE_URL="$(just dev-connection-string)"
+cargo nextest run -p lifeguard --profile db-serial -E 'binary(db_integration_suite)'
+```
+
+Or, with plain Cargo:
+
+```bash
+cargo test -p lifeguard --test db_integration_suite -- --test-threads=1
+```
+
+Targeted modules (faster feedback):
+
+```bash
+cargo test -p lifeguard --test db_integration_suite related_trait:: dataloader_n_plus_one:: -- --test-threads=1
+```
+
+**`just nt`:** runs nextest on the workspace but **skips** the `db_integration_suite` binary (it would hammer your shared Kind Postgres in parallel). Run DB integration separately:
+
+```bash
+just nt-db-suite
+# alias: just nt-db
+```
+
+See also [`docs/planning/audits/LIFEGUARD_FOUNDATION_CONTINUATION.md`](planning/audits/LIFEGUARD_FOUNDATION_CONTINUATION.md) (Phase A / C).
+
 ## Architecture
 
 ### Cluster Configuration
@@ -97,7 +156,9 @@ just dev-down
 
 ### Environment Variables
 
-The test infrastructure supports multiple ways to get the connection string:
+**`db_integration_suite` (`tests/context.rs`):** only **`TEST_DATABASE_URL`**. Do not rely on `DATABASE_URL`; helpers may issue destructive SQL.
+
+**`TestDatabase::get_connection_string` (library / unit tests):**
 
 1. **`TEST_DATABASE_URL`** (highest priority)
 2. **`DATABASE_URL`** (fallback)

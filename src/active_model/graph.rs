@@ -1,9 +1,8 @@
-//! Mechanism for defining and resolving nested ActiveModel graph hierarchies.
+//! Mechanism for defining and resolving nested `ActiveModel` graph hierarchies.
 
-use sea_query::Value;
 use crate::{LifeExecutor, ActiveModelError};
 
-/// Represents an edge in a directed graph of ActiveModels pending insertion or update.
+/// Represents an edge in a directed graph of `ActiveModels` pending insertion or update.
 /// Contains the closure responsible for executing the persistence action topologically.
 pub enum GraphEdge<R> {
     /// A "Belongs To" parent record that must be saved **FIRST**, before the root record.

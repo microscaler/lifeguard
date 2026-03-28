@@ -136,6 +136,26 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
     None
 }
 
+fn relation_attr_on_field<'a>(field: &'a syn::Field, name: &str) -> Option<&'a syn::Attribute> {
+    field.attrs.iter().find(|a| a.path().is_ident(name))
+}
+
+fn parse_relation_entity_path(
+    entity_str: &str,
+    relation_attr: Option<&syn::Attribute>,
+    fallback_ident: &syn::Ident,
+    attr_label: &str,
+) -> Result<syn::Path, syn::Error> {
+    syn::parse_str::<syn::Path>(entity_str).map_err(|e| {
+        let msg = format!("invalid `entity` path in {attr_label}: {e}");
+        if let Some(a) = relation_attr {
+            syn::Error::new_spanned(a, msg)
+        } else {
+            syn::Error::new_spanned(fallback_ident, msg)
+        }
+    })
+}
+
 /// Derive macro for `LifeModel` - generates Entity, Model, Column, `PrimaryKey`, and `FromRow`
 ///
 /// This macro follows `SeaORM`'s pattern exactly:
@@ -310,6 +330,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     // Track column definitions for ColumnTrait::def() implementations
     let mut column_def_match_arms = Vec::new();
     let mut enum_type_name_match_arms = Vec::new();
+    let mut relation_impls = Vec::new();
 
     for field in fields {
         let field_name = field.ident.as_ref().unwrap();
@@ -325,6 +346,17 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let is_primary_key = col_attrs.is_primary_key;
         let is_auto_increment = col_attrs.is_auto_increment;
         let is_ignored = col_attrs.is_ignored;
+
+        // Pass-through `#[graphql(...)]` only when built with `graphql` (see `graphql_derive` below).
+        // Otherwise attributes would be orphaned without `#[derive(SimpleObject)]`.
+        #[cfg(feature = "graphql")]
+        let graphql_attrs: Vec<_> = field
+            .attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("graphql"))
+            .collect();
+        #[cfg(not(feature = "graphql"))]
+        let graphql_attrs: Vec<&syn::Attribute> = Vec::new();
 
         // Validate: primary key fields cannot be skipped/ignored
         if is_primary_key && is_ignored {
@@ -351,7 +383,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // But we still need to add them to the Model struct and FromRow
         if is_ignored {
             // Still include in Model struct
+            // If it is Option<T>, skip serializing if None
+            let serde_skip = if extract_option_inner_type(field_type).is_some() {
+                quote! { #[serde(skip_serializing_if = "Option::is_none")] }
+            } else {
+                quote! {}
+            };
+            
             model_fields.push(quote! {
+                #(#graphql_attrs)*
+                #serde_skip
                 pub #field_name: #field_type,
             });
             // Add to FromRow with default value (since they're not in database)
@@ -365,6 +406,144 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             from_row_fields.push(quote! {
                 #field_name: #default_expr,
             });
+            
+            // Build auto-generated relation traits
+            if let Some(rel) = &col_attrs.has_many {
+                let rel_attr = relation_attr_on_field(field, "has_many");
+                let entity_path = match parse_relation_entity_path(
+                    &rel.entity,
+                    rel_attr,
+                    field_name,
+                    "#[has_many]",
+                ) {
+                    Ok(p) => p,
+                    Err(e) => return e.to_compile_error().into(),
+                };
+                let from_col = rel.from.as_deref().unwrap_or("id");
+                let Some(to_col) = rel.to.as_deref() else {
+                    let e = match rel_attr {
+                        Some(a) => syn::Error::new_spanned(
+                            a,
+                            "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                        None => syn::Error::new_spanned(
+                            field_name,
+                            "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                    };
+                    return e.to_compile_error().into();
+                };
+                relation_impls.push(quote! {
+                    impl lifeguard::Related<#entity_path> for Entity {
+                        fn to() -> lifeguard::relation::RelationDef {
+                            lifeguard::relation::RelationDef {
+                                rel_type: lifeguard::relation::RelationType::HasMany,
+                                from_tbl: sea_query::DynIden::from(<Entity as lifeguard::LifeEntityName>::table_name(&Entity)).into(),
+                                to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
+                                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
+                                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::All,
+                            }
+                        }
+                    }
+                    impl lifeguard::query::loader::RelationInjector<#entity_path> for #model_name {
+                        fn inject(&mut self, items: Vec<<#entity_path as lifeguard::query::traits::LifeModelTrait>::Model>) {
+                            self.#field_name = Some(items);
+                        }
+                    }
+                });
+            }
+            if let Some(rel) = &col_attrs.belongs_to {
+                let rel_attr = relation_attr_on_field(field, "belongs_to");
+                let entity_path = match parse_relation_entity_path(
+                    &rel.entity,
+                    rel_attr,
+                    field_name,
+                    "#[belongs_to]",
+                ) {
+                    Ok(p) => p,
+                    Err(e) => return e.to_compile_error().into(),
+                };
+                let Some(from_col) = rel.from.as_deref() else {
+                    let e = match rel_attr {
+                        Some(a) => syn::Error::new_spanned(
+                            a,
+                            "#[belongs_to] requires `from = \"column_name\"` (foreign key column on this entity)",
+                        ),
+                        None => syn::Error::new_spanned(
+                            field_name,
+                            "#[belongs_to] requires `from = \"column_name\"` (foreign key column on this entity)",
+                        ),
+                    };
+                    return e.to_compile_error().into();
+                };
+                let to_col = rel.to.as_deref().unwrap_or("id");
+                relation_impls.push(quote! {
+                    impl lifeguard::Related<#entity_path> for Entity {
+                        fn to() -> lifeguard::relation::RelationDef {
+                            lifeguard::relation::RelationDef {
+                                rel_type: lifeguard::relation::RelationType::BelongsTo,
+                                from_tbl: sea_query::DynIden::from(<Entity as lifeguard::LifeEntityName>::table_name(&Entity)).into(),
+                                to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
+                                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
+                                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::All,
+                            }
+                        }
+                    }
+                    impl lifeguard::query::loader::RelationInjector<#entity_path> for #model_name {
+                        fn inject(&mut self, mut items: Vec<<#entity_path as lifeguard::query::traits::LifeModelTrait>::Model>) {
+                            self.#field_name = items.into_iter().next();
+                        }
+                    }
+                });
+            }
+            if let Some(rel) = &col_attrs.has_one {
+                let rel_attr = relation_attr_on_field(field, "has_one");
+                let entity_path = match parse_relation_entity_path(
+                    &rel.entity,
+                    rel_attr,
+                    field_name,
+                    "#[has_one]",
+                ) {
+                    Ok(p) => p,
+                    Err(e) => return e.to_compile_error().into(),
+                };
+                let from_col = rel.from.as_deref().unwrap_or("id");
+                let Some(to_col) = rel.to.as_deref() else {
+                    let e = match rel_attr {
+                        Some(a) => syn::Error::new_spanned(
+                            a,
+                            "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                        None => syn::Error::new_spanned(
+                            field_name,
+                            "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                    };
+                    return e.to_compile_error().into();
+                };
+                relation_impls.push(quote! {
+                    impl lifeguard::Related<#entity_path> for Entity {
+                        fn to() -> lifeguard::relation::RelationDef {
+                            lifeguard::relation::RelationDef {
+                                rel_type: lifeguard::relation::RelationType::HasOne,
+                                from_tbl: sea_query::DynIden::from(<Entity as lifeguard::LifeEntityName>::table_name(&Entity)).into(),
+                                to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
+                                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
+                                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::All,
+                            }
+                        }
+                    }
+                    impl lifeguard::query::loader::RelationInjector<#entity_path> for #model_name {
+                        fn inject(&mut self, mut items: Vec<<#entity_path as lifeguard::query::traits::LifeModelTrait>::Model>) {
+                            self.#field_name = items.into_iter().next();
+                        }
+                    }
+                });
+            }
+
             // Don't generate Column enum variant, Iden, etc. for ignored fields
             continue;
         }
@@ -469,6 +648,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         };
         
         model_fields.push(quote! {
+            #(#graphql_attrs)*
             #[serde(rename = #column_name_lit)]
             #deserialize_attr
             pub #field_name: #field_type,
@@ -1618,6 +1798,32 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let cursor_tiebreak_user = attributes::extract_cursor_tiebreak(&input.attrs);
+    if let Some(ref tie) = cursor_tiebreak_user {
+        if primary_key_variant_idents.len() != 1 {
+            return syn::Error::new_spanned(
+                tie,
+                "#[cursor_tiebreak] is only valid for entities with a single-column primary key",
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+    let cursor_tiebreak_attr = if let Some(variant) = cursor_tiebreak_user {
+        let lit = syn::LitStr::new(&variant.to_string(), variant.span());
+        quote! { #[cursor_tiebreak = #lit] }
+    } else {
+        quote! {}
+    };
+
+    #[cfg(feature = "graphql")]
+    let graphql_derive = quote! { 
+        #[derive(lifeguard::async_graphql::SimpleObject)] 
+        #[graphql(name = #model_name_lit)]
+    };
+    #[cfg(not(feature = "graphql"))]
+    let graphql_derive = quote! {};
+
     // Generate Entity with nested DeriveEntity (like SeaORM)
     // This triggers nested expansion where DeriveEntity generates LifeModelTrait
     let expanded = quote! {
@@ -1720,6 +1926,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         #[model = #model_name_lit]
         #schema_attr
         #soft_delete_attr
+        #cursor_tiebreak_attr
         pub struct Entity;
 
         // Table name constant (for convenience, matches Entity::table_name())
@@ -1752,6 +1959,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // STEP 5: Generate Model struct (like SeaORM's expand_derive_model)
         // Note: Serialize/Deserialize are added for JSON support (core feature)
         #[doc = " Generated by lifeguard-derive"]
+        #graphql_derive
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct #model_name {
             #(#model_fields)*
@@ -1814,10 +2022,53 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
         }
 
-        // STEP 8: LifeModelTrait is generated by DeriveEntity (nested expansion)
+        // STEP 8: Setup dynamic relationship links generated from #[has_many/one/belongs_to] attributes
+        #(#relation_impls)*
+
+        // STEP 9: LifeModelTrait is generated by DeriveEntity (nested expansion)
         // This happens in a separate expansion phase, allowing proper type resolution
         // DeriveEntity sets both type Model and type Column using the identifiers passed via attributes
     };
 
     TokenStream::from(expanded)
+}
+
+#[cfg(test)]
+mod relation_parse_error_tests {
+    use super::{parse_relation_entity_path, relation_attr_on_field};
+    use syn::parse_quote;
+
+    #[test]
+    fn invalid_entity_path_returns_syn_error_with_message() {
+        let field: syn::Field = parse_quote! {
+            #[has_many(entity = "crate::bad::!!!", to = "x")]
+            rel: Option<Vec<()>>
+        };
+        let field_name = field.ident.as_ref().unwrap();
+        let rel_attr = relation_attr_on_field(&field, "has_many");
+        let err = parse_relation_entity_path("crate::bad::!!!", rel_attr, field_name, "#[has_many]")
+            .expect_err("invalid path should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("invalid `entity` path") || msg.contains("expected identifier"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn invalid_belongs_to_entity_path_returns_syn_error_with_message() {
+        let field: syn::Field = parse_quote! {
+            #[belongs_to(entity = "crate::bad::!!!", from = "x")]
+            parent: Option<()>
+        };
+        let field_name = field.ident.as_ref().unwrap();
+        let rel_attr = relation_attr_on_field(&field, "belongs_to");
+        let err = parse_relation_entity_path("crate::bad::!!!", rel_attr, field_name, "#[belongs_to]")
+            .expect_err("invalid path should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("invalid `entity` path") || msg.contains("expected identifier"),
+            "unexpected message: {msg}"
+        );
+    }
 }

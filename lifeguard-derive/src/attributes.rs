@@ -91,9 +91,37 @@ pub fn extract_column_enum_name(attrs: &[Attribute]) -> Option<syn::Ident> {
     None
 }
 
+/// `#[cursor_tiebreak = "ColumnVariant"]` on the `LifeModel` struct (forwarded to `DeriveEntity`) —
+/// opt-in primary-key column variant for cursor pagination `after_pk` / `before_pk` when the cursor column
+/// is non-unique. Valid only with a single-column primary key.
+pub fn extract_cursor_tiebreak(attrs: &[Attribute]) -> Option<syn::Ident> {
+    for attr in attrs {
+        if attr.path().is_ident("cursor_tiebreak") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s),
+                    ..
+                }) = &meta.value
+                {
+                    return syn::parse_str::<syn::Ident>(&s.value()).ok();
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Check if field has a specific attribute
 pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
     field.attrs.iter().any(|attr| attr.path().is_ident(attr_name))
+}
+
+/// Holds the configuration extracted from `#[has_many]`, `#[belongs_to]`, etc.
+#[derive(Debug, Clone, Default)]
+pub struct RelationAttribute {
+    pub entity: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 
 /// Extract all column attributes from a field
@@ -123,6 +151,36 @@ pub struct ColumnAttributes {
     pub foreign_key: Option<String>,
     /// CHECK constraint expression (column-level)
     pub check: Option<String>,
+    pub has_many: Option<RelationAttribute>,
+    pub belongs_to: Option<RelationAttribute>,
+    pub has_one: Option<RelationAttribute>,
+}
+
+fn parse_relation_attr(attr: &Attribute) -> Result<RelationAttribute, syn::Error> {
+    let mut rel = RelationAttribute::default();
+    if let syn::Meta::List(meta_list) = &attr.meta {
+        let nested = meta_list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)?;
+        for meta in nested {
+            if let syn::Meta::NameValue(nv) = meta {
+                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
+                    if nv.path.is_ident("entity") {
+                        rel.entity = s.value();
+                    } else if nv.path.is_ident("from") {
+                        rel.from = Some(s.value());
+                    } else if nv.path.is_ident("to") {
+                        rel.to = Some(s.value());
+                    }
+                }
+            }
+        }
+    }
+    if rel.entity.is_empty() {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "Relation attribute must specify an 'entity' (e.g., #[has_many(entity = \"post::Entity\")])",
+        ));
+    }
+    Ok(rel)
 }
 
 
@@ -266,6 +324,15 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                     attrs.save_as = Some(value);
                 }
             }
+        } else if attr.path().is_ident("has_many") {
+            attrs.is_ignored = true; // Don't treat as DB column
+            attrs.has_many = Some(parse_relation_attr(attr)?);
+        } else if attr.path().is_ident("belongs_to") {
+            attrs.is_ignored = true;
+            attrs.belongs_to = Some(parse_relation_attr(attr)?);
+        } else if attr.path().is_ident("has_one") {
+            attrs.is_ignored = true;
+            attrs.has_one = Some(parse_relation_attr(attr)?);
         } else if attr.path().is_ident("comment") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
@@ -326,9 +393,9 @@ pub struct TableAttributes {
     pub before_delete: Option<String>,
     /// Lifecycle hook: after delete
     pub after_delete: Option<String>,
-    /// Auto timestamp flag automatically handles created_at and updated_at
+    /// Auto timestamp flag automatically handles `created_at` and `updated_at`
     pub auto_timestamp: bool,
-    /// Soft delete flag intercepts DELETE operations and updates deleted_at instead
+    /// Soft delete flag intercepts DELETE operations and updates `deleted_at` instead
     pub soft_delete: bool,
 }
 
@@ -338,6 +405,7 @@ pub struct TableAttributes {
 /// * `attrs` - Struct attributes to parse
 /// * `valid_columns` - Set of valid column names that exist on the struct (for validation)
 #[allow(dead_code)] // Used by macro expansion
+#[allow(clippy::too_many_lines)] // Single attribute-dispatch loop; splitting would obscure control flow
 pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collections::HashSet<String>) -> Result<TableAttributes, syn::Error> {
     let mut table_attrs = TableAttributes::default();
     

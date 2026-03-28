@@ -1,12 +1,12 @@
-//! Integration tests for ActiveModel Nested Graph Persistence (`save_graph`)
+//! Integration tests for `ActiveModel` Nested Graph Persistence (`save_graph`)
 //!
 //! These tests validate that the recursive topological graph walking logic
 //! correctly identifies hierarchies, inserts them in the correct transaction order
-//! (BelongsTo -> Root -> HasMany), and dynamically propagates newly assigned
+//! (`BelongsTo` -> Root -> `HasMany`), and dynamically propagates newly assigned
 //! auto-increment sequences down strings of Primary and Foreign key dependencies.
 //!
-//! Note: These tests require a running PostgreSQL database. Set TEST_DATABASE_URL
-//! environment variable or use the test infrastructure from test_helpers.
+//! Note: These tests require a running `PostgreSQL` database. Set `TEST_DATABASE_URL`
+//! environment variable or use the test infrastructure from `test_helpers`.
 
 use lifeguard::{
     ActiveModelTrait, LifeExecutor, MayPostgresExecutor,
@@ -15,10 +15,8 @@ use lifeguard::{
 use lifeguard_derive::{LifeModel, LifeRecord};
 
 
-mod context;
-
 fn get_db() -> TestDatabase {
-    let ctx = context::get_test_context();
+    let ctx = crate::context::get_test_context();
     TestDatabase::with_url(&ctx.pg_url)
 }
 
@@ -47,26 +45,12 @@ pub mod user_mod {
         pub user_id: i32,
         pub username: String,
         pub organization_id: i32, // FK to Organizations
-    }
-    
-    // Manual mapping for topological testing since macro parsing isn't finished yet
-    impl lifeguard::Related<org_mod::Entity> for Entity {
-        fn to() -> lifeguard::relation::RelationDef {
-            lifeguard::relation::RelationDef {
-                rel_type: lifeguard::relation::RelationType::BelongsTo,
-                from_tbl: sea_query::DynIden::from("test_users_graph").into(),
-                to_tbl: sea_query::DynIden::from("test_organizations").into(),
-                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("organization_id")),
-                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("id")),
-                is_owner: false,
-                skip_fk: false,
-                through_from_col: None,
-                through_to_col: None,
-                through_tbl: None,
-                on_condition: None,
-                condition_type: sea_query::ConditionType::Any,
-            }
-        }
+        
+        #[belongs_to(entity = "org_mod::Entity", from = "organization_id", to = "id")]
+        pub rel_organization: Option<org_mod::OrganizationModel>,
+        
+        #[has_many(entity = "post_mod::Entity", from = "user_id", to = "author_id")]
+        pub rel_posts: Option<Vec<post_mod::PostModel>>,
     }
 }
 pub use user_mod::*;
@@ -83,57 +67,38 @@ pub mod post_mod {
         pub title: String,
         pub author_id: i32, // FK to Users
     }
-
-    impl lifeguard::Related<post_mod::Entity> for user_mod::Entity {
-        fn to() -> lifeguard::relation::RelationDef {
-            lifeguard::relation::RelationDef {
-                rel_type: lifeguard::relation::RelationType::HasMany,
-                from_tbl: sea_query::DynIden::from("test_users_graph").into(),
-                to_tbl: sea_query::DynIden::from("test_posts").into(),
-                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("user_id")),
-                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("author_id")),
-                is_owner: false,
-                skip_fk: false,
-                through_from_col: None,
-                through_to_col: None,
-                through_tbl: None,
-                on_condition: None,
-                condition_type: sea_query::ConditionType::Any,
-            }
-        }
-    }
 }
 pub use post_mod::*;
 
 // Helper function to set up test database schema
 fn setup_test_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_organizations (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL
         )
-        "#,
+        ",
         &[],
     )?;
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_users_graph (
             user_id SERIAL PRIMARY KEY,
             username TEXT NOT NULL,
             organization_id INTEGER NOT NULL REFERENCES test_organizations(id)
         )
-        "#,
+        ",
         &[],
     )?;
     executor.execute(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS test_posts (
             id SERIAL PRIMARY KEY,
             title TEXT NOT NULL,
             author_id INTEGER NOT NULL REFERENCES test_users_graph(user_id)
         )
-        "#,
+        ",
         &[],
     )?;
     Ok(())

@@ -76,6 +76,14 @@ check:
 # ============================================================================
 # Testing
 # ============================================================================
+#
+# Nextest quick reference (see docs/TEST_INFRASTRUCTURE.md):
+#   nt / nextest-test  — workspace, excludes lifeguard-integration-tests + db_integration_suite binary
+#   nt-workspace       — CI-parity workspace (includes lifeguard-integration-tests); still excludes db_suite
+#   nt-db-suite        — lifeguard db_integration_suite only, serial (shared Postgres safe)
+#   nt-complete        — nt then nt-db-suite (typical local DB run)
+#   nt-ci-parity         — nt-workspace then nt-db-suite (matches CI test steps)
+#   nt-integration       — lifeguard-integration-tests only (cluster URL from script)
 
 # Run all tests
 test: test-unit
@@ -90,30 +98,62 @@ test-unit-verbose:
     @echo "🧪 Running unit tests (verbose)..."
     @DATABASE_URL={{DATABASE_URL}} cargo test --lib -- --nocapture --no-fail-fast
 
-# Run tests with nextest (faster test execution)
-# Excludes integration tests (lifeguard-integration-tests) which require database
+# Workspace nextest: excludes lifeguard-integration-tests and db_integration_suite (use nt-db-suite)
 nextest-test:
-    @echo "🧪 Running tests with nextest (excluding integration tests)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests
+    @echo "🧪 Running tests with nextest (excluding DB-heavy integration binaries)..."
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
 alias nt := nextest-test
 
+# CI-parity workspace nextest (same filter as .github/workflows/ci.yaml "Run workspace tests").
+# Includes lifeguard-integration-tests; requires DATABASE_URL (and any deps those tests need).
+nt-workspace:
+    @echo "🧪 Running workspace nextest (CI selection: all members except db_integration_suite binary)..."
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci -E 'not binary(db_integration_suite)'
+
 # Run tests with nextest (no capture - passes through stdout/stderr directly)
-# Excludes integration tests (lifeguard-integration-tests) which require database
 nt-verbose:
     @echo "🧪 Running tests with nextest (no capture - full output)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture --exclude lifeguard-integration-tests
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
-# Run tests with nextest (CI profile)
-# Excludes integration tests (lifeguard-integration-tests) which require database
+# Same as `nt-workspace` (alias for discoverability)
 nt-ci:
-    @echo "🧪 Running tests with nextest (CI profile)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci --exclude lifeguard-integration-tests
+    @just nt-workspace
 
-# Run unit tests only with nextest
+# Run unit tests only with nextest (same selection as nextest-test)
 nt-unit:
-    @echo "🧪 Running unit tests with nextest..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --test-group unit
+    @echo "🧪 Running tests with nextest (excluding DB-heavy integration binaries)..."
+    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
+
+# lifeguard-derive (matches CI)
+nt-derive:
+    @echo "🧪 Running lifeguard-derive tests..."
+    @cd lifeguard-derive && cargo test --no-fail-fast
+
+# lifeguard-codegen (matches CI; may be absent in some checkouts)
+nt-codegen:
+    @echo "🧪 Running lifeguard-codegen tests..."
+    @cd lifeguard-codegen && cargo test --no-fail-fast
+
+# Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB
+nt-db-suite:
+    @echo "🧪 Running lifeguard db_integration_suite (serial profile; needs TEST_DATABASE_URL or Docker)..."
+    @TEST_DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
+
+alias nt-db := nt-db-suite
+
+# Verbose output for db suite only
+nt-db-suite-verbose:
+    @echo "🧪 Running lifeguard db_integration_suite (serial, no-capture)..."
+    @TEST_DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --no-capture -E 'binary(db_integration_suite)'
+
+# Typical local run: fast workspace (no cluster integration crate) + serial DB suite
+nt-complete: nextest-test nt-db-suite
+    @echo "✅ Workspace + db_integration_suite complete."
+
+# Matches CI order: workspace nextest + serial db_integration_suite
+nt-ci-parity: nt-workspace nt-db-suite
+    @echo "✅ CI-parity test run complete (workspace + db_integration_suite)."
 
 # Run integration tests (requires database connection)
 test-integration:

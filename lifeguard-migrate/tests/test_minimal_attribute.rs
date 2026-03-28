@@ -1,5 +1,7 @@
 //! Minimal test to debug attribute parsing issue
 
+#![allow(warnings)]
+
 use lifeguard_derive::LifeModel;
 use lifeguard::LifeModelTrait;
 

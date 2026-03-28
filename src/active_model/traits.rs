@@ -3,7 +3,6 @@
 //! This module provides `ActiveModelTrait` and `ActiveModelBehavior` for mutable
 //! model operations including field access, `CRUD` operations, and lifecycle hooks.
 
-use crate::executor::LifeExecutor;
 use crate::query::LifeModelTrait;
 use crate::model::ModelTrait;
 use super::error::ActiveModelError;
@@ -246,6 +245,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
 
     /// Returns a mutable reference to the `GraphState` used to topologically track nested inserts.
     /// This is internally implemented by the `#[derive(LifeRecord)]` macro.
+    #[allow(clippy::unimplemented)] // Default impl is never called; derive replaces it.
     fn graph_mut(&mut self) -> &mut crate::active_model::graph::GraphState<Self> {
         unimplemented!("graph_mut() must be overridden by #[derive(LifeRecord)]")
     }
@@ -274,11 +274,25 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
             // 1. Save the parent
             let saved_parent = parent.save_graph(db)?;
             // 2. Extract parent's PK
-            let to_col_name = to_col.iter().next().unwrap().to_string();
-            let from_col_name = from_col.iter().next().unwrap().to_string();
-            
+            let to_col_name = to_col
+                .iter()
+                .next()
+                .ok_or_else(|| {
+                    ActiveModelError::Other("BelongsTo relation missing target column".to_string())
+                })?
+                .to_string();
+            let from_col_name = from_col
+                .iter()
+                .next()
+                .ok_or_else(|| {
+                    ActiveModelError::Other("BelongsTo relation missing source column".to_string())
+                })?
+                .to_string();
+
             let pk_value = crate::ModelTrait::get_by_column_name(&saved_parent, &to_col_name)
-                .expect("Parent primary key not found internally");
+                .ok_or_else(|| {
+                    ActiveModelError::Other("Parent primary key not found internally".to_string())
+                })?;
             // 3. Assign parent's PK to root's FK column
             root.set_col(&from_col_name, pk_value)?;
             Ok(())
@@ -307,11 +321,24 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
         
         self.graph_mut().add_has_many(Box::new(move |root_model, db| {
             // 1. Extract root's PK
-            let from_col_name = from_col.iter().next().unwrap().to_string();
-            let to_col_name = to_col.iter().next().unwrap().to_string();
-            
-            let root_pk = crate::ActiveModelTrait::get_col(root_model, &from_col_name)
-                .expect("Root primary key not found internally");
+            let from_col_name = from_col
+                .iter()
+                .next()
+                .ok_or_else(|| {
+                    ActiveModelError::Other("HasMany relation missing source column".to_string())
+                })?
+                .to_string();
+            let to_col_name = to_col
+                .iter()
+                .next()
+                .ok_or_else(|| {
+                    ActiveModelError::Other("HasMany relation missing target column".to_string())
+                })?
+                .to_string();
+
+            let root_pk = crate::ActiveModelTrait::get_col(root_model, &from_col_name).ok_or_else(
+                || ActiveModelError::Other("Root primary key not found internally".to_string()),
+            )?;
             // 2. Assign root's PK to child's FK
             child.set_col(&to_col_name, root_pk)?;
             // 3. Save child
@@ -720,19 +747,19 @@ mod tests {
             
             fn reset(&mut self) {}
             
-            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn insert(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn update(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn save(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+            fn delete(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<(), ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -793,19 +820,19 @@ mod tests {
             
             fn reset(&mut self) {}
             
-            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn insert(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn update(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn save(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+            fn delete(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<(), ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             

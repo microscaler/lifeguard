@@ -3,6 +3,8 @@
 //! This test verifies that the standard equals sign syntax works correctly,
 //! matching the behavior of the LifeModel macro and extract_column_name().
 
+#![allow(warnings)]
+
 use lifeguard_derive::DerivePartialModel;
 use lifeguard::PartialModelTrait;
 use lifeguard::{LifeModelTrait, LifeEntityName};

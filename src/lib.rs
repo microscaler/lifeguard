@@ -9,6 +9,10 @@
 #![deny(clippy::panic)]
 #![deny(clippy::unimplemented)]
 #![deny(clippy::todo)]
+// Pedantic is opt-in via `-W clippy::pedantic` in CI; allow the group crate-wide so `-D warnings`
+// does not force thousands of doc/style edits. Restriction lints above remain denied.
+#![allow(clippy::pedantic)]
+#![allow(clippy::type_complexity)] // GraphState stores boxed async closures; aliases would obscure.
 //!
 //! See [README on GitHub](https://github.com/microscaler/lifeguard) for full architecture.
 //!
@@ -43,6 +47,15 @@ pub mod transaction;
 
 pub mod metrics;
 
+// Channel-backed logging (may `mpsc` singleton)
+pub mod logging;
+pub use logging::{
+    enqueue, flush_log_channel, global_log_sender, try_enqueue, ChannelLogger, LogLevel, LogMsg,
+    LogRecord, CHANNEL_LOG_BRIDGE, init_log_bridge,
+};
+#[cfg(feature = "tracing")]
+pub use logging::{channel_layer, ChannelLayer};
+
 // Pool will be rebuilt in Epic 04
 // pub mod pool;
 
@@ -55,6 +68,13 @@ pub mod test_helpers;
 
 // Public API will be rebuilt in Epic 04
 // pub use pool::LifeguardPool;
+
+// Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
+// Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
+// and enable the scalar features they use (e.g. `chrono`, `uuid`, `decimal`); the workspace
+// crate pins these in `[workspace.dependencies]` for tests and internal packages.
+#[cfg(feature = "graphql")]
+pub use async_graphql;
 
 // Re-export connection types for convenience
 pub use connection::{

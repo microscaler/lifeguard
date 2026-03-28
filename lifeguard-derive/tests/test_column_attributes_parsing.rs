@@ -10,4 +10,6 @@
 //! 2. Create a test helper that exposes the parsing function
 //! 3. Use integration tests that test the macro output
 
+#![allow(warnings)]
+
 // All tests are disabled - attribute parsing is tested via integration tests in test_column_attributes.rs

@@ -3,6 +3,8 @@
 //! These tests verify that the DeriveLinked macro correctly generates
 //! Linked trait implementations from enum definitions.
 
+#![allow(warnings)]
+
 use lifeguard_derive::DeriveLinked;
 use lifeguard::{relation::Linked, RelationDef, LifeModelTrait, LifeEntityName};
 

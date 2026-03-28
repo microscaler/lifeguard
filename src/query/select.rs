@@ -7,8 +7,10 @@
 use crate::query::traits::{LifeModelTrait, FromRow};
 use crate::query::column::definition::get_static_expr;
 use crate::query::column::column_trait::ColumnDefHelper;
+use crate::query::loader::LoaderExecutor;
 use sea_query::{SelectStatement, Iden, Expr, Order, IntoColumnRef};
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 /// Query builder for selecting records
 ///
@@ -47,6 +49,7 @@ where
 {
     pub(crate) query: SelectStatement,  // Made pub(crate) for testing
     pub(crate) with_trashed: bool,
+    pub(crate) loaders: Vec<Rc<dyn LoaderExecutor<E>>>,
     pub(crate) _phantom: PhantomData<E>,
 }
 
@@ -58,6 +61,7 @@ where
         Self {
             query: self.query.clone(),
             with_trashed: self.with_trashed,
+            loaders: self.loaders.clone(),
             _phantom: PhantomData,
         }
     }
@@ -169,10 +173,30 @@ where
         Self {
             query,
             with_trashed: false,
+            loaders: Vec::new(),
             _phantom: PhantomData,
         }
     }
+
+    /// Register a relation loader to automatically intercept and resolve N+1 patterns
+    pub fn load<R: LifeModelTrait + 'static>(mut self, _relation: R) -> Self
+    where
+        E: crate::Related<R> + 'static,
+        E::Model: crate::query::loader::RelationInjector<R> + crate::model::ModelTrait,
+        R::Model: crate::query::traits::FromRow + crate::model::ModelTrait + Clone,
+    {
+        self.loaders.push(Rc::new(crate::query::loader::RelationLoader::<E, R>::new()) as Rc<dyn LoaderExecutor<E>>);
+        self
+    }
     
+    /// Initialize a Cursor Pagination builder anchored against a specific indexed column.
+    ///
+    /// Extends `SeaQuery` filtering resolving indexing dynamically
+    /// to avoid `OFFSET` degradation algorithms.
+    pub fn cursor_by<C: sea_query::IntoColumnRef + Clone>(self, column: C) -> crate::query::cursor::CursorPaginator<E, C> {
+        crate::query::cursor::CursorPaginator::new(self, column)
+    }
+
     /// Add a filter condition
     ///
     /// # Example
@@ -347,7 +371,7 @@ where
         self
     }
     
-    /// Append soft delete filter if present and not with_trashed
+    /// Append soft delete filter if present and not `with_trashed`
     pub(crate) fn apply_soft_delete(mut self) -> SelectStatement {
         if !self.with_trashed {
             if let Some(col) = E::soft_delete_column() {
@@ -643,8 +667,8 @@ where
     /// Create a COUNT aggregation query
     ///
     /// Clears any selected columns and ordering, replaces with COUNT(*),
-    /// and returns an AggregateQuery that resolves to a single i64 value.
-    pub fn count(mut self) -> crate::query::aggregate::AggregateQuery<E, i64> {
+    /// and returns an `AggregateQuery` that resolves to a single i64 value.
+    #[must_use] pub fn count(mut self) -> crate::query::aggregate::AggregateQuery<E, i64> {
         use sea_query::ExprTrait;
         // Clear existing selects and orders
         self.query.clear_selects();
@@ -659,7 +683,7 @@ where
     /// Create a SUM aggregation query
     ///
     /// Clears any selected columns and ordering, replaces with SUM(column),
-    /// and returns an AggregateQuery that resolves to a single f64 value.
+    /// and returns an `AggregateQuery` that resolves to a single f64 value.
     pub fn sum<C: sea_query::IntoColumnRef>(mut self, column: C) -> crate::query::aggregate::AggregateQuery<E, f64> {
         use sea_query::ExprTrait;
         self.query.clear_selects();

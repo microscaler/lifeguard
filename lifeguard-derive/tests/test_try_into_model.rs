@@ -3,6 +3,8 @@
 //! These tests verify that the DeriveTryIntoModel macro correctly generates
 //! TryIntoModel trait implementations for converting custom types into Models.
 
+#![allow(warnings)]
+
 use lifeguard_derive::DeriveTryIntoModel;
 use lifeguard::{TryIntoModel, ModelTrait, LifeModelTrait, LifeEntityName};
 

@@ -10,6 +10,8 @@
 //! 4. Verify migration state table
 //! 5. Verify actual database schema
 
+#![allow(warnings)]
+
 use lifeguard::{
     LifeExecutor,
     test_helpers::TestDatabase,

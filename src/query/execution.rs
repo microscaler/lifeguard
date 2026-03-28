@@ -40,10 +40,11 @@ where
     /// # Errors
     ///
     /// Returns `LifeError` if the query execution or row parsing fails.
-    pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<E::Model>, LifeError>
+    pub fn all<Ex: LifeExecutor>(mut self, executor: &Ex) -> Result<Vec<E::Model>, LifeError>
     where
         E::Model: FromRow,
     {
+        let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
         
         with_converted_params(&values, |params| {
@@ -55,6 +56,11 @@ where
                     .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
                 results.push(model);
             }
+
+            for loader in &loaders {
+                loader.execute(&mut results, executor)?;
+            }
+
             Ok(results)
         })
     }
@@ -83,16 +89,29 @@ where
     /// - No rows are returned
     /// - Multiple rows are returned
     /// - Row parsing fails
-    pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<E::Model, LifeError>
+    pub fn one<Ex: LifeExecutor>(mut self, executor: &Ex) -> Result<E::Model, LifeError>
     where
         E::Model: FromRow,
     {
+        let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
         
         with_converted_params(&values, |params| {
             let row = executor.query_one(&sql, params)?;
-            <E::Model as FromRow>::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+            let model = <E::Model as FromRow>::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+                
+            let mut results = vec![model];
+            for loader in &loaders {
+                // To support executors that accept slices/arrays
+                loader.execute(&mut results, executor)?;
+            }
+            
+            results.into_iter().next().ok_or_else(|| {
+                LifeError::Other(
+                    "internal error: expected one model after query (empty iterator)".to_string(),
+                )
+            })
         })
     }
     
@@ -165,35 +184,7 @@ where
     {
         Paginator::new(self, executor, page_size)
     }
-    
-    /// Build and execute a COUNT(*) query that preserves WHERE, GROUP BY, and HAVING conditions
-    ///
-    /// This method creates an efficient COUNT(*) query by:
-    /// - Preserving all WHERE conditions
-    /// - Preserving GROUP BY and HAVING clauses
-    /// - Explicitly removing ORDER BY, LIMIT, and OFFSET before counting
-    ///   (databases DO apply LIMIT/OFFSET in subqueries, so they must be removed)
-    /// - Selecting COUNT(*) instead of all columns
-    ///
-    /// # Arguments
-    ///
-    /// * `executor` - The executor to use for the query
-    ///
-    /// # Returns
-    ///
-    /// The count of rows matching the query conditions
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use lifeguard::{SelectQuery, LifeExecutor};
-    /// use sea_query::Expr;
-    ///
-    /// # struct UserModel { id: i32 };
-    /// # impl lifeguard::FromRow for UserModel {
-    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
 
-    
     /// Paginate results and get total count
     ///
     /// Similar to `paginate()` but also provides a method to get the total count
@@ -319,6 +310,7 @@ where
         let query = SelectQuery {
             query: self.query.query.clone(),
             with_trashed: self.query.with_trashed,
+            loaders: self.query.loaders.clone(),
             _phantom: self.query._phantom,
         };
         query
@@ -393,6 +385,7 @@ where
         let query = SelectQuery {
             query: self.query.query.clone(),
             with_trashed: self.query.with_trashed,
+            loaders: self.query.loaders.clone(),
             _phantom: self.query._phantom,
         };
         query

@@ -2,13 +2,13 @@ use super::provider::{CacheProvider, CacheError, CachedResult};
 use redis::{Client, Connection, Commands};
 
 /// A Redis implementation of the `CacheProvider` trait.
-/// Provides distributed cache coherence mechanisms conforming to LifeReflector needs.
+/// Provides distributed cache coherence mechanisms conforming to `LifeReflector` needs.
 pub struct RedisCacheProvider {
     client: Client,
 }
 
 impl RedisCacheProvider {
-    /// Creates a new RedisCacheProvider connected to the provided Redis URL.
+    /// Creates a new `RedisCacheProvider` connected to the provided Redis URL.
     pub fn new(connection_url: &str) -> Result<Self, CacheError> {
         let client = Client::open(connection_url)
             .map_err(|e| CacheError::Connection(e.to_string()))?;

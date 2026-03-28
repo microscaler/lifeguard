@@ -3,10 +3,11 @@
 //! This module provides functions for building SQL conditions from relation definitions,
 //! including join conditions and `WHERE` clauses.
 
+use crate::executor::LifeError;
+use crate::model::ModelTrait;
 use crate::relation::def::struct_def::RelationDef;
 use crate::relation::identity::Identity;
-use crate::model::ModelTrait;
-use sea_query::{Condition, ConditionType, Expr, ExprTrait, TableRef};
+use sea_query::{ColumnName, Condition, ConditionType, DynIden, Expr, ExprTrait, TableRef};
 
 /// Extract table name string from `TableRef`
 ///
@@ -46,6 +47,25 @@ pub fn extract_table_name(table_ref: &TableRef) -> String {
         _ => {
             // Fallback: try to convert to string via `Debug`, but this should not be used in production
             format!("{table_ref:?}")
+        }
+    }
+}
+
+/// Column expression for a predicate on the **related** table (`RelationDef::to_tbl`), using
+/// `sea_query` [`ColumnName`] / [`Expr::col`] so schema qualification, aliases, and identifier
+/// quoting match `SelectQuery::new()` (same `TableRef` as in `FROM`).
+#[must_use]
+fn expr_for_related_table_column(table_ref: &TableRef, column: &DynIden) -> Expr {
+    match table_ref {
+        TableRef::Table(_table_name, Some(alias)) => {
+            Expr::col((alias.clone(), column.clone()))
+        }
+        TableRef::Table(table_name, None) => {
+            Expr::col(ColumnName(Some(table_name.clone()), column.clone()))
+        }
+        _ => {
+            let tbl = extract_table_name(table_ref);
+            Expr::cust(format!("{tbl}.{column}"))
         }
     }
 }
@@ -255,87 +275,99 @@ pub fn join_tbl_on_expr(
     }
 }
 
-/// Build `WHERE` condition from `RelationDef` and model primary key values
+/// Build `WHERE` for `find_related`-style queries (filter the **related** table only)
 ///
-/// This function creates a `Condition` for filtering related entities based on
-/// the current model's primary key. It works with both single and composite keys via `Identity`.
+/// `Related<Self::Entity, R>::to()` is oriented **from** `Self::Entity`'s table **to** `R`'s table.
+/// The resulting `SelectQuery<R>` uses `to_tbl` in `FROM`, so the predicate must reference
+/// **`to_tbl` + `to_col`** (columns on the related row), not `from_tbl`.
+/// Predicates use `sea_query::Expr::col` with the same [`TableRef`](sea_query::TableRef) as
+/// `to_tbl` (and [`ColumnName`](sea_query::ColumnName) when unaliased), so schema qualification
+/// and identifier quoting match `SelectQuery::new()`.
 ///
-/// # Arguments
+/// Values are read from the **source** (`from_tbl`) side of the join: for each pair
+/// `(from_col_i, to_col_i)`, we use `model.get_by_column_name(from_col_i)` and compare to
+/// `to_tbl.to_col_i`. This covers:
+/// - **`HasMany`** (e.g. User → Post): `posts.user_id = user.id` (`from_col` = parent PK on users)
+/// - **`BelongsTo`** (e.g. Post → User): `users.id = post.user_id` (`from_col` = FK on posts)
 ///
-/// * `rel_def` - The relationship definition
-/// * `model` - The model instance to get primary key values from
+/// # Errors
 ///
-/// # Returns
+/// - [`LifeError::Other`] if `from_col` and `to_col` arity differ.
+/// - [`LifeError::Other`] if `get_primary_key_identity()` and `get_primary_key_values()` lengths differ.
+/// - [`LifeError::Other`] if, for any zipped pair, `model.get_by_column_name(from_col_i)` is `None`
+///   **and** the primary-key fallback does not apply (e.g. partially loaded / projected models).
+///   Custom [`ModelTrait`](crate::ModelTrait) implementations should supply
+///   [`get_by_column_name`](crate::ModelTrait::get_by_column_name) for every `from_col` name used
+///   in `BelongsTo` / composite edges.
 ///
-/// A `Condition` representing: `related_table.from_col = model.primary_key_values`
+/// # See also
 ///
-/// # Example
-///
-/// ```no_run
-/// use lifeguard::relation::def::{RelationDef, build_where_condition};
-/// use lifeguard::model::ModelTrait;
-///
-/// // Assuming we have a User model and want to find related Posts
-/// let user_model: UserModel = /* ... */;
-/// let rel_def: RelationDef = /* ... */;
-/// let condition = build_where_condition(&rel_def, &user_model);
-/// // Creates: posts.user_id = user.id
-/// ```
-///
-/// # Panics
-///
-/// This function will panic if `from_col` and the model's primary key have mismatched arities.
-#[must_use]
+/// - [`RelationDef`](crate::RelationDef) orientation for `Related<R>`.
+/// - Integration tests in `tests/db_integration/related_trait.rs`.
+/// - Custom `ModelTrait` authors: `docs/planning/lifeguard-derive/AUTHORING_MODEL_TRAIT.md`.
 pub fn build_where_condition<M>(
     rel_def: &RelationDef,
     model: &M,
-) -> Condition
+) -> Result<Condition, LifeError>
 where
     M: ModelTrait,
 {
+    if rel_def.from_col.arity() != rel_def.to_col.arity() {
+        return Err(LifeError::Other(format!(
+            "build_where_condition: from_col arity {} does not match to_col arity {}",
+            rel_def.from_col.arity(),
+            rel_def.to_col.arity()
+        )));
+    }
+
+    let pk_names: Vec<String> = model
+        .get_primary_key_identity()
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+    let pk_values = model.get_primary_key_values();
+    if pk_names.len() != pk_values.len() {
+        return Err(LifeError::Other(format!(
+            "build_where_condition: primary key identity length {} does not match primary key values length {}",
+            pk_names.len(),
+            pk_values.len()
+        )));
+    }
+
     let mut condition = Condition::all();
 
-    // Get primary key values from model
-    // Phase 4: Now using get_primary_key_values() which supports composite keys
-    let pk_identity = model.get_primary_key_identity();
-    let pk_values = model.get_primary_key_values();
-
-    // Ensure arities match
-    assert_eq!(
-        rel_def.from_col.arity(),
-        pk_identity.arity(),
-        "Foreign key columns and primary key must have matching arity"
-    );
-    
-    // Ensure we have the right number of values
-    assert_eq!(
-        pk_values.len(),
-        pk_identity.arity(),
-        "Number of primary key values must match primary key arity"
-    );
-
-    // Match foreign key columns to primary key values
-    for (fk_col, pk_val) in rel_def.from_col.iter().zip(pk_values.iter()) {
-        // Convert DynIden to string for column name
-        let fk_col_str = fk_col.to_string();
-        // The foreign key column exists in from_tbl, not to_tbl
-        // Extract actual table name from TableRef, not Debug representation
-        let from_tbl_str = extract_table_name(&rel_def.from_tbl);
-        
-        // Create WHERE condition: table.column = value
-        // Use Expr::col() for the column and Expr::val() for the value
-        // For table-qualified columns, we'll use a custom expression for now
-        let col_expr = format!("{from_tbl_str}.{fk_col_str}");
-        let expr = Expr::cust(col_expr).eq(Expr::val(pk_val.clone()));
+    for (idx, (from_iden, to_iden)) in rel_def
+        .from_col
+        .iter()
+        .zip(rel_def.to_col.iter())
+        .enumerate()
+    {
+        let from_name = from_iden.to_string();
+        let val = model.get_by_column_name(&from_name).or_else(|| {
+            (pk_names.get(idx).is_some_and(|pk| *pk == from_name))
+                .then(|| pk_values.get(idx).cloned())
+                .flatten()
+        });
+        let val = val.ok_or_else(|| {
+            LifeError::Other(format!(
+                "build_where_condition: no value for source column `{from_name}` on model \
+                 (implement ModelTrait::get_by_column_name for relation keys, or ensure the name matches a primary key column); \
+                 partially loaded models cannot drive this relation filter"
+            ))
+        })?;
+        let expr = expr_for_related_table_column(&rel_def.to_tbl, to_iden).eq(Expr::val(val));
         condition = condition.add(expr);
     }
 
-    condition
+    Ok(condition)
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic)]
+
     use super::*;
+    use crate::relation::def::RelationDef;
     use crate::relation::identity::Identity;
 
     #[test]
@@ -663,5 +695,598 @@ mod tests {
         let join_expr = rel_def.join_on_expr();
         // Verify expr was created
         let _ = join_expr;
+    }
+
+    /// `BelongsTo`: `WHERE` must use **related** table (`to_tbl`), values from FK on source model via `get_by_column_name`.
+    #[test]
+    fn test_build_where_condition_belongs_to_uses_to_tbl_only() {
+        use crate::model::{ModelError, ModelTrait};
+        use crate::{LifeEntityName, LifeModelTrait};
+        use crate::relation::def::RelationType;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
+        use sea_query::IdenStatic;
+
+        #[derive(Default, Copy, Clone)]
+        struct PostE;
+        impl sea_query::Iden for PostE {
+            fn unquoted(&self) -> &'static str {
+                "_post_e"
+            }
+        }
+        impl LifeEntityName for PostE {
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
+        }
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        #[allow(dead_code)] // Column enum for `ModelTrait`; variants used only via type system
+        enum Pc {
+            Id,
+            UserId,
+        }
+        impl sea_query::Iden for Pc {
+            fn unquoted(&self) -> &'static str {
+                match self {
+                    Pc::Id => "id",
+                    Pc::UserId => "user_id",
+                }
+            }
+        }
+        impl IdenStatic for Pc {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    Pc::Id => "id",
+                    Pc::UserId => "user_id",
+                }
+            }
+        }
+        crate::impl_column_def_helper_for_test!(Pc);
+        impl LifeModelTrait for PostE {
+            type Model = PostM;
+            type Column = Pc;
+        }
+
+        #[derive(Clone, Debug)]
+        struct PostM {
+            id: i32,
+            user_id: i32,
+        }
+
+        impl ModelTrait for PostM {
+            type Entity = PostE;
+
+            fn get(&self, col: Pc) -> Value {
+                match col {
+                    Pc::Id => Value::Int(Some(self.id)),
+                    Pc::UserId => Value::Int(Some(self.user_id)),
+                }
+            }
+
+            fn set(&mut self, _col: Pc, _val: Value) -> Result<(), ModelError> {
+                Ok(())
+            }
+
+            fn get_primary_key_value(&self) -> Value {
+                Value::Int(Some(self.id))
+            }
+
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary(sea_query::DynIden::from("id"))
+            }
+
+            fn get_primary_key_values(&self) -> Vec<Value> {
+                vec![Value::Int(Some(self.id))]
+            }
+
+            fn get_by_column_name(&self, name: &str) -> Option<Value> {
+                match name {
+                    "user_id" => Some(Value::Int(Some(self.user_id))),
+                    _ => None,
+                }
+            }
+        }
+
+        let rel_def = RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
+            from_col: Identity::Unary("user_id".into()),
+            to_col: Identity::Unary("id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+
+        let post = PostM {
+            id: 1,
+            user_id: 42,
+        };
+        let cond = build_where_condition(&rel_def, &post).expect("where condition");
+
+        let mut q = Query::select();
+        q.from("users");
+        q.cond_where(cond);
+        let (sql, _) = q.build(PostgresQueryBuilder);
+        assert!(
+            sql.contains("users"),
+            "expected related table in SQL, got: {sql}"
+        );
+        assert!(
+            sql.contains("id"),
+            "expected to_col in SQL, got: {sql}"
+        );
+        assert!(
+            !sql.contains("posts."),
+            "WHERE must not reference from_tbl alone: {sql}"
+        );
+    }
+
+    #[test]
+    fn test_build_where_condition_err_when_from_col_missing() {
+        use crate::executor::LifeError;
+        use crate::model::{ModelError, ModelTrait};
+        use crate::relation::def::RelationType;
+        use crate::{LifeEntityName, LifeModelTrait};
+        use sea_query::IdenStatic;
+        use sea_query::{IntoIden, TableName, Value};
+
+        #[derive(Default, Copy, Clone)]
+        struct PostE;
+        impl sea_query::Iden for PostE {
+            fn unquoted(&self) -> &'static str {
+                "_post_e_partial"
+            }
+        }
+        impl LifeEntityName for PostE {
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
+        }
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        #[allow(dead_code)]
+        enum Pc {
+            Id,
+        }
+        impl sea_query::Iden for Pc {
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
+        }
+        impl IdenStatic for Pc {
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
+        }
+        crate::impl_column_def_helper_for_test!(Pc);
+        impl LifeModelTrait for PostE {
+            type Model = PartialPostM;
+            type Column = Pc;
+        }
+
+        #[derive(Clone, Debug)]
+        struct PartialPostM {
+            id: i32,
+        }
+
+        impl ModelTrait for PartialPostM {
+            type Entity = PostE;
+
+            fn get(&self, col: Pc) -> Value {
+                match col {
+                    Pc::Id => Value::Int(Some(self.id)),
+                }
+            }
+
+            fn set(&mut self, _col: Pc, _val: Value) -> Result<(), ModelError> {
+                Ok(())
+            }
+
+            fn get_primary_key_value(&self) -> Value {
+                Value::Int(Some(self.id))
+            }
+
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary("id".into())
+            }
+
+            fn get_primary_key_values(&self) -> Vec<Value> {
+                vec![Value::Int(Some(self.id))]
+            }
+
+            fn get_by_column_name(&self, name: &str) -> Option<Value> {
+                if name == "id" {
+                    Some(Value::Int(Some(self.id)))
+                } else {
+                    None
+                }
+            }
+        }
+
+        let rel_def = RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
+            from_col: Identity::Unary("user_id".into()),
+            to_col: Identity::Unary("id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+
+        let model = PartialPostM { id: 1 };
+        let err = build_where_condition(&rel_def, &model).expect_err("expected missing user_id");
+        match err {
+            LifeError::Other(msg) => assert!(msg.contains("user_id"), "msg: {msg}"),
+            _ => panic!("expected LifeError::Other, got {err:?}"),
+        }
+    }
+
+    /// Schema-qualified `to_tbl` must appear in the predicate (not only the bare table name).
+    #[test]
+    fn test_build_where_condition_schema_qualified_to_tbl() {
+        use crate::model::{ModelError, ModelTrait};
+        use crate::{LifeEntityName, LifeModelTrait};
+        use crate::relation::def::RelationType;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, SchemaName, TableName, Value};
+        use sea_query::IdenStatic;
+
+        #[derive(Default, Copy, Clone)]
+        struct PostE;
+        impl sea_query::Iden for PostE {
+            fn unquoted(&self) -> &'static str {
+                "_post_e2"
+            }
+        }
+        impl LifeEntityName for PostE {
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
+        }
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        #[allow(dead_code)] // Column enum for `ModelTrait`; variants used only via type system
+        enum Pc {
+            Id,
+            UserId,
+        }
+        impl sea_query::Iden for Pc {
+            fn unquoted(&self) -> &'static str {
+                match self {
+                    Pc::Id => "id",
+                    Pc::UserId => "user_id",
+                }
+            }
+        }
+        impl IdenStatic for Pc {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    Pc::Id => "id",
+                    Pc::UserId => "user_id",
+                }
+            }
+        }
+        crate::impl_column_def_helper_for_test!(Pc);
+        impl LifeModelTrait for PostE {
+            type Model = PostM;
+            type Column = Pc;
+        }
+
+        #[derive(Clone, Debug)]
+        struct PostM {
+            id: i32,
+            user_id: i32,
+        }
+
+        impl ModelTrait for PostM {
+            type Entity = PostE;
+
+            fn get(&self, col: Pc) -> Value {
+                match col {
+                    Pc::Id => Value::Int(Some(self.id)),
+                    Pc::UserId => Value::Int(Some(self.user_id)),
+                }
+            }
+
+            fn set(&mut self, _col: Pc, _val: Value) -> Result<(), ModelError> {
+                Ok(())
+            }
+
+            fn get_primary_key_value(&self) -> Value {
+                Value::Int(Some(self.id))
+            }
+
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary(sea_query::DynIden::from("id"))
+            }
+
+            fn get_primary_key_values(&self) -> Vec<Value> {
+                vec![Value::Int(Some(self.id))]
+            }
+
+            fn get_by_column_name(&self, name: &str) -> Option<Value> {
+                match name {
+                    "user_id" => Some(Value::Int(Some(self.user_id))),
+                    _ => None,
+                }
+            }
+        }
+
+        let to_tbl = TableRef::Table(
+            TableName(Some(SchemaName::from("app")), "order".into_iden()),
+            None,
+        );
+
+        let rel_def = RelationDef {
+            rel_type: RelationType::BelongsTo,
+            from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
+            to_tbl: to_tbl.clone(),
+            from_col: Identity::Unary("user_id".into()),
+            to_col: Identity::Unary("select".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+
+        let post = PostM {
+            id: 1,
+            user_id: 99,
+        };
+        let cond = build_where_condition(&rel_def, &post).expect("where condition");
+
+        let mut q = Query::select();
+        q.from(to_tbl);
+        q.cond_where(cond);
+        let (sql, _) = q.build(PostgresQueryBuilder);
+
+        assert!(
+            sql.contains(r#""app""#) && sql.contains(r#""order""#),
+            "expected schema-qualified related table in SQL, got: {sql}"
+        );
+        assert!(
+            sql.contains(r#""select""#),
+            "reserved column id must be double-quoted, got: {sql}"
+        );
+    }
+
+    /// `HasMany`: parent PK via fallback when `get_by_column_name` returns `None` for `from_col` name.
+    #[test]
+    fn test_build_where_condition_has_many_pk_fallback() {
+        use crate::model::{ModelError, ModelTrait};
+        use crate::{LifeEntityName, LifeModelTrait};
+        use crate::relation::def::RelationType;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
+        use sea_query::IdenStatic;
+
+        #[derive(Default, Copy, Clone)]
+        struct UserE;
+        impl sea_query::Iden for UserE {
+            fn unquoted(&self) -> &'static str {
+                "_user_e"
+            }
+        }
+        impl LifeEntityName for UserE {
+            fn table_name(&self) -> &'static str {
+                "users"
+            }
+        }
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        #[allow(dead_code)]
+        enum Uc {
+            Id,
+        }
+        impl sea_query::Iden for Uc {
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
+        }
+        impl IdenStatic for Uc {
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
+        }
+        crate::impl_column_def_helper_for_test!(Uc);
+        impl LifeModelTrait for UserE {
+            type Model = UserM;
+            type Column = Uc;
+        }
+
+        #[derive(Clone, Debug)]
+        struct UserM {
+            id: i32,
+        }
+
+        impl ModelTrait for UserM {
+            type Entity = UserE;
+
+            fn get(&self, col: Uc) -> Value {
+                match col {
+                    Uc::Id => Value::Int(Some(self.id)),
+                }
+            }
+
+            fn set(&mut self, _col: Uc, _val: Value) -> Result<(), ModelError> {
+                Ok(())
+            }
+
+            fn get_primary_key_value(&self) -> Value {
+                Value::Int(Some(self.id))
+            }
+
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary(sea_query::DynIden::from("id"))
+            }
+
+            fn get_primary_key_values(&self) -> Vec<Value> {
+                vec![Value::Int(Some(self.id))]
+            }
+
+            fn get_by_column_name(&self, _name: &str) -> Option<Value> {
+                None
+            }
+        }
+
+        let rel_def = RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
+            from_col: Identity::Unary("id".into()),
+            to_col: Identity::Unary("user_id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+
+        let user = UserM { id: 99 };
+        let cond = build_where_condition(&rel_def, &user).expect("where condition");
+
+        let mut q = Query::select();
+        q.from("posts");
+        q.cond_where(cond);
+        let (sql, _) = q.build(PostgresQueryBuilder);
+        assert!(sql.contains("posts"), "{}", sql);
+        assert!(sql.contains("user_id"), "{}", sql);
+        assert!(!sql.contains("users."), "{}", sql);
+    }
+
+    /// Composite HasMany-style edge: both conjuncts qualified on `to_tbl`.
+    #[test]
+    fn test_build_where_condition_composite_to_tbl() {
+        use crate::model::{ModelError, ModelTrait};
+        use crate::{LifeEntityName, LifeModelTrait};
+        use crate::relation::def::RelationType;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
+        use sea_query::IdenStatic;
+
+        #[derive(Default, Copy, Clone)]
+        struct TenantE;
+        impl sea_query::Iden for TenantE {
+            fn unquoted(&self) -> &'static str {
+                "_tenant_e"
+            }
+        }
+        impl LifeEntityName for TenantE {
+            fn table_name(&self) -> &'static str {
+                "tenants"
+            }
+        }
+        #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+        #[allow(dead_code)]
+        enum Tc {
+            Id,
+            RegionId,
+        }
+        impl sea_query::Iden for Tc {
+            fn unquoted(&self) -> &'static str {
+                match self {
+                    Tc::Id => "id",
+                    Tc::RegionId => "region_id",
+                }
+            }
+        }
+        impl IdenStatic for Tc {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    Tc::Id => "id",
+                    Tc::RegionId => "region_id",
+                }
+            }
+        }
+        crate::impl_column_def_helper_for_test!(Tc);
+        impl LifeModelTrait for TenantE {
+            type Model = TenantM;
+            type Column = Tc;
+        }
+
+        #[derive(Clone, Debug)]
+        struct TenantM {
+            id: i32,
+            region_id: i32,
+        }
+
+        impl ModelTrait for TenantM {
+            type Entity = TenantE;
+
+            fn get(&self, col: Tc) -> Value {
+                match col {
+                    Tc::Id => Value::Int(Some(self.id)),
+                    Tc::RegionId => Value::Int(Some(self.region_id)),
+                }
+            }
+
+            fn set(&mut self, _col: Tc, _val: Value) -> Result<(), ModelError> {
+                Ok(())
+            }
+
+            fn get_primary_key_value(&self) -> Value {
+                Value::Int(Some(self.id))
+            }
+
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Binary(
+                    sea_query::DynIden::from("id"),
+                    sea_query::DynIden::from("region_id"),
+                )
+            }
+
+            fn get_primary_key_values(&self) -> Vec<Value> {
+                vec![
+                    Value::Int(Some(self.id)),
+                    Value::Int(Some(self.region_id)),
+                ]
+            }
+
+            fn get_by_column_name(&self, name: &str) -> Option<Value> {
+                match name {
+                    "id" => Some(Value::Int(Some(self.id))),
+                    "region_id" => Some(Value::Int(Some(self.region_id))),
+                    _ => None,
+                }
+            }
+        }
+
+        let rel_def = RelationDef {
+            rel_type: RelationType::HasMany,
+            from_tbl: TableRef::Table(TableName(None, "tenants".into_iden()), None),
+            to_tbl: TableRef::Table(TableName(None, "resources".into_iden()), None),
+            from_col: Identity::Binary("id".into(), "region_id".into()),
+            to_col: Identity::Binary("tenant_id".into(), "region_id".into()),
+            through_tbl: None,
+            through_from_col: None,
+            through_to_col: None,
+            is_owner: true,
+            skip_fk: false,
+            on_condition: None,
+            condition_type: ConditionType::All,
+        };
+
+        let tenant = TenantM {
+            id: 10,
+            region_id: 200,
+        };
+        let cond = build_where_condition(&rel_def, &tenant).expect("where condition");
+
+        let mut q = Query::select();
+        q.from("resources");
+        q.cond_where(cond);
+        let (sql, _) = q.build(PostgresQueryBuilder);
+        assert!(sql.contains("resources"), "{}", sql);
+        assert!(sql.contains("tenant_id"), "{}", sql);
+        assert!(sql.contains("region_id"), "{}", sql);
+        assert!(!sql.contains("tenants."), "{}", sql);
     }
 }

@@ -793,7 +793,7 @@ where
 }
 
 #[cfg(test)]
-#[allow(dead_code, clippy::approx_constant)]
+#[allow(dead_code, clippy::approx_constant, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::relation::def::{RelationDef, RelationType};
@@ -1817,7 +1817,7 @@ mod tests {
         let user = UserModel { id: 1 };
         
         // This should build a query with two LEFT JOINs
-        let _query = user.find_linked::<PostEntity, CommentEntity>();
+        let _query = user.find_linked::<PostEntity, CommentEntity>().expect("find_linked");
         
         // Verify the query was created (compile-time check)
         // The actual SQL execution would require a real executor
