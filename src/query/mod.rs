@@ -64,6 +64,9 @@ pub mod select;
 #[doc(inline)]
 pub use select::{SelectQuery, SelectModel};
 
+// Dataloader N+1 resolution
+pub mod loader;
+
 // Aggregation endpoints
 pub mod aggregate;
 #[doc(inline)]

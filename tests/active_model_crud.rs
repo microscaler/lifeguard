@@ -1447,7 +1447,7 @@ impl lifeguard::ActiveModelTrait for HookModifyingRecord {
     fn reset(&mut self) {
         self.inner.reset()
     }
-    fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_insert()?;
@@ -1458,7 +1458,7 @@ impl lifeguard::ActiveModelTrait for HookModifyingRecord {
         Ok(model)
     }
     
-    fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn update(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_update()?;
@@ -1468,7 +1468,7 @@ impl lifeguard::ActiveModelTrait for HookModifyingRecord {
         Ok(model)
     }
     
-    fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn save(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_save()?;
@@ -1478,7 +1478,7 @@ impl lifeguard::ActiveModelTrait for HookModifyingRecord {
         Ok(model)
     }
     
-    fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+    fn delete(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         use lifeguard::{LifeModelTrait, ColumnTrait};
         use sea_query::{Query, PostgresQueryBuilder};
@@ -1599,7 +1599,7 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
         self.inner.reset()
     }
     
-    fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_insert()?;
@@ -1609,7 +1609,7 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
         Ok(model)
     }
     
-    fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn update(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         use lifeguard::{LifeModelTrait, ColumnTrait};
         use sea_query::{Query, PostgresQueryBuilder};
@@ -1691,7 +1691,7 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
         Ok(model)
     }
     
-    fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn save(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_save()?;
@@ -1701,7 +1701,7 @@ impl lifeguard::ActiveModelTrait for PkModifyingUpdateRecord {
         Ok(model)
     }
     
-    fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+    fn delete(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_delete()?;
@@ -1789,7 +1789,7 @@ impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
         self.inner.reset()
     }
     
-    fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_insert()?;
@@ -1799,7 +1799,7 @@ impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
         Ok(model)
     }
     
-    fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn update(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_update()?;
@@ -1809,7 +1809,7 @@ impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
         Ok(model)
     }
     
-    fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+    fn save(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         use lifeguard::LifeModelTrait;
         let mut record = self.clone();
@@ -1827,7 +1827,7 @@ impl lifeguard::ActiveModelTrait for AfterSaveTrackingRecord {
         Ok(model)
     }
     
-    fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+    fn delete(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
         use lifeguard::ActiveModelBehavior;
         let mut record = self.clone();
         record.before_delete()?;
@@ -2375,7 +2375,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
             self.inner.reset()
         }
         
-        fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             let mut record = self.clone();
             record.before_insert()?;
@@ -2385,7 +2385,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
             Ok(model)
         }
         
-        fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        fn update(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             let mut record = self.clone();
             record.before_update()?;
@@ -2395,7 +2395,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
             Ok(model)
         }
         
-        fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        fn save(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             use lifeguard::LifeModelTrait;
             let mut record = self.clone();
@@ -2413,7 +2413,7 @@ fn test_after_save_receives_all_hook_modifications_insert() {
             Ok(model)
         }
         
-        fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+        fn delete(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             let mut record = self.clone();
             record.before_delete()?;
@@ -2555,7 +2555,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
             self.inner.reset()
         }
         
-        fn insert<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             let mut record = self.clone();
             record.before_insert()?;
@@ -2565,7 +2565,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
             Ok(model)
         }
         
-        fn update<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        fn update(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             let mut record = self.clone();
             record.before_update()?;
@@ -2575,7 +2575,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
             Ok(model)
         }
         
-        fn save<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<Self::Model, lifeguard::ActiveModelError> {
+        fn save(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             use lifeguard::LifeModelTrait;
             let mut record = self.clone();
@@ -2593,7 +2593,7 @@ fn test_after_save_receives_all_hook_modifications_update() {
             Ok(model)
         }
         
-        fn delete<E: lifeguard::LifeExecutor>(&self, executor: &E) -> Result<(), lifeguard::ActiveModelError> {
+        fn delete(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<(), lifeguard::ActiveModelError> {
             use lifeguard::ActiveModelBehavior;
             let mut record = self.clone();
             record.before_delete()?;

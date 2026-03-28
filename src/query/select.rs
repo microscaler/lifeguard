@@ -7,8 +7,10 @@
 use crate::query::traits::{LifeModelTrait, FromRow};
 use crate::query::column::definition::get_static_expr;
 use crate::query::column::column_trait::ColumnDefHelper;
+use crate::query::loader::LoaderExecutor;
 use sea_query::{SelectStatement, Iden, Expr, Order, IntoColumnRef};
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 /// Query builder for selecting records
 ///
@@ -47,6 +49,7 @@ where
 {
     pub(crate) query: SelectStatement,  // Made pub(crate) for testing
     pub(crate) with_trashed: bool,
+    pub(crate) loaders: Vec<Rc<dyn LoaderExecutor<E>>>,
     pub(crate) _phantom: PhantomData<E>,
 }
 
@@ -58,6 +61,7 @@ where
         Self {
             query: self.query.clone(),
             with_trashed: self.with_trashed,
+            loaders: self.loaders.clone(),
             _phantom: PhantomData,
         }
     }
@@ -169,8 +173,21 @@ where
         Self {
             query,
             with_trashed: false,
+            loaders: Vec::new(),
             _phantom: PhantomData,
         }
+    }
+
+    /// Register a relation loader to automatically intercept and resolve N+1 patterns
+    pub fn load<R: LifeModelTrait>(mut self, _relation: R) -> Self
+    where
+        E: crate::Related<R> + 'static,
+        R: 'static,
+        E::Model: crate::query::loader::RelationInjector<R> + crate::model::ModelTrait,
+        R::Model: crate::query::traits::FromRow + crate::model::ModelTrait,
+    {
+        self.loaders.push(Rc::new(crate::query::loader::RelationLoader::<E, R>::new()) as Rc<dyn LoaderExecutor<E>>);
+        self
     }
     
     /// Add a filter condition

@@ -96,6 +96,14 @@ pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
     field.attrs.iter().any(|attr| attr.path().is_ident(attr_name))
 }
 
+/// Holds the configuration extracted from `#[has_many]`, `#[belongs_to]`, etc.
+#[derive(Debug, Clone, Default)]
+pub struct RelationAttribute {
+    pub entity: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
 /// Extract all column attributes from a field
 /// 
 /// This struct is a placeholder for future functionality that will support
@@ -123,6 +131,36 @@ pub struct ColumnAttributes {
     pub foreign_key: Option<String>,
     /// CHECK constraint expression (column-level)
     pub check: Option<String>,
+    pub has_many: Option<RelationAttribute>,
+    pub belongs_to: Option<RelationAttribute>,
+    pub has_one: Option<RelationAttribute>,
+}
+
+fn parse_relation_attr(attr: &Attribute) -> Result<RelationAttribute, syn::Error> {
+    let mut rel = RelationAttribute::default();
+    if let syn::Meta::List(meta_list) = &attr.meta {
+        let nested = meta_list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)?;
+        for meta in nested {
+            if let syn::Meta::NameValue(nv) = meta {
+                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
+                    if nv.path.is_ident("entity") {
+                        rel.entity = s.value();
+                    } else if nv.path.is_ident("from") {
+                        rel.from = Some(s.value());
+                    } else if nv.path.is_ident("to") {
+                        rel.to = Some(s.value());
+                    }
+                }
+            }
+        }
+    }
+    if rel.entity.is_empty() {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "Relation attribute must specify an 'entity' (e.g., #[has_many(entity = \"post::Entity\")])",
+        ));
+    }
+    Ok(rel)
 }
 
 
@@ -266,6 +304,15 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                     attrs.save_as = Some(value);
                 }
             }
+        } else if attr.path().is_ident("has_many") {
+            attrs.is_ignored = true; // Don't treat as DB column
+            attrs.has_many = Some(parse_relation_attr(attr)?);
+        } else if attr.path().is_ident("belongs_to") {
+            attrs.is_ignored = true;
+            attrs.belongs_to = Some(parse_relation_attr(attr)?);
+        } else if attr.path().is_ident("has_one") {
+            attrs.is_ignored = true;
+            attrs.has_one = Some(parse_relation_attr(attr)?);
         } else if attr.path().is_ident("comment") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {

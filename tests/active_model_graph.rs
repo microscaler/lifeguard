@@ -47,26 +47,12 @@ pub mod user_mod {
         pub user_id: i32,
         pub username: String,
         pub organization_id: i32, // FK to Organizations
-    }
-    
-    // Manual mapping for topological testing since macro parsing isn't finished yet
-    impl lifeguard::Related<org_mod::Entity> for Entity {
-        fn to() -> lifeguard::relation::RelationDef {
-            lifeguard::relation::RelationDef {
-                rel_type: lifeguard::relation::RelationType::BelongsTo,
-                from_tbl: sea_query::DynIden::from("test_users_graph").into(),
-                to_tbl: sea_query::DynIden::from("test_organizations").into(),
-                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("organization_id")),
-                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("id")),
-                is_owner: false,
-                skip_fk: false,
-                through_from_col: None,
-                through_to_col: None,
-                through_tbl: None,
-                on_condition: None,
-                condition_type: sea_query::ConditionType::Any,
-            }
-        }
+        
+        #[belongs_to(entity = "org_mod::Entity", from = "organization_id", to = "id")]
+        pub rel_organization: Option<org_mod::OrganizationModel>,
+        
+        #[has_many(entity = "post_mod::Entity", from = "user_id", to = "author_id")]
+        pub rel_posts: Option<Vec<post_mod::PostModel>>,
     }
 }
 pub use user_mod::*;
@@ -82,25 +68,6 @@ pub mod post_mod {
         pub id: i32,
         pub title: String,
         pub author_id: i32, // FK to Users
-    }
-
-    impl lifeguard::Related<post_mod::Entity> for user_mod::Entity {
-        fn to() -> lifeguard::relation::RelationDef {
-            lifeguard::relation::RelationDef {
-                rel_type: lifeguard::relation::RelationType::HasMany,
-                from_tbl: sea_query::DynIden::from("test_users_graph").into(),
-                to_tbl: sea_query::DynIden::from("test_posts").into(),
-                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("user_id")),
-                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from("author_id")),
-                is_owner: false,
-                skip_fk: false,
-                through_from_col: None,
-                through_to_col: None,
-                through_tbl: None,
-                on_condition: None,
-                condition_type: sea_query::ConditionType::Any,
-            }
-        }
     }
 }
 pub use post_mod::*;

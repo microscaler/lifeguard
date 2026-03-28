@@ -720,19 +720,19 @@ mod tests {
             
             fn reset(&mut self) {}
             
-            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn insert(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn update(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn save(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+            fn delete(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<(), ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
@@ -793,19 +793,19 @@ mod tests {
             
             fn reset(&mut self) {}
             
-            fn insert<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn insert(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn update<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn update(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn save<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<Self::Model, ActiveModelError> {
+            fn save(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<Self::Model, ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             
-            fn delete<E: crate::LifeExecutor>(&self, _executor: &E) -> Result<(), ActiveModelError> {
+            fn delete(&self, _executor: &dyn crate::executor::LifeExecutor) -> Result<(), ActiveModelError> {
                 Err(ActiveModelError::Other("not implemented".to_string()))
             }
             

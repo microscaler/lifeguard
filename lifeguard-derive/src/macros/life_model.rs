@@ -310,6 +310,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
     // Track column definitions for ColumnTrait::def() implementations
     let mut column_def_match_arms = Vec::new();
     let mut enum_type_name_match_arms = Vec::new();
+    let mut relation_impls = Vec::new();
 
     for field in fields {
         let field_name = field.ident.as_ref().unwrap();
@@ -351,7 +352,15 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         // But we still need to add them to the Model struct and FromRow
         if is_ignored {
             // Still include in Model struct
+            // If it is Option<T>, skip serializing if None
+            let serde_skip = if extract_option_inner_type(field_type).is_some() {
+                quote! { #[serde(skip_serializing_if = "Option::is_none")] }
+            } else {
+                quote! {}
+            };
+            
             model_fields.push(quote! {
+                #serde_skip
                 pub #field_name: #field_type,
             });
             // Add to FromRow with default value (since they're not in database)
@@ -365,6 +374,81 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             from_row_fields.push(quote! {
                 #field_name: #default_expr,
             });
+            
+            // Build auto-generated relation traits
+            if let Some(rel) = &col_attrs.has_many {
+                let entity_path: syn::Path = syn::parse_str(&rel.entity).expect("Invalid entity path in #[has_many]");
+                let from_col = rel.from.as_deref().unwrap_or("id");
+                let to_col = rel.to.as_deref().expect("to column required for has_many");
+                relation_impls.push(quote! {
+                    impl lifeguard::Related<#entity_path> for Entity {
+                        fn to() -> lifeguard::relation::RelationDef {
+                            lifeguard::relation::RelationDef {
+                                rel_type: lifeguard::relation::RelationType::HasMany,
+                                from_tbl: sea_query::DynIden::from(<Entity as lifeguard::LifeEntityName>::table_name(&Entity)).into(),
+                                to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
+                                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
+                                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::Any,
+                            }
+                        }
+                    }
+                    impl lifeguard::query::loader::RelationInjector<#entity_path> for #model_name {
+                        fn inject(&mut self, items: Vec<<#entity_path as lifeguard::query::traits::LifeModelTrait>::Model>) {
+                            self.#field_name = Some(items);
+                        }
+                    }
+                });
+            }
+            if let Some(rel) = &col_attrs.belongs_to {
+                let entity_path: syn::Path = syn::parse_str(&rel.entity).expect("Invalid entity path in #[belongs_to]");
+                let from_col = rel.from.as_deref().expect("from column required for belongs_to");
+                let to_col = rel.to.as_deref().unwrap_or("id");
+                relation_impls.push(quote! {
+                    impl lifeguard::Related<#entity_path> for Entity {
+                        fn to() -> lifeguard::relation::RelationDef {
+                            lifeguard::relation::RelationDef {
+                                rel_type: lifeguard::relation::RelationType::BelongsTo,
+                                from_tbl: sea_query::DynIden::from(<Entity as lifeguard::LifeEntityName>::table_name(&Entity)).into(),
+                                to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
+                                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
+                                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::Any,
+                            }
+                        }
+                    }
+                    impl lifeguard::query::loader::RelationInjector<#entity_path> for #model_name {
+                        fn inject(&mut self, mut items: Vec<<#entity_path as lifeguard::query::traits::LifeModelTrait>::Model>) {
+                            self.#field_name = items.into_iter().next();
+                        }
+                    }
+                });
+            }
+            if let Some(rel) = &col_attrs.has_one {
+                let entity_path: syn::Path = syn::parse_str(&rel.entity).expect("Invalid entity path in #[has_one]");
+                let from_col = rel.from.as_deref().unwrap_or("id");
+                let to_col = rel.to.as_deref().expect("to column required for has_one");
+                relation_impls.push(quote! {
+                    impl lifeguard::Related<#entity_path> for Entity {
+                        fn to() -> lifeguard::relation::RelationDef {
+                            lifeguard::relation::RelationDef {
+                                rel_type: lifeguard::relation::RelationType::HasOne,
+                                from_tbl: sea_query::DynIden::from(<Entity as lifeguard::LifeEntityName>::table_name(&Entity)).into(),
+                                to_tbl: sea_query::DynIden::from(<#entity_path as lifeguard::LifeEntityName>::table_name(&<#entity_path as Default>::default())).into(),
+                                from_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#from_col)),
+                                to_col: lifeguard::relation::identity::Identity::Unary(sea_query::DynIden::from(#to_col)),
+                                is_owner: false, skip_fk: false, through_from_col: None, through_to_col: None, through_tbl: None, on_condition: None, condition_type: sea_query::ConditionType::Any,
+                            }
+                        }
+                    }
+                    impl lifeguard::query::loader::RelationInjector<#entity_path> for #model_name {
+                        fn inject(&mut self, mut items: Vec<<#entity_path as lifeguard::query::traits::LifeModelTrait>::Model>) {
+                            self.#field_name = items.into_iter().next();
+                        }
+                    }
+                });
+            }
+
             // Don't generate Column enum variant, Iden, etc. for ignored fields
             continue;
         }
@@ -1814,7 +1898,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
         }
 
-        // STEP 8: LifeModelTrait is generated by DeriveEntity (nested expansion)
+        // STEP 8: Setup dynamic relationship links generated from #[has_many/one/belongs_to] attributes
+        #(#relation_impls)*
+
+        // STEP 9: LifeModelTrait is generated by DeriveEntity (nested expansion)
         // This happens in a separate expansion phase, allowing proper type resolution
         // DeriveEntity sets both type Model and type Column using the identifiers passed via attributes
     };
