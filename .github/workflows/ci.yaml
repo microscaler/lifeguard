@@ -54,8 +54,9 @@ jobs:
       - name: Lint
         run: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic
 
+      # Pin nextest: newer releases (e.g. 0.9.132+) require rustc 1.91+; CI uses nightly-2025-06-30.
       - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
+        run: cargo install cargo-nextest --locked --version 0.9.128
 
       - name: Run lifeguard-derive tests
         run: |

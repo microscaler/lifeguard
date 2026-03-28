@@ -75,6 +75,16 @@ This will forward `localhost:5432` to the PostgreSQL service in the cluster.
 just dev-down
 ```
 
+### cargo-nextest
+
+Install a **pinned** binary if `cargo install cargo-nextest --locked` fails with “requires rustc 1.91 or newer” (newer nextest needs a newer compiler than this repo’s pinned nightly or your local toolchain):
+
+```bash
+cargo install cargo-nextest --locked --version 0.9.128
+```
+
+CI uses the same pin in `.github/workflows/ci.yaml`. When you upgrade the workspace `rust-toolchain` / nightly past 1.91, you can bump the nextest version in CI and the command above.
+
 ### Rust crate integration tests (`db_integration_suite`)
 
 The `lifeguard` package runs database-backed tests from a **single** integration binary (`tests/db_integration_suite.rs`) that shares one Postgres URL (and a Redis URL in context) per process.
