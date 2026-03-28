@@ -12,6 +12,7 @@ use crate::attributes;
 use crate::utils;
 
 /// Generate Entity, `EntityName`, Iden, and `IdenStatic` implementations
+#[allow(clippy::too_many_lines)] // Single expansion entry point; splitting would obscure codegen flow
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     

@@ -65,7 +65,7 @@ fn expr_for_related_table_column(table_ref: &TableRef, column: &DynIden) -> Expr
         }
         _ => {
             let tbl = extract_table_name(table_ref);
-            Expr::cust(format!("{tbl}.{}", column))
+            Expr::cust(format!("{tbl}.{column}"))
         }
     }
 }
@@ -305,7 +305,6 @@ pub fn join_tbl_on_expr(
 /// - [`RelationDef`](crate::RelationDef) orientation for `Related<R>`.
 /// - Integration tests in `tests/db_integration/related_trait.rs`.
 /// - Custom `ModelTrait` authors: `docs/planning/lifeguard-derive/AUTHORING_MODEL_TRAIT.md`.
-#[must_use]
 pub fn build_where_condition<M>(
     rel_def: &RelationDef,
     model: &M,
@@ -365,6 +364,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::panic)]
+
     use super::*;
     use crate::relation::def::RelationDef;
     use crate::relation::identity::Identity;

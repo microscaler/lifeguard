@@ -643,7 +643,7 @@ where
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
+#[allow(dead_code, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::relation::def::{RelationDef, RelationType};

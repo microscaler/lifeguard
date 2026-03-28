@@ -124,8 +124,15 @@ where
             let pk = Expr::col(pk_col);
 
             if compound_after {
-                let cv = self.after_val.take().expect("after_val set with compound_after");
-                let pkv = self.after_pk_val.take().expect("after_pk_val set with compound_after");
+                let (cv, pkv) = match (self.after_val.take(), self.after_pk_val.take()) {
+                    (Some(cv), Some(pkv)) => (cv, pkv),
+                    _ => {
+                        return Err(LifeError::Other(
+                            "cursor paginator: compound after requires cursor and primary key values"
+                                .to_string(),
+                        ));
+                    }
+                };
                 // Asc: strictly after (cv, pkv) in (col asc, pk asc)
                 let cond = Condition::any()
                     .add(c.clone().gt(cv.clone()))
@@ -136,8 +143,15 @@ where
                     );
                 self.query = self.query.filter(cond);
             } else {
-                let cv = self.before_val.take().expect("before_val set with compound_before");
-                let pkv = self.before_pk_val.take().expect("before_pk_val set with compound_before");
+                let (cv, pkv) = match (self.before_val.take(), self.before_pk_val.take()) {
+                    (Some(cv), Some(pkv)) => (cv, pkv),
+                    _ => {
+                        return Err(LifeError::Other(
+                            "cursor paginator: compound before requires cursor and primary key values"
+                                .to_string(),
+                        ));
+                    }
+                };
                 // Desc on (col, pk): strictly “before” (cv, pkv) in that order
                 let cond = Condition::any()
                     .add(c.clone().lt(cv.clone()))

@@ -793,7 +793,7 @@ where
 }
 
 #[cfg(test)]
-#[allow(dead_code, clippy::approx_constant)]
+#[allow(dead_code, clippy::approx_constant, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::relation::def::{RelationDef, RelationType};

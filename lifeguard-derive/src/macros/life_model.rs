@@ -420,21 +420,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     Err(e) => return e.to_compile_error().into(),
                 };
                 let from_col = rel.from.as_deref().unwrap_or("id");
-                let to_col = match rel.to.as_deref() {
-                    Some(t) => t,
-                    None => {
-                        let e = match rel_attr {
-                            Some(a) => syn::Error::new_spanned(
-                                a,
-                                "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
-                            ),
-                            None => syn::Error::new_spanned(
-                                field_name,
-                                "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
-                            ),
-                        };
-                        return e.to_compile_error().into();
-                    }
+                let Some(to_col) = rel.to.as_deref() else {
+                    let e = match rel_attr {
+                        Some(a) => syn::Error::new_spanned(
+                            a,
+                            "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                        None => syn::Error::new_spanned(
+                            field_name,
+                            "#[has_many] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                    };
+                    return e.to_compile_error().into();
                 };
                 relation_impls.push(quote! {
                     impl lifeguard::Related<#entity_path> for Entity {
@@ -492,21 +489,18 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     Err(e) => return e.to_compile_error().into(),
                 };
                 let from_col = rel.from.as_deref().unwrap_or("id");
-                let to_col = match rel.to.as_deref() {
-                    Some(t) => t,
-                    None => {
-                        let e = match rel_attr {
-                            Some(a) => syn::Error::new_spanned(
-                                a,
-                                "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
-                            ),
-                            None => syn::Error::new_spanned(
-                                field_name,
-                                "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
-                            ),
-                        };
-                        return e.to_compile_error().into();
-                    }
+                let Some(to_col) = rel.to.as_deref() else {
+                    let e = match rel_attr {
+                        Some(a) => syn::Error::new_spanned(
+                            a,
+                            "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                        None => syn::Error::new_spanned(
+                            field_name,
+                            "#[has_one] requires `to = \"column_name\"` (foreign key column on the related entity)",
+                        ),
+                    };
+                    return e.to_compile_error().into();
                 };
                 relation_impls.push(quote! {
                     impl lifeguard::Related<#entity_path> for Entity {

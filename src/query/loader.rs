@@ -69,30 +69,30 @@ where
 /// enables additional `sea-query` features (e.g. `with-uuid`, `postgres-array`), extend this
 /// match so `None` inner values are not treated as present.
 fn relation_side_value_present(v: &sea_query::Value) -> bool {
-    match v {
+    !matches!(
+        v,
         sea_query::Value::Bool(None)
-        | sea_query::Value::TinyInt(None)
-        | sea_query::Value::SmallInt(None)
-        | sea_query::Value::Int(None)
-        | sea_query::Value::BigInt(None)
-        | sea_query::Value::TinyUnsigned(None)
-        | sea_query::Value::SmallUnsigned(None)
-        | sea_query::Value::Unsigned(None)
-        | sea_query::Value::BigUnsigned(None)
-        | sea_query::Value::Float(None)
-        | sea_query::Value::Double(None)
-        | sea_query::Value::String(None)
-        | sea_query::Value::Char(None)
-        | sea_query::Value::Bytes(None) => false,
-        sea_query::Value::Json(None) => false,
-        sea_query::Value::ChronoDate(None)
-        | sea_query::Value::ChronoTime(None)
-        | sea_query::Value::ChronoDateTime(None)
-        | sea_query::Value::ChronoDateTimeUtc(None)
-        | sea_query::Value::ChronoDateTimeLocal(None)
-        | sea_query::Value::ChronoDateTimeWithTimeZone(None) => false,
-        _ => true,
-    }
+            | sea_query::Value::TinyInt(None)
+            | sea_query::Value::SmallInt(None)
+            | sea_query::Value::Int(None)
+            | sea_query::Value::BigInt(None)
+            | sea_query::Value::TinyUnsigned(None)
+            | sea_query::Value::SmallUnsigned(None)
+            | sea_query::Value::Unsigned(None)
+            | sea_query::Value::BigUnsigned(None)
+            | sea_query::Value::Float(None)
+            | sea_query::Value::Double(None)
+            | sea_query::Value::String(None)
+            | sea_query::Value::Char(None)
+            | sea_query::Value::Bytes(None)
+            | sea_query::Value::Json(None)
+            | sea_query::Value::ChronoDate(None)
+            | sea_query::Value::ChronoTime(None)
+            | sea_query::Value::ChronoDateTime(None)
+            | sea_query::Value::ChronoDateTimeUtc(None)
+            | sea_query::Value::ChronoDateTimeLocal(None)
+            | sea_query::Value::ChronoDateTimeWithTimeZone(None)
+    )
 }
 
 fn identity_column_names(id: &Identity) -> Result<Vec<String>, LifeError> {
