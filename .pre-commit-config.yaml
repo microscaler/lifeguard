@@ -1,0 +1,15 @@
+# https://pre-commit.com
+# Install once: pip install pre-commit && pre-commit install
+# Matches CI lint step: .github/workflows/ci.yaml ("Lint" job).
+# rustfmt is not enforced in CI yet; run `just fmt-check` locally when tightening style.
+#
+# No shell scripts are committed to this repo; pre-commit invokes cargo directly.
+
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-clippy
+        name: cargo clippy (CI parity, -D warnings, pedantic)
+        entry: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic
+        language: system
+        pass_filenames: false

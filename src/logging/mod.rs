@@ -232,7 +232,7 @@ mod tests {
         let _ = tx.send(LogRecord::new(LogLevel::Info, "t", "two"));
         drop(tx);
         let _ = handle.join();
-        let g = out.lock().expect("mutex");
+        let g = out.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(g.len(), 2);
         assert!(g[0].contains("one"));
         assert!(g[1].contains("two"));
