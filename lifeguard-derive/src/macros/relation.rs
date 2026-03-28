@@ -115,15 +115,12 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
         let mut path_tokens = quote! {};
         for segment in prefix_segments {
             // At this point, we've validated that segment is not empty and is a valid identifier
-            let ident = match syn::parse_str::<syn::Ident>(segment) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(syn::Error::new(
-                        error_span,
-                        format!("internal error: failed to parse path segment \"{segment}\" after validation"),
-                    )
-                    .to_compile_error());
-                }
+            let Ok(ident) = syn::parse_str::<syn::Ident>(segment) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse path segment \"{segment}\" after validation"),
+                )
+                .to_compile_error());
             };
             path_tokens = quote! { #path_tokens::#ident };
         }
@@ -156,15 +153,12 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
     match column_variants.len() {
         1 => {
             let col_variant = &column_variants[0];
-            let col_ident = match syn::parse_str::<syn::Ident>(col_variant) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(syn::Error::new(
-                        error_span,
-                        format!("internal error: failed to parse column variant \"{col_variant}\" after validation"),
-                    )
-                    .to_compile_error());
-                }
+            let Ok(col_ident) = syn::parse_str::<syn::Ident>(col_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col_variant}\" after validation"),
+                )
+                .to_compile_error());
             };
             Ok(quote! {
                 {
@@ -178,25 +172,19 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
         2 => {
             let col1_variant = &column_variants[0];
             let col2_variant = &column_variants[1];
-            let col1_ident = match syn::parse_str::<syn::Ident>(col1_variant) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(syn::Error::new(
-                        error_span,
-                        format!("internal error: failed to parse column variant \"{col1_variant}\" after validation"),
-                    )
-                    .to_compile_error());
-                }
+            let Ok(col1_ident) = syn::parse_str::<syn::Ident>(col1_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col1_variant}\" after validation"),
+                )
+                .to_compile_error());
             };
-            let col2_ident = match syn::parse_str::<syn::Ident>(col2_variant) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(syn::Error::new(
-                        error_span,
-                        format!("internal error: failed to parse column variant \"{col2_variant}\" after validation"),
-                    )
-                    .to_compile_error());
-                }
+            let Ok(col2_ident) = syn::parse_str::<syn::Ident>(col2_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col2_variant}\" after validation"),
+                )
+                .to_compile_error());
             };
             Ok(quote! {
                 {
@@ -215,35 +203,26 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
             let col1_variant = &column_variants[0];
             let col2_variant = &column_variants[1];
             let col3_variant = &column_variants[2];
-            let col1_ident = match syn::parse_str::<syn::Ident>(col1_variant) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(syn::Error::new(
-                        error_span,
-                        format!("internal error: failed to parse column variant \"{col1_variant}\" after validation"),
-                    )
-                    .to_compile_error());
-                }
+            let Ok(col1_ident) = syn::parse_str::<syn::Ident>(col1_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col1_variant}\" after validation"),
+                )
+                .to_compile_error());
             };
-            let col2_ident = match syn::parse_str::<syn::Ident>(col2_variant) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(syn::Error::new(
-                        error_span,
-                        format!("internal error: failed to parse column variant \"{col2_variant}\" after validation"),
-                    )
-                    .to_compile_error());
-                }
+            let Ok(col2_ident) = syn::parse_str::<syn::Ident>(col2_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col2_variant}\" after validation"),
+                )
+                .to_compile_error());
             };
-            let col3_ident = match syn::parse_str::<syn::Ident>(col3_variant) {
-                Ok(i) => i,
-                Err(_) => {
-                    return Err(syn::Error::new(
-                        error_span,
-                        format!("internal error: failed to parse column variant \"{col3_variant}\" after validation"),
-                    )
-                    .to_compile_error());
-                }
+            let Ok(col3_ident) = syn::parse_str::<syn::Ident>(col3_variant) else {
+                return Err(syn::Error::new(
+                    error_span,
+                    format!("internal error: failed to parse column variant \"{col3_variant}\" after validation"),
+                )
+                .to_compile_error());
             };
             Ok(quote! {
                 {
@@ -264,15 +243,12 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
             // 4 or more columns - use Many variant
             let mut cols = Vec::new();
             for col_variant in &column_variants {
-                let col_ident = match syn::parse_str::<syn::Ident>(col_variant) {
-                    Ok(i) => i,
-                    Err(_) => {
-                        return Err(syn::Error::new(
-                            error_span,
-                            format!("internal error: failed to parse column variant \"{col_variant}\" after validation"),
-                        )
-                        .to_compile_error());
-                    }
+                let Ok(col_ident) = syn::parse_str::<syn::Ident>(col_variant) else {
+                    return Err(syn::Error::new(
+                        error_span,
+                        format!("internal error: failed to parse column variant \"{col_variant}\" after validation"),
+                    )
+                    .to_compile_error());
                 };
                 cols.push(quote! {
                     {
@@ -770,15 +746,12 @@ fn process_relation_variant(
                     segments: syn::punctuated::Punctuated::new(),
                 };
                 for segment in segments {
-                    let ident = match syn::parse_str::<syn::Ident>(segment) {
-                        Ok(i) => i,
-                        Err(_) => {
-                            return Err(syn::Error::new(
-                                variant.ident.span(),
-                                format!("internal error: failed to parse entity path segment \"{segment}\" after validation"),
-                            )
-                            .to_compile_error());
-                        }
+                    let Ok(ident) = syn::parse_str::<syn::Ident>(segment) else {
+                        return Err(syn::Error::new(
+                            variant.ident.span(),
+                            format!("internal error: failed to parse entity path segment \"{segment}\" after validation"),
+                        )
+                        .to_compile_error());
                     };
                     path.segments.push(syn::PathSegment {
                         ident,

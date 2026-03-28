@@ -288,17 +288,14 @@ fn extract_entity_type(input: &DeriveInput) -> Result<Option<TokenStream2>, Toke
                         segments: syn::punctuated::Punctuated::new(),
                     };
                     for segment in segments {
-                        let ident = match syn::parse_str::<syn::Ident>(segment) {
-                            Ok(i) => i,
-                            Err(_) => {
-                                return Err(syn::Error::new_spanned(
-                                    error_span,
-                                    format!(
-                                        "internal error: failed to parse entity path segment \"{segment}\" after validation"
-                                    ),
-                                )
-                                .to_compile_error());
-                            }
+                        let Ok(ident) = syn::parse_str::<syn::Ident>(segment) else {
+                            return Err(syn::Error::new_spanned(
+                                error_span,
+                                format!(
+                                    "internal error: failed to parse entity path segment \"{segment}\" after validation"
+                                ),
+                            )
+                            .to_compile_error());
                         };
                         path.segments.push(syn::PathSegment {
                             ident,
