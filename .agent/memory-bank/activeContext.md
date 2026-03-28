@@ -57,6 +57,7 @@
 8. **Primary Key Tracking**: Track first `#[primary_key]` field, generate warning if none found
 
 ## Branch
+- `fix/JSF-compliance-issues` — committed `0d04c00` (JSF PRD P1–P3 + implementation); pushed to `origin/fix/JSF-compliance-issues` (`git push -u` — `farm git push` had no upstream). No Cursor co-author trailer.
 - `fix/tests` — pushed `e5cf177` (relations/logging/migrations/CI); no Cursor co-author trailer.
 
 ## Next Steps
