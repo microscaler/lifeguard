@@ -1590,6 +1590,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::panic)] // assert Err branch without expect_err (Ok type is not Debug)
     fn test_find_linked_empty_path() {
         // Empty `via()` must not return an unrestricted target query
         use crate::relation::traits::FindLinked;
@@ -1707,13 +1708,14 @@ mod tests {
         }
         
         let model = TestModel;
-        let err = model
-            .find_linked::<IntermediateEntity, TargetEntity>()
-            .expect_err("empty via() should error");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("empty path"),
-            "unexpected error message: {msg}"
-        );
+        if let Err(e) = model.find_linked::<IntermediateEntity, TargetEntity>() {
+            let msg = e.to_string();
+            assert!(
+                msg.contains("empty path"),
+                "unexpected error message: {msg}"
+            );
+        } else {
+            panic!("empty via() should error");
+        }
     }
 }
