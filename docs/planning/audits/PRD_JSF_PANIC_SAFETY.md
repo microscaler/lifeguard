@@ -1,6 +1,6 @@
 # PRD: JSF-aligned panic safety (unwrap / expect / unreachable)
 
-**Status:** Phase 1–3 items below implemented on branch (see §11 verification log). Phase 4 open.  
+**Status:** Phases **1–4** are implemented on branch (tracked items: §10 checklists; commands: §11 verification log). Follow-ups outside this PRD (e.g. §13 binary `unreachable!` refactors, optional metrics API) are not Phase 4 blockers.  
 **Audience:** Lifeguard maintainers and production integrators  
 **References:** [JSF AV Rules (Stroustrup)](https://www.stroustrup.com/JSF-AV-rules.pdf) AV Rule 208 (no exceptions); Microscaler `BRRTRouter/docs/JSF_COMPLIANCE.md`, `BRRTRouter/docs/JSF/JSF_WRITEUP.md` §3 (error handling); Lifeguard `src/lib.rs` crate-level Clippy denies.
 
@@ -8,7 +8,7 @@
 
 ## 1. Executive summary
 
-Lifeguard’s main crate already denies `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic`, `clippy::todo`, and `clippy::unimplemented` at the library root. Remaining work to align with **JSF-style “no surprise panics on operational paths”** concentrates on: (1) **`unreachable!` in runtime library code**, (2) **macro-generated user code that panics** (e.g. `.expect` on required fields), (3) **public APIs that still use `expect`**, (4) **optional startup-only patterns** (metrics), and (5) **proc-macro hygiene** in `lifeguard-derive`.
+Lifeguard’s main crate already denies `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic`, `clippy::todo`, and `clippy::unimplemented` at the library root. **Phases 1–4** of this PRD targeted **JSF-style “no surprise panics on operational paths”** via: (1) **`unreachable!` in runtime library code**, (2) **macro-generated user code that panicked** (e.g. `.expect` on required fields), (3) **public APIs that used `expect`**, (4) **startup-only patterns** (metrics; policy decision documented), and (5) **`lifeguard-derive` proc-macro hygiene** (§10 P4.x). Residual items (e.g. §13 tool binaries, future optional APIs) are noted in place—not open Phase 4 tasks.
 
 This document is the **product requirements** and **phased implementation plan** for that hardening.
 
@@ -42,8 +42,8 @@ This document is the **product requirements** and **phased implementation plan**
 |-------|---------|
 | **`lifeguard` crate root** | `#![deny(clippy::unwrap_used, expect_used, panic, unimplemented, todo)]` — strong default. |
 | **Scoped allows** | Documented exceptions: e.g. `MetricsCollector::init`, test modules. `RelationTrait::has_many_through_with_def` now returns `Result` (no `expect`). |
-| **`unreachable!`** | Not covered by `clippy::panic`; **`JsonValue::from_row`** uses `unreachable!` after forced `try_get` errors — treat as **P0**. |
-| **`lifeguard-derive`** | No equivalent crate-wide deny; mix of `unwrap`/`expect`/`panic!` at **expand** time and **emitted** `.expect(...)` in user binaries — **P0/P1** for emitted code. |
+| **`unreachable!`** | **`JsonValue::from_row`** no longer uses `unreachable!` (P1.1); **`#![deny(clippy::unreachable)]`** on `lifeguard` crate root (P1.2). |
+| **`lifeguard-derive`** | **`#![deny(clippy::unwrap_used)]`** (P4.3) with scoped test allows; P4.1–P4.2 reduce expand-time `panic`/`unwrap` and emitted panics (e.g. `Relation::def()` → `Option`, `to_model()` → `Result` in P3.2). Opportunistic cleanup may continue. |
 | **Binaries** (`lifeguard-migrate`, `lifeguard-codegen`) | `unreachable!` in matches — review for exhaustiveness or replace with `Err`. |
 
 ---
@@ -92,7 +92,7 @@ This document is the **product requirements** and **phased implementation plan**
 
 ## 7. Implementation plan (phased)
 
-Dependencies: **Phase 1** is independent; **Phase 2** may depend on error-type design; **Phase 3** can run parallel to Phase 2 after R2.1 design is agreed; **Phase 4** is ongoing hygiene.
+Dependencies: **Phase 1** is independent; **Phase 2** may depend on error-type design; **Phase 3** can run parallel to Phase 2 after R2.1 design is agreed; **Phase 4** (derive hygiene) **completed** per §10 P4.1–P4.3—further cleanup is opportunistic, not an open PRD phase.
 
 ### Phase 1 — Quick wins (library runtime)
 
@@ -130,7 +130,7 @@ Dependencies: **Phase 1** is independent; **Phase 2** may depend on error-type d
 
 ---
 
-### Phase 4 — Proc-macro crate hygiene (ongoing)
+### Phase 4 — Proc-macro crate hygiene *(completed — see §10 P4.x for authoritative checklist)*
 
 | Task | Owner | Primary files | Done when |
 |------|-------|---------------|-----------|
