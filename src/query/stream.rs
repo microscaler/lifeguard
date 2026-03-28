@@ -142,7 +142,17 @@ where
             match stream_result {
                 Ok(()) => {
                     if let Some(txn) = guard.txn.take() {
-                        let _ = txn.commit();
+                        if let Err(e) = txn.commit() {
+                            let err: LifeError = e.into();
+                            let notify = LifeError::Other(format!(
+                                "stream cursor `{cursor_name}`: commit failed after successful fetch loop: {err}"
+                            ));
+                            if tx.send(Err(notify)).is_err() {
+                                log::warn!(
+                                    "stream_all cursor {cursor_name}: commit failed after streaming (receiver dropped): {err}"
+                                );
+                            }
+                        }
                     }
                 }
                 Err(unwound) => {
