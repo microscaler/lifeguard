@@ -11,8 +11,26 @@ use crate::query::traits::LifeModelTrait;
 use crate::query::traits::FromRow;
 use crate::query::SelectQuery;
 use crate::query::value_conversion::with_converted_params;
+use crate::transaction::Transaction;
 
 static UUID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Rolls back the streaming cursor transaction on panic or if the caller forgets to [`take`](Option::take) it.
+///
+/// Successful paths must [`Option::take`] the [`Transaction`] and [`commit`](Transaction::commit); error paths
+/// should take and [`rollback`](Transaction::rollback). If neither runs (panic, early process abort), `Drop`
+/// issues `ROLLBACK` so the shared [`may_postgres::Client`] is not left mid-transaction.
+struct StreamingTxnGuard {
+    txn: Option<Transaction>,
+}
+
+impl Drop for StreamingTxnGuard {
+    fn drop(&mut self) {
+        if let Some(txn) = self.txn.take() {
+            let _ = txn.rollback();
+        }
+    }
+}
 
 fn next_cursor_id() -> usize {
     UUID_COUNTER.fetch_add(1, Ordering::SeqCst)
@@ -77,8 +95,16 @@ where
                 }
             };
 
+            let mut guard = StreamingTxnGuard { txn: Some(txn) };
+
             // Map parameter pointers capturing localized memory vectors via the conversion stack!
             let stream_result = with_converted_params(&values, |params| -> Result<(), LifeError> {
+                let Some(txn) = guard.txn.as_mut() else {
+                    return Err(LifeError::Other(
+                        "streaming transaction: internal guard state missing transaction".into(),
+                    ));
+                };
+
                 let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
 
                 // 1. Declare Initial Transaction state
@@ -111,13 +137,21 @@ where
                 Ok(())
             });
 
-            // Standardize any parsing boundary crashes outwards
-            if let Err(unwound) = stream_result {
-                let _ = tx.send(Err(unwound));
+            // Standardize any parsing boundary crashes outwards; end the transaction explicitly so
+            // `StreamingTxnGuard` does not double-rollback after a successful commit.
+            match stream_result {
+                Ok(()) => {
+                    if let Some(txn) = guard.txn.take() {
+                        let _ = txn.commit();
+                    }
+                }
+                Err(unwound) => {
+                    let _ = tx.send(Err(unwound));
+                    if let Some(txn) = guard.txn.take() {
+                        let _ = txn.rollback();
+                    }
+                }
             }
-
-            // Close the transaction ensuring cursors collapse.
-            let _ = txn.commit();
         });
 
         rx
