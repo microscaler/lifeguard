@@ -115,6 +115,17 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         quote! {} // Use default implementation from trait
     };
 
+    // So `SelectQuery::all` / `apply_soft_delete` / loaders match `find()` when using `SelectQuery::new()`.
+    let soft_delete_column_impl = if soft_delete {
+        quote! {
+            fn soft_delete_column() -> Option<Self::Column> {
+                Some(<Self as lifeguard::LifeModelTrait>::Column::DeletedAt)
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let cursor_tiebreak_impl = match attributes::extract_cursor_tiebreak(&input.attrs) {
         Some(variant) => quote! {
             fn cursor_tiebreak_column() -> Option<Self::Column> {
@@ -168,6 +179,8 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
             }
 
             #cursor_tiebreak_impl
+
+            #soft_delete_column_impl
             
             #find_impl
         }

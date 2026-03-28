@@ -454,8 +454,29 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 });
             }
             if let Some(rel) = &col_attrs.belongs_to {
-                let entity_path: syn::Path = syn::parse_str(&rel.entity).expect("Invalid entity path in #[belongs_to]");
-                let from_col = rel.from.as_deref().expect("from column required for belongs_to");
+                let rel_attr = relation_attr_on_field(field, "belongs_to");
+                let entity_path = match parse_relation_entity_path(
+                    &rel.entity,
+                    rel_attr,
+                    field_name,
+                    "#[belongs_to]",
+                ) {
+                    Ok(p) => p,
+                    Err(e) => return e.to_compile_error().into(),
+                };
+                let Some(from_col) = rel.from.as_deref() else {
+                    let e = match rel_attr {
+                        Some(a) => syn::Error::new_spanned(
+                            a,
+                            "#[belongs_to] requires `from = \"column_name\"` (foreign key column on this entity)",
+                        ),
+                        None => syn::Error::new_spanned(
+                            field_name,
+                            "#[belongs_to] requires `from = \"column_name\"` (foreign key column on this entity)",
+                        ),
+                    };
+                    return e.to_compile_error().into();
+                };
                 let to_col = rel.to.as_deref().unwrap_or("id");
                 relation_impls.push(quote! {
                     impl lifeguard::Related<#entity_path> for Entity {
@@ -2016,6 +2037,23 @@ mod relation_parse_error_tests {
         let field_name = field.ident.as_ref().unwrap();
         let rel_attr = relation_attr_on_field(&field, "has_many");
         let err = parse_relation_entity_path("crate::bad::!!!", rel_attr, field_name, "#[has_many]")
+            .expect_err("invalid path should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("invalid `entity` path") || msg.contains("expected identifier"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn invalid_belongs_to_entity_path_returns_syn_error_with_message() {
+        let field: syn::Field = parse_quote! {
+            #[belongs_to(entity = "crate::bad::!!!", from = "x")]
+            parent: Option<()>
+        };
+        let field_name = field.ident.as_ref().unwrap();
+        let rel_attr = relation_attr_on_field(&field, "belongs_to");
+        let err = parse_relation_entity_path("crate::bad::!!!", rel_attr, field_name, "#[belongs_to]")
             .expect_err("invalid path should error");
         let msg = err.to_string();
         assert!(

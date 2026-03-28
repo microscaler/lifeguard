@@ -75,8 +75,8 @@ where
         // Generate deterministic localized cursor UUID string
         let cursor_name = format!("lifeguard_stream_{}", next_cursor_id());
 
-        // Extract native SQL statements
-        let (sql, values) = self.query.build(PostgresQueryBuilder);
+        // Match `SelectQuery::all` / `one`: apply soft-delete filter unless `with_trashed()`.
+        let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
 
         // Executors explicitly clone connection handlers intrinsically representing identical PG states.
         let local_exec = MayPostgresExecutor::new(executor.client().clone());

@@ -8,6 +8,7 @@
 
 use lifeguard::{
     ActiveModelTrait, ActiveModelError, LifeModelTrait, LifeExecutor, MayPostgresExecutor,
+    query::SelectQueryStreamEx,
     test_helpers::TestDatabase,
 };
 use lifeguard_derive::{LifeModel, LifeRecord};
@@ -152,6 +153,50 @@ fn test_soft_delete_active_model() {
     
     // Test that find_by_id logic respects the macro's global filter if we implement find_by_id later, 
     // for now we verified find() is generated cleanly.
+}
+
+/// Count rows returned by `stream_all` (sum of chunk lengths until the channel closes).
+fn stream_all_row_count(
+    executor: &MayPostgresExecutor,
+    query: lifeguard::SelectQuery<test_soft_delete_user::Entity>,
+) -> usize {
+    let receiver = query.stream_all(executor, 16);
+    let mut total = 0;
+    while let Ok(res) = receiver.recv() {
+        total += res.expect("stream chunk should be Ok").len();
+    }
+    total
+}
+
+#[test]
+fn test_stream_all_applies_soft_delete_like_all() {
+    let mut test_db = get_db();
+    let _client = test_db.connect().expect("Failed to connect to database");
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_soft_delete_schema(&executor).expect("Failed to setup schema");
+    cleanup_soft_delete_data(&executor).expect("Failed to cleanup");
+
+    let mut insert_record = TestSoftDeleteUserRecord::new();
+    insert_record.set_name("Stream Soft Delete".to_string());
+    let model = insert_record.insert(&executor).expect("Failed to insert");
+
+    // `Entity::find()` for `#[soft_delete]` already adds `deleted_at IS NULL`. Use a bare
+    // `SelectQuery::new()` so only `apply_soft_delete()` (used by `all` / `stream_all`) adds it,
+    // matching the bug report: streaming must not skip that layer.
+    let fresh_query = || lifeguard::SelectQuery::<test_soft_delete_user::Entity>::new();
+
+    assert_eq!(fresh_query().all(&executor).expect("all").len(), 1);
+    assert_eq!(stream_all_row_count(&executor, fresh_query()), 1);
+
+    let delete_record = TestSoftDeleteUserRecord::from_model(&model);
+    delete_record.delete(&executor).expect("Failed to soft delete");
+
+    assert_eq!(fresh_query().all(&executor).expect("all").len(), 0);
+    assert_eq!(
+        stream_all_row_count(&executor, fresh_query()),
+        0,
+        "stream_all must apply soft-delete filtering the same way as all()"
+    );
 }
 
 #[test]
