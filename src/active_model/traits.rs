@@ -476,7 +476,7 @@ pub trait ActiveModelTrait: Clone + Send + std::fmt::Debug {
         // Default implementation: This is a placeholder that should be overridden
         // by the macro-generated implementation in `LifeRecord`.
         // The macro can generate an implementation that:
-        // 1. Converts `Record` to `Model` using `to_model()`, then serializes (if `Model` implements `Serialize`)
+        // 1. Converts `Record` to `Model` using `to_model()?`, then serializes (if `Model` implements `Serialize`)
         // 2. Or directly iterates over columns and builds JSON from `get()` values
         Err(ActiveModelError::Other(
             "to_json() not implemented - LifeRecord macro should generate this method".to_string()

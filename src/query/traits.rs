@@ -696,16 +696,14 @@ use serde_json::Value as JsonValue;
 impl FromRow for JsonValue {
     fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
         if row.is_empty() {
-            let _: String = row.try_get::<_, String>(999)?;
-            unreachable!()
+            // No columns: force a column-bounds error (same family as invalid index on empty).
+            return row.try_get::<_, i32>(0).map(|_| JsonValue::Null);
         }
-        let text: String = row.get(0);
+        let text: String = row.try_get(0)?;
         match serde_json::from_str(&text) {
             Ok(json) => Ok(json),
-            Err(_e) => {
-                let _: i32 = row.try_get::<_, i32>(0)?;
-                unreachable!()
-            }
+            // Invalid JSON text: return a driver `Error` without `unreachable!` (index == len is always OOB).
+            Err(_) => row.try_get::<_, i32>(row.len()).map(|_| JsonValue::Null),
         }
     }
 }

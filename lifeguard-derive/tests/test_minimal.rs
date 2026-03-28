@@ -2880,10 +2880,20 @@ mod active_model_trait_tests {
         assert_eq!(record.dirty_fields().len(), 3);
         
         // Convert back to model
-        let model2 = record.to_model();
+        let model2 = record.to_model().expect("to_model");
         assert_eq!(model2.id, 1);
         assert_eq!(model2.name, "John");
         assert_eq!(model2.email, "john@example.com");
+    }
+
+    #[test]
+    fn test_to_model_errors_on_missing_required_field() {
+        let record = UserRecord::new();
+        let err = record.to_model().expect_err("missing required fields");
+        assert!(
+            matches!(err, lifeguard::ActiveModelError::FieldRequired(_)),
+            "expected FieldRequired, got {err:?}"
+        );
     }
 
     #[test]
@@ -3012,7 +3022,7 @@ mod active_model_trait_tests {
         let record = UserWithOptionsRecord::from_model(&model);
         
         // Convert back to model
-        let model2 = record.to_model();
+        let model2 = record.to_model().expect("to_model");
         assert_eq!(model2.id, 1);
         assert_eq!(model2.name, Some("John".to_string()));
         assert_eq!(model2.age, Some(30));
@@ -3052,7 +3062,7 @@ mod active_model_trait_tests {
         assert!(active_value.is_none(), "get() should return None for unset Option<bool> field");
         
         // Convert back to model
-        let model2 = record.to_model();
+        let model2 = record.to_model().expect("to_model");
         assert_eq!(model2.id, 1);
         assert_eq!(model2.name, None);
         assert_eq!(model2.age, None);
@@ -4679,7 +4689,8 @@ mod active_model_trait_tests {
         );
         
         assert!(result.is_ok(), "set() should allow None for non-nullable fields");
-        // But to_model() will fail if required fields are None
+        let err = record.to_model().expect_err("to_model should fail when name unset");
+        assert!(matches!(err, lifeguard::ActiveModelError::FieldRequired(_)));
     }
 
     #[test]
@@ -4863,7 +4874,7 @@ mod active_model_trait_tests {
         let record = UserRecord::from_model(&model);
         assert_eq!(record.dirty_fields().len(), 3);
         
-        let model2 = record.to_model();
+        let model2 = record.to_model().expect("to_model");
         assert_eq!(model.id, model2.id);
         assert_eq!(model.name, model2.name);
         assert_eq!(model.email, model2.email);

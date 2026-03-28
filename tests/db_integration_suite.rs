@@ -32,3 +32,6 @@ mod stream_and_cursor;
 
 #[path = "db_integration/related_trait.rs"]
 mod related_trait;
+
+#[path = "db_integration/json_value_from_row.rs"]
+mod json_value_from_row;
