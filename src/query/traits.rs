@@ -680,10 +680,9 @@ pub trait LifeModelTrait: LifeEntityName {
 /// Builds a [`may_postgres::Error`] when a column decodes from SQL but fails a Rust-side range check
 /// (for example, a negative `BIGINT` cannot become `u64` via [`TryFrom`]).
 ///
-/// `may_postgres::Error` has no public constructor for this class of failure; this uses a
+/// `may_postgres::Error` has no first-class API for unsigned range failures; this uses a
 /// [`may_postgres::Row::try_get`] path that fails for typical integral columns (Rust type mismatch),
-/// with a fallback for unusual wire types (same idea as invalid JSON handling on [`FromRow`] for
-/// [`serde_json::Value`]).
+/// with a fallback for unusual wire types (OOB column index) so the function always returns `Err`.
 pub fn from_row_unsigned_try_from_failed(row: &may_postgres::Row, column_name: &str) -> may_postgres::Error {
     match row.try_get::<&str, &[u8]>(column_name) {
         Err(e) => e,
@@ -723,8 +722,7 @@ impl FromRow for JsonValue {
         let text: String = row.try_get(0)?;
         match serde_json::from_str(&text) {
             Ok(json) => Ok(json),
-            // Invalid JSON text: return a driver `Error` without `unreachable!` (index == len is always OOB).
-            Err(_) => row.try_get::<_, i32>(row.len()).map(|_| JsonValue::Null),
+            Err(e) => Err(may_postgres::Error::user_column_decode_failed(0, e.to_string())),
         }
     }
 }

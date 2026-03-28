@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **`may_postgres` fork pin + `JsonValue::from_row` decode errors (2026-03-28):** Pushed microscaler/may_postgres branch `user-column-decode-failed` at rev `6c92ef8b1e756741f3726fb94cc49af54f0f8596` (`Error::user_column_decode_failed`). Lifeguard pins that `rev` in root / `lifeguard-derive` / `lifeguard-migrate` / `examples/entities`; `impl FromRow for serde_json::Value` maps `serde_json::from_str` failures through `user_column_decode_failed(0, e.to_string())`. Integration test asserts `Display` includes column 0 + serde parse detail. `.gitignore`: `/may_postgres/` for optional local clone. Verified: `cargo test -p lifeguard json_value_from_row`, `cargo clippy --workspace --all-targets -- -D warnings`.
 - **`logging` flush handshake (2026-03-28):** `LogMsg` + `flush_log_channel()`; `ChannelLogger::flush` non-no-op; `LogMsg` / `flush_log_channel` re-exported from crate root. `cargo test -p lifeguard --lib logging` passed.
 - **`sql_dependency_order` ALTER TABLE IF EXISTS (2026-03-28):** Optional `(?:IF EXISTS )?` and `(?:ONLY )?` before captured table name; fixes wrong dependency edges in `write_apply_order_file`. `cargo test -p lifeguard-migrate sql_dependency_order` passed.
 - **`build_where_condition` docs + regression test (2026-03-28):** `FindRelated` / `FindLinked` **Returns** document `LifeError` when `from_col` values are unavailable; `test_build_where_condition_err_when_from_col_missing` asserts `LifeError::Other` mentions `user_id`. `cargo test -p lifeguard --lib relation::` passed.

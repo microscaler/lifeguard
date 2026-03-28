@@ -27,8 +27,14 @@ fn json_value_from_row_rejects_invalid_json_text() {
     let row = executor
         .query_one("SELECT $1::text", &[&"not-json{{{"])
         .expect("query_one");
+    let err = serde_json::Value::from_row(&row).expect_err("invalid JSON text must yield Err");
+    let msg = err.to_string();
     assert!(
-        serde_json::Value::from_row(&row).is_err(),
-        "invalid JSON text must yield Err, not panic"
+        msg.contains("error deserializing column 0"),
+        "expected FromSql-style message, got: {msg}"
+    );
+    assert!(
+        msg.contains("expected") || msg.contains("EOF") || msg.contains("trailing"),
+        "expected serde_json parse detail in Display, got: {msg}"
     );
 }
