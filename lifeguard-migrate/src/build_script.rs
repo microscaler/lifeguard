@@ -261,9 +261,11 @@ pub fn order_entities_for_registry(entities: &[EntityInfo]) -> Result<Vec<Entity
     for e in entities {
         let content = fs::read_to_string(&e.file_path)
             .map_err(|err| format!("read {}: {}", e.file_path.display(), err))?;
+        // Ignore self-references (e.g. categories → categories): they are not ordering edges;
+        // `CREATE TABLE` can still include a self-FK in one statement.
         let deps: Vec<String> = extract_foreign_key_targets_from_rust_source(&content)
             .into_iter()
-            .filter(|t| known.contains_key(t))
+            .filter(|t| known.contains_key(t) && t != &e.table_name)
             .collect();
         tables.push(TableInfo {
             name: e.table_name.clone(),

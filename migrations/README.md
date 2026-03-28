@@ -2,6 +2,8 @@
 
 This directory contains database migrations for Lifeguard ORM, including example migrations generated from entity definitions.
 
+**CI:** GitHub Actions removes `migrations/generated/`, regenerates SQL from `examples/entities`, and applies it to the workflow Postgres service before database-backed tests (see `docs/TEST_INFRASTRUCTURE.md`).
+
 ## Directory Structure
 
 ```

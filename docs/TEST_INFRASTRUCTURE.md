@@ -85,6 +85,16 @@ cargo install cargo-nextest --locked --version 0.9.128
 
 CI uses the same pin in `.github/workflows/ci.yaml`. When you upgrade the workspace `rust-toolchain` / nightly past 1.91, you can bump the nextest version in CI and the command above.
 
+### GitHub Actions: entity migrations on Postgres
+
+In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_suite`, the job:
+
+1. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
+2. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
+3. Applies every `*.sql` file under `migrations/generated/` to the job’s Postgres service (`psql`, sorted paths).
+
+That validates the migration-generation path against a real database before other steps use the same Postgres instance.
+
 ### Rust crate integration tests (`db_integration_suite`)
 
 The `lifeguard` package runs database-backed tests from a **single** integration binary (`tests/db_integration_suite.rs`) that shares one Postgres URL (and a Redis URL in context) per process.

@@ -54,6 +54,27 @@ jobs:
       - name: Lint
         run: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic
 
+      # Migration tooling: drop committed generated SQL, regenerate from `examples/entities`, apply
+      # with psql before any job step that uses Postgres (workspace tests, db_integration_suite, coverage).
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Regenerate entity migrations and apply to Postgres
+        run: |
+          set -euo pipefail
+          rm -rf migrations/generated
+          (cd examples/entities && cargo run --bin generate-migrations)
+          export PGPASSWORD=postgres
+          mapfile -t sql_files < <(find migrations/generated -name '*.sql' -type f | sort)
+          if [ "${#sql_files[@]}" -eq 0 ]; then
+            echo '::error::No SQL files under migrations/generated after generate-migrations'
+            exit 1
+          fi
+          for f in "${sql_files[@]}"; do
+            echo "Applying $f"
+            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+          done
+
       # Pin nextest: newer releases (e.g. 0.9.132+) require rustc 1.91+; CI uses nightly-2025-06-30.
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked --version 0.9.128
