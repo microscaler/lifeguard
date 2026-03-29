@@ -13,6 +13,8 @@
 //! - Binary: Vec<u8>
 //! - JSON: `serde_json::Value`
 //! - Option<T> for all above types
+//! - `uuid::Uuid` (via `sea_query::Value::Uuid`)
+//! - `chrono::NaiveDateTime` (via `sea_query::Value::ChronoDateTime`)
 //!
 //! # Type Conversion Consistency
 //!
@@ -40,6 +42,28 @@ pub fn is_json_value_type(ty: &Type) -> bool {
     } else {
         false
     }
+}
+
+/// `uuid::Uuid` (path ends with `Uuid` and includes a `uuid` segment).
+pub fn is_uuid_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        return match path.segments.last() {
+            Some(last) if last.ident == "Uuid" => path.segments.iter().any(|s| s.ident == "uuid"),
+            _ => false,
+        };
+    }
+    false
+}
+
+/// `chrono::NaiveDateTime`
+pub fn is_naive_datetime_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        return match path.segments.last() {
+            Some(last) if last.ident == "NaiveDateTime" => path.segments.iter().any(|s| s.ident == "chrono"),
+            _ => false,
+        };
+    }
+    false
 }
 
 /// Check if a type is `Vec<u8>` (binary data)
@@ -259,6 +283,18 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
             sea_query::Value::String(Some(self.#field_name.amount().to_string()))
         };
     }
+
+    if is_uuid_type(field_type) {
+        return quote! {
+            sea_query::Value::Uuid(Some(self.#field_name))
+        };
+    }
+
+    if is_naive_datetime_type(field_type) {
+        return quote! {
+            sea_query::Value::ChronoDateTime(Some(self.#field_name))
+        };
+    }
     
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = field_type {
@@ -331,6 +367,18 @@ pub fn generate_option_field_to_value_with_default(field_name: &syn::Ident, inne
     if is_money_type(inner_type) {
         return quote! {
             self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.amount().to_string()))).unwrap_or(sea_query::Value::String(None))
+        };
+    }
+
+    if is_uuid_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::Uuid(Some(v))).unwrap_or(sea_query::Value::Uuid(None))
+        };
+    }
+
+    if is_naive_datetime_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v))).unwrap_or(sea_query::Value::ChronoDateTime(None))
         };
     }
     
@@ -433,6 +481,18 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
         return quote! {
             self.#field_name.as_ref()
                 .map(|v| sea_query::Value::String(Some(v.amount().to_string())))
+        };
+    }
+
+    if is_uuid_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::Uuid(Some(v)))
+        };
+    }
+
+    if is_naive_datetime_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v)))
         };
     }
     

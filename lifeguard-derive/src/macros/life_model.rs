@@ -1304,39 +1304,15 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 _ => (false, false, false, false),
             };
             
-            // Handle uuid::Uuid - get as string and parse
-            // Note: We use explicit error handling to avoid type inference issues with ?
+            // Handle uuid::Uuid — bind Postgres `uuid` via `FromSql` (not text parsing).
             if is_uuid {
                 if is_nullable {
                     quote! {
-                        {
-                            let uuid_str: Option<String> = match row.try_get(#column_name_str) {
-                                Ok(v) => v,
-                                Err(e) => return Err(e),
-                            };
-                            match uuid_str {
-                                None => None,
-                                Some(s) => {
-                                    match uuid::Uuid::parse_str(&s) {
-                                        Ok(u) => Some(u),
-                                        Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
-                                    }
-                                }
-                            }
-                        }
+                        row.try_get::<&str, Option<uuid::Uuid>>(#column_name_str)?
                     }
                 } else {
                     quote! {
-                        {
-                            let uuid_str: String = match row.try_get(#column_name_str) {
-                                Ok(v) => v,
-                                Err(e) => return Err(e),
-                            };
-                            match uuid::Uuid::parse_str(&uuid_str) {
-                                Ok(u) => u,
-                                Err(_) => return Err(may_postgres::Error::__private_api_timeout()),
-                            }
-                        }
+                        row.try_get::<&str, uuid::Uuid>(#column_name_str)?
                     }
                 }
             }

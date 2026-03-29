@@ -55,7 +55,9 @@ where
     let mut chrono_date_times: Vec<chrono::NaiveDateTime> = Vec::new();
     let mut chrono_date_times_utc: Vec<chrono::DateTime<chrono::Utc>> = Vec::new();
     let mut chrono_date_times_local: Vec<chrono::DateTime<chrono::Local>> = Vec::new();
-    
+
+    let mut uuids: Vec<uuid::Uuid> = Vec::new();
+
     // First pass: collect all values into typed vectors
     for value in values {
         match value {
@@ -90,6 +92,8 @@ where
             Value::ChronoDateTimeUtc(Some(dt)) => chrono_date_times_utc.push(*dt),
             Value::ChronoDateTimeLocal(Some(dt)) => chrono_date_times_local.push(*dt),
 
+            Value::Uuid(Some(u)) => uuids.push(*u),
+
             Value::Json(Some(j)) => {
                 strings.push(serde_json::to_string(&**j).map_err(|e| {
                     ActiveModelError::Other(format!("Failed to serialize JSON: {e}"))
@@ -106,7 +110,7 @@ where
             
             Value::ChronoDate(None) | Value::ChronoTime(None) |
             Value::ChronoDateTime(None) | Value::ChronoDateTimeUtc(None) |
-            Value::ChronoDateTimeLocal(None) => nulls.push(None),
+            Value::ChronoDateTimeLocal(None) | Value::Uuid(None) => nulls.push(None),
 
             _ => {
                 return Err(ActiveModelError::Other(format!(
@@ -131,6 +135,8 @@ where
     let mut chrono_datetime_idx = 0;
     let mut chrono_datetime_utc_idx = 0;
     let mut chrono_datetime_local_idx = 0;
+
+    let mut uuid_idx = 0;
 
     let mut params: Vec<&dyn ToSql> = Vec::new();
     
@@ -179,6 +185,11 @@ where
                 chrono_datetime_local_idx += 1;
             }
 
+            Value::Uuid(Some(_)) => {
+                params.push(&uuids[uuid_idx] as &dyn ToSql);
+                uuid_idx += 1;
+            }
+
             Value::Bool(None) | Value::Int(None) | 
             Value::BigInt(None) | Value::String(None) | 
             Value::Bytes(None) => {
@@ -222,6 +233,10 @@ where
                 string_idx += 1;
             }
             Value::Json(None) => {
+                params.push(&nulls[null_idx] as &dyn ToSql);
+                null_idx += 1;
+            }
+            Value::Uuid(None) => {
                 params.push(&nulls[null_idx] as &dyn ToSql);
                 null_idx += 1;
             }
