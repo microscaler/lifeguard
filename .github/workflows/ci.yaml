@@ -12,6 +12,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     # All DB/Redis dependencies: `.github/docker/docker-compose.yml` (primary :5432, replica :5433, Redis :6379).
+    # Started via hoverkraft-tech/compose-action (up: `-d --wait`; post hook: `compose down -v`). See https://github.com/marketplace/actions/docker-compose-action
     # No `jobs.*.services` — avoids duplicating Postgres/Redis and conflicting ports with Compose.
     # `TEST_DATABASE_URL` / `TEST_REPLICA_URL` / Redis URLs for `tests/context.rs`; `DATABASE_URL` for `TestDatabase::get_connection_string`.
     # Repository secret `PGPASSWORD`: exported to steps; Compose file interpolates `${PGPASSWORD}`; URLs / `psql` use the same. Not available to workflows from fork PRs.
@@ -40,7 +41,11 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Start CI stack (Postgres primary + replica + Redis)
-        run: docker compose -f .github/docker/docker-compose.yml up -d --wait
+        uses: hoverkraft-tech/compose-action@4894d2492015c1774ee5a13a95b1072093087ec3 # v2.5.0
+        with:
+          compose-file: .github/docker/docker-compose.yml
+          up-flags: -d --wait
+          down-flags: -v
 
       - name: Build
         run: cargo check
@@ -118,16 +123,12 @@ jobs:
           cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
           cargo llvm-cov --all-features --workspace --summary-only
 
-      - name: Tear down CI Docker stack
-        if: always()
-        run: docker compose -f .github/docker/docker-compose.yml down -v
-
   # IDAM-shaped ORM harness (`examples/perf-idam`); non-blocking latency artifact. Chains after `test`.
   perf_orm:
     name: ORM perf (perf-idam)
     needs: test
     runs-on: ubuntu-latest
-    # Same `.github/docker/docker-compose.yml` as `test` (Postgres primary + replica + Redis).
+    # Same `.github/docker/docker-compose.yml` and hoverkraft-tech/compose-action pattern as `test`.
     env:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
 
@@ -147,7 +148,11 @@ jobs:
           key: cargo-perf-idam-${{ runner.os }}-${{ hashFiles('examples/perf-idam/Cargo.lock') }}
 
       - name: Start CI stack (Postgres primary + replica + Redis)
-        run: docker compose -f .github/docker/docker-compose.yml up -d --wait
+        uses: hoverkraft-tech/compose-action@4894d2492015c1774ee5a13a95b1072093087ec3 # v2.5.0
+        with:
+          compose-file: .github/docker/docker-compose.yml
+          up-flags: -d --wait
+          down-flags: -v
 
       # perf-orm: primary :5432, replica :5433, Redis :6379 (all from Compose).
       - name: Run perf-orm
@@ -175,7 +180,3 @@ jobs:
           name: perf-results
           path: examples/perf-idam/perf-results.json
           retention-days: 3
-
-      - name: Tear down CI Docker stack
-        if: always()
-        run: docker compose -f .github/docker/docker-compose.yml down -v
