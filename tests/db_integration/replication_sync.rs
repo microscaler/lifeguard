@@ -14,6 +14,13 @@ pub fn primary_current_wal_lsn(primary_url: &str) -> Result<String, String> {
 }
 
 /// Poll `replica_url` until `pg_last_wal_replay_lsn() >= min_lsn::pg_lsn` or timeout.
+///
+/// Uses **one** server session for all poll queries (no connect-per-interval). Initial
+/// `may_postgres::connect` may retry until the deadline while the standby is still coming up.
+///
+/// A failed query does **not** imply a bad connection: on `query_one` error we return immediately
+/// rather than opening a new session (same idea as pool managers that do not recycle on SQL
+/// failure—lifecycle belongs to connectivity/idle policy, not statement outcome).
 pub fn wait_replica_replayed_at_least(
     replica_url: &str,
     min_lsn: &str,
@@ -21,38 +28,46 @@ pub fn wait_replica_replayed_at_least(
     poll: Duration,
 ) -> Result<(), String> {
     let start = Instant::now();
+    let deadline = start + timeout;
+
+    fn connect_until_deadline(
+        url: &str,
+        deadline: Instant,
+        poll: Duration,
+    ) -> Result<may_postgres::Client, String> {
+        loop {
+            match may_postgres::connect(url) {
+                Ok(c) => return Ok(c),
+                Err(e) => {
+                    if Instant::now() >= deadline {
+                        return Err(e.to_string());
+                    }
+                    thread::sleep(poll);
+                }
+            }
+        }
+    }
+
+    let client = connect_until_deadline(replica_url, deadline, poll).map_err(|e| {
+        format!("wait_replica_replayed_at_least: connect failed after {timeout:?}: {e}")
+    })?;
+
     loop {
-        let client = match may_postgres::connect(replica_url) {
-            Ok(c) => c,
-            Err(e) => {
-                if start.elapsed() >= timeout {
-                    return Err(format!(
-                        "wait_replica_replayed_at_least: connect failed after {timeout:?}: {e}"
-                    ));
-                }
-                thread::sleep(poll);
-                continue;
-            }
-        };
-        let ok: bool = match client.query_one(
-            "SELECT (pg_last_wal_replay_lsn() >= $1::pg_lsn) AS ok",
-            &[&min_lsn],
-        ) {
-            Ok(row) => row.get(0),
-            Err(e) => {
-                if start.elapsed() >= timeout {
-                    return Err(format!(
-                        "wait_replica_replayed_at_least: query failed (min_lsn={min_lsn}): {e}"
-                    ));
-                }
-                thread::sleep(poll);
-                continue;
-            }
-        };
+        let ok: bool = client
+            .query_one(
+                "SELECT (pg_last_wal_replay_lsn() >= $1::pg_lsn) AS ok",
+                &[&min_lsn],
+            )
+            .map_err(|e| {
+                format!("wait_replica_replayed_at_least: query failed (min_lsn={min_lsn}): {e}")
+            })?
+            .get(0);
+
         if ok {
             return Ok(());
         }
-        if start.elapsed() >= timeout {
+
+        if Instant::now() >= deadline {
             let replay: String = client
                 .query_one("SELECT pg_last_wal_replay_lsn()::text", &[])
                 .map_or_else(|_| "(unknown)".into(), |r| r.get::<_, String>(0));
@@ -60,6 +75,7 @@ pub fn wait_replica_replayed_at_least(
                 "wait_replica_replayed_at_least: timeout {timeout:?} min_lsn={min_lsn} last_replay_lsn={replay}"
             ));
         }
+
         thread::sleep(poll);
     }
 }

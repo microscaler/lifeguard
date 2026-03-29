@@ -26,7 +26,7 @@ impl WalLagMonitor {
             coroutine::spawn::<_, ()>(move || {
             // Attempt to connect inside the coroutine so it doesn't block startup
             // If connection fails, we assume lag is true to be safe and fall back to primary
-            let mut client = match may_postgres::connect(&replica_conn_string) {
+            let client = match may_postgres::connect(&replica_conn_string) {
                 Ok(c) => c,
                 Err(_) => {
                     lag_ref.store(true, Ordering::Release);
@@ -57,13 +57,10 @@ impl WalLagMonitor {
                         lag_ref.store(lagging, Ordering::Release);
                     }
                     Err(_) => {
-                        // On query error, assume lagging to route safely to primary
+                        // Statement failure does not imply a disposable connection (cf. pool
+                        // managers that do not reset sessions on SQL error). Treat as unknown
+                        // lag: route reads to primary until the next successful poll.
                         lag_ref.store(true, Ordering::Release);
-                        
-                        // Try to reconnect if the connection dropped
-                        if let Ok(new_client) = may_postgres::connect(&replica_conn_string) {
-                            client = new_client;
-                        }
                     }
                 }
             }

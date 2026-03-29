@@ -26,6 +26,8 @@ services:
       POSTGRESQL_USERNAME: postgres
       POSTGRESQL_PASSWORD: ${PGPASSWORD:?PGPASSWORD must be set}
       POSTGRESQL_DATABASE: postgres
+      # Integration tests + replication reserve slots; avoid E53300 during heavy CI.
+      POSTGRESQL_MAX_CONNECTIONS: "200"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h 127.0.0.1 -p 5432"]
       interval: 5s
@@ -49,6 +51,7 @@ services:
       POSTGRESQL_PASSWORD: ${PGPASSWORD:?PGPASSWORD must be set}
       POSTGRESQL_MASTER_ROOT_USER: postgres
       POSTGRESQL_MASTER_ROOT_PASSWORD: ${PGPASSWORD:?PGPASSWORD must be set}
+      POSTGRESQL_MAX_CONNECTIONS: "200"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h 127.0.0.1 -p 5432"]
       interval: 5s

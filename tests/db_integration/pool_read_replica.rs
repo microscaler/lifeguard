@@ -14,6 +14,39 @@ fn replica_url_or_skip() -> Option<String> {
     ctx.replica_pg_url.clone()
 }
 
+/// Normalized `host:port` so `localhost` and `127.0.0.1` match CI vs local runbooks.
+fn pg_tcp_endpoint_key(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("postgres://")
+        .or_else(|| url.strip_prefix("postgresql://"))?;
+    let after_at = rest.rsplit('@').next()?;
+    let host_port = after_at.split('/').next()?;
+
+    if let Some(inner) = host_port.strip_prefix('[') {
+        let (addr, port_s) = inner.split_once("]:")?;
+        let host = match addr {
+            "::1" | "localhost" => "127.0.0.1",
+            h => h,
+        };
+        let port: u16 = port_s.parse().ok()?;
+        return Some(format!("{host}:{port}"));
+    }
+
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((h, p)) => match p.parse::<u16>() {
+            Ok(port) => (h, port),
+            Err(_) => (host_port, 5432),
+        },
+        None => (host_port, 5432),
+    };
+
+    let host_norm = match host.to_ascii_lowercase().as_str() {
+        "localhost" | "::1" => "127.0.0.1".to_string(),
+        h => h.to_string(),
+    };
+    Some(format!("{host_norm}:{port}"))
+}
+
 fn setup_schema_on_primary(executor: &lifeguard::MayPostgresExecutor) {
     executor
         .execute(
@@ -48,6 +81,14 @@ fn pooled_pool_construct_write_read_with_replica() {
 
     let ctx = crate::context::get_test_context();
     let primary_url = ctx.pg_url.clone();
+
+    let ep_p = pg_tcp_endpoint_key(&primary_url).expect("parse primary URL host:port");
+    let ep_r = pg_tcp_endpoint_key(&replica_url).expect("parse replica URL host:port");
+    assert_ne!(
+        ep_p, ep_r,
+        "TEST_REPLICA_URL must not target the same host:port as TEST_DATABASE_URL (both {ep_p}). \
+         CI sets primary :5432 and replica :5433 — see .github/workflows/ci.yaml and .github/docker/docker-compose.yml."
+    );
 
     let mut db = TestDatabase::with_url(&primary_url);
     let setup_exec = db.executor().expect("primary executor");
@@ -117,6 +158,27 @@ fn pooled_pool_construct_write_read_with_replica() {
         .expect("direct replica read");
     let note2: String = r2.get(0);
     assert_eq!(note2, "via-pool");
+}
+
+#[cfg(test)]
+mod pg_endpoint_key_tests {
+    use super::pg_tcp_endpoint_key;
+
+    #[test]
+    fn normalizes_localhost_and_default_port() {
+        assert_eq!(
+            pg_tcp_endpoint_key("postgres://u:p@localhost:5432/db").as_deref(),
+            Some("127.0.0.1:5432")
+        );
+        assert_eq!(
+            pg_tcp_endpoint_key("postgresql://u:p@127.0.0.1:5433/postgres").as_deref(),
+            Some("127.0.0.1:5433")
+        );
+        assert_eq!(
+            pg_tcp_endpoint_key("postgres://u:p@localhost/postgres").as_deref(),
+            Some("127.0.0.1:5432")
+        );
+    }
 }
 
 /// Lag fallback requires fault injection or a controllable slow replica; tracked for a follow-up.
