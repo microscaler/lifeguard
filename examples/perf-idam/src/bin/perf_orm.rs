@@ -237,9 +237,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let pool = Arc::new(
-        LifeguardPool::new(&url, pool_size).map_err(|e| format!("LifeguardPool::new: {e}"))?,
-    );
+    let pool = Arc::new(LifeguardPool::new(&url, pool_size)?);
     let executor = PooledLifeExecutor::new(pool);
 
     apply_schema(&executor)?;
