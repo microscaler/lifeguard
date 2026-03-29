@@ -148,7 +148,7 @@ CI’s **`test`** job starts primary + replica Compose and sets `TEST_REPLICA_UR
 
 ```bash
 cd /path/to/lifeguard
-export PGPASSWORD=postgres
+# Set PGPASSWORD in your shell to match your DB (CI uses the repository secret of the same name; do not commit values).
 docker compose -f .github/docker/docker-compose.yml up -d --wait
 
 export TEST_DATABASE_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:5432/postgres"
