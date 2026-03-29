@@ -3,13 +3,12 @@
 //! This module provides execution methods (`all`, `one`, `find_one`, `count`, etc.)
 //! for executing queries built with `SelectQuery` and `SelectModel`.
 //!
-//! The execution methods use `with_converted_params` from `value_conversion` to
-//! convert `SeaQuery` values to `may_postgres` `ToSql` parameters, avoiding code duplication.
+//! The execution methods use [`LifeExecutor::query_all_values`] and related helpers so
+//! `SeaQuery` values use the pool-safe parameter path.
 
 use crate::executor::{LifeExecutor, LifeError};
 use crate::query::select::{SelectQuery, SelectModel};
 use crate::query::traits::{LifeModelTrait, FromRow};
-use crate::query::value_conversion::with_converted_params;
 use crate::query::error_handling::is_no_rows_error;
 use sea_query::PostgresQueryBuilder;
 
@@ -47,22 +46,20 @@ where
         let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
         
-        with_converted_params(&values, |params| {
-            let rows = executor.query_all(&sql, params)?;
-            
-            let mut results = Vec::new();
-            for row in rows {
-                let model = <E::Model as FromRow>::from_row(&row)
-                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-                results.push(model);
-            }
+        let rows = executor.query_all_values(&sql, &values)?;
 
-            for loader in &loaders {
-                loader.execute(&mut results, executor)?;
-            }
+        let mut results = Vec::new();
+        for row in rows {
+            let model = <E::Model as FromRow>::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+            results.push(model);
+        }
 
-            Ok(results)
-        })
+        for loader in &loaders {
+            loader.execute(&mut results, executor)?;
+        }
+
+        Ok(results)
     }
     
     /// Execute the query and return a single result
@@ -96,22 +93,19 @@ where
         let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
         
-        with_converted_params(&values, |params| {
-            let row = executor.query_one(&sql, params)?;
-            let model = <E::Model as FromRow>::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-                
-            let mut results = vec![model];
-            for loader in &loaders {
-                // To support executors that accept slices/arrays
-                loader.execute(&mut results, executor)?;
-            }
-            
-            results.into_iter().next().ok_or_else(|| {
-                LifeError::Other(
-                    "internal error: expected one model after query (empty iterator)".to_string(),
-                )
-            })
+        let row = executor.query_one_values(&sql, &values)?;
+        let model = <E::Model as FromRow>::from_row(&row)
+            .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+
+        let mut results = vec![model];
+        for loader in &loaders {
+            loader.execute(&mut results, executor)?;
+        }
+
+        results.into_iter().next().ok_or_else(|| {
+            LifeError::Other(
+                "internal error: expected one model after query (empty iterator)".to_string(),
+            )
         })
     }
     
@@ -231,17 +225,15 @@ where
     pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<M>, LifeError> {
         let (sql, values) = self.query.query.build(PostgresQueryBuilder);
         
-        with_converted_params(&values, |params| {
-            let rows = executor.query_all(&sql, params)?;
-            
-            let mut results = Vec::new();
-            for row in rows {
-                let model = M::from_row(&row)
-                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-                results.push(model);
-            }
-            Ok(results)
-        })
+        let rows = executor.query_all_values(&sql, &values)?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let model = M::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+            results.push(model);
+        }
+        Ok(results)
     }
     
     /// Execute the query and return a single result as the specified Model type

@@ -1,13 +1,14 @@
-//! Pool Module - TO BE REBUILT IN EPIC 04
+//! Connection pool for `may` + `may_postgres`.
 //!
-//! This module will contain:
-//! - LifeguardPool (persistent connection pool)
-//! - LifeConnectionSlot (connection slot management)
-//! - Health monitoring
-//! - Semaphore-based acquisition
+//! - [`LifeguardPool`]: one `may` worker coroutine per connection, round-robin dispatch.
+//! - [`PooledLifeExecutor`]: [`crate::executor::LifeExecutor`] over the pool via
+//!   [`crate::executor::LifeExecutor::execute_values`] / `query_*_values` (and ORM paths).
+//! - [`OwnedParam`]: owned bind parameters for jobs crossing channels.
 
-// Temporarily disabled - will be rebuilt in Epic 04
-// pub mod manager;
-// pub mod types;
 pub mod config;
+pub mod owned_param;
+pub mod pooled;
 pub mod wal;
+
+pub use owned_param::OwnedParam;
+pub use pooled::{LifeguardPool, PooledLifeExecutor};

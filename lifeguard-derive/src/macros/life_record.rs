@@ -908,33 +908,23 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
 
-                // Convert Values to Vec<Value> for parameter binding
-                // SeaQuery's Values implements IntoIterator<Item = Value>
-                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
-
                 // Create a mutable copy of self to update with returned PK values
                 // Use the record that went through before_insert hook
                 let mut updated_record = record_for_hooks;
 
                 // Execute query and handle RETURNING if needed
+                // Use *_values so pooled executors can marshal binds across the pool channel.
                 if needs_returning {
-                    // Use query_one() to get returned values
-                    let row = lifeguard::with_converted_params(&values_vec, |params| {
-                        executor.query_one(&sql, params).map_err(|e| {
-                            lifeguard::ActiveModelError::DatabaseError(e.to_string())
-                        })
+                    let row = executor.query_one_values(&sql, &sql_values).map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
 
                     // Extract returned primary key values and update the record
                     let mut returning_idx = 0usize;
                     #(#returning_extractors)*
                 } else {
-                    // No RETURNING needed, just execute
-                    lifeguard::with_converted_params(&values_vec, |params| {
-                        executor.execute(&sql, params).map_err(|e| {
-                            lifeguard::ActiveModelError::DatabaseError(e.to_string())
-                        })?;
-                        Ok(())
+                    executor.execute_values(&sql, &sql_values).map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
                 }
 
@@ -1015,15 +1005,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
 
-                // Convert Values to Vec<Value> for parameter binding
-                // SeaQuery's Values implements IntoIterator<Item = Value>
-                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
-
-                // Convert values to parameters and execute
-                let rows_affected = lifeguard::with_converted_params(&values_vec, |params| {
-                    executor.execute(&sql, params).map_err(|e| {
-                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
-                    })
+                let rows_affected = executor.execute_values(&sql, &sql_values).map_err(|e| {
+                    lifeguard::ActiveModelError::DatabaseError(e.to_string())
                 })?;
 
                 // Check if any rows were affected
@@ -1167,16 +1150,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
 
-                // Convert Values to Vec<Value> for parameter binding
-                // SeaQuery's Values implements IntoIterator<Item = Value>
-                let values_vec: Vec<sea_query::Value> = sql_values.iter().cloned().collect();
-
-                // Convert values to parameters and execute
-                lifeguard::with_converted_params(&values_vec, |params| {
-                    executor.execute(&sql, params).map_err(|e| {
-                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
-                    })?;
-                    Ok(())
+                executor.execute_values(&sql, &sql_values).map_err(|e| {
+                    lifeguard::ActiveModelError::DatabaseError(e.to_string())
                 })?;
 
                 // Call after_delete hook

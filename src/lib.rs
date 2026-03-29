@@ -57,8 +57,7 @@ pub use logging::{
 #[cfg(feature = "tracing")]
 pub use logging::{channel_layer, ChannelLayer};
 
-// Pool will be rebuilt in Epic 04
-// pub mod pool;
+pub mod pool;
 
 // Test helpers - Epic 01 Story 08
 // Available for integration tests
@@ -67,8 +66,7 @@ pub mod test_helpers;
 // Entity tests will be rebuilt in Epic 03
 // mod tests_cfg;
 
-// Public API will be rebuilt in Epic 04
-// pub use pool::LifeguardPool;
+pub use pool::{LifeguardPool, OwnedParam, PooledLifeExecutor};
 
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
 // Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version

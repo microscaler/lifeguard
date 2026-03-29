@@ -91,15 +91,16 @@ The `examples/perf-idam` crate (standalone workspace) provides a `perf-orm` bina
 
 ### GitHub Actions: entity migrations on Postgres
 
-In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_suite`, the job:
+In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_suite`, the **`test`** job:
 
-1. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
-2. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
-3. Applies SQL to the job’s Postgres service (`psql`): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
+1. Starts **primary + replica Postgres and Redis** via [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Bitnami legacy images; primary `localhost:5432`, replica `localhost:5433`, Redis `localhost:6379`). The `test` job does **not** use GitHub `services:` for these — everything runs through this Compose file.
+2. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
+3. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
+4. Applies SQL to the **primary** only (`psql` against port 5432): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
 
 That validates the migration-generation path against a real database before other steps use the same Postgres instance.
 
-Configure the **`PGPASSWORD`** [repository secret](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions) so it matches the password embedded in `DATABASE_URL` / `TEST_DATABASE_URL` and in the workflow’s `services.postgres` `POSTGRES_PASSWORD`. Avoid raw `@`, `:`, `/`, `#`, or `%` in that password unless you percent-encode them for the URL (the `psql` client still uses the raw secret via `PGPASSWORD`).
+Configure the **`PGPASSWORD`** [repository secret](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions) so it matches the password embedded in `DATABASE_URL` / `TEST_DATABASE_URL` / `TEST_REPLICA_URL`, in [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Compose interpolates **`${PGPASSWORD}`** for Bitnami `POSTGRESQL_*` and replication), and in `psql` (via `PGPASSWORD`). Avoid raw `@`, `:`, `/`, `#`, or `%` in that password unless you percent-encode them for the URL (the `psql` client still uses the raw secret via `PGPASSWORD`).
 
 ### Rust crate integration tests (`db_integration_suite`)
 
@@ -108,6 +109,7 @@ The `lifeguard` package runs database-backed tests from a **single** integration
 | Variable | Role |
 |----------|------|
 | `TEST_DATABASE_URL` | If set, **skips** starting Postgres via testcontainers; must point at a **dedicated test** Postgres (not `DATABASE_URL` — integration code can run destructive DDL). |
+| `TEST_REPLICA_URL` | Streaming standby URL for the same cluster as `TEST_DATABASE_URL`; enables `pool_read_replica` tests. **Unset** → those tests no-op (skip). CI sets this to `localhost:5433`. See [PRD_READ_REPLICA_TESTING.md](planning/PRD_READ_REPLICA_TESTING.md). |
 | `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. |
 
 **Shared Postgres (e.g. Kind + `just dev-up`):** parallel test threads can exhaust connections (`too many clients`) or race on `CREATE TABLE`. Prefer:
@@ -137,6 +139,30 @@ just nt-db-suite
 ```
 
 See also [`docs/planning/audits/LIFEGUARD_FOUNDATION_CONTINUATION.md`](planning/audits/LIFEGUARD_FOUNDATION_CONTINUATION.md) (Phase A / C).
+
+### Read-replica testing (local)
+
+CI’s **`test`** job starts primary + replica Compose and sets `TEST_REPLICA_URL` so [`pool_read_replica`](../tests/db_integration/pool_read_replica.rs) runs against a real standby.
+
+**Local runbook** (requires Docker; default passwords below match Compose defaults when env is unset):
+
+```bash
+cd /path/to/lifeguard
+# Set PGPASSWORD in your shell to match your DB (CI uses the repository secret of the same name; do not commit values).
+docker compose -f .github/docker/docker-compose.yml up -d --wait
+
+export TEST_DATABASE_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:5432/postgres"
+export TEST_REPLICA_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:5433/postgres"
+export TEST_REDIS_URL="${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+
+cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)' pool_read_replica:: --no-fail-fast
+
+docker compose -f .github/docker/docker-compose.yml down -v
+```
+
+If **port 5432 or 5433 is already in use**, stop the conflicting service or override published ports in a local override file.
+
+Product requirements: [`docs/planning/PRD_READ_REPLICA_TESTING.md`](planning/PRD_READ_REPLICA_TESTING.md). Engineering design: [`docs/planning/DESIGN_READ_REPLICA_CI_AND_HARNESS.md`](planning/DESIGN_READ_REPLICA_CI_AND_HARNESS.md).
 
 ## Architecture
 

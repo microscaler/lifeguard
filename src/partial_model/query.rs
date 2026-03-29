@@ -5,7 +5,6 @@
 
 use super::traits::PartialModelTrait;
 use crate::query::{LifeModelTrait, SelectQuery};
-use crate::query::value_conversion::with_converted_params;
 use crate::query::error_handling::is_no_rows_error;
 use crate::executor::{LifeExecutor, LifeError};
 use sea_query::PostgresQueryBuilder;
@@ -40,16 +39,13 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
         let (sql, values) = self.query.query.build(PostgresQueryBuilder);
         
         // Use shared value conversion function
-        with_converted_params(&values, |params| {
-            let rows = executor.query_all(&sql, params)?;
-            
-            // Convert rows to partial models
-            let mut results = Vec::new();
-            for row in rows {
-                results.push(P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?);
-            }
-            Ok(results)
-        })
+        let rows = executor.query_all_values(&sql, &values)?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?);
+        }
+        Ok(results)
     }
     
     /// Execute the query and return the first result as a partial model
@@ -73,21 +69,18 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
         let (sql, values) = self.query.query.build(PostgresQueryBuilder);
         
         // Use shared value conversion function
-        with_converted_params(&values, |params| {
-            match executor.query_one(&sql, params) {
-                Ok(row) => {
-                    Ok(Some(P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?))
-                }
-                Err(e) => {
-                    // Check if this is a "no rows found" error
-                    if is_no_rows_error(&e) {
-                        Ok(None)
-                    } else {
-                        Err(e)
-                    }
+        match executor.query_one_values(&sql, &values) {
+            Ok(row) => Ok(Some(
+                P::from_row(&row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?,
+            )),
+            Err(e) => {
+                if is_no_rows_error(&e) {
+                    Ok(None)
+                } else {
+                    Err(e)
                 }
             }
-        })
+        }
     }
     
     /// Add a filter condition

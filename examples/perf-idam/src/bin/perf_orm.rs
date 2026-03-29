@@ -1,30 +1,38 @@
-//! ORM performance harness: IDAM-shaped reads/writes via [`MayPostgresExecutor`].
+//! ORM performance harness: IDAM-shaped reads/writes via [`lifeguard::PooledLifeExecutor`]
+//! (round-robin over a [`lifeguard::LifeguardPool`]).
 //!
 //! Environment:
 //! - `PERF_DATABASE_URL` or `TEST_DATABASE_URL` (in that order). Generic `DATABASE_URL` is **not** read:
 //!   this binary runs destructive DDL (`DROP` / `CREATE` on `perf_*` tables).
+//! - `PERF_REPLICA_URL` or `TEST_REPLICA_URL` (optional, same order) — streaming standby for read routing
+//!   (`LifeguardPool`); unset keeps primary-only pools.
+//! - `PERF_REPLICA_POOL_SIZE` (default: same as `PERF_POOL_SIZE`, minimum 1 when a replica URL is set) —
+//!   replica-tier connection slots.
 //! - `PERF_RESET` — must be truthy (`1`, `true`, `yes`, `on`) before any schema reset; avoids accidents.
+//! - `PERF_POOL_SIZE` (default 8) — primary-tier `may_postgres::Client` slots in the pool.
 //! - `PERF_TENANT_COUNT` (default 10), `PERF_USER_ROWS`, `PERF_SESSION_ROWS` (default 5000 each).
 //! - `PERF_WARMUP` (default 200), `PERF_ITERATIONS` (default 2000).
 //! - `PERF_OUTPUT` — if set, write JSON to this path; otherwise stdout.
 //!
-//! Metrics include `connections: 1` until a Lifeguard pool exists (Epic 04).
+//! The JSON report includes **`connections`** (primary tier) and **`replica_connections`** (0 if no replica URL).
 
-use lifeguard::connection::connect;
-use lifeguard::executor::MayPostgresExecutor;
 use lifeguard::query::column::column_trait::ColumnTrait;
-use lifeguard::{LifeExecutor, LifeModelTrait};
+use lifeguard::{LifeExecutor, LifeModelTrait, LifeguardPool, PooledLifeExecutor};
 use perf_idam::perf_idam::{perf_session, perf_tenant, perf_user};
 use serde::Serialize;
 use std::env;
 use std::fs;
+use std::sync::Arc;
 use std::time::Instant;
 
 const SCHEMA_SQL: &str = include_str!("../../migrations/schema.sql");
 
 #[derive(Serialize)]
 struct PerfReport {
+    /// Primary pool width (`PERF_POOL_SIZE`).
     connections: u32,
+    /// Replica pool width when `PERF_REPLICA_URL` / `TEST_REPLICA_URL` is set; otherwise `0`.
+    replica_connections: u32,
     database_url_host: String,
     scale: Scale,
     warmup_iterations: usize,
@@ -77,6 +85,14 @@ fn database_url() -> Result<String, String> {
         env::var("PERF_DATABASE_URL").ok(),
         env::var("TEST_DATABASE_URL").ok(),
     )
+}
+
+fn optional_replica_url() -> Option<String> {
+    non_empty_env("PERF_REPLICA_URL").or_else(|| non_empty_env("TEST_REPLICA_URL"))
+}
+
+fn non_empty_env(key: &str) -> Option<String> {
+    env::var(key).ok().filter(|s| !s.trim().is_empty())
 }
 
 /// `PERF_RESET` must be one of `1`, `true`, `yes`, `on` (ASCII case-insensitive).
@@ -208,7 +224,7 @@ fn split_postgres_statements(sql: &str) -> Vec<String> {
     out
 }
 
-fn apply_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+fn apply_schema(executor: &impl LifeExecutor) -> Result<(), lifeguard::executor::LifeError> {
     let script = schema_sql_without_line_comments(SCHEMA_SQL);
     for stmt in split_postgres_statements(&script) {
         let sql = format!("{stmt};");
@@ -224,8 +240,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tenant_n = env_usize("PERF_TENANT_COUNT", 10).max(1);
     let user_n = env_usize("PERF_USER_ROWS", 5000).max(1);
     let session_n = env_usize("PERF_SESSION_ROWS", 5000).max(1);
+    let pool_size = env_usize("PERF_POOL_SIZE", 8).max(1);
     let warmup = env_usize("PERF_WARMUP", 200);
     let iters = env_usize("PERF_ITERATIONS", 2000).max(1);
+
+    let replica_url = optional_replica_url();
+    let replica_pool_size = if replica_url.is_some() {
+        env_usize("PERF_REPLICA_POOL_SIZE", pool_size).max(1)
+    } else {
+        0
+    };
+    let replica_urls: Vec<String> = replica_url.into_iter().collect();
 
     if !perf_reset_acknowledged() {
         return Err(
@@ -235,8 +260,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let client = connect(&url)?;
-    let executor = MayPostgresExecutor::new(client);
+    let pool = Arc::new(LifeguardPool::new(
+        &url,
+        pool_size,
+        replica_urls,
+        replica_pool_size,
+    )?);
+    let executor = PooledLifeExecutor::new(pool);
 
     apply_schema(&executor)?;
 
@@ -409,7 +439,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     scenarios.push(stats("session_update_last_seen", &mut samples));
 
     let report = PerfReport {
-        connections: 1,
+        connections: pool_size as u32,
+        replica_connections: replica_pool_size as u32,
         database_url_host: host_display,
         scale: Scale {
             tenants: tenant_n,

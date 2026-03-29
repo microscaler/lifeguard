@@ -27,6 +27,8 @@ pub enum LifeError {
     ParseError(String),
     /// Other execution errors
     Other(String),
+    /// Pool-specific failures (dispatch, configuration, unsupported executor usage)
+    Pool(String),
 }
 
 impl fmt::Display for LifeError {
@@ -43,6 +45,9 @@ impl fmt::Display for LifeError {
             }
             LifeError::Other(s) => {
                 write!(f, "Execution error: {s}")
+            }
+            LifeError::Pool(s) => {
+                write!(f, "Pool error: {s}")
             }
         }
     }
@@ -170,6 +175,41 @@ pub trait LifeExecutor {
     /// ```
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError>;
 
+    /// Execute a statement with `sea_query::Values` (ORM / pool-safe parameter path).
+    ///
+    /// Default implementation converts values to `ToSql` on the stack and calls [`Self::execute`].
+    fn execute_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<u64, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(&values.0, LifeError::Other, |p| {
+            self.execute(query, p)
+        })
+    }
+
+    /// Query one row with `sea_query::Values`.
+    fn query_one_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Row, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(&values.0, LifeError::Other, |p| {
+            self.query_one(query, p)
+        })
+    }
+
+    /// Query all rows with `sea_query::Values`.
+    fn query_all_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Vec<Row>, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(&values.0, LifeError::Other, |p| {
+            self.query_all(query, p)
+        })
+    }
+
     /// Retrieve the transparent cache provider if configured for this executor
     fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
         None
@@ -189,6 +229,30 @@ impl LifeExecutor for &dyn LifeExecutor {
 
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
         (*self).query_all(query, params)
+    }
+
+    fn execute_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<u64, LifeError> {
+        (*self).execute_values(query, values)
+    }
+
+    fn query_one_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Row, LifeError> {
+        (*self).query_one_values(query, values)
+    }
+
+    fn query_all_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Vec<Row>, LifeError> {
+        (*self).query_all_values(query, values)
     }
 
     fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
@@ -426,6 +490,9 @@ mod tests {
 
         let err4 = LifeError::Other("test".to_string());
         assert!(err4.to_string().contains("Execution error"));
+
+        let err5 = LifeError::Pool("test".to_string());
+        assert!(err5.to_string().contains("Pool error"));
     }
 
     #[test]
