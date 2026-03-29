@@ -147,6 +147,7 @@ jobs:
     env:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
       PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
+      PERF_RESET: "1" # Required opt-in: perf-orm applies destructive DDL to perf_* tables
       PERF_TENANT_COUNT: "10"
       PERF_USER_ROWS: "2000"
       PERF_SESSION_ROWS: "2000"
@@ -195,3 +196,4 @@ jobs:
         with:
           name: perf-results
           path: examples/perf-idam/perf-results.json
+          retention-days: 3

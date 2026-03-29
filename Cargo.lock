@@ -1451,6 +1451,7 @@ name = "lifeguard"
 version = "0.1.0"
 dependencies = [
  "async-graphql",
+ "bytes",
  "chrono",
  "config",
  "crossbeam-channel",

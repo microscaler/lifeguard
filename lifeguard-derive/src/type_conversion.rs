@@ -44,24 +44,23 @@ pub fn is_json_value_type(ty: &Type) -> bool {
     }
 }
 
-/// `uuid::Uuid` (path ends with `Uuid` and includes a `uuid` segment).
+/// Postgres UUID / `sea_query::Value::Uuid` — same rule as `LifeModel` `FromRow` and `infer_sql_type_from_rust_type`.
+///
+/// Matches `uuid::Uuid`, `crate::...::uuid::Uuid`, and bare `Uuid` after `use uuid::Uuid`.
 pub fn is_uuid_type(ty: &Type) -> bool {
     if let Type::Path(TypePath { path, .. }) = ty {
-        return match path.segments.last() {
-            Some(last) if last.ident == "Uuid" => path.segments.iter().any(|s| s.ident == "uuid"),
-            _ => false,
-        };
+        return path.segments.last().is_some_and(|s| s.ident == "Uuid");
     }
     false
 }
 
-/// `chrono::NaiveDateTime`
+/// `chrono::NaiveDateTime` / `Value::ChronoDateTime` — aligned with `FromRow` + SQL type inference.
 pub fn is_naive_datetime_type(ty: &Type) -> bool {
     if let Type::Path(TypePath { path, .. }) = ty {
-        return match path.segments.last() {
-            Some(last) if last.ident == "NaiveDateTime" => path.segments.iter().any(|s| s.ident == "chrono"),
-            _ => false,
-        };
+        return path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "NaiveDateTime");
     }
     false
 }
@@ -1585,5 +1584,25 @@ mod tests {
         // Should be "MyType<i32>" - only the type generic, not the lifetime
         assert_eq!(result, "MyType<i32>", "Should only include type generics, not lifetime generics");
         assert!(!result.contains("'a"), "Should not include lifetime in output");
+    }
+
+    #[test]
+    fn uuid_type_detection_matches_bare_and_qualified_paths() {
+        let bare: Type = parse_str("Uuid").unwrap();
+        assert!(is_uuid_type(&bare));
+        let qualified: Type = parse_str("uuid::Uuid").unwrap();
+        assert!(is_uuid_type(&qualified));
+        let not_uuid: Type = parse_str("String").unwrap();
+        assert!(!is_uuid_type(&not_uuid));
+    }
+
+    #[test]
+    fn naive_datetime_type_detection_matches_bare_and_qualified_paths() {
+        let bare: Type = parse_str("NaiveDateTime").unwrap();
+        assert!(is_naive_datetime_type(&bare));
+        let qualified: Type = parse_str("chrono::NaiveDateTime").unwrap();
+        assert!(is_naive_datetime_type(&qualified));
+        let not_dt: Type = parse_str("String").unwrap();
+        assert!(!is_naive_datetime_type(&not_dt));
     }
 }

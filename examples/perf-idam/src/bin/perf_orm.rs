@@ -1,7 +1,9 @@
 //! ORM performance harness: IDAM-shaped reads/writes via [`MayPostgresExecutor`].
 //!
 //! Environment:
-//! - `PERF_DATABASE_URL` (preferred), else `DATABASE_URL`, else `TEST_DATABASE_URL`.
+//! - `PERF_DATABASE_URL` or `TEST_DATABASE_URL` (in that order). Generic `DATABASE_URL` is **not** read:
+//!   this binary runs destructive DDL (`DROP` / `CREATE` on `perf_*` tables).
+//! - `PERF_RESET` — must be truthy (`1`, `true`, `yes`, `on`) before any schema reset; avoids accidents.
 //! - `PERF_TENANT_COUNT` (default 10), `PERF_USER_ROWS`, `PERF_SESSION_ROWS` (default 5000 each).
 //! - `PERF_WARMUP` (default 200), `PERF_ITERATIONS` (default 2000).
 //! - `PERF_OUTPUT` — if set, write JSON to this path; otherwise stdout.
@@ -55,13 +57,41 @@ fn env_usize(key: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+fn resolve_database_url_values(
+    perf_database_url: Option<String>,
+    test_database_url: Option<String>,
+) -> Result<String, String> {
+    if let Some(url) = perf_database_url.filter(|s| !s.trim().is_empty()) {
+        return Ok(url);
+    }
+    if let Some(url) = test_database_url.filter(|s| !s.trim().is_empty()) {
+        return Ok(url);
+    }
+    Err(
+        "Set PERF_DATABASE_URL or TEST_DATABASE_URL. Generic DATABASE_URL is not accepted: perf-orm applies destructive DDL to perf_* tables.".to_string(),
+    )
+}
+
 fn database_url() -> Result<String, String> {
-    env::var("PERF_DATABASE_URL")
-        .or_else(|_| env::var("DATABASE_URL"))
-        .or_else(|_| env::var("TEST_DATABASE_URL"))
-        .map_err(|_| {
-            "Set PERF_DATABASE_URL, DATABASE_URL, or TEST_DATABASE_URL".to_string()
-        })
+    resolve_database_url_values(
+        env::var("PERF_DATABASE_URL").ok(),
+        env::var("TEST_DATABASE_URL").ok(),
+    )
+}
+
+/// `PERF_RESET` must be one of `1`, `true`, `yes`, `on` (ASCII case-insensitive).
+fn perf_reset_acknowledged_from_var(raw: Option<String>) -> bool {
+    let Some(s) = raw else {
+        return false;
+    };
+    matches!(
+        s.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn perf_reset_acknowledged() -> bool {
+    perf_reset_acknowledged_from_var(env::var("PERF_RESET").ok())
 }
 
 fn redacted_host(url: &str) -> String {
@@ -118,22 +148,70 @@ fn stats(name: &'static str, samples: &mut [f64]) -> ScenarioStats {
     }
 }
 
-fn apply_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
-    let mut buf = String::new();
-    for line in SCHEMA_SQL.lines() {
-        let t = line.trim_start();
-        if t.starts_with("--") {
+/// `find_one` must return a row; otherwise the harness would record timings for broken lookups.
+fn require_row<T>(context: &'static str, row: Option<T>) -> Result<T, Box<dyn std::error::Error>> {
+    row.ok_or_else(|| format!("{context}: expected row, got None").into())
+}
+
+/// Strip whole-line `--` comments (harness `schema.sql` style). Inline `--` is not removed.
+fn schema_sql_without_line_comments(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Split on `;` only **outside** single-quoted literals. `''` is the escaped quote inside a string.
+///
+/// Sufficient for DDL used in this harness. **Not** a full SQL lexer: dollar-quoted strings (`$$`),
+/// standard-conforming-strings edge cases, and procedural bodies are unsupported—keep `schema.sql` as plain DDL.
+fn split_postgres_statements(sql: &str) -> Vec<String> {
+    let bytes = sql.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    let mut in_quote = false;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_quote {
+            if b == b'\'' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                    i += 2;
+                    continue;
+                }
+                in_quote = false;
+            }
+            i += 1;
             continue;
         }
-        buf.push_str(line);
-        buf.push('\n');
+        match b {
+            b'\'' => {
+                in_quote = true;
+                i += 1;
+            }
+            b';' => {
+                let part = sql[start..i].trim();
+                if !part.is_empty() {
+                    out.push(part.to_string());
+                }
+                i += 1;
+                start = i;
+            }
+            _ => i += 1,
+        }
     }
-    for stmt in buf.split(';') {
-        let s = stmt.trim();
-        if s.is_empty() {
-            continue;
-        }
-        let sql = format!("{s};");
+    let tail = sql[start..].trim();
+    if !tail.is_empty() {
+        out.push(tail.to_string());
+    }
+    out
+}
+
+fn apply_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+    let script = schema_sql_without_line_comments(SCHEMA_SQL);
+    for stmt in split_postgres_statements(&script) {
+        let sql = format!("{stmt};");
         executor.execute(&sql, &[])?;
     }
     Ok(())
@@ -148,6 +226,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session_n = env_usize("PERF_SESSION_ROWS", 5000).max(1);
     let warmup = env_usize("PERF_WARMUP", 200);
     let iters = env_usize("PERF_ITERATIONS", 2000).max(1);
+
+    if !perf_reset_acknowledged() {
+        return Err(
+            "Refusing to run: set PERF_RESET=1 (or true/yes/on) after confirming a disposable database. \
+             This binary DROPs/recreates perf_* tables. Only PERF_DATABASE_URL and TEST_DATABASE_URL are used (not DATABASE_URL)."
+                .into(),
+        );
+    }
 
     let client = connect(&url)?;
     let executor = MayPostgresExecutor::new(client);
@@ -169,7 +255,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut user_ids: Vec<uuid::Uuid> = Vec::with_capacity(user_n);
     let mut tenant_email_keys: Vec<(uuid::Uuid, String)> = Vec::with_capacity(user_n);
     let base = chrono::Utc::now().naive_utc();
-    let expires = base + chrono::Duration::days(30);
 
     for i in 0..user_n {
         let uid = uuid::Uuid::new_v4();
@@ -188,48 +273,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut token_fps: Vec<String> = Vec::with_capacity(session_n);
     let mut session_ids: Vec<uuid::Uuid> = Vec::with_capacity(session_n);
+    // Distinct `expires_at` per row so equality on `NaiveDateTime` returns a single session (selective).
+    let mut session_expires_at: Vec<chrono::NaiveDateTime> = Vec::with_capacity(session_n);
 
     for i in 0..session_n {
         let sid = uuid::Uuid::new_v4();
         let uid = user_ids[i % user_n];
         let fp = format!("tf_{i:012x}");
+        let expires_at = base + chrono::Duration::seconds((i as i64).saturating_add(1));
         let mut sr = perf_session::PerfSessionRecord::new();
         sr.set_id(sid);
         sr.set_user_id(uid);
         sr.set_token_fingerprint(fp.clone());
-        sr.set_expires_at(expires);
+        sr.set_expires_at(expires_at);
         sr.set_last_seen_at(base);
         perf_session::Entity::insert(sr, &executor)?;
         token_fps.push(fp);
         session_ids.push(sid);
+        session_expires_at.push(expires_at);
     }
 
     // --- Warmup ---
     for w in 0..warmup {
         let i = w % user_n;
-        let _ = perf_user::Entity::find()
-            .filter(perf_user::Column::Id.eq(user_ids[i]))
-            .find_one(&executor)?;
+        require_row(
+            "warmup user_by_pk",
+            perf_user::Entity::find()
+                .filter(perf_user::Column::Id.eq(user_ids[i]))
+                .find_one(&executor)?,
+        )?;
         let (tid, ref em) = tenant_email_keys[i];
-        let _ = perf_user::Entity::find()
-            .filter(perf_user::Column::TenantId.eq(tid))
-            .filter(perf_user::Column::Email.eq(em.as_str()))
-            .find_one(&executor)?;
-        let _ = perf_session::Entity::find()
-            .filter(perf_session::Column::TokenFingerprint.eq(token_fps[i % session_n].as_str()))
-            .find_one(&executor)?;
+        require_row(
+            "warmup user_by_tenant_and_email",
+            perf_user::Entity::find()
+                .filter(perf_user::Column::TenantId.eq(tid))
+                .filter(perf_user::Column::Email.eq(em.as_str()))
+                .find_one(&executor)?,
+        )?;
+        require_row(
+            "warmup session_by_token_fingerprint",
+            perf_session::Entity::find()
+                .filter(perf_session::Column::TokenFingerprint.eq(token_fps[i % session_n].as_str()))
+                .find_one(&executor)?,
+        )?;
+        require_row(
+            "warmup session_by_expires_at",
+            perf_session::Entity::find()
+                .filter(perf_session::Column::ExpiresAt.eq(session_expires_at[w % session_n]))
+                .find_one(&executor)?,
+        )?;
     }
 
-    let mut scenarios = Vec::with_capacity(4);
+    let mut scenarios = Vec::with_capacity(5);
 
     // 1) User by PK
     let mut samples = Vec::with_capacity(iters);
     for k in 0..iters {
         let i = (k * 2654435761usize) % user_n;
         let t0 = Instant::now();
-        let _ = perf_user::Entity::find()
-            .filter(perf_user::Column::Id.eq(user_ids[i]))
-            .find_one(&executor)?;
+        require_row(
+            "scenario user_by_pk",
+            perf_user::Entity::find()
+                .filter(perf_user::Column::Id.eq(user_ids[i]))
+                .find_one(&executor)?,
+        )?;
         samples.push(t0.elapsed().as_micros() as f64);
     }
     scenarios.push(stats("user_by_pk", &mut samples));
@@ -240,10 +347,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let i = (k * 2654435761usize) % user_n;
         let (tid, ref em) = tenant_email_keys[i];
         let t0 = Instant::now();
-        let _ = perf_user::Entity::find()
-            .filter(perf_user::Column::TenantId.eq(tid))
-            .filter(perf_user::Column::Email.eq(em.as_str()))
-            .find_one(&executor)?;
+        require_row(
+            "scenario user_by_tenant_and_email",
+            perf_user::Entity::find()
+                .filter(perf_user::Column::TenantId.eq(tid))
+                .filter(perf_user::Column::Email.eq(em.as_str()))
+                .find_one(&executor)?,
+        )?;
         samples.push(t0.elapsed().as_micros() as f64);
     }
     scenarios.push(stats("user_by_tenant_and_email", &mut samples));
@@ -253,23 +363,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for k in 0..iters {
         let i = (k * 2654435761usize) % session_n;
         let t0 = Instant::now();
-        let _ = perf_session::Entity::find()
-            .filter(perf_session::Column::TokenFingerprint.eq(token_fps[i].as_str()))
-            .find_one(&executor)?;
+        require_row(
+            "scenario session_by_token_fingerprint",
+            perf_session::Entity::find()
+                .filter(perf_session::Column::TokenFingerprint.eq(token_fps[i].as_str()))
+                .find_one(&executor)?,
+        )?;
         samples.push(t0.elapsed().as_micros() as f64);
     }
     scenarios.push(stats("session_by_token_fingerprint", &mut samples));
 
-    // 4) Update last_seen_at (session touch)
+    // 4) Session by expires_at — exercises `NaiveDateTime` in a WHERE bind (read path).
+    let mut samples = Vec::with_capacity(iters);
+    for k in 0..iters {
+        let i = (k * 2654435761usize) % session_n;
+        let exp = session_expires_at[i];
+        let t0 = Instant::now();
+        require_row(
+            "scenario session_by_expires_at",
+            perf_session::Entity::find()
+                .filter(perf_session::Column::ExpiresAt.eq(exp))
+                .find_one(&executor)?,
+        )?;
+        samples.push(t0.elapsed().as_micros() as f64);
+    }
+    scenarios.push(stats("session_by_expires_at", &mut samples));
+
+    // 5) Update last_seen_at (session touch)
     let mut samples = Vec::with_capacity(iters);
     for k in 0..iters {
         let i = (k * 2654435761usize) % session_n;
         let sid = session_ids[i];
         let t0 = Instant::now();
-        let model = perf_session::Entity::find()
-            .filter(perf_session::Column::Id.eq(sid))
-            .find_one(&executor)?
-            .ok_or("session row missing")?;
+        let model = require_row(
+            "scenario session_update_last_seen",
+            perf_session::Entity::find()
+                .filter(perf_session::Column::Id.eq(sid))
+                .find_one(&executor)?,
+        )?;
         let mut rec = perf_session::PerfSessionRecord::from_model(&model);
         rec.set_last_seen_at(base + chrono::Duration::milliseconds(k as i64));
         let _ = perf_session::Entity::update(rec, &executor)?;
@@ -299,4 +430,107 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("{json}");
     Ok(())
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::{perf_reset_acknowledged_from_var, resolve_database_url_values};
+
+    #[test]
+    fn database_url_prefers_perf_over_test() {
+        let r = resolve_database_url_values(
+            Some("postgres://a".into()),
+            Some("postgres://b".into()),
+        );
+        assert_eq!(r.unwrap(), "postgres://a");
+    }
+
+    #[test]
+    fn database_url_falls_back_to_test_only() {
+        let r = resolve_database_url_values(None, Some("postgres://b".into()));
+        assert_eq!(r.unwrap(), "postgres://b");
+    }
+
+    #[test]
+    fn database_url_errors_when_missing() {
+        assert!(resolve_database_url_values(None, None).is_err());
+    }
+
+    #[test]
+    fn database_url_skips_empty_perf() {
+        let r = resolve_database_url_values(Some("  ".into()), Some("postgres://b".into()));
+        assert_eq!(r.unwrap(), "postgres://b");
+    }
+
+    #[test]
+    fn perf_reset_truthy_values() {
+        assert!(perf_reset_acknowledged_from_var(Some("1".into())));
+        assert!(perf_reset_acknowledged_from_var(Some("true".into())));
+        assert!(perf_reset_acknowledged_from_var(Some("TRUE".into())));
+        assert!(perf_reset_acknowledged_from_var(Some(" yes ".into())));
+        assert!(perf_reset_acknowledged_from_var(Some("on".into())));
+    }
+
+    #[test]
+    fn perf_reset_falsy_or_missing() {
+        assert!(!perf_reset_acknowledged_from_var(None));
+        assert!(!perf_reset_acknowledged_from_var(Some("".into())));
+        assert!(!perf_reset_acknowledged_from_var(Some("0".into())));
+        assert!(!perf_reset_acknowledged_from_var(Some("no".into())));
+    }
+
+    #[test]
+    fn require_row_some_ok() {
+        assert_eq!(super::require_row("ctx", Some(7_i32)).unwrap(), 7);
+    }
+
+    #[test]
+    fn require_row_none_err() {
+        let e = super::require_row::<i32>("warmup x", None).unwrap_err();
+        assert!(
+            e.to_string().contains("warmup x"),
+            "message should include context: {e}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::{schema_sql_without_line_comments, split_postgres_statements, SCHEMA_SQL};
+
+    #[test]
+    fn splits_two_simple_statements() {
+        let s = "SELECT 1; SELECT 2";
+        let v = split_postgres_statements(s);
+        assert_eq!(v, vec!["SELECT 1", "SELECT 2"]);
+    }
+
+    #[test]
+    fn does_not_split_on_semicolon_inside_single_quoted_literal() {
+        let s = "INSERT INTO t VALUES ('a;b'); DELETE FROM t";
+        let v = split_postgres_statements(s);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], "INSERT INTO t VALUES ('a;b')");
+        assert_eq!(v[1], "DELETE FROM t");
+    }
+
+    #[test]
+    fn doubled_quote_inside_string() {
+        let s = "SELECT '''x;y'''; SELECT 2";
+        let v = split_postgres_statements(s);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], "SELECT '''x;y'''");
+        assert_eq!(v[1], "SELECT 2");
+    }
+
+    #[test]
+    fn bundled_schema_yields_expected_statement_count() {
+        let script = schema_sql_without_line_comments(SCHEMA_SQL);
+        let v = split_postgres_statements(&script);
+        assert_eq!(
+            v.len(),
+            7,
+            "expected DROP×3 + CREATE TABLE×3 + CREATE INDEX×1; update count if schema.sql changes"
+        );
+    }
 }

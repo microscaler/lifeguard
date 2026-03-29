@@ -84,6 +84,7 @@ rand = "0.8"
 redis = "0.26"
 
 [dev-dependencies]
+bytes = "1"
 # Required when tests expand `LifeModel` with graphql: nested `SimpleObject` resolves `async_graphql` in this crate.
 async-graphql.workspace = true
 # Process exit hook so integration tests remove Docker containers (Rust may not drop `static` Lazy).

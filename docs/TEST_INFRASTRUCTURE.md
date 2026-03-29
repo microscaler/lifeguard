@@ -87,7 +87,7 @@ CI uses the same pin in `.github/workflows/ci.yaml`. When you upgrade the worksp
 
 ### ORM performance harness (optional)
 
-The `examples/perf-idam` crate (standalone workspace) provides a `perf-orm` binary that benchmarks IDAM-shaped reads/writes against Postgres. See [PERF_ORM.md](./PERF_ORM.md) for environment variables and interpretation. In [`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml), the **`perf_orm`** job runs after **`test`** and uploads JSON artifacts; it uses the same **`PGPASSWORD`** repository secret for Postgres and `PERF_DATABASE_URL`.
+The `examples/perf-idam` crate (standalone workspace) provides a `perf-orm` binary that benchmarks IDAM-shaped reads/writes against Postgres. See [PERF_ORM.md](./PERF_ORM.md) for environment variables and interpretation. In [`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml), the **`perf_orm`** job runs after **`test`** and uploads JSON artifacts; it uses the same **`PGPASSWORD`** repository secret for Postgres, sets **`PERF_DATABASE_URL`**, and **`PERF_RESET=1`** (required opt-in for destructive `perf_*` DDL).
 
 ### GitHub Actions: entity migrations on Postgres
 

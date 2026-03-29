@@ -1268,41 +1268,12 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             // Check for special types that need custom handling
             // First, extract the inner type if it's Option<T>
             let inner_type = extract_option_inner_type(field_type).unwrap_or(field_type);
-            
-            // Get type name string for comparison
-            let type_name = match inner_type {
-                syn::Type::Path(syn::TypePath {
-                    path: syn::Path { segments, .. },
-                    ..
-                }) => {
-                    // Get full type path (e.g., "uuid::Uuid", "chrono::NaiveDateTime")
-                    let mut path_parts = Vec::new();
-                    for segment in segments {
-                        path_parts.push(segment.ident.to_string());
-                    }
-                    path_parts.join("::")
-                }
-                _ => String::new(),
-            };
-            
-            // Check if this is uuid::Uuid, chrono::NaiveDateTime, rust_decimal::Decimal, or rusty_money::Money
-            #[allow(clippy::map_unwrap_or)]
-            let (is_uuid, is_naive_datetime, is_decimal, is_money) = match inner_type {
-                syn::Type::Path(syn::TypePath {
-                    path: syn::Path { segments, .. },
-                    ..
-                }) => {
-                    let last_seg = segments.last().map(|s| s.ident.to_string());
-                    let is_uuid = last_seg.as_ref().is_some_and(|s| s == "Uuid") ||
-                                  type_name.contains("Uuid");
-                    let is_naive_datetime = last_seg.as_ref().is_some_and(|s| s == "NaiveDateTime") ||
-                                           type_name.contains("NaiveDateTime");
-                    let is_decimal = type_conversion::is_decimal_type(inner_type);
-                    let is_money = type_conversion::is_money_type(inner_type);
-                    (is_uuid, is_naive_datetime, is_decimal, is_money)
-                }
-                _ => (false, false, false, false),
-            };
+
+            // Keep detection in sync with `type_conversion` (Record/ActiveModel → `sea_query::Value`).
+            let is_uuid = type_conversion::is_uuid_type(inner_type);
+            let is_naive_datetime = type_conversion::is_naive_datetime_type(inner_type);
+            let is_decimal = type_conversion::is_decimal_type(inner_type);
+            let is_money = type_conversion::is_money_type(inner_type);
             
             // Handle uuid::Uuid — bind Postgres `uuid` via `FromSql` (not text parsing).
             if is_uuid {

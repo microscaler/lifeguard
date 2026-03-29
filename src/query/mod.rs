@@ -10,7 +10,7 @@
 //! - **Traits**: Core entity and model traits (`LifeModelTrait`, `LifeEntityName`)
 //! - **Select**: SELECT query builder (`SelectQuery`)
 //! - **Execution**: Query execution methods (`all`, `one`, `first`)
-//! - **Value Conversion**: `SeaQuery` `Value` to `ToSql` parameter conversion
+//! - **Value Conversion**: `SeaQuery` `Value` to `ToSql` (`converted_params` + `value_conversion`)
 //! - **Error Handling**: Error detection and classification utilities
 //! - **Column**: Type-safe column operations
 //! - **Primary Key**: Primary key operations and traits
@@ -57,6 +57,7 @@ pub(crate) mod error_handling;
 // Note: is_no_rows_error is pub(crate), so we don't re-export it
 
 // Value conversion utilities
+pub(crate) mod converted_params;
 pub(crate) mod value_conversion;
 
 // Cursor keyset abstraction
