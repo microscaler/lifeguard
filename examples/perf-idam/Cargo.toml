@@ -1,0 +1,32 @@
+[package]
+name = "perf-idam"
+version = "0.1.0"
+edition = "2021"
+description = "IDAM-shaped Lifeguard entities and ORM performance harness (standalone example crate)"
+license = "MIT OR Apache-2.0"
+build = "build.rs"
+
+# Standalone workspace: keeps perf tooling out of the root Cargo.lock and CI `cargo check` path.
+[workspace]
+
+[build-dependencies]
+lifeguard-migrate = { path = "../../lifeguard-migrate", version = "0.1.0" }
+
+[dependencies]
+lifeguard = { path = "../../", version = "0.1.0" }
+lifeguard-derive = { path = "../../lifeguard-derive", version = "0.1.0" }
+lifeguard-migrate = { path = "../../lifeguard-migrate", version = "0.1.0" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "6c92ef8b1e756741f3726fb94cc49af54f0f8596" }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sea-query = { version = "1.0.0-rc.29", features = ["with-chrono", "with-uuid"] }
+
+[lib]
+name = "perf_idam"
+path = "src/lib.rs"
+
+[[bin]]
+name = "perf-orm"
+path = "src/bin/perf_orm.rs"

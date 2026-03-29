@@ -10,7 +10,7 @@
 //! - **Traits**: Core `ActiveModel` traits (`ActiveModelTrait`, `ActiveModelBehavior`)
 //! - **Value**: `ActiveValue` enum for field value metadata
 //! - **Error**: `ActiveModelError` for operation errors
-//! - **Conversion**: Value conversion utilities (duplicates `query::value_conversion` for `ActiveModelError`)
+//! - **Conversion**: `SeaQuery` → `ToSql` via shared [`crate::query::converted_params`] (`ActiveModelError`)
 //!
 //! # Examples
 //!

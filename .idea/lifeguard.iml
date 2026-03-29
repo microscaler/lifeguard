@@ -12,6 +12,8 @@
       <sourceFolder url="file://$MODULE_DIR$/lifeguard-migrate/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lifeguard-migrate/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/may_postgres/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/may_postgres/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/lifeguard-codegen/target" />
       <excludeFolder url="file://$MODULE_DIR$/lifeguard-derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />

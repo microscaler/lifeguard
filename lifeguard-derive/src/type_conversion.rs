@@ -13,6 +13,8 @@
 //! - Binary: Vec<u8>
 //! - JSON: `serde_json::Value`
 //! - Option<T> for all above types
+//! - `uuid::Uuid` (via `sea_query::Value::Uuid`)
+//! - `chrono::NaiveDateTime` (via `sea_query::Value::ChronoDateTime`)
 //!
 //! # Type Conversion Consistency
 //!
@@ -40,6 +42,27 @@ pub fn is_json_value_type(ty: &Type) -> bool {
     } else {
         false
     }
+}
+
+/// Postgres UUID / `sea_query::Value::Uuid` — same rule as `LifeModel` `FromRow` and `infer_sql_type_from_rust_type`.
+///
+/// Matches `uuid::Uuid`, `crate::...::uuid::Uuid`, and bare `Uuid` after `use uuid::Uuid`.
+pub fn is_uuid_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        return path.segments.last().is_some_and(|s| s.ident == "Uuid");
+    }
+    false
+}
+
+/// `chrono::NaiveDateTime` / `Value::ChronoDateTime` — aligned with `FromRow` + SQL type inference.
+pub fn is_naive_datetime_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        return path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "NaiveDateTime");
+    }
+    false
 }
 
 /// Check if a type is `Vec<u8>` (binary data)
@@ -259,6 +282,18 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
             sea_query::Value::String(Some(self.#field_name.amount().to_string()))
         };
     }
+
+    if is_uuid_type(field_type) {
+        return quote! {
+            sea_query::Value::Uuid(Some(self.#field_name))
+        };
+    }
+
+    if is_naive_datetime_type(field_type) {
+        return quote! {
+            sea_query::Value::ChronoDateTime(Some(self.#field_name))
+        };
+    }
     
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = field_type {
@@ -331,6 +366,18 @@ pub fn generate_option_field_to_value_with_default(field_name: &syn::Ident, inne
     if is_money_type(inner_type) {
         return quote! {
             self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.amount().to_string()))).unwrap_or(sea_query::Value::String(None))
+        };
+    }
+
+    if is_uuid_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::Uuid(Some(v))).unwrap_or(sea_query::Value::Uuid(None))
+        };
+    }
+
+    if is_naive_datetime_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v))).unwrap_or(sea_query::Value::ChronoDateTime(None))
         };
     }
     
@@ -433,6 +480,18 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
         return quote! {
             self.#field_name.as_ref()
                 .map(|v| sea_query::Value::String(Some(v.amount().to_string())))
+        };
+    }
+
+    if is_uuid_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::Uuid(Some(v)))
+        };
+    }
+
+    if is_naive_datetime_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v)))
         };
     }
     
@@ -1525,5 +1584,25 @@ mod tests {
         // Should be "MyType<i32>" - only the type generic, not the lifetime
         assert_eq!(result, "MyType<i32>", "Should only include type generics, not lifetime generics");
         assert!(!result.contains("'a"), "Should not include lifetime in output");
+    }
+
+    #[test]
+    fn uuid_type_detection_matches_bare_and_qualified_paths() {
+        let bare: Type = parse_str("Uuid").unwrap();
+        assert!(is_uuid_type(&bare));
+        let qualified: Type = parse_str("uuid::Uuid").unwrap();
+        assert!(is_uuid_type(&qualified));
+        let not_uuid: Type = parse_str("String").unwrap();
+        assert!(!is_uuid_type(&not_uuid));
+    }
+
+    #[test]
+    fn naive_datetime_type_detection_matches_bare_and_qualified_paths() {
+        let bare: Type = parse_str("NaiveDateTime").unwrap();
+        assert!(is_naive_datetime_type(&bare));
+        let qualified: Type = parse_str("chrono::NaiveDateTime").unwrap();
+        assert!(is_naive_datetime_type(&qualified));
+        let not_dt: Type = parse_str("String").unwrap();
+        assert!(!is_naive_datetime_type(&not_dt));
     }
 }

@@ -138,3 +138,62 @@ jobs:
         run: |
           cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
           cargo llvm-cov --all-features --workspace --summary-only
+
+  # IDAM-shaped ORM harness (`examples/perf-idam`); non-blocking latency artifact. Chains after `test`.
+  perf_orm:
+    name: ORM perf (perf-idam)
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+      PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
+      PERF_RESET: "1" # Required opt-in: perf-orm applies destructive DDL to perf_* tables
+      PERF_TENANT_COUNT: "10"
+      PERF_USER_ROWS: "2000"
+      PERF_SESSION_ROWS: "2000"
+      PERF_WARMUP: "100"
+      PERF_ITERATIONS: "500"
+      PERF_OUTPUT: perf-results.json
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ secrets.PGPASSWORD }}
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2025-06-30
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            examples/perf-idam/target
+          key: cargo-perf-idam-${{ runner.os }}-${{ hashFiles('examples/perf-idam/Cargo.lock') }}
+
+      - name: Run perf-orm
+        run: |
+          set -euo pipefail
+          cd examples/perf-idam
+          cargo run --release --locked --bin perf-orm
+
+      - name: Upload perf JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results
+          path: examples/perf-idam/perf-results.json
+          retention-days: 3
