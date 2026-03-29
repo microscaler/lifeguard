@@ -54,11 +54,9 @@ where
         let (sql, values) = self.query.build(PostgresQueryBuilder);
         
         // Execute resolving exactly one row via scalar execution pattern
-        crate::query::value_conversion::with_converted_params(&values, |params| {
-            match executor.query_one(&sql, params) {
-                Ok(row) => R::from_aggregate_row(&row),
-                Err(e) => Err(e),
-            }
-        })
+        match executor.query_one_values(&sql, &values) {
+            Ok(row) => R::from_aggregate_row(&row),
+            Err(e) => Err(e),
+        }
     }
 }

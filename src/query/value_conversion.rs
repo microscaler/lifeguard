@@ -16,6 +16,10 @@ use may_postgres::types::ToSql;
 /// # Errors
 ///
 /// Returns `LifeError::Other` if an unsupported value type is encountered.
+///
+/// Prefer [`crate::executor::LifeExecutor::execute_values`] and `query_*_values` on hot paths
+/// (including pooled executors). This helper remains for tests and ad-hoc call sites.
+#[allow(dead_code)]
 pub fn with_converted_params<F, R>(values: &sea_query::Values, f: F) -> Result<R, LifeError>
 where
     F: FnOnce(&[&dyn ToSql]) -> Result<R, LifeError>,

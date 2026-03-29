@@ -1,23 +1,24 @@
-//! ORM performance harness: IDAM-shaped reads/writes via [`MayPostgresExecutor`].
+//! ORM performance harness: IDAM-shaped reads/writes via [`lifeguard::PooledLifeExecutor`]
+//! (round-robin over a [`lifeguard::LifeguardPool`]).
 //!
 //! Environment:
 //! - `PERF_DATABASE_URL` or `TEST_DATABASE_URL` (in that order). Generic `DATABASE_URL` is **not** read:
 //!   this binary runs destructive DDL (`DROP` / `CREATE` on `perf_*` tables).
 //! - `PERF_RESET` — must be truthy (`1`, `true`, `yes`, `on`) before any schema reset; avoids accidents.
+//! - `PERF_POOL_SIZE` (default 8) — concurrent `may_postgres::Client` slots in the pool.
 //! - `PERF_TENANT_COUNT` (default 10), `PERF_USER_ROWS`, `PERF_SESSION_ROWS` (default 5000 each).
 //! - `PERF_WARMUP` (default 200), `PERF_ITERATIONS` (default 2000).
 //! - `PERF_OUTPUT` — if set, write JSON to this path; otherwise stdout.
 //!
-//! Metrics include `connections: 1` until a Lifeguard pool exists (Epic 04).
+//! The JSON report includes `connections` equal to `PERF_POOL_SIZE` for downstream dashboards.
 
-use lifeguard::connection::connect;
-use lifeguard::executor::MayPostgresExecutor;
 use lifeguard::query::column::column_trait::ColumnTrait;
-use lifeguard::{LifeExecutor, LifeModelTrait};
+use lifeguard::{LifeExecutor, LifeModelTrait, LifeguardPool, PooledLifeExecutor};
 use perf_idam::perf_idam::{perf_session, perf_tenant, perf_user};
 use serde::Serialize;
 use std::env;
 use std::fs;
+use std::sync::Arc;
 use std::time::Instant;
 
 const SCHEMA_SQL: &str = include_str!("../../migrations/schema.sql");
@@ -208,7 +209,7 @@ fn split_postgres_statements(sql: &str) -> Vec<String> {
     out
 }
 
-fn apply_schema(executor: &MayPostgresExecutor) -> Result<(), lifeguard::executor::LifeError> {
+fn apply_schema(executor: &impl LifeExecutor) -> Result<(), lifeguard::executor::LifeError> {
     let script = schema_sql_without_line_comments(SCHEMA_SQL);
     for stmt in split_postgres_statements(&script) {
         let sql = format!("{stmt};");
@@ -224,6 +225,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tenant_n = env_usize("PERF_TENANT_COUNT", 10).max(1);
     let user_n = env_usize("PERF_USER_ROWS", 5000).max(1);
     let session_n = env_usize("PERF_SESSION_ROWS", 5000).max(1);
+    let pool_size = env_usize("PERF_POOL_SIZE", 8).max(1);
     let warmup = env_usize("PERF_WARMUP", 200);
     let iters = env_usize("PERF_ITERATIONS", 2000).max(1);
 
@@ -235,8 +237,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let client = connect(&url)?;
-    let executor = MayPostgresExecutor::new(client);
+    let pool = Arc::new(
+        LifeguardPool::new(&url, pool_size).map_err(|e| format!("LifeguardPool::new: {e}"))?,
+    );
+    let executor = PooledLifeExecutor::new(pool);
 
     apply_schema(&executor)?;
 
@@ -409,7 +413,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     scenarios.push(stats("session_update_last_seen", &mut samples));
 
     let report = PerfReport {
-        connections: 1,
+        connections: pool_size as u32,
         database_url_host: host_display,
         scale: Scale {
             tenants: tenant_n,

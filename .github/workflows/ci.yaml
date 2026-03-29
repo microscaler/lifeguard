@@ -144,16 +144,6 @@ jobs:
     name: ORM perf (perf-idam)
     needs: test
     runs-on: ubuntu-latest
-    env:
-      PGPASSWORD: ${{ secrets.PGPASSWORD }}
-      PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
-      PERF_RESET: "1" # Required opt-in: perf-orm applies destructive DDL to perf_* tables
-      PERF_TENANT_COUNT: "10"
-      PERF_USER_ROWS: "2000"
-      PERF_SESSION_ROWS: "2000"
-      PERF_WARMUP: "100"
-      PERF_ITERATIONS: "500"
-      PERF_OUTPUT: perf-results.json
 
     services:
       postgres:
@@ -185,7 +175,18 @@ jobs:
             examples/perf-idam/target
           key: cargo-perf-idam-${{ runner.os }}-${{ hashFiles('examples/perf-idam/Cargo.lock') }}
 
+      # perf-orm reads PERF_* only (not DATABASE_URL). Service Postgres is on localhost:5432 for the runner.
       - name: Run perf-orm
+        env:
+          PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:5432/postgres
+          PERF_RESET: "1" # destructive DDL on perf_* tables
+          PERF_POOL_SIZE: "8" # LifeguardPool slots; JSON report `connections` matches this
+          PERF_TENANT_COUNT: "10"
+          PERF_USER_ROWS: "2000"
+          PERF_SESSION_ROWS: "2000"
+          PERF_WARMUP: "100"
+          PERF_ITERATIONS: "500"
+          PERF_OUTPUT: perf-results.json
         run: |
           set -euo pipefail
           cd examples/perf-idam
