@@ -1,6 +1,6 @@
 # ORM performance harness (`examples/perf-idam`)
 
-This repository includes an **IDAM-shaped** example crate and a `perf-orm` binary that measures end-to-end Lifeguard ORM operations against PostgreSQL (single connection). It is intended for local tuning and CI artifacts, not as a strict latency gate on shared runners.
+This repository includes an **IDAM-shaped** example crate and a `perf-orm` binary that measures end-to-end Lifeguard ORM operations against PostgreSQL via [`LifeguardPool`](../../src/pool/pooled.rs) (primary tier; optional read replica when `PERF_REPLICA_URL` / `TEST_REPLICA_URL` is set). It is intended for local tuning and CI artifacts, not as a strict latency gate on shared runners.
 
 ## Layout choice
 
@@ -31,17 +31,22 @@ export PERF_SESSION_ROWS=5000    # default 5000
 export PERF_WARMUP=200           # default 200
 export PERF_ITERATIONS=2000      # default 2000
 export PERF_OUTPUT=/tmp/perf-results.json   # default: print JSON to stdout
+# Optional read replica (same cluster as primary; CI uses .github/docker/docker-compose.yml):
+# export PERF_REPLICA_URL="postgres://USER:PASS@HOST:5433/postgres"
+# export PERF_REPLICA_POOL_SIZE=8   # default: same as PERF_POOL_SIZE
 
 cargo run --release --bin perf-orm
 ```
 
 Connection URL: **`PERF_DATABASE_URL`**, else **`TEST_DATABASE_URL`**. Generic **`DATABASE_URL` is ignored** so a shell-level app database is never targeted. **`PERF_RESET`** must be truthy (`1`, `true`, `yes`, `on`) before the harness runs destructive DDL.
 
-The JSON report includes **`connections": 1`**. When Lifeguard ships a real connection pool (Epic 04), extend the harness with `connections=N` and a concurrent scenario; compare runs only at the same `connections` value.
+Replica URL: **`PERF_REPLICA_URL`**, else **`TEST_REPLICA_URL`** (optional). When set, the pool uses **`PERF_REPLICA_POOL_SIZE`** replica-tier slots (default: same as **`PERF_POOL_SIZE`**, minimum 1).
+
+The JSON report includes **`connections`** (primary pool width, from **`PERF_POOL_SIZE`**) and **`replica_connections`** (0 when no replica URL). Compare runs at the same pool sizes when trending latency.
 
 ## CI
 
-The **`perf_orm`** job in [`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml) runs **after** the main `test` job succeeds on `push` to `main` and on `pull_request`. It uploads `perf-results.json` as an artifact. The job sets **`PERF_DATABASE_URL`**, **`PERF_RESET=1`**, and the repository secret **`PGPASSWORD`** for Postgres (same password pattern as the `test` job). GitHub-hosted runners are noisy; use artifacts for **trends** or compare to a baseline from `main`, not hard millisecond limits on PRs.
+The **`perf_orm`** job in [`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml) runs **after** the main `test` job succeeds on `push` to `main` and on `pull_request`. It uploads `perf-results.json` as an artifact. The job starts the same [**Docker Compose**](../.github/docker/docker-compose.yml) stack as **`test`** (Postgres primary :5432, replica :5433, Redis :6379 — no GitHub `services:`). It sets **`PERF_DATABASE_URL`**, **`PERF_REPLICA_URL`**, **`PERF_RESET=1`**, **`REDIS_URL` / `TEST_REDIS_URL`**, and the repository secret **`PGPASSWORD`** for Compose and URLs. A final step tears down the stack (`down -v`, `if: always()`). GitHub-hosted runners are noisy; use artifacts for **trends** or compare to a baseline from `main`, not hard millisecond limits on PRs.
 
 ## Baseline comparison (optional)
 

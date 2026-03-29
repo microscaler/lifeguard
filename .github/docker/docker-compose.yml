@@ -1,0 +1,67 @@
+# CI and local integration dependencies: Postgres primary + streaming replica + Redis.
+# GitHub Actions `services:` cannot set up replication; this file is the single source for `test` and `perf_orm` jobs.
+#
+# Usage from repo root (same variable as GitHub Actions secret `PGPASSWORD` and `psql`):
+#   export PGPASSWORD=...
+#   docker compose -f .github/docker/docker-compose.yml up -d --wait
+#
+# URLs (password must match `PGPASSWORD`):
+#   Primary:  postgres://postgres:${PGPASSWORD}@127.0.0.1:5432/postgres
+#   Replica:  postgres://postgres:${PGPASSWORD}@127.0.0.1:5433/postgres
+#   Redis:    redis://127.0.0.1:6379
+#
+# Postgres: Bitnami legacy PostgreSQL 15 (`bitnamilegacy/postgresql:15`).
+
+name: lifeguard-ci
+
+services:
+  postgresql-primary:
+    image: docker.io/bitnamilegacy/postgresql:15
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRESQL_REPLICATION_MODE: master
+      POSTGRESQL_REPLICATION_USER: replicator
+      POSTGRESQL_REPLICATION_PASSWORD: ${PGPASSWORD:-postgres}
+      POSTGRESQL_USERNAME: postgres
+      POSTGRESQL_PASSWORD: ${PGPASSWORD:-postgres}
+      POSTGRESQL_DATABASE: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h 127.0.0.1 -p 5432"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  postgresql-replica:
+    image: docker.io/bitnamilegacy/postgresql:15
+    ports:
+      - "5433:5432"
+    depends_on:
+      postgresql-primary:
+        condition: service_healthy
+    environment:
+      POSTGRESQL_REPLICATION_MODE: slave
+      POSTGRESQL_REPLICATION_USER: replicator
+      POSTGRESQL_REPLICATION_PASSWORD: ${PGPASSWORD:-postgres}
+      POSTGRESQL_MASTER_HOST: postgresql-primary
+      POSTGRESQL_MASTER_PORT_NUMBER: "5432"
+      POSTGRESQL_PASSWORD: ${PGPASSWORD:-postgres}
+      POSTGRESQL_MASTER_ROOT_USER: postgres
+      POSTGRESQL_MASTER_ROOT_PASSWORD: ${PGPASSWORD:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h 127.0.0.1 -p 5432"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

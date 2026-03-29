@@ -11,41 +11,17 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Postgres is the `services.postgres` container below; the job connects via localhost:5432.
-    # Redis is `services.redis` on localhost:6379 — required when env supplies DB URLs: `tests/context.rs`
-    # uses TEST_REDIS_URL/REDIS_URL on that path; otherwise it would default to 127.0.0.1:6379 with no server.
-    # `TEST_DATABASE_URL` is required for `tests/context.rs` (integration binary); `DATABASE_URL` remains for lib/tests using `TestDatabase::get_connection_string`.
-    # Repository secret `PGPASSWORD`: same value for `services.postgres`, JDBC-style URLs below, and `psql` (via `PGPASSWORD`). Not available to workflows from fork PRs.
+    # All DB/Redis dependencies: `.github/docker/docker-compose.yml` (primary :5432, replica :5433, Redis :6379).
+    # No `jobs.*.services` — avoids duplicating Postgres/Redis and conflicting ports with Compose.
+    # `TEST_DATABASE_URL` / `TEST_REPLICA_URL` / Redis URLs for `tests/context.rs`; `DATABASE_URL` for `TestDatabase::get_connection_string`.
+    # Repository secret `PGPASSWORD`: exported to steps; Compose file interpolates `${PGPASSWORD}`; URLs / `psql` use the same. Not available to workflows from fork PRs.
     env:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
       DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
       TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
+      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5433/postgres
       REDIS_URL: redis://127.0.0.1:6379
       TEST_REDIS_URL: redis://127.0.0.1:6379
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ${{ secrets.PGPASSWORD }}
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +38,9 @@ jobs:
             ~/.cargo/registry
             target
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Start CI stack (Postgres primary + replica + Redis)
+        run: docker compose -f .github/docker/docker-compose.yml up -d --wait
 
       - name: Build
         run: cargo check
@@ -139,26 +118,18 @@ jobs:
           cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
           cargo llvm-cov --all-features --workspace --summary-only
 
+      - name: Tear down CI Docker stack
+        if: always()
+        run: docker compose -f .github/docker/docker-compose.yml down -v
+
   # IDAM-shaped ORM harness (`examples/perf-idam`); non-blocking latency artifact. Chains after `test`.
   perf_orm:
     name: ORM perf (perf-idam)
     needs: test
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ${{ secrets.PGPASSWORD }}
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    # Same `.github/docker/docker-compose.yml` as `test` (Postgres primary + replica + Redis).
+    env:
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
 
     steps:
       - uses: actions/checkout@v4
@@ -175,12 +146,18 @@ jobs:
             examples/perf-idam/target
           key: cargo-perf-idam-${{ runner.os }}-${{ hashFiles('examples/perf-idam/Cargo.lock') }}
 
-      # perf-orm reads PERF_* only (not DATABASE_URL). Service Postgres is on localhost:5432 for the runner.
+      - name: Start CI stack (Postgres primary + replica + Redis)
+        run: docker compose -f .github/docker/docker-compose.yml up -d --wait
+
+      # perf-orm: primary :5432, replica :5433, Redis :6379 (all from Compose).
       - name: Run perf-orm
         env:
           PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:5432/postgres
+          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:5433/postgres
+          REDIS_URL: redis://127.0.0.1:6379
+          TEST_REDIS_URL: redis://127.0.0.1:6379
           PERF_RESET: "1" # destructive DDL on perf_* tables
-          PERF_POOL_SIZE: "8" # LifeguardPool slots; JSON report `connections` matches this
+          PERF_POOL_SIZE: "8" # primary tier slots; JSON `replica_connections` when replica enabled
           PERF_TENANT_COUNT: "10"
           PERF_USER_ROWS: "2000"
           PERF_SESSION_ROWS: "2000"
@@ -198,3 +175,7 @@ jobs:
           name: perf-results
           path: examples/perf-idam/perf-results.json
           retention-days: 3
+
+      - name: Tear down CI Docker stack
+        if: always()
+        run: docker compose -f .github/docker/docker-compose.yml down -v
