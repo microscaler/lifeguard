@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **Clippy + push feat/perf-implementation (2026-03-28):** `cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic` (and `--workspace` check). Fixed `typed_null_sql_tests` to return `Result` (no unwrap/expect). Commit `28676f8`, pushed `origin/feat/perf-implementation`.
 - **Unified `with_converted_params` (2026-03-28):** Shared `src/query/converted_params.rs` (`with_converted_value_slice` + `into_err: Fn(String)->E`); `value_conversion` and `active_model/conversion` are thin wrappers (`LifeError::Other` / `ActiveModelError::Other`).
 - **derive UUID / NaiveDateTime detection aligned (2026-03-28):** `is_uuid_type` / `is_naive_datetime_type` now use last path segment (bare `Uuid` / `NaiveDateTime` match `use` imports). `life_model.rs` `FromRow` uses those helpers so reads and `generate_field_to_value` agree. Tests in `type_conversion.rs`.
 - **Typed SQL NULL buckets for UUID/chrono (2026-03-28):** `active_model/conversion.rs` + `query/value_conversion.rs` — `Value::Uuid(None)` and chrono `None` variants no longer share `Vec<Option<i32>>` (postgres-types `Option<T>::accepts` delegates to `T::accepts`). Separate `Vec<Option<…>>` per type + parallel indices. Lib tests `typed_null_sql_tests` + dev-dep `bytes` for `BytesMut`. 
