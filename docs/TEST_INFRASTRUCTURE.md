@@ -128,7 +128,11 @@ The `lifeguard` package runs database-backed tests from a **single** integration
 
 **CI Compose vs Kind/Tilt:** Both use **6543 / 6544 / 6545** on the host for primary, first replica, and Redis. Kind adds a **second** replica on **6546**. Do not run Compose and Kind/Tilt port-forwards on the same host ports at the same time.
 
-**Shared Postgres (e.g. Kind + `just dev-up`):** parallel test threads can exhaust connections (`too many clients`) or race on `CREATE TABLE`. Prefer:
+**Shared Postgres (e.g. Kind + `just dev-up`):** the `db_integration_suite` binary uses **fixed table names** (`test_users`, hook tables, etc.) on a single `TEST_DATABASE_URL`. Running many of its tests **in parallel** (nextest’s default `test-threads = num-cpus`) starts **one process per test**, all hitting the same tables — that produces **row-count flakes** (e.g. `active_model_crud` expecting 2 rows and seeing 5) and can also stress connections or DDL.
+
+**Mitigation (in-repo):** `.config/nextest.toml` defines a nextest **[test group](https://nexte.st/docs/configuration/test-groups/)** `lifeguard-shared-postgres` with `max-threads = 1` applied to `binary(db_integration_suite)`. Only **one** test from that binary runs at a time, while other workspace packages can still run in parallel. CI keeps a **separate** `db-serial` step for clarity and timeouts; either approach is valid.
+
+Prefer **`db-serial`** when running **only** that binary (still one global test thread for the whole run):
 
 ```bash
 export TEST_DATABASE_URL="$(just dev-connection-string)"
@@ -147,7 +151,7 @@ Targeted modules (faster feedback):
 cargo test -p lifeguard --test db_integration_suite related_trait:: dataloader_n_plus_one:: -- --test-threads=1
 ```
 
-**`just nt`:** runs nextest on the workspace but **skips** the `db_integration_suite` binary (it would hammer your shared Kind Postgres in parallel). Run DB integration separately:
+**`just nt`:** runs nextest on the workspace but **skips** the `db_integration_suite` binary so the default dev loop stays fast (DB integration is slower). The skip is **not** required for correctness anymore — the test-group mutex fixes parallel races if you include the binary. For a full run: `just nt-complete` or `just nt-ci-parity`, or:
 
 ```bash
 just nt-db-suite

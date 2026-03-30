@@ -8,10 +8,10 @@
 #
 # Resources are organized into parallel streams using labels:
 # - 'infrastructure' label: PostgreSQL test database
-# - 'migration' label: Migration integration tests (runs in parallel with other tests)
+# - 'migration' label: migration tooling + inventory generated SQL checks + lifeguard-integration-tests
 # - 'replication' label: read-replica / pool tests (needs primary + replica-0 + Redis; see PRD read-replica)
 # - One label per component (no multi-label to avoid Tilt UI clutter).
-# - Inventory service: 'inventory_entities', 'inventory_gen_migrations', 'inventory_migrations'
+# - 'inventory_entities' label: entities example crate build only
 
 # ====================
 # Configuration
@@ -214,7 +214,7 @@ local_resource(
         '**/target/**',
     ],
     resource_deps=['build-entities'],
-    labels=['inventory_gen_migrations'],
+    labels=['migration'],
     allow_parallel=False,
 )
 
@@ -226,7 +226,7 @@ local_resource(
          'echo "⚠️ No .sql in inventory/"'),
     deps=['migrations/generated/inventory'],
     resource_deps=['gen-migrations'],
-    labels=['inventory_migrations'],
+    labels=['migration'],
 )
 
 # ====================
@@ -256,13 +256,17 @@ local_resource(
     allow_parallel=False,  # Serialize to prevent build storms
 )
 
-# Run nextest (faster test execution for main crate)
-# Using nextest as the primary test runner
-# Excludes integration tests (lifeguard-integration-tests) which require database and run separately
-# Note: ignore patterns prevent infinite loops from test output files in target/
+# Run nextest (CI profile: matches .github/workflows/ci.yaml workspace step shape).
+# `db_integration_suite` is serialized via nextest test-group `lifeguard-shared-postgres` in .config/nextest.toml
+# (shared Kind Postgres + fixed table names — parallel processes used to flake). Replica/Redis env for pool_read_replica.
 local_resource(
     'test-nextest',
-    cmd='TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo nextest run --workspace --all-features',
+    cmd=(
+        'TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) '
+        + 'TEST_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres '
+        + 'TEST_REDIS_URL=redis://127.0.0.1:6545 '
+        + 'cargo nextest run --workspace --all-features --profile ci --config-file .config/nextest.toml'
+    ),
     deps=[
         'src',
         'lifeguard-derive',
@@ -272,6 +276,7 @@ local_resource(
         'tests-integration',
         'Cargo.toml',
         'Cargo.lock',
+        '.config/nextest.toml',
         'scripts/get_test_connection_string.sh',
     ],
     ignore=[
@@ -284,6 +289,8 @@ local_resource(
     ],
     resource_deps=[
         'postgresql-primary',
+        'postgresql-replica-0',
+        'redis',
         'build-codegen',
         'build-reflector',
         'build-migrate',

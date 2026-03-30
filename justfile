@@ -114,7 +114,9 @@ test-unit-verbose:
     @echo "🧪 Running unit tests (verbose)..."
     @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo test --lib -- --nocapture --no-fail-fast
 
-# Workspace nextest: excludes lifeguard-integration-tests and db_integration_suite (use nt-db-suite)
+# Workspace nextest: excludes lifeguard-integration-tests and db_integration_suite for speed (use nt-db-suite / nt-complete).
+# Note: db_integration_suite is safe in parallel with other *packages* — nextest test-group `lifeguard-shared-postgres`
+# serializes tests inside that binary only (see .config/nextest.toml).
 nextest-test:
     @echo "🧪 Running tests with nextest (excluding DB-heavy integration binaries)..."
     @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
