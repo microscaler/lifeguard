@@ -14,6 +14,9 @@
 //!   **replica** pool when replica URLs and a non-zero replica pool size are configured **and**
 //!   [`crate::pool::wal::WalLagMonitor`] reports the replica is not lagging; otherwise reads use
 //!   the primary pool.
+//!
+//! With the **`metrics`** feature, pool-scoped series use the OpenTelemetry attribute **`pool_tier`**
+//! (`primary` \| `replica`); see [`crate::metrics::METRICS`].
 
 use crate::connection::connect;
 use crate::executor::{LifeError, LifeExecutor};
@@ -40,18 +43,20 @@ struct WorkerPool {
     next_worker: AtomicUsize,
     pool_size: usize,
     acquire_timeout: Duration,
+    /// `primary` or `replica` for [`crate::metrics::METRICS`] `pool_tier` labels.
+    metrics_tier: &'static str,
 }
 
 impl WorkerPool {
     fn new(
         pool_size: usize,
         mut url_for_slot: impl FnMut(usize) -> String,
-        role: &str,
+        tier: &'static str,
         settings: &LifeguardPoolSettings,
     ) -> Result<Self, LifeError> {
         if pool_size == 0 {
             return Err(LifeError::Pool(format!(
-                "LifeguardPool worker tier ({role}): pool_size must be at least 1"
+                "LifeguardPool worker tier ({tier}): pool_size must be at least 1"
             )));
         }
 
@@ -62,14 +67,14 @@ impl WorkerPool {
         for slot in 0..pool_size {
             let url = url_for_slot(slot);
             let client = connect(&url).map_err(|e| {
-                LifeError::Other(format!("{role} pool connection slot {slot}: {e}"))
+                LifeError::Other(format!("{tier} pool connection slot {slot}: {e}"))
             })?;
 
             let (job_tx, job_rx) = crossbeam_channel::bounded::<WorkerJob>(qcap);
 
             let max_lifetime = settings.max_connection_lifetime;
             let lifetime_jitter = settings.max_connection_lifetime_jitter;
-            let name = format!("lifeguard-pool-{role}-{slot}");
+            let name = format!("lifeguard-pool-{tier}-{slot}");
             let handle = thread::Builder::new()
                 .name(name)
                 .spawn(move || {
@@ -81,9 +86,10 @@ impl WorkerPool {
                         max_lifetime,
                         lifetime_jitter,
                         slot,
+                        tier,
                     );
                 })
-                .map_err(|e| LifeError::Other(format!("{role} pool worker thread {slot}: {e}")))?;
+                .map_err(|e| LifeError::Other(format!("{tier} pool worker thread {slot}: {e}")))?;
             #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
             std::mem::forget(handle);
 
@@ -97,6 +103,7 @@ impl WorkerPool {
             next_worker: AtomicUsize::new(0),
             pool_size,
             acquire_timeout: settings.acquire_timeout,
+            metrics_tier: tier,
         })
     }
 
@@ -123,7 +130,7 @@ impl WorkerPool {
             let now = Instant::now();
             if now >= deadline {
                 #[cfg(feature = "metrics")]
-                METRICS.record_pool_acquire_timeout();
+                METRICS.record_pool_acquire_timeout(self.metrics_tier);
                 return Err(LifeError::PoolAcquireTimeout {
                     waited: wait_start.elapsed(),
                 });
@@ -143,7 +150,7 @@ impl WorkerPool {
         }
 
         #[cfg(feature = "metrics")]
-        METRICS.record_connection_wait(wait_start.elapsed());
+        METRICS.record_connection_wait(wait_start.elapsed(), Some(self.metrics_tier));
 
         match reply_rx.recv() {
             Ok(r) => r,
@@ -273,6 +280,7 @@ impl LifeguardPool {
             let total = primary_pool_size + replica_pool_size;
             METRICS.set_pool_size(total as u64);
             METRICS.set_active_connections(total as u64);
+            METRICS.set_pool_workers_by_tier(primary_pool_size as u64, replica_pool_size as u64);
         }
 
         Ok(Self {
@@ -395,6 +403,7 @@ const POOL_HEAL_MAX_ATTEMPTS: usize = 2;
 fn exec_with_optional_heal<T>(
     connection_string: &str,
     client: &mut Client,
+    tier: &'static str,
     op: impl Fn(&Client) -> Result<T, LifeError>,
 ) -> Result<T, LifeError> {
     for attempt in 0..POOL_HEAL_MAX_ATTEMPTS {
@@ -410,7 +419,7 @@ fn exec_with_optional_heal<T>(
                         Ok(c) => {
                             *client = c;
                             #[cfg(feature = "metrics")]
-                            METRICS.record_pool_slot_heal();
+                            METRICS.record_pool_slot_heal(tier);
                             log::warn!(
                                 "lifeguard pool: replaced client after connectivity error (attempt {})",
                                 attempt + 1
@@ -456,6 +465,7 @@ fn run_worker(
     max_connection_lifetime: Option<Duration>,
     max_connection_lifetime_jitter: Duration,
     slot: usize,
+    tier: &'static str,
 ) {
     let mut opened_at = Instant::now();
     let idle = idle_liveness.map(|d| d.max(Duration::from_millis(1)));
@@ -463,7 +473,7 @@ fn run_worker(
     match idle {
         None => {
             for job in job_rx.iter() {
-                dispatch_worker_job(&connection_string, &mut client, job);
+                dispatch_worker_job(tier, &connection_string, &mut client, job);
                 maybe_rotate_for_max_lifetime(
                     &connection_string,
                     &mut client,
@@ -471,6 +481,7 @@ fn run_worker(
                     max_connection_lifetime,
                     max_connection_lifetime_jitter,
                     slot,
+                    tier,
                 );
             }
         }
@@ -478,7 +489,7 @@ fn run_worker(
             loop {
                 match job_rx.recv_timeout(interval) {
                     Ok(job) => {
-                        dispatch_worker_job(&connection_string, &mut client, job);
+                        dispatch_worker_job(tier, &connection_string, &mut client, job);
                         maybe_rotate_for_max_lifetime(
                             &connection_string,
                             &mut client,
@@ -486,10 +497,11 @@ fn run_worker(
                             max_connection_lifetime,
                             max_connection_lifetime_jitter,
                             slot,
+                            tier,
                         );
                     }
                     Err(RecvTimeoutError::Timeout) => {
-                        idle_liveness_probe(&connection_string, &mut client);
+                        idle_liveness_probe(&connection_string, &mut client, tier);
                         maybe_rotate_for_max_lifetime(
                             &connection_string,
                             &mut client,
@@ -497,6 +509,7 @@ fn run_worker(
                             max_connection_lifetime,
                             max_connection_lifetime_jitter,
                             slot,
+                            tier,
                         );
                     }
                     Err(RecvTimeoutError::Disconnected) => break,
@@ -526,6 +539,7 @@ fn maybe_rotate_for_max_lifetime(
     max_lifetime: Option<Duration>,
     jitter: Duration,
     slot: usize,
+    tier: &'static str,
 ) {
     let Some(base) = max_lifetime else {
         return;
@@ -545,7 +559,7 @@ fn maybe_rotate_for_max_lifetime(
                 "lifeguard pool: rotated client after max_connection_lifetime (slot {slot})",
             );
             #[cfg(feature = "metrics")]
-            METRICS.record_pool_connection_rotated();
+            METRICS.record_pool_connection_rotated(tier);
         }
         Err(e) => {
             log::warn!(
@@ -556,13 +570,14 @@ fn maybe_rotate_for_max_lifetime(
 }
 
 /// Cheap `SELECT 1` on idle slots (PRD R4.2); connectivity failures use the same heal path as queries.
-fn idle_liveness_probe(connection_string: &str, client: &mut Client) {
-    let _ = exec_with_optional_heal(connection_string, client, |c| {
+fn idle_liveness_probe(connection_string: &str, client: &mut Client, tier: &'static str) {
+    let _ = exec_with_optional_heal(connection_string, client, tier, |c| {
         c.query_one("SELECT 1", &[]).map_err(LifeError::from)
     });
 }
 
 fn dispatch_worker_job(
+    tier: &'static str,
     connection_string: &str,
     client: &mut Client,
     job: WorkerJob,
@@ -573,8 +588,8 @@ fn dispatch_worker_job(
             params,
             reply,
         } => {
-            let result = exec_with_optional_heal(connection_string, client, |c| {
-                exec_on_client(c, &query, &params, |c, q, r| {
+            let result = exec_with_optional_heal(connection_string, client, tier, |c| {
+                exec_on_client(tier, c, &query, &params, |c, q, r| {
                     c.execute(q, r).map_err(LifeError::from)
                 })
             });
@@ -585,8 +600,8 @@ fn dispatch_worker_job(
             params,
             reply,
         } => {
-            let result = exec_with_optional_heal(connection_string, client, |c| {
-                exec_on_client(c, &query, &params, |c, q, r| {
+            let result = exec_with_optional_heal(connection_string, client, tier, |c| {
+                exec_on_client(tier, c, &query, &params, |c, q, r| {
                     c.query_one(q, r).map_err(LifeError::from)
                 })
             });
@@ -597,8 +612,8 @@ fn dispatch_worker_job(
             params,
             reply,
         } => {
-            let result = exec_with_optional_heal(connection_string, client, |c| {
-                exec_on_client(c, &query, &params, |c, q, r| {
+            let result = exec_with_optional_heal(connection_string, client, tier, |c| {
+                exec_on_client(tier, c, &query, &params, |c, q, r| {
                     c.query(q, r).map_err(LifeError::from)
                 })
             });
@@ -608,6 +623,7 @@ fn dispatch_worker_job(
 }
 
 fn exec_on_client<T>(
+    pool_tier: &'static str,
     client: &Client,
     query: &str,
     params: &[OwnedParam],
@@ -624,9 +640,9 @@ fn exec_on_client<T>(
 
     #[cfg(feature = "metrics")]
     {
-        METRICS.record_query_duration(duration);
+        METRICS.record_query_duration(duration, Some(pool_tier));
         if out.is_err() {
-            METRICS.record_query_error();
+            METRICS.record_query_error(Some(pool_tier));
         }
     }
 

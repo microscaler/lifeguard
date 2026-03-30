@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Documentation
 
+- **README / observability:** Pool section reflects shipped pool features, `pool_tier` metrics, and links to [`docs/POOLING_OPERATIONS.md`](./docs/POOLING_OPERATIONS.md), [`docs/planning/DESIGN_CONNECTION_POOLING.md`](./docs/planning/DESIGN_CONNECTION_POOLING.md), and [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md). [`docs/OBSERVABILITY.md`](./docs/OBSERVABILITY.md) metric table documents label columns.
+- **Rustdoc:** `lib.rs` and [`src/pool/mod.rs`](./src/pool/mod.rs) add cross-links for WAL types, metrics, and GitHub ops/design docs.
+- **Pool acquire default (PRD R1.3):** Default maximum wait for a worker slot is **30 seconds**, matching `DatabaseConfig::default().pool_timeout_seconds` and `LifeguardPoolSettings::default().acquire_timeout`. Documented on `LifeguardPool::new`, `LifeguardPoolSettings`, and `DatabaseConfig` in source.
 - **PRD G9 / NFR3:** [`docs/POOLING_OPERATIONS.md`](./docs/POOLING_OPERATIONS.md) — operator tuning (lifetime vs `idle_session_timeout`, keepalive pointers), non-goals (PgBouncer), WAL retry vs `wal_lag_monitor_max_connect_retries`, migration notes, NFR evidence table.
 - **Design doc:** [`docs/planning/DESIGN_CONNECTION_POOLING.md`](./docs/planning/DESIGN_CONNECTION_POOLING.md) — queue policy, metric names, connectivity heal pointer, PRD §9 decisions.
 
@@ -27,8 +30,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Metrics (`pool_tier` cardinality):** Gauge **`lifeguard_pool_workers`** records primary/replica slot counts with label **`pool_tier`**. Pool counters and histograms that were unlabeled now attach **`pool_tier`** where the work runs (`primary` \| `replica`). **`METRICS.record_query_duration`**, **`record_query_error`**, and **`record_connection_wait`** take an optional `pool_tier` (`None` for non-pooled paths such as direct [`connect`](./src/connection.rs)). **`record_pool_acquire_timeout`**, **`record_pool_slot_heal`**, and **`record_pool_connection_rotated`** take a tier string. Use **`set_pool_workers_by_tier`** when opening a pool (called from [`LifeguardPool::new_with_settings`](./src/pool/pooled.rs)).
 - **Environment overrides** for database fields must use **`LIFEGUARD__DATABASE__<FIELD>`** (e.g. `LIFEGUARD__DATABASE__URL`). If you relied on root-style names such as `LIFEGUARD__POOL_TIMEOUT_SECONDS`, switch to the nested form.
-
-### Documentation
-
-- **Pool acquire default (PRD R1.3):** Default maximum wait for a worker slot is **30 seconds**, matching `DatabaseConfig::default().pool_timeout_seconds` and `LifeguardPoolSettings::default().acquire_timeout`. Documented on `LifeguardPool::new`, `LifeguardPoolSettings`, and `DatabaseConfig` in source.

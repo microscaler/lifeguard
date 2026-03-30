@@ -8,8 +8,8 @@
 
 ### Current status (repository truth)
 
-- **In this crate today:** `LifeExecutor` / `MayPostgresExecutor`, `connect` and connection helpers, `SelectQuery` and the query stack, `#[derive(LifeModel)]` / `#[derive(LifeRecord)]` (`lifeguard-derive`), relations (including loaders and `find_related` / linked paths), migrations (`lifeguard::migration`, `lifeguard-migrate`), transactions, raw SQL helpers, partial models, optional **metrics** and **tracing** features, **channel logging** (`lifeguard::logging`), and an initial **`LifeguardPool`** / **`PooledLifeExecutor`** (`lifeguard::pool`, re-exported at the crate root).
-- **Pool maturity:** connection pooling is **shipped as an initial API** (bounded worker queues, acquire timeout, optional replica tier + WAL lag monitor). Full Hikari-like parity (health/lifetime/slot heal, etc.) remains on the roadmap—see [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md) and `cargo doc`.
+- **In this crate today:** `LifeExecutor` / `MayPostgresExecutor`, `connect` and connection helpers, `SelectQuery` and the query stack, `#[derive(LifeModel)]` / `#[derive(LifeRecord)]` (`lifeguard-derive`), relations (including loaders and `find_related` / linked paths), migrations (`lifeguard::migration`, `lifeguard-migrate`), transactions, raw SQL helpers, partial models, optional **metrics** (including pool `pool_tier` labels) and **tracing** features, **channel logging** (`lifeguard::logging`), and **`LifeguardPool`** / **`PooledLifeExecutor`** (`lifeguard::pool`, re-exported at the crate root).
+- **Pool maturity:** the pool is **production-usable** for the supported design: one OS thread per slot, **bounded** per-worker queues, configurable **acquire timeout**, optional **replica** tier with **WAL lag** routing and monitor give-up, **slot heal** after connectivity-class errors, **idle liveness** probes, and **max connection lifetime** with jitter. Operators should tune from [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md); the PRD tracks closure and future work in [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md).
 - **LifeReflector (`lifeguard-reflector`):** distributed cache coherence is implemented in the workspace crate [`lifeguard-reflector`](./lifeguard-reflector/) (same repository as `lifeguard-derive`, `lifeguard-migrate`, and other `lifeguard-*` packages). Behavior and architecture are described below; the crate may be published or split out later without renaming it.
 - **Docs vs code:** Mermaid diagrams and some marketing sections describe the **target** platform (cache tier, replica routing, pool). Treat [docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md), `cargo doc`, and `examples/` as the ground truth for what compiles.
 
@@ -68,9 +68,9 @@ struct User {
 // see lifeguard-derive tests and examples/ for full patterns (no Tokio required).
 ```
 
-### Connection pool: LifeguardPool (initial)
+### Connection pool: LifeguardPool
 
-**In-tree today:** [`LifeguardPool`](./src/pool/pooled.rs) (re-exported as `lifeguard::LifeguardPool`) — persistent `may_postgres` connections, one worker per slot, bounded per-worker job queues, configurable acquire timeout ([`LifeError::PoolAcquireTimeout`](./src/executor.rs)), and optional read-replica routing with [`WalLagMonitor`](./src/pool/wal.rs). See [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md) for the full roadmap (slot heal, liveness, connection lifetime, etc.).
+**In-tree:** [`LifeguardPool`](./src/pool/pooled.rs) (re-exported as `lifeguard::LifeguardPool`) — persistent `may_postgres` connections, one worker per slot, bounded per-worker job queues, configurable acquire timeout ([`LifeError::PoolAcquireTimeout`](./src/executor.rs)), optional read-replica routing with [`WalLagMonitor`](./src/pool/wal.rs), slot heal, idle liveness, max connection lifetime, and Prometheus metrics with a low-cardinality **`pool_tier`** label (`primary` / `replica`) on pool-scoped series. See [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md), [DESIGN_CONNECTION_POOLING.md](./docs/planning/DESIGN_CONNECTION_POOLING.md), and [OBSERVABILITY.md](./docs/OBSERVABILITY.md).
 
 **Alternative:** open connections with [`connect`](./src/connection.rs) and run queries through [`MayPostgresExecutor`](./src/executor.rs) / [`LifeExecutor`](./src/executor.rs) when you do not need the pool. See [`examples/query_builder_example.rs`](./examples/query_builder_example.rs) for patterns.
 

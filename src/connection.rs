@@ -126,7 +126,7 @@ pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
 
     let duration = start.elapsed();
     #[cfg(feature = "metrics")]
-    crate::metrics::METRICS.record_connection_wait(duration);
+    crate::metrics::METRICS.record_connection_wait(duration, None);
 
     Ok(client)
 }

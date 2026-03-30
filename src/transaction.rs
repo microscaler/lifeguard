@@ -319,13 +319,13 @@ impl LifeExecutor for Transaction {
         let start = Instant::now();
         let result = self.client.execute(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
-            METRICS.record_query_error();
+            METRICS.record_query_error(None);
             LifeError::PostgresError(e)
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration);
+        METRICS.record_query_duration(duration, None);
 
         result
     }
@@ -341,13 +341,13 @@ impl LifeExecutor for Transaction {
         let start = Instant::now();
         let result = self.client.query_one(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
-            METRICS.record_query_error();
+            METRICS.record_query_error(None);
             LifeError::PostgresError(e)
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration);
+        METRICS.record_query_duration(duration, None);
 
         result
     }
@@ -363,13 +363,13 @@ impl LifeExecutor for Transaction {
         let start = Instant::now();
         let result = self.client.query(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
-            METRICS.record_query_error();
+            METRICS.record_query_error(None);
             LifeError::PostgresError(e)
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration);
+        METRICS.record_query_duration(duration, None);
 
         result
     }

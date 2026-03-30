@@ -29,7 +29,10 @@
 //! - **`LifeExecutor`**: Database execution abstraction (Epic 04)
 //! - **`LifeguardPool`**: Persistent connection pool with bounded worker queues, configurable
 //!   acquire timeout ([`LifeError::PoolAcquireTimeout`]), optional idle `SELECT 1` liveness probes
-//!   ([`LifeguardPoolSettings::idle_liveness_interval`]), and optional [`LifeguardPool::from_database_config`].
+//!   ([`LifeguardPoolSettings::idle_liveness_interval`]), WAL-aware replica routing ([`WalLagPolicy`],
+//!   [`crate::pool::wal::WalLagMonitor`]), and [`LifeguardPool::from_database_config`] for file/env config.
+//!   With the **`metrics`** feature, pool-scoped Prometheus series use a low-cardinality
+//!   **`pool_tier`** label (`primary` / `replica`); see [`crate::metrics::METRICS`].
 //!
 //!   See the [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md),
 //!   [operator tuning / non-goals](https://github.com/microscaler/lifeguard/blob/main/docs/POOLING_OPERATIONS.md),

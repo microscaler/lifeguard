@@ -9,15 +9,16 @@
 //! ## Metrics
 //!
 //! The following Prometheus metrics are exposed:
-//! - `lifeguard_pool_size` (gauge): Current pool size
-//! - `lifeguard_active_connections` (gauge): Active connections
-//! - `lifeguard_connection_wait_time_seconds` (histogram): Time waiting for connection
-//! - `lifeguard_query_duration_seconds` (histogram): Query execution time
-//! - `lifeguard_query_errors_total` (counter): Query errors
+//! - `lifeguard_pool_size` (gauge): Total pool slots (primary + replica)
+//! - `lifeguard_pool_workers` (gauge, `pool_tier`): Slots per tier (`primary` | `replica`)
+//! - `lifeguard_active_connections` (gauge): Active connections (total)
+//! - `lifeguard_connection_wait_time_seconds` (histogram, optional `pool_tier`): Time waiting for a slot
+//! - `lifeguard_query_duration_seconds` (histogram, optional `pool_tier`): Query execution time
+//! - `lifeguard_query_errors_total` (counter, optional `pool_tier`): Query errors
 //! - `lifeguard_wal_monitor_replica_routing_disabled` (gauge): 1 if WAL lag monitor gave up on replica connect
-//! - `lifeguard_pool_acquire_timeout_total` (counter): `PoolAcquireTimeout` dispatches
-//! - `lifeguard_pool_slot_heal_total` (counter): Connectivity-class slot heal reconnects
-//! - `lifeguard_pool_connection_rotated_total` (counter): `max_connection_lifetime` rotations
+//! - `lifeguard_pool_acquire_timeout_total` (counter, `pool_tier`): `PoolAcquireTimeout` dispatches
+//! - `lifeguard_pool_slot_heal_total` (counter, `pool_tier`): Connectivity-class slot heal reconnects
+//! - `lifeguard_pool_connection_rotated_total` (counter, `pool_tier`): `max_connection_lifetime` rotations
 //!
 //! ## Tracing
 //!
@@ -30,6 +31,7 @@
 use opentelemetry::{
     global,
     metrics::{Counter, Gauge, Histogram},
+    KeyValue,
 };
 #[cfg(feature = "metrics")]
 use opentelemetry_prometheus::PrometheusExporter;
@@ -47,8 +49,10 @@ use std::sync::LazyLock;
 pub struct LifeguardMetrics {
     /// Prometheus exporter for scraping metrics
     pub exporter: PrometheusExporter,
-    /// Pool size gauge
+    /// Total pool slots (primary + replica); unlabeled for backward-compatible dashboards.
     pub pool_size: Gauge<u64>,
+    /// Worker slots per `pool_tier` label (`primary` \| `replica`).
+    pub pool_workers: Gauge<u64>,
     /// Active connections gauge
     pub active_connections: Gauge<u64>,
     /// Connection wait time histogram (seconds)
@@ -91,7 +95,12 @@ impl LifeguardMetrics {
 
         let pool_size = meter
             .u64_gauge("lifeguard_pool_size")
-            .with_description("Current pool size")
+            .with_description("Total pool worker slots (primary + replica)")
+            .build();
+
+        let pool_workers = meter
+            .u64_gauge("lifeguard_pool_workers")
+            .with_description("Worker slots per pool tier (pool_tier label)")
             .build();
 
         let active_connections = meter
@@ -137,6 +146,7 @@ impl LifeguardMetrics {
         Self {
             exporter,
             pool_size,
+            pool_workers,
             active_connections,
             connection_wait_time,
             query_duration,
@@ -148,25 +158,59 @@ impl LifeguardMetrics {
         }
     }
 
-    /// Record query execution duration
-    pub fn record_query_duration(&self, duration: std::time::Duration) {
-        self.query_duration.record(duration.as_secs_f64(), &[]);
+    fn tier_kv(tier: &str) -> [KeyValue; 1] {
+        [KeyValue::new("pool_tier", tier.to_string())]
     }
 
-    /// Record query error
-    pub fn record_query_error(&self) {
-        self.query_errors.add(1, &[]);
+    /// Record query execution duration. Use `pool_tier` for pooled queries (`primary` / `replica`).
+    pub fn record_query_duration(
+        &self,
+        duration: std::time::Duration,
+        pool_tier: Option<&str>,
+    ) {
+        match pool_tier {
+            Some(t) => self
+                .query_duration
+                .record(duration.as_secs_f64(), &Self::tier_kv(t)),
+            None => self.query_duration.record(duration.as_secs_f64(), &[]),
+        }
     }
 
-    /// Record connection wait time
-    pub fn record_connection_wait(&self, duration: std::time::Duration) {
-        self.connection_wait_time
-            .record(duration.as_secs_f64(), &[]);
+    /// Record query error. Use `pool_tier` for pooled paths.
+    pub fn record_query_error(&self, pool_tier: Option<&str>) {
+        match pool_tier {
+            Some(t) => self.query_errors.add(1, &Self::tier_kv(t)),
+            None => self.query_errors.add(1, &[]),
+        }
     }
 
-    /// Update pool size
+    /// Record time waiting for a pool slot or direct connection setup.
+    pub fn record_connection_wait(
+        &self,
+        duration: std::time::Duration,
+        pool_tier: Option<&str>,
+    ) {
+        match pool_tier {
+            Some(t) => self
+                .connection_wait_time
+                .record(duration.as_secs_f64(), &Self::tier_kv(t)),
+            None => self
+                .connection_wait_time
+                .record(duration.as_secs_f64(), &[]),
+        }
+    }
+
+    /// Update total pool size (sum of tiers).
     pub fn set_pool_size(&self, size: u64) {
         self.pool_size.record(size, &[]);
+    }
+
+    /// Per-tier worker counts (low-cardinality: `primary` and `replica` only).
+    pub fn set_pool_workers_by_tier(&self, primary_slots: u64, replica_slots: u64) {
+        self.pool_workers
+            .record(primary_slots, &Self::tier_kv("primary"));
+        self.pool_workers
+            .record(replica_slots, &Self::tier_kv("replica"));
     }
 
     /// Update active connections count
@@ -178,16 +222,18 @@ impl LifeguardMetrics {
         self.wal_monitor_replica_routing_disabled.record(v, &[]);
     }
 
-    pub fn record_pool_acquire_timeout(&self) {
-        self.pool_acquire_timeout_total.add(1, &[]);
+    pub fn record_pool_acquire_timeout(&self, tier: &str) {
+        self.pool_acquire_timeout_total
+            .add(1, &Self::tier_kv(tier));
     }
 
-    pub fn record_pool_slot_heal(&self) {
-        self.pool_slot_heal_total.add(1, &[]);
+    pub fn record_pool_slot_heal(&self, tier: &str) {
+        self.pool_slot_heal_total.add(1, &Self::tier_kv(tier));
     }
 
-    pub fn record_pool_connection_rotated(&self) {
-        self.pool_connection_rotated_total.add(1, &[]);
+    pub fn record_pool_connection_rotated(&self, tier: &str) {
+        self.pool_connection_rotated_total
+            .add(1, &Self::tier_kv(tier));
     }
 }
 
@@ -205,15 +251,26 @@ impl LifeguardMetrics {
         Self
     }
 
-    pub fn record_query_duration(&self, _duration: std::time::Duration) {}
-    pub fn record_query_error(&self) {}
-    pub fn record_connection_wait(&self, _duration: std::time::Duration) {}
+    pub fn record_query_duration(
+        &self,
+        _duration: std::time::Duration,
+        _pool_tier: Option<&str>,
+    ) {
+    }
+    pub fn record_query_error(&self, _pool_tier: Option<&str>) {}
+    pub fn record_connection_wait(
+        &self,
+        _duration: std::time::Duration,
+        _pool_tier: Option<&str>,
+    ) {
+    }
     pub fn set_pool_size(&self, _size: u64) {}
+    pub fn set_pool_workers_by_tier(&self, _primary_slots: u64, _replica_slots: u64) {}
     pub fn set_active_connections(&self, _count: u64) {}
     pub fn set_wal_monitor_replica_routing_disabled(&self, _v: u64) {}
-    pub fn record_pool_acquire_timeout(&self) {}
-    pub fn record_pool_slot_heal(&self) {}
-    pub fn record_pool_connection_rotated(&self) {}
+    pub fn record_pool_acquire_timeout(&self, _tier: &str) {}
+    pub fn record_pool_slot_heal(&self, _tier: &str) {}
+    pub fn record_pool_connection_rotated(&self, _tier: &str) {}
 }
 
 #[cfg(not(feature = "metrics"))]
@@ -290,15 +347,16 @@ mod tests {
     fn test_metrics_initialization() {
         let metrics = LifeguardMetrics::init();
         // Just verify it doesn't panic
-        metrics.record_query_duration(std::time::Duration::from_millis(100));
-        metrics.record_query_error();
-        metrics.record_connection_wait(std::time::Duration::from_millis(50));
+        metrics.record_query_duration(std::time::Duration::from_millis(100), None);
+        metrics.record_query_error(None);
+        metrics.record_connection_wait(std::time::Duration::from_millis(50), None);
         metrics.set_pool_size(10);
+        metrics.set_pool_workers_by_tier(4, 2);
         metrics.set_active_connections(5);
         metrics.set_wal_monitor_replica_routing_disabled(0);
-        metrics.record_pool_acquire_timeout();
-        metrics.record_pool_slot_heal();
-        metrics.record_pool_connection_rotated();
+        metrics.record_pool_acquire_timeout("primary");
+        metrics.record_pool_slot_heal("replica");
+        metrics.record_pool_connection_rotated("primary");
     }
 
     #[test]

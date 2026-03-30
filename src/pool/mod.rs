@@ -9,8 +9,8 @@
 //!   [`crate::executor::LifeExecutor::execute_values`] / `query_*_values` (and ORM paths).
 //! - **[`OwnedParam`]**: owned bind parameters for jobs crossing channels (cannot send `&dyn ToSql`
 //!   across threads/coroutine boundaries).
-//! - **[`wal::WalLagMonitor`]**: optional background polling used when routing reads to replicas; see
-//!   module [`wal`].
+//! - **[`wal::WalLagMonitor`]** + **[`WalLagPolicy`]**: optional background polling used when routing
+//!   reads to replicas; see module [`wal`].
 //!
 //! ## Configuration
 //!
@@ -19,13 +19,16 @@
 //!
 //! ## docs.rs note
 //!
-//! Planning documents and ADRs live only in the Git repository. For pooling design and roadmap,
-//! use the [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md).
+//! Planning documents and ADRs live only in the Git repository. For pooling design, operator
+//! tuning, and roadmap, see the
+//! [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md),
+//! [pooling design](https://github.com/microscaler/lifeguard/blob/main/docs/planning/DESIGN_CONNECTION_POOLING.md),
+//! and [POOLING_OPERATIONS](https://github.com/microscaler/lifeguard/blob/main/docs/POOLING_OPERATIONS.md).
 //!
 //! ## Slot heal (PRD §5.5)
 //!
-//! Worker threads may replace a dead [`may_postgres::Client`] when errors match the connectivity
-//! heuristic in `connectivity.rs` — not on ordinary SQL failures.
+//! Worker threads may replace a dead [`may_postgres::Client`] when errors match the connectivity-class
+//! heuristic (see `connectivity` in this module) — not on ordinary SQL failures.
 
 mod connectivity;
 pub mod config;

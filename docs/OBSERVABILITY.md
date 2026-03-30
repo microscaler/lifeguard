@@ -71,17 +71,18 @@ When the `metrics` feature is enabled, Lifeguard exposes the following Prometheu
 
 ### Metrics
 
-| Metric Name | Type | Description |
-|------------|------|-------------|
-| `lifeguard_pool_size` | Gauge | Current connection pool size |
-| `lifeguard_active_connections` | Gauge | Number of active connections |
-| `lifeguard_connection_wait_time_seconds` | Histogram | Time spent waiting for a connection |
-| `lifeguard_query_duration_seconds` | Histogram | Query execution time |
-| `lifeguard_query_errors_total` | Counter | Total number of query errors |
-| `lifeguard_wal_monitor_replica_routing_disabled` | Gauge | 1 if the WAL lag monitor gave up connecting to the replica (PRD R7.3) |
-| `lifeguard_pool_acquire_timeout_total` | Counter | Pool acquire timeouts (`LifeError::PoolAcquireTimeout`) |
-| `lifeguard_pool_slot_heal_total` | Counter | Slot heal reconnects after connectivity-class errors |
-| `lifeguard_pool_connection_rotated_total` | Counter | Connections rotated after `max_connection_lifetime` (PRD R3.1) |
+| Metric Name | Type | Labels | Description |
+|------------|------|--------|-------------|
+| `lifeguard_pool_size` | Gauge | — | Total pool worker slots (primary + replica) |
+| `lifeguard_pool_workers` | Gauge | `pool_tier` (`primary` \| `replica`) | Worker slots per tier |
+| `lifeguard_active_connections` | Gauge | — | Number of active connections (total) |
+| `lifeguard_connection_wait_time_seconds` | Histogram | optional `pool_tier` | Time waiting for a pool slot; unlabeled for direct `connect` |
+| `lifeguard_query_duration_seconds` | Histogram | optional `pool_tier` | Query time; pooled paths use `primary` / `replica` |
+| `lifeguard_query_errors_total` | Counter | optional `pool_tier` | Query errors; pooled paths use `primary` / `replica` |
+| `lifeguard_wal_monitor_replica_routing_disabled` | Gauge | — | 1 if the WAL lag monitor gave up connecting to the replica (PRD R7.3) |
+| `lifeguard_pool_acquire_timeout_total` | Counter | `pool_tier` | Pool acquire timeouts (`LifeError::PoolAcquireTimeout`) |
+| `lifeguard_pool_slot_heal_total` | Counter | `pool_tier` | Slot heal reconnects after connectivity-class errors |
+| `lifeguard_pool_connection_rotated_total` | Counter | `pool_tier` | Connections rotated after `max_connection_lifetime` (PRD R3.1) |
 
 ### Accessing Metrics
 
