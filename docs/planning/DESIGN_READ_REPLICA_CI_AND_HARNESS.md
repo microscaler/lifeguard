@@ -38,17 +38,19 @@ GitHub Actions `services` containers start **independently** with no built-in pr
 
 ### 2.2 Port mapping (runner-visible)
 
-Expose two ports on `localhost`:
+Expose Postgres and Redis on **high host ports** so **5432 / 5433 / 6379** stay available for Kind/Tilt on the same workstation:
 
-| Role | Host port (example) | Container |
-|------|---------------------|-----------|
-| Primary | `5432` | `primary` service |
-| Replica | `5433` | `replica` service |
+| Role | Host port | Container |
+|------|-----------|-----------|
+| Primary | `6543` | `postgresql-primary` → `5432` |
+| Replica | `6544` | `postgresql-replica` → `5432` |
+| Redis | `6545` | `redis` → `6379` |
 
 CI steps set:
 
-- `TEST_DATABASE_URL=postgres://…@127.0.0.1:5432/postgres`
-- `TEST_REPLICA_URL=postgres://…@127.0.0.1:5433/postgres`
+- `TEST_DATABASE_URL=postgres://…@127.0.0.1:6543/postgres`
+- `TEST_REPLICA_URL=postgres://…@127.0.0.1:6544/postgres`
+- `REDIS_URL` / `TEST_REDIS_URL` → `redis://127.0.0.1:6545` when using this Compose file
 
 Use the **same password** as today’s `PGPASSWORD` secret where possible so URLs stay consistent with `psql` migration steps (which must target the **primary** only).
 
@@ -57,7 +59,7 @@ Use the **same password** as today’s `PGPASSWORD` secret where possible so URL
 1. **Checkout** and toolchain (unchanged).
 2. **`docker compose up -d`** (or `docker compose up --wait` if supported) for the replica stack.
 3. **Wait** until both containers report healthy (Compose healthchecks + optional explicit `pg_isready` loop).
-4. **Apply migrations** with `psql` against **127.0.0.1:5432** only (primary). Replica applies WAL.
+4. **Apply migrations** with `psql` against **127.0.0.1:6543** only (primary). Replica applies WAL.
 5. **Replication sync gate** (see §4) once before running replica-dependent tests, or from test harness init.
 6. Run **nextest** / `cargo test` with `TEST_DATABASE_URL` and `TEST_REPLICA_URL` set.
 7. **`docker compose down -v`** in `if: always()` or final step to free disk and avoid cross-job pollution.
@@ -79,7 +81,7 @@ Use the **same password** as today’s `PGPASSWORD` secret where possible so URL
   docker compose -f .github/docker/docker-compose.yml up -d --wait
   export TEST_DATABASE_URL=...
   export TEST_REPLICA_URL=...
-  export TEST_REDIS_URL=redis://127.0.0.1:6379
+  export TEST_REDIS_URL=redis://127.0.0.1:6545
   cargo nextest run -p lifeguard --profile db-serial -E 'binary(db_integration_suite)' pool_read_replica::
   ```
 

@@ -1,14 +1,18 @@
 # CI and local integration dependencies: Postgres primary + streaming replica + Redis.
 # GitHub Actions `services:` cannot set up replication; this file is the single source for `test` and `perf_orm` jobs.
 #
+# Host ports use the **6543 / 6544 / 6545** range so this stack does not bind **5432 / 5433 / 6379** on the
+# host — those are typically used by Kind/Tilt Postgres and Redis while developing (Grafana dashboards, etc.).
+# For CI, job env vars point at these ports; for local Tilt, use your cluster connection strings instead.
+#
 # Usage: `PGPASSWORD` must be set in the environment (no default in this file — secret scanners / policy).
 #   export PGPASSWORD=…   # same value as GitHub Actions secret `PGPASSWORD` and `psql`
 #   docker compose -f .github/docker/docker-compose.yml up -d --wait
 #
 # JDBC-style URLs use the same value (percent-encode reserved characters in the secret):
-#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:5432/postgres
-#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:5433/postgres
-#   Redis:    redis://127.0.0.1:6379
+#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6543/postgres
+#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6544/postgres
+#   Redis:    redis://127.0.0.1:6545
 #
 # Postgres: Bitnami legacy PostgreSQL 15 (`bitnamilegacy/postgresql:15`).
 
@@ -18,7 +22,7 @@ services:
   postgresql-primary:
     image: docker.io/bitnamilegacy/postgresql:15
     ports:
-      - "5432:5432"
+      - "6543:5432"
     environment:
       POSTGRESQL_REPLICATION_MODE: master
       POSTGRESQL_REPLICATION_USER: replicator
@@ -38,7 +42,7 @@ services:
   postgresql-replica:
     image: docker.io/bitnamilegacy/postgresql:15
     ports:
-      - "5433:5432"
+      - "6544:5432"
     depends_on:
       postgresql-primary:
         condition: service_healthy
@@ -62,7 +66,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6545:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

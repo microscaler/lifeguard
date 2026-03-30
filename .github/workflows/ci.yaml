@@ -11,18 +11,18 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # All DB/Redis dependencies: `.github/docker/docker-compose.yml` (primary :5432, replica :5433, Redis :6379).
+    # All DB/Redis dependencies: `.github/docker/docker-compose.yml` (host primary :6543, replica :6544, Redis :6545 — avoids 5432/5433/6379 for Kind/Tilt).
     # Started via hoverkraft-tech/compose-action (up: `-d --wait`; post hook: `compose down -v`). See https://github.com/marketplace/actions/docker-compose-action
     # No `jobs.*.services` — avoids duplicating Postgres/Redis and conflicting ports with Compose.
     # `TEST_DATABASE_URL` / `TEST_REPLICA_URL` / Redis URLs for `tests/context.rs`; `DATABASE_URL` for `TestDatabase::get_connection_string`.
     # Repository secret `PGPASSWORD`: exported to steps; Compose file interpolates `${PGPASSWORD}`; URLs / `psql` use the same. Not available to workflows from fork PRs.
     env:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
-      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
-      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
-      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5433/postgres
-      REDIS_URL: redis://127.0.0.1:6379
-      TEST_REDIS_URL: redis://127.0.0.1:6379
+      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
+      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
+      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6544/postgres
+      REDIS_URL: redis://127.0.0.1:6545
+      TEST_REDIS_URL: redis://127.0.0.1:6545
 
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
           fi
           for f in "${sql_files[@]}"; do
             echo "Applying $f"
-            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+            psql -h 127.0.0.1 -p 6543 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
           done
 
       # Pin nextest: newer releases (e.g. 0.9.132+) require rustc 1.91+; CI uses nightly-2025-06-30.
@@ -154,13 +154,13 @@ jobs:
           up-flags: -d --wait
           down-flags: -v
 
-      # perf-orm: primary :5432, replica :5433, Redis :6379 (all from Compose).
+      # perf-orm: Compose host ports :6543 / :6544 / :6545 (see `.github/docker/docker-compose.yml`).
       - name: Run perf-orm
         env:
-          PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:5432/postgres
-          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:5433/postgres
-          REDIS_URL: redis://127.0.0.1:6379
-          TEST_REDIS_URL: redis://127.0.0.1:6379
+          PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6543/postgres
+          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6544/postgres
+          REDIS_URL: redis://127.0.0.1:6545
+          TEST_REDIS_URL: redis://127.0.0.1:6545
           PERF_RESET: "1" # destructive DDL on perf_* tables
           PERF_POOL_SIZE: "8" # primary tier slots; JSON `replica_connections` when replica enabled
           PERF_TENANT_COUNT: "10"

@@ -2,7 +2,7 @@
 //!
 //! ## Components
 //!
-//! - **[`LifeguardPool`]**: one `may` worker coroutine per logical connection, round-robin dispatch
+//! - **[`LifeguardPool`]**: one **OS-thread** worker per logical connection, round-robin dispatch
 //!   to workers, bounded per-worker job queues, and configurable acquire timeout (see
 //!   [`LifeguardPoolSettings`] and [`crate::LifeError::PoolAcquireTimeout`]).
 //! - **[`PooledLifeExecutor`]**: [`crate::executor::LifeExecutor`] over the pool via

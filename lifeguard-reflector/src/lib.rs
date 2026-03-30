@@ -1,4 +1,4 @@
-//! LifeReflector — distributed cache coherence for the Lifeguard platform.
+//! `LifeReflector` — distributed cache coherence for the Lifeguard platform.
 //!
 //! This crate lives in the Lifeguard monorepo alongside `lifeguard`, `lifeguard-derive`,
 //! `lifeguard-migrate`, and other `lifeguard-*` packages. It may later be extracted to a

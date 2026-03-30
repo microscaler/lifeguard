@@ -52,12 +52,21 @@ pub fn wait_replica_replayed_at_least(
         format!("wait_replica_replayed_at_least: connect failed after {timeout:?}: {e}")
     })?;
 
+    if !min_lsn
+        .bytes()
+        .all(|b| b.is_ascii_hexdigit() || b == b'/')
+    {
+        return Err(format!(
+            "wait_replica_replayed_at_least: invalid min_lsn (expected pg_lsn text): {min_lsn}"
+        ));
+    }
+
     loop {
+        // `may_postgres` cannot bind Rust `&str` as `pg_lsn`; embed validated LSN from our own
+        // `pg_current_wal_lsn()::text` query only.
+        let sql = format!("SELECT (pg_last_wal_replay_lsn() >= '{min_lsn}'::pg_lsn) AS ok");
         let ok: bool = client
-            .query_one(
-                "SELECT (pg_last_wal_replay_lsn() >= $1::pg_lsn) AS ok",
-                &[&min_lsn],
-            )
+            .query_one(sql.as_str(), &[])
             .map_err(|e| {
                 format!("wait_replica_replayed_at_least: query failed (min_lsn={min_lsn}): {e}")
             })?

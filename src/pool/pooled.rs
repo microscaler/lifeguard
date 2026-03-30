@@ -1,4 +1,7 @@
-//! `may`-scheduled connection pool with one coroutine consumer per slot (SPSC per slot, MPSC overall).
+//! Connection pool with **one OS thread per slot** (SPSC per slot, MPSC overall).
+//!
+//! Workers use dedicated threads so dispatchers can block on [`std::sync::mpsc`] replies without
+//! relying on the `may` scheduler to run pool consumers (see PRD / integration tests).
 //!
 //! Each worker owns one [`may_postgres::Client`] and drains a dedicated **bounded**
 //! [`crossbeam_channel`] queue. Saturated workers apply [`LifeguardPoolSettings::acquire_timeout`]
@@ -22,6 +25,7 @@ use may_postgres::{Client, Row};
 use may_postgres::types::ToSql;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "metrics")]
@@ -61,9 +65,15 @@ impl WorkerPool {
 
             let (job_tx, job_rx) = crossbeam_channel::bounded::<WorkerJob>(qcap);
 
-            let handle = may::go!(move || {
-                run_worker(client, job_rx);
-            });
+            let name = format!("lifeguard-pool-{role}-{slot}");
+            let handle = thread::Builder::new()
+                .name(name)
+                .spawn(move || {
+                    run_worker(client, job_rx);
+                })
+                .map_err(|e| {
+                    LifeError::Other(format!("{role} pool worker thread {slot}: {e}"))
+                })?;
             #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
             std::mem::forget(handle);
 
@@ -224,7 +234,10 @@ impl LifeguardPool {
                 settings,
             )?;
             let monitor_url = replica_urls_trimmed[0].clone();
-            let wal = WalLagMonitor::start_monitor(monitor_url);
+            let wal = WalLagMonitor::start_monitor_with_poll_interval(
+                monitor_url,
+                settings.wal_lag_poll_interval,
+            );
             (Some(rp), Some(wal))
         } else {
             (None, None)

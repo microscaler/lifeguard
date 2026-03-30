@@ -1,2 +1,2 @@
 # Auto-generated FK-safe apply order. Regenerate with: cargo run -p hauliage_migrator
-inventory/20260328192153_generated_from_entities.sql
+inventory/20260330072704_generated_from_entities.sql

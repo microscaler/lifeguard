@@ -93,10 +93,10 @@ The `examples/perf-idam` crate (standalone workspace) provides a `perf-orm` bina
 
 In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_suite`, the **`test`** job:
 
-1. Starts **primary + replica Postgres and Redis** via [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Bitnami legacy images; primary `localhost:5432`, replica `localhost:5433`, Redis `localhost:6379`). The `test` job does **not** use GitHub `services:` for these — everything runs through this Compose file.
+1. Starts **primary + replica Postgres and Redis** via [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Bitnami legacy images). **Host** ports are **`6543`** (primary), **`6544`** (replica), **`6545`** (Redis) so **5432 / 5433 / 6379** stay free for **Kind/Tilt** Postgres and Redis on the same machine. The `test` job does **not** use GitHub `services:` for these — everything runs through this Compose file.
 2. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
 3. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
-4. Applies SQL to the **primary** only (`psql` against port 5432): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
+4. Applies SQL to the **primary** only (`psql -h 127.0.0.1 -p 6543`): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
 
 That validates the migration-generation path against a real database before other steps use the same Postgres instance.
 
@@ -109,8 +109,11 @@ The `lifeguard` package runs database-backed tests from a **single** integration
 | Variable | Role |
 |----------|------|
 | `TEST_DATABASE_URL` | If set, **skips** starting Postgres via testcontainers; must point at a **dedicated test** Postgres (not `DATABASE_URL` — integration code can run destructive DDL). |
-| `TEST_REPLICA_URL` | Streaming standby URL for the same cluster as `TEST_DATABASE_URL`; enables `pool_read_replica` tests. **Unset** → those tests no-op (skip). CI sets this to `localhost:5433`. See [PRD_READ_REPLICA_TESTING.md](planning/PRD_READ_REPLICA_TESTING.md). |
-| `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. |
+| `TEST_REPLICA_URL` | Streaming standby URL for the same cluster as `TEST_DATABASE_URL`; enables `pool_read_replica` tests. **Unset** → those tests no-op (skip). CI sets this to `localhost:6544`. See [PRD_READ_REPLICA_TESTING.md](planning/PRD_READ_REPLICA_TESTING.md). |
+| `LIFEGUARD_POOL_TEST_TIMING` | Optional; if non-empty and not `0`/`false`, `pool_read_replica` prints phase timings (setup, pool open, replay wait, reads, batch load) to **stderr**. |
+| `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. If you use **CI Compose** locally (`.github/docker/docker-compose.yml`), set **`TEST_REDIS_URL=redis://127.0.0.1:6545`** so Redis matches the published port. |
+
+**CI Compose vs Kind/Tilt:** GitHub Actions and anyone running `.github/docker/docker-compose.yml` use **6543 / 6544 / 6545** on the host. **Do not** rely on `localhost:5432` for that stack. For **Kind/Tilt** development (Grafana, app Postgres, etc.), keep using your usual port-forwards (often **5432** on the host) and point `TEST_DATABASE_URL` / `TEST_REPLICA_URL` at those URLs — no conflict with Compose because the stacks are not meant to run the same DB ports simultaneously on the same host.
 
 **Shared Postgres (e.g. Kind + `just dev-up`):** parallel test threads can exhaust connections (`too many clients`) or race on `CREATE TABLE`. Prefer:
 
@@ -151,16 +154,16 @@ cd /path/to/lifeguard
 # Set PGPASSWORD in your shell to match your DB (CI uses the repository secret of the same name; do not commit values).
 docker compose -f .github/docker/docker-compose.yml up -d --wait
 
-export TEST_DATABASE_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:5432/postgres"
-export TEST_REPLICA_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:5433/postgres"
-export TEST_REDIS_URL="${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+export TEST_DATABASE_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6543/postgres"
+export TEST_REPLICA_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6544/postgres"
+export TEST_REDIS_URL="${TEST_REDIS_URL:-redis://127.0.0.1:6545}"
 
 cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)' pool_read_replica:: --no-fail-fast
 
 docker compose -f .github/docker/docker-compose.yml down -v
 ```
 
-If **port 5432 or 5433 is already in use**, stop the conflicting service or override published ports in a local override file.
+If **6543 / 6544 / 6545** are already in use, stop the conflicting service or override published ports in a local override file. **5432 / 5433 / 6379** are left free for Kind/Tilt by design.
 
 Product requirements: [`docs/planning/PRD_READ_REPLICA_TESTING.md`](planning/PRD_READ_REPLICA_TESTING.md). Engineering design: [`docs/planning/DESIGN_READ_REPLICA_CI_AND_HARNESS.md`](planning/DESIGN_READ_REPLICA_CI_AND_HARNESS.md).
 
