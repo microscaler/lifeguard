@@ -28,7 +28,7 @@
 //! ## Field Attribute Parsing (BUG-2026-01-19-02)
 //!
 //! **CRITICAL**: Field attributes MUST be extracted in a single pass using `extract_field_attributes()`.
-//! 
+//!
 //! **DO NOT** call `extract_field_attribute()` multiple times (e.g., once for "`map_from`", once for "convert").
 //! This causes `parse_nested_meta` to be invoked multiple times on the same attribute, leading to:
 //! - Macro expansion failures with "expected `,`" errors
@@ -51,31 +51,31 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Field};
+use syn::{parse_macro_input, Data, DeriveInput, Field, Fields};
 
 use crate::attributes;
 use crate::utils;
 
 /// Derive macro for `DeriveTryIntoModel` - generates `TryIntoModel` trait implementations
-/// 
+///
 /// ## Field Attribute Parsing
-/// 
+///
 /// This macro extracts field attributes (`map_from`, convert) using `extract_field_attributes()`,
 /// which MUST be called in a single pass. Do NOT call `extract_field_attribute()` multiple times
 /// as this causes `parse_nested_meta` to be invoked multiple times on the same attribute, leading
 /// to macro expansion failures. See `extract_field_attributes()` documentation for details.
-/// 
+///
 /// ## Error Handling
-/// 
+///
 /// All attribute parsing errors are propagated immediately and converted to compile errors.
 /// This ensures users get clear error messages for malformed attributes instead of silent failures.
 /// See BUG-2026-01-19-02 for historical context.
 #[allow(clippy::too_many_lines)]
 pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    
+
     let struct_name = &input.ident;
-    
+
     // Extract struct fields
     let fields = match &input.data {
         Data::Struct(syn::DataStruct {
@@ -91,13 +91,16 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
             .into();
         }
     };
-    
+
     // Extract target Model type from attribute
     let (model_type, error_type) = match extract_model_type(&input) {
         Ok(Some((model, error))) => (model, error),
         Ok(None) => {
             // Check if there's a lifeguard attribute at all
-            let has_lifeguard_attr = input.attrs.iter().any(|attr| attr.path().is_ident("lifeguard"));
+            let has_lifeguard_attr = input
+                .attrs
+                .iter()
+                .any(|attr| attr.path().is_ident("lifeguard"));
             if !has_lifeguard_attr {
                 return syn::Error::new_spanned(
                     &input.ident,
@@ -117,7 +120,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
             return err.to_compile_error().into();
         }
     };
-    
+
     // Check if error type is lifeguard::LifeError (default) or a custom error type
     // We need to check the path structure to determine if we should wrap in LifeError::Other
     // CRITICAL: Only match lifeguard::LifeError, not any type ending with ::LifeError
@@ -127,25 +130,25 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
         Err(e) => {
             return syn::Error::new_spanned(
                 &input.ident,
-                format!("Failed to parse error type: {e}")
+                format!("Failed to parse error type: {e}"),
             )
             .to_compile_error()
             .into();
         }
     };
     let is_life_error = is_lifeguard_life_error(&error_type_parsed);
-    
+
     // Generate field mapping code
     let mut field_mappings: Vec<TokenStream2> = Vec::new();
-    
+
     for field in fields {
         let field_name = match utils::field_ident(field) {
             Ok(i) => i,
             Err(e) => return e.to_compile_error().into(),
         };
-        
+
         // CRITICAL: Extract all field attributes in a SINGLE pass.
-        // 
+        //
         // We MUST use extract_field_attributes() which calls parse_nested_meta ONCE per attribute,
         // not extract_field_attribute() multiple times. Calling parse_nested_meta multiple times
         // on the same attribute causes macro expansion failures (see BUG-2026-01-19-02).
@@ -160,7 +163,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
             }
         };
         let _is_optional = attributes::has_attribute(field, "optional");
-        
+
         // Determine target field name
         let target_field_name = if let Some(map_from) = map_from {
             // Custom mapping: use the specified field name
@@ -169,7 +172,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                 Err(e) => {
                     return syn::Error::new_spanned(
                         field,
-                        format!("Invalid field name in map_from attribute: {e}")
+                        format!("Invalid field name in map_from attribute: {e}"),
                     )
                     .to_compile_error()
                     .into();
@@ -179,7 +182,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
             // Direct mapping: use the same field name
             field_name.clone()
         };
-        
+
         // Generate field assignment
         let field_assignment = if let Some(convert_fn) = convert_fn {
             // Custom conversion function
@@ -188,13 +191,13 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                 Err(e) => {
                     return syn::Error::new_spanned(
                         field,
-                        format!("Invalid conversion function path: {e}")
+                        format!("Invalid conversion function path: {e}"),
                     )
                     .to_compile_error()
                     .into();
                 }
             };
-            
+
             // If error type is LifeError, wrap in LifeError::Other
             // For custom error types, use map_err with Into::into to convert the error
             // This will work if From<ConversionError> is implemented for CustomError,
@@ -225,17 +228,17 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
                 #target_field_name: self.#field_name,
             }
         };
-        
+
         field_mappings.push(field_assignment);
     }
-    
+
     // Generate the TryIntoModel implementation
     // Use ..Default::default() to handle missing fields
     // This requires the Model type to implement Default
     let expanded = quote! {
         impl lifeguard::TryIntoModel<#model_type> for #struct_name {
             type Error = #error_type;
-            
+
             fn try_into_model(self) -> Result<#model_type, Self::Error> {
                 Ok(#model_type {
                     #(#field_mappings)*
@@ -244,17 +247,17 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
             }
         }
     };
-    
+
     TokenStream::from(expanded)
 }
 
 /// Check if the error type is specifically `lifeguard::LifeError`
-/// 
+///
 /// This function examines the path structure to determine if the error type
 /// is `lifeguard::LifeError`, not just any type ending with `::LifeError`.
-/// 
+///
 /// # Returns
-/// 
+///
 /// - `true` if the error type is `lifeguard::LifeError` or unqualified `LifeError`
 /// - `false` for any other error type, including custom error types from other modules
 ///   (e.g., `mymod::LifeError` should return `false`)
@@ -262,12 +265,12 @@ fn is_lifeguard_life_error(error_type: &syn::Type) -> bool {
     match error_type {
         syn::Type::Path(type_path) => {
             let path = &type_path.path;
-            
+
             // Check if path has exactly 2 segments: "lifeguard" and "LifeError"
             if path.segments.len() == 2 {
                 let seg1 = &path.segments[0];
                 let seg2 = &path.segments[1];
-                
+
                 // Check if first segment is "lifeguard" and second is "LifeError"
                 if seg1.ident == "lifeguard" && seg2.ident == "LifeError" {
                     // Verify there are no arguments (e.g., LifeError<T>)
@@ -276,7 +279,7 @@ fn is_lifeguard_life_error(error_type: &syn::Type) -> bool {
                     }
                 }
             }
-            
+
             // Check if path has exactly 1 segment: "LifeError" (unqualified)
             if path.segments.len() == 1 {
                 let seg = &path.segments[0];
@@ -287,7 +290,7 @@ fn is_lifeguard_life_error(error_type: &syn::Type) -> bool {
                     }
                 }
             }
-            
+
             false
         }
         _ => false,
@@ -296,10 +299,12 @@ fn is_lifeguard_life_error(error_type: &syn::Type) -> bool {
 
 /// Extract the target Model type from #[lifeguard(model = "...")] attribute
 /// Also extracts optional error type from #[lifeguard(error = "...")] attribute
-fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, TokenStream2)>, syn::Error> {
+fn extract_model_type(
+    input: &DeriveInput,
+) -> Result<Option<(TokenStream2, TokenStream2)>, syn::Error> {
     let mut model_path_str: Option<String> = None;
     let mut error_path_str: Option<String> = None;
-    
+
     for attr in &input.attrs {
         if attr.path().is_ident("lifeguard") {
             attr.parse_nested_meta(|meta| {
@@ -317,37 +322,34 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
             })?;
         }
     }
-    
+
     if let Some(model_path_str) = model_path_str {
         // Parse the model type path
-        let model_type: syn::Type = syn::parse_str(&model_path_str)
-            .map_err(|e| {
-                syn::Error::new_spanned(
-                    &input.ident,
-                    format!("Invalid model type path '{model_path_str}': {e}")
-                )
-            })?;
-        
+        let model_type: syn::Type = syn::parse_str(&model_path_str).map_err(|e| {
+            syn::Error::new_spanned(
+                &input.ident,
+                format!("Invalid model type path '{model_path_str}': {e}"),
+            )
+        })?;
+
         // Parse error type (default to LifeError if not specified)
         let error_type: syn::Type = if let Some(error_path_str) = error_path_str {
-            syn::parse_str(&error_path_str)
-                .map_err(|e| {
-                    syn::Error::new_spanned(
-                        &input.ident,
-                        format!("Invalid error type path '{error_path_str}': {e}")
-                    )
-                })?
+            syn::parse_str(&error_path_str).map_err(|e| {
+                syn::Error::new_spanned(
+                    &input.ident,
+                    format!("Invalid error type path '{error_path_str}': {e}"),
+                )
+            })?
         } else {
             // Default to LifeError
-            syn::parse_str("lifeguard::LifeError")
-                .map_err(|e| {
-                    syn::Error::new_spanned(
-                        &input.ident,
-                        format!("Failed to parse default error type: {e}")
-                    )
-                })?
+            syn::parse_str("lifeguard::LifeError").map_err(|e| {
+                syn::Error::new_spanned(
+                    &input.ident,
+                    format!("Failed to parse default error type: {e}"),
+                )
+            })?
         };
-        
+
         Ok(Some((quote! { #model_type }, quote! { #error_type })))
     } else {
         Ok(None)
@@ -355,44 +357,44 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
 }
 
 /// Extract all field attributes (`map_from`, convert) in a single pass
-/// 
+///
 /// **CRITICAL: This function MUST extract all attributes in a single `parse_nested_meta` call.**
-/// 
+///
 /// ## Why Single Pass?
-/// 
+///
 /// Calling `parse_nested_meta` multiple times on the same attribute can cause:
 /// 1. **Macro expansion failures**: The macro may fail to expand, causing "expected `,`" errors
 /// 2. **Token consumption issues**: Multiple calls may consume tokens incorrectly
 /// 3. **Error handling problems**: Errors may not propagate correctly
-/// 
+///
 /// ## Historical Context
-/// 
+///
 /// Previously, we had separate `extract_field_attribute` calls for "`map_from`" and "convert",
 /// which called `parse_nested_meta` twice on the same attribute. This caused a regression where
 /// valid field attributes like `#[lifeguard(convert = "function")]` would fail with "expected `,`"
 /// errors, preventing macro expansion. See BUG-2026-01-19-02 for details.
-/// 
+///
 /// ## Usage Pattern
-/// 
+///
 /// This function checks ALL `#[lifeguard(...)]` attributes on the field in a single
 /// `parse_nested_meta` call. This allows users to split attributes across multiple
 /// `#[lifeguard]` blocks (e.g., `#[lifeguard(map_from = "foo")]` and
 /// `#[lifeguard(convert = "bar")]` on separate lines).
-/// 
+///
 /// ## Error Propagation
-/// 
+///
 /// This function propagates `parse_nested_meta` errors immediately. If a malformed attribute
 /// is detected (e.g., `convert = 123` instead of `convert = "function"`), it returns an error
 /// that will be converted to a compile error. This ensures users get clear error messages
 /// instead of silent failures.
-/// 
+///
 /// ## Returns
-/// 
+///
 /// - `Ok((map_from, convert))` where each is `Some(String)` if found, `None` if not found
 /// - `Err(syn::Error)` if a parsing error occurs (e.g., malformed attribute value)
-/// 
+///
 /// ## Example
-/// 
+///
 /// ```rust,ignore
 /// struct MyStruct {
 ///     #[lifeguard(convert = "my_function")]  // ✅ Works - single pass extracts this
@@ -403,26 +405,26 @@ fn extract_model_type(input: &DeriveInput) -> Result<Option<(TokenStream2, Token
 ///     value: String,
 /// }
 /// ```
-/// 
+///
 /// ## Anti-Pattern (DO NOT DO THIS)
-/// 
+///
 /// ```rust,ignore
 /// // ❌ WRONG: Don't call parse_nested_meta multiple times
 /// let map_from = extract_field_attribute(field, "map_from")?;  // First call
 /// let convert = extract_field_attribute(field, "convert")?;    // Second call - BAD!
 /// ```
-/// 
+///
 /// This anti-pattern causes the regression described above.
 fn extract_field_attributes(field: &Field) -> Result<(Option<String>, Option<String>), syn::Error> {
     let mut map_from: Option<String> = None;
     let mut convert: Option<String> = None;
-    
+
     // Check all attributes, not just the first one
     // This allows users to split attributes across multiple #[lifeguard] blocks
     for attr in &field.attrs {
         if attr.path().is_ident("lifeguard") {
             // CRITICAL: Parse ALL nested attributes in a SINGLE parse_nested_meta call.
-            // 
+            //
             // This closure is called once per nested item in the attribute. We handle
             // both "map_from" and "convert" in the same closure, ensuring we only
             // call parse_nested_meta once per #[lifeguard] attribute block.
@@ -448,17 +450,17 @@ fn extract_field_attributes(field: &Field) -> Result<(Option<String>, Option<Str
             })?;
         }
     }
-    
+
     Ok((map_from, convert))
 }
 
 /// Extract a field attribute value (e.g., `map_from`, convert)
-/// 
+///
 /// This function checks ALL #[lifeguard(...)] attributes on the field,
 /// not just the first one. This allows users to split attributes across
 /// multiple #[lifeguard] blocks (e.g., #[`lifeguard(map_from` = "foo")] and
 /// #[lifeguard(convert = "bar")] on separate lines).
-/// 
+///
 /// Returns `Ok(Some(String))` if the attribute is found, `Ok(None)` if not found,
 /// or `Err(syn::Error)` if a parsing error occurs (e.g., malformed attribute value).
 #[allow(dead_code)]

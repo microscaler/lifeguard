@@ -17,4 +17,3 @@ pub use linked::derive_linked;
 pub use partial_model::derive_partial_model;
 pub use relation::derive_relation;
 pub use try_into_model::derive_try_into_model;
-

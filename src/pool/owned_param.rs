@@ -117,9 +117,10 @@ impl TryFrom<&Value> for OwnedParam {
             Value::Uuid(Some(u)) => Ok(OwnedParam::Uuid(Some(*u))),
             Value::Uuid(None) => Ok(OwnedParam::Uuid(None)),
 
-            Value::Json(Some(j)) => Ok(OwnedParam::JsonText(Some(serde_json::to_string(&**j).map_err(
-                |e| LifeError::Other(format!("Failed to serialize JSON: {e}")),
-            )?))),
+            Value::Json(Some(j)) => Ok(OwnedParam::JsonText(Some(
+                serde_json::to_string(&**j)
+                    .map_err(|e| LifeError::Other(format!("Failed to serialize JSON: {e}")))?,
+            ))),
             Value::Json(None) => Ok(OwnedParam::GenericNull),
 
             _ => Err(LifeError::Other(format!(

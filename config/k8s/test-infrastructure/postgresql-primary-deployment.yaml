@@ -1,0 +1,105 @@
+# Bitnami PostgreSQL primary — same replication env shape as `.github/docker/docker-compose.yml` (`postgresql-primary`).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-primary
+  namespace: lifeguard-test
+  labels:
+    app: postgresql-primary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql-primary
+  template:
+    metadata:
+      labels:
+        app: postgresql-primary
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: postgresql
+          image: docker.io/bitnamilegacy/postgresql:15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          env:
+            - name: POSTGRESQL_REPLICATION_MODE
+              value: "master"
+            - name: POSTGRESQL_REPLICATION_USER
+              value: "replicator"
+            - name: POSTGRESQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: postgresql-replication-password
+            - name: POSTGRESQL_USERNAME
+              value: "postgres"
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: postgresql-password
+            - name: POSTGRESQL_DATABASE
+              value: "postgres"
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: "200"
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+            - name: pact-init
+              mountPath: /pact/10-pact-role.sql
+              subPath: 10-pact-role.sql
+              readOnly: true
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    set -e
+                    export PATH="/opt/bitnami/postgresql/bin:$PATH"
+                    for _ in $(seq 1 120); do
+                      if pg_isready -U postgres -d postgres -h 127.0.0.1 -p 5432; then break; fi
+                      sleep 1
+                    done
+                    export PGPASSWORD="$POSTGRESQL_PASSWORD"
+                    psql -U postgres -d postgres -h 127.0.0.1 -v ON_ERROR_STOP=1 -f /pact/10-pact-role.sql
+          livenessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - postgres
+                - -d
+                - postgres
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - postgres
+                - -d
+                - postgres
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgresql-primary-data
+        - name: pact-init
+          configMap:
+            name: postgres-pact-init

@@ -300,7 +300,7 @@ mod tests {
             }
         }
     }
-    
+
     crate::impl_column_def_helper_for_test!(TestColumn);
 
     #[test]

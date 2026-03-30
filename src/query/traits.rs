@@ -98,7 +98,7 @@ use crate::query::select::SelectQuery;
 pub trait LifeEntityName: Default {
     /// Get the name of the table.
     fn table_name(&self) -> &'static str;
-    
+
     /// Get the schema name (if any).
     /// Returns `None` if no schema is specified (default schema).
     fn schema_name(&self) -> Option<&'static str> {
@@ -126,7 +126,8 @@ pub trait LifeModelTrait: LifeEntityName {
     type Column: sea_query::IdenStatic + crate::query::column::column_trait::ColumnDefHelper;
 
     /// Returns the soft delete column if this entity supports soft deletion
-    #[must_use] fn soft_delete_column() -> Option<Self::Column> {
+    #[must_use]
+    fn soft_delete_column() -> Option<Self::Column> {
         None
     }
 
@@ -417,7 +418,10 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # Errors
     ///
     /// Returns `ActiveModelError` if the insert operation fails.
-    fn insert<AM, E>(active_model: AM, executor: &E) -> Result<Self::Model, crate::active_model::ActiveModelError>
+    fn insert<AM, E>(
+        active_model: AM,
+        executor: &E,
+    ) -> Result<Self::Model, crate::active_model::ActiveModelError>
     where
         Self: Sized,
         AM: crate::active_model::ActiveModelTrait<Model = Self::Model>,
@@ -542,7 +546,10 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # Errors
     ///
     /// Returns `ActiveModelError` if the update operation fails.
-    fn update<AM, E>(active_model: AM, executor: &E) -> Result<Self::Model, crate::active_model::ActiveModelError>
+    fn update<AM, E>(
+        active_model: AM,
+        executor: &E,
+    ) -> Result<Self::Model, crate::active_model::ActiveModelError>
     where
         Self: Sized,
         AM: crate::active_model::ActiveModelTrait<Model = Self::Model>,
@@ -667,7 +674,10 @@ pub trait LifeModelTrait: LifeEntityName {
     /// # Errors
     ///
     /// Returns `ActiveModelError` if the delete operation fails.
-    fn delete<AM, E>(active_model: AM, executor: &E) -> Result<(), crate::active_model::ActiveModelError>
+    fn delete<AM, E>(
+        active_model: AM,
+        executor: &E,
+    ) -> Result<(), crate::active_model::ActiveModelError>
     where
         Self: Sized,
         AM: crate::active_model::ActiveModelTrait<Model = Self::Model>,
@@ -683,7 +693,10 @@ pub trait LifeModelTrait: LifeEntityName {
 /// `may_postgres::Error` has no first-class API for unsigned range failures; this uses a
 /// [`may_postgres::Row::try_get`] path that fails for typical integral columns (Rust type mismatch),
 /// with a fallback for unusual wire types (OOB column index) so the function always returns `Err`.
-pub fn from_row_unsigned_try_from_failed(row: &may_postgres::Row, column_name: &str) -> may_postgres::Error {
+pub fn from_row_unsigned_try_from_failed(
+    row: &may_postgres::Row,
+    column_name: &str,
+) -> may_postgres::Error {
     match row.try_get::<&str, &[u8]>(column_name) {
         Err(e) => e,
         Ok(_) => {
@@ -722,7 +735,10 @@ impl FromRow for JsonValue {
         let text: String = row.try_get(0)?;
         match serde_json::from_str(&text) {
             Ok(json) => Ok(json),
-            Err(e) => Err(may_postgres::Error::user_column_decode_failed(0, e.to_string())),
+            Err(e) => Err(may_postgres::Error::user_column_decode_failed(
+                0,
+                e.to_string(),
+            )),
         }
     }
 }

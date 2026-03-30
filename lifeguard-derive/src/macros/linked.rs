@@ -43,22 +43,19 @@ use syn::{parse_macro_input, Data, DataEnum, DeriveInput, Variant};
 /// ```
 pub fn derive_linked(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    
+
     let enum_name = &input.ident;
-    
+
     // Extract enum variants
     let Data::Enum(DataEnum { variants, .. }) = &input.data else {
-        return syn::Error::new_spanned(
-            &input.ident,
-            "DeriveLinked can only be derived for enums",
-        )
-        .to_compile_error()
-        .into();
+        return syn::Error::new_spanned(&input.ident, "DeriveLinked can only be derived for enums")
+            .to_compile_error()
+            .into();
     };
-    
+
     // Process each variant to extract linked path information
     let mut linked_impls = Vec::new();
-    
+
     for variant in variants {
         match process_linked_variant(variant, enum_name) {
             Ok(Some(linked_impl)) => linked_impls.push(linked_impl),
@@ -71,11 +68,11 @@ pub fn derive_linked(input: TokenStream) -> TokenStream {
             }
         }
     }
-    
+
     let expanded: TokenStream2 = quote! {
         #(#linked_impls)*
     };
-    
+
     TokenStream::from(expanded)
 }
 
@@ -98,7 +95,7 @@ fn process_linked_variant(
     _enum_name: &syn::Ident,
 ) -> Result<Option<TokenStream2>, syn::Error> {
     let mut linked_path: Option<String> = None;
-    
+
     // Parse attributes to find linked path
     for attr in &variant.attrs {
         if attr.path().is_ident("lifeguard") {
@@ -116,7 +113,7 @@ fn process_linked_variant(
             })?;
         }
     }
-    
+
     // Generate impl if path found
     if let Some(path_str) = linked_path {
         let path = parse_linked_path(&path_str, variant.ident.span())?;
@@ -133,21 +130,24 @@ fn process_linked_variant(
 /// - "`PostEntity` -> `CommentEntity`" -> [`PostEntity`, `CommentEntity`]
 /// - "`PostEntity` -> `CommentEntity` -> `ReactionEntity`" -> [`PostEntity`, `CommentEntity`, `ReactionEntity`]
 /// - "`super::posts::PostEntity` -> `CommentEntity`" -> [`super::posts::PostEntity`, `CommentEntity`]
-fn parse_linked_path(path_str: &str, error_span: proc_macro2::Span) -> Result<LinkedPath, syn::Error> {
+fn parse_linked_path(
+    path_str: &str,
+    error_span: proc_macro2::Span,
+) -> Result<LinkedPath, syn::Error> {
     // Split by "->" to get hops
     let hops: Vec<&str> = path_str
         .split("->")
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
-    
+
     if hops.is_empty() {
         return Err(syn::Error::new(
             error_span,
             "Linked path cannot be empty. Use format: `Entity1 -> Entity2` or `Entity1 -> Entity2 -> Entity3`",
         ));
     }
-    
+
     if hops.len() < 2 {
         return Err(syn::Error::new(
             error_span,
@@ -157,7 +157,7 @@ fn parse_linked_path(path_str: &str, error_span: proc_macro2::Span) -> Result<Li
             ),
         ));
     }
-    
+
     // Parse each hop as a Rust path
     let mut parsed_hops = Vec::new();
     for (idx, hop) in hops.iter().enumerate() {
@@ -174,10 +174,8 @@ fn parse_linked_path(path_str: &str, error_span: proc_macro2::Span) -> Result<Li
         })?;
         parsed_hops.push(hop_path);
     }
-    
-    Ok(LinkedPath {
-        hops: parsed_hops,
-    })
+
+    Ok(LinkedPath { hops: parsed_hops })
 }
 
 /// Generate Linked trait implementation
@@ -196,29 +194,26 @@ fn parse_linked_path(path_str: &str, error_span: proc_macro2::Span) -> Result<Li
 ///     }
 /// }
 /// ```
-fn generate_linked_impl(
-    variant: &Variant,
-    path: &LinkedPath,
-) -> Result<TokenStream2, syn::Error> {
+fn generate_linked_impl(variant: &Variant, path: &LinkedPath) -> Result<TokenStream2, syn::Error> {
     if path.hops.len() < 2 {
         return Err(syn::Error::new_spanned(
             variant,
             "Linked path must have at least 2 hops",
         ));
     }
-    
+
     // First hop is intermediate, last is target
     let intermediate = &path.hops[0];
     let target = &path.hops[path.hops.len() - 1];
-    
+
     // Build the path segments: Self -> I1 -> I2 -> ... -> T
     let mut path_segments = Vec::new();
-    
+
     // First hop: Self -> Intermediate
     path_segments.push(quote! {
         <Entity as lifeguard::Related<#intermediate>>::to(),
     });
-    
+
     // Additional hops: I1 -> I2, I2 -> I3, etc.
     for i in 0..(path.hops.len() - 1) {
         let from = &path.hops[i];
@@ -227,7 +222,7 @@ fn generate_linked_impl(
             <#from as lifeguard::Related<#to>>::to(),
         });
     }
-    
+
     // Generate the impl block
     // Note: Linked is in lifeguard::relation, but we use the full path for clarity
     Ok(quote! {

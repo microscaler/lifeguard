@@ -8,7 +8,11 @@ use may_postgres::types::ToSql;
 use sea_query::Value;
 
 /// Two-pass conversion: collect typed storage, then `&dyn ToSql` refs for one statement.
-pub(crate) fn with_converted_value_slice<F, R, E, IE>(values: &[Value], into_err: IE, f: F) -> Result<R, E>
+pub(crate) fn with_converted_value_slice<F, R, E, IE>(
+    values: &[Value],
+    into_err: IE,
+    f: F,
+) -> Result<R, E>
 where
     F: FnOnce(&[&dyn ToSql]) -> Result<R, E>,
     IE: Fn(String) -> E,
@@ -96,9 +100,10 @@ where
             Value::Uuid(None) => null_uuids.push(None),
 
             Value::Json(Some(j)) => {
-                strings.push(serde_json::to_string(&**j).map_err(|e| {
-                    into_err(format!("Failed to serialize JSON: {e}"))
-                })?);
+                strings.push(
+                    serde_json::to_string(&**j)
+                        .map_err(|e| into_err(format!("Failed to serialize JSON: {e}")))?,
+                );
             }
             Value::Json(None) => nulls.push(None),
 

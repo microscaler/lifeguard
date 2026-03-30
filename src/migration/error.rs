@@ -80,14 +80,21 @@ impl std::fmt::Display for MigrationError {
                     "Migration '{name}' (version {version}) is already registered in the migration registry"
                 )
             }
-            MigrationError::ExecutionFailed { version, name, error } => {
+            MigrationError::ExecutionFailed {
+                version,
+                name,
+                error,
+            } => {
                 write!(
                     f,
                     "Migration '{name}' (version {version}) failed during execution: {error}"
                 )
             }
             MigrationError::InvalidVersion(version_str) => {
-                write!(f, "Invalid migration version: '{version_str}' (expected format: YYYYMMDDHHMMSS)")
+                write!(
+                    f,
+                    "Invalid migration version: '{version_str}' (expected format: YYYYMMDDHHMMSS)"
+                )
             }
             MigrationError::MissingFile { version, name } => {
                 write!(

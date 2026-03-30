@@ -71,7 +71,7 @@ pub use stream::SelectQueryStreamEx;
 // SELECT query builder
 pub mod select;
 #[doc(inline)]
-pub use select::{SelectQuery, SelectModel};
+pub use select::{SelectModel, SelectQuery};
 
 // Dataloader N+1 resolution
 pub mod loader;
@@ -79,7 +79,7 @@ pub mod loader;
 // Aggregation endpoints
 pub mod aggregate;
 #[doc(inline)]
-pub use aggregate::{LifeAggregate, AggregateQuery};
+pub use aggregate::{AggregateQuery, LifeAggregate};
 
 // Query execution methods
 pub mod execution;
@@ -89,19 +89,17 @@ pub use execution::{Paginator, PaginatorWithCount};
 // Column operations
 pub mod column;
 #[doc(inline)]
-pub use column::{ColumnTrait, ColumnDefinition};
+pub use column::{ColumnDefinition, ColumnTrait};
 
 // Table operations (for entity-driven migrations)
 pub mod table;
 #[doc(inline)]
-pub use table::{TableDefinition, IndexDefinition};
+pub use table::{IndexDefinition, TableDefinition};
 
 // Primary key operations
 pub mod primary_key;
 #[doc(inline)]
-pub use primary_key::{
-    PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
-};
+pub use primary_key::{PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn, PrimaryKeyTrait};
 
 // Model Manager pattern for custom query methods
 pub mod manager;

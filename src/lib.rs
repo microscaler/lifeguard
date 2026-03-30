@@ -54,12 +54,12 @@ pub mod metrics;
 
 // Channel-backed logging (may `mpsc` singleton)
 pub mod logging;
-pub use logging::{
-    enqueue, flush_log_channel, global_log_sender, try_enqueue, ChannelLogger, LogLevel, LogMsg,
-    LogRecord, CHANNEL_LOG_BRIDGE, init_log_bridge,
-};
 #[cfg(feature = "tracing")]
 pub use logging::{channel_layer, ChannelLayer};
+pub use logging::{
+    enqueue, flush_log_channel, global_log_sender, init_log_bridge, try_enqueue, ChannelLogger,
+    LogLevel, LogMsg, LogRecord, CHANNEL_LOG_BRIDGE,
+};
 
 pub mod pool;
 
@@ -70,7 +70,9 @@ pub mod test_helpers;
 // Entity tests will be rebuilt in Epic 03
 // mod tests_cfg;
 
-pub use pool::{DatabaseConfig, LifeguardPool, LifeguardPoolSettings, OwnedParam, PooledLifeExecutor};
+pub use pool::{
+    DatabaseConfig, LifeguardPool, LifeguardPoolSettings, OwnedParam, PooledLifeExecutor,
+};
 
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
 // Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
@@ -81,28 +83,29 @@ pub use async_graphql;
 
 // Re-export connection types for convenience
 pub use connection::{
-    connect, validate_connection_string, check_connection_health,
-    check_connection_health_with_timeout, ConnectionError, ConnectionString,
+    check_connection_health, check_connection_health_with_timeout, connect,
+    validate_connection_string, ConnectionError, ConnectionString,
 };
 
 // Re-export executor types for convenience
-pub use executor::{LifeExecutor, LifeError, MayPostgresExecutor};
+pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor};
 
 // Query builder - Epic 02 Story 03
 pub mod query;
 pub use query::{
-    SelectQuery, SelectModel, from_row_unsigned_try_from_failed, FromRow, LifeEntityName, LifeModelTrait,
-    ColumnTrait, ColumnDefinition,
-    PrimaryKeyTrait, PrimaryKeyToColumn, PrimaryKeyArity, PrimaryKeyArityTrait,
-    ModelManager, StoredProcedure,
-    TableDefinition, IndexDefinition,
+    from_row_unsigned_try_from_failed, ColumnDefinition, ColumnTrait, FromRow, IndexDefinition,
+    LifeEntityName, LifeModelTrait, ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait,
+    PrimaryKeyToColumn, PrimaryKeyTrait, SelectModel, SelectQuery, StoredProcedure,
+    TableDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules
 
 // ActiveModel operations - Epic 02 Story 07
 pub mod active_model;
-pub use active_model::{ActiveModelTrait, ActiveModelBehavior, ActiveModelError, ActiveValue, with_converted_params};
+pub use active_model::{
+    with_converted_params, ActiveModelBehavior, ActiveModelError, ActiveModelTrait, ActiveValue,
+};
 
 // Model trait - Core Traits & Types
 pub mod model;
@@ -111,43 +114,44 @@ pub use model::{ModelError, ModelTrait, TryIntoModel};
 // Relation trait - Epic 02 Story 08
 pub mod relation;
 pub use relation::{
-    RelationTrait, RelationBuilder, RelationMetadata, Related, FindRelated,
-    Identity, BorrowedIdentityIter, IntoIdentity,
-    RelationDef, RelationType, join_tbl_on_condition, build_where_condition,
-    join_condition,
+    build_where_condition, join_condition, join_tbl_on_condition, BorrowedIdentityIter,
+    FindRelated, Identity, IntoIdentity, Related, RelationBuilder, RelationDef, RelationMetadata,
+    RelationTrait, RelationType,
 };
 
 // Partial Model trait - Epic 02 Story 09
 pub mod partial_model;
-pub use partial_model::{PartialModelTrait, PartialModelBuilder, SelectPartialQuery};
+pub use partial_model::{PartialModelBuilder, PartialModelTrait, SelectPartialQuery};
 
 // JSON helpers - Custom deserializers for floating-point types
 pub mod json_helpers;
-pub use json_helpers::{deserialize_f32, deserialize_f64, deserialize_option_f32, deserialize_option_f64};
+pub use json_helpers::{
+    deserialize_f32, deserialize_f64, deserialize_option_f32, deserialize_option_f64,
+};
 
 // Re-export raw SQL helpers for convenience
 pub use raw_sql::{
-    execute_unprepared, execute_statement, find_by_statement, find_all_by_statement, query_value,
+    execute_statement, execute_unprepared, find_all_by_statement, find_by_statement, query_value,
 };
 
 // Value type system - Epic 02 Story 10 (Phase 4: Value Type Infrastructure)
 pub mod value;
 pub use value::{
-    ValueType, TryGetable, TryGetableMany, ValueExtractionError,
-    IntoValueTuple, FromValueTuple, TryFromU64,
+    FromValueTuple, IntoValueTuple, TryFromU64, TryGetable, TryGetableMany, ValueExtractionError,
+    ValueType,
 };
 
 // Re-export transaction types for convenience
-pub use transaction::{Transaction, TransactionError, IsolationLevel};
+pub use transaction::{IsolationLevel, Transaction, TransactionError};
 
 // Migration system - Epic 03
 pub mod migration;
 pub use migration::{
-    Migration, SchemaManager, MigrationError, MigrationRecord, MigrationStatus,
-    Migrator, MigrationLockGuard, startup_migrations, startup_migrations_with_timeout,
-    acquire_migration_lock, release_migration_lock, is_migration_lock_held,
+    acquire_migration_lock, is_migration_lock_held, release_migration_lock, startup_migrations,
+    startup_migrations_with_timeout, Migration, MigrationError, MigrationLockGuard,
+    MigrationRecord, MigrationStatus, Migrator, SchemaManager,
 };
 
 // Cache Coherence Architecture - Epic 07 Phase 4
 pub mod cache;
-pub use cache::{CacheProvider, CacheError, DefaultCacheProvider, CachedResult};
+pub use cache::{CacheError, CacheProvider, CachedResult, DefaultCacheProvider};

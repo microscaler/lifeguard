@@ -1,28 +1,19 @@
 #!/bin/bash
-# Get connection string for test database
+# Connection string for the Kind **primary** Postgres (matches CI compose host port 6543 when using Tilt).
 #
-# This script detects the environment and returns the appropriate connection string:
-# - If running locally (host machine): uses localhost:5432 (Tilt port-forward)
-# - If running in cluster: uses service DNS name
-# - Fallback: uses localhost:5432
+# Replicas: postgresql://postgres:postgres@127.0.0.1:6544/postgres (replica-0), :6546 (replica-1)
+# Redis: redis://127.0.0.1:6545
 
 set -euo pipefail
 
 NAMESPACE="lifeguard-test"
 
-# Check if we're running inside a Kubernetes pod
-# If KUBERNETES_SERVICE_HOST is set, we're in a pod
 if [ -n "${KUBERNETES_SERVICE_HOST:-}" ]; then
-    # Running inside cluster - use service DNS
-    echo "postgresql://postgres:postgres@postgres.${NAMESPACE}.svc.cluster.local:5432/postgres"
-elif kubectl config current-context | grep -q "kind-lifeguard-test"; then
-    # Using Kind cluster from host machine - use localhost (Tilt port-forward)
-    # Tilt automatically port-forwards PostgreSQL to localhost:5432
-    echo "postgresql://postgres:postgres@localhost:5432/postgres"
-elif kubectl get svc postgres -n "${NAMESPACE}" &> /dev/null; then
-    # Service exists but not Kind - try to use localhost (may need port-forward)
-    echo "postgresql://postgres:postgres@localhost:5432/postgres"
+    echo "postgresql://postgres:postgres@postgresql-primary.${NAMESPACE}.svc.cluster.local:5432/postgres"
+elif kubectl config current-context 2>/dev/null | grep -q "kind-lifeguard-test"; then
+    echo "postgresql://postgres:postgres@localhost:6543/postgres"
+elif kubectl get svc postgresql-primary -n "${NAMESPACE}" &> /dev/null; then
+    echo "postgresql://postgres:postgres@localhost:6543/postgres"
 else
-    # Fallback to localhost
-    echo "postgresql://postgres:postgres@localhost:5432/postgres"
+    echo "postgresql://postgres:postgres@localhost:6543/postgres"
 fi

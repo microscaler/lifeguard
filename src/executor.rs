@@ -5,16 +5,15 @@
 //! This trait will be the foundation for all database operations, allowing the ORM layer
 //! and migrations to work with any executor implementation.
 
-use may_postgres::{Client, Error as PostgresError, Row};
 use may_postgres::types::ToSql;
+use may_postgres::{Client, Error as PostgresError, Row};
 use std::fmt;
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "metrics")]
-use crate::metrics::METRICS;
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
-
+#[cfg(feature = "metrics")]
+use crate::metrics::METRICS;
 
 /// `LifeExecutor` error type
 #[derive(Debug)]
@@ -192,25 +191,21 @@ pub trait LifeExecutor {
     /// Execute a statement with `sea_query::Values` (ORM / pool-safe parameter path).
     ///
     /// Default implementation converts values to `ToSql` on the stack and calls [`Self::execute`].
-    fn execute_values(
-        &self,
-        query: &str,
-        values: &sea_query::Values,
-    ) -> Result<u64, LifeError> {
-        crate::query::converted_params::with_converted_value_slice(&values.0, LifeError::Other, |p| {
-            self.execute(query, p)
-        })
+    fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(
+            &values.0,
+            LifeError::Other,
+            |p| self.execute(query, p),
+        )
     }
 
     /// Query one row with `sea_query::Values`.
-    fn query_one_values(
-        &self,
-        query: &str,
-        values: &sea_query::Values,
-    ) -> Result<Row, LifeError> {
-        crate::query::converted_params::with_converted_value_slice(&values.0, LifeError::Other, |p| {
-            self.query_one(query, p)
-        })
+    fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(
+            &values.0,
+            LifeError::Other,
+            |p| self.query_one(query, p),
+        )
     }
 
     /// Query all rows with `sea_query::Values`.
@@ -219,9 +214,11 @@ pub trait LifeExecutor {
         query: &str,
         values: &sea_query::Values,
     ) -> Result<Vec<Row>, LifeError> {
-        crate::query::converted_params::with_converted_value_slice(&values.0, LifeError::Other, |p| {
-            self.query_all(query, p)
-        })
+        crate::query::converted_params::with_converted_value_slice(
+            &values.0,
+            LifeError::Other,
+            |p| self.query_all(query, p),
+        )
     }
 
     /// Retrieve the transparent cache provider if configured for this executor
@@ -245,19 +242,11 @@ impl LifeExecutor for &dyn LifeExecutor {
         (*self).query_all(query, params)
     }
 
-    fn execute_values(
-        &self,
-        query: &str,
-        values: &sea_query::Values,
-    ) -> Result<u64, LifeError> {
+    fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
         (*self).execute_values(query, values)
     }
 
-    fn query_one_values(
-        &self,
-        query: &str,
-        values: &sea_query::Values,
-    ) -> Result<Row, LifeError> {
+    fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
         (*self).query_one_values(query, values)
     }
 
@@ -328,7 +317,9 @@ impl MayPostgresExecutor {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn begin(&self) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+    pub fn begin(
+        &self,
+    ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
         crate::transaction::Transaction::new(self.client.clone())
     }
 
@@ -418,57 +409,54 @@ impl LifeExecutor for MayPostgresExecutor {
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
-        
+
         let start = Instant::now();
-        let result = self.client.execute(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
-        
+        let result = self.client.execute(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error();
+            LifeError::PostgresError(e)
+        });
+
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
         METRICS.record_query_duration(duration);
-        
+
         result
     }
 
     fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
-        
+
         let start = Instant::now();
-        let result = self.client.query_one(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
-        
+        let result = self.client.query_one(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error();
+            LifeError::PostgresError(e)
+        });
+
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
         METRICS.record_query_duration(duration);
-        
+
         result
     }
 
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
-        
+
         let start = Instant::now();
-        let result = self.client.query(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
-        
+        let result = self.client.query(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error();
+            LifeError::PostgresError(e)
+        });
+
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
         METRICS.record_query_duration(duration);
-        
+
         result
     }
 }

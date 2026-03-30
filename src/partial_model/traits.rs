@@ -3,8 +3,8 @@
 //! This module provides `PartialModelTrait` and `PartialModelBuilder` for selecting
 //! subsets of columns from database queries.
 
-use crate::query::{LifeModelTrait, FromRow};
 use super::query::SelectPartialQuery;
+use crate::query::{FromRow, LifeModelTrait};
 
 /// Trait for partial models that represent a subset of columns
 ///
@@ -26,9 +26,9 @@ use super::query::SelectPartialQuery;
 /// impl PartialModelTrait for UserPartial {
 ///     type Entity = User;
 ///     
-    ///     fn selected_columns() -> Vec<&'static str> {
-    ///         vec!["id", "name"]
-    ///     }
+///     fn selected_columns() -> Vec<&'static str> {
+///         vec!["id", "name"]
+///     }
 /// }
 ///
 /// impl lifeguard::FromRow for UserPartial {
@@ -53,7 +53,7 @@ use super::query::SelectPartialQuery;
 pub trait PartialModelTrait: FromRow {
     /// The Entity type that this partial model belongs to
     type Entity: LifeModelTrait;
-    
+
     /// Get the list of columns that should be selected for this partial model
     ///
     /// This method returns a vector of column names that should be selected.

@@ -5,9 +5,9 @@
 
 #![allow(warnings)]
 
-use lifeguard_derive::DerivePartialModel;
 use lifeguard::PartialModelTrait;
-use lifeguard::{LifeModelTrait, LifeEntityName};
+use lifeguard::{LifeEntityName, LifeModelTrait};
+use lifeguard_derive::DerivePartialModel;
 
 // Test entity for partial models
 #[derive(Default, Copy, Clone)]
@@ -65,7 +65,7 @@ lifeguard::impl_column_def_helper_for_test!(UserColumn);
 #[lifeguard(entity = "UserEntity")]
 pub struct UserPartialWithCustomColumn {
     pub id: i32,
-    #[column_name = "full_name"]  // Standard syntax with equals sign
+    #[column_name = "full_name"] // Standard syntax with equals sign
     pub name: String,
 }
 
@@ -73,10 +73,10 @@ pub struct UserPartialWithCustomColumn {
 fn test_column_name_equals_syntax() {
     // Verify that the column_name attribute with equals sign syntax is correctly parsed
     let columns = UserPartialWithCustomColumn::selected_columns();
-    
+
     // The column name should be "full_name" (from the attribute), not "name" (from the field)
     assert_eq!(columns, vec!["id", "full_name"]);
-    
+
     // Verify Entity type is correct
     fn _test_entity_type<P: PartialModelTrait<Entity = UserEntity>>() {}
     _test_entity_type::<UserPartialWithCustomColumn>();
@@ -87,7 +87,7 @@ fn test_column_name_equals_syntax() {
 #[lifeguard(entity = "UserEntity")]
 pub struct UserPartialDefault {
     pub id: i32,
-    pub name: String,  // No column_name attribute - should use "name"
+    pub name: String, // No column_name attribute - should use "name"
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn test_column_name_default_snake_case() {
 #[lifeguard(entity = "UserEntity")]
 pub struct UserPartialCamelCase {
     pub id: i32,
-    pub fullName: String,  // camelCase - should convert to "full_name"
+    pub fullName: String, // camelCase - should convert to "full_name"
 }
 
 #[test]

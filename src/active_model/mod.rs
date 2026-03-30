@@ -38,7 +38,7 @@
 // Core traits
 pub mod traits;
 #[doc(inline)]
-pub use traits::{ActiveModelTrait, ActiveModelBehavior};
+pub use traits::{ActiveModelBehavior, ActiveModelTrait};
 
 // Value wrapper
 pub mod value;
@@ -53,7 +53,7 @@ pub use error::ActiveModelError;
 // Graph sorting and nesting mechanics
 pub mod graph;
 #[doc(inline)]
-pub use graph::{GraphState, GraphEdge};
+pub use graph::{GraphEdge, GraphState};
 
 // Value conversion utilities
 pub(crate) mod conversion;

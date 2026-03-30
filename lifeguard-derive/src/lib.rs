@@ -18,7 +18,10 @@ use proc_macro::TokenStream;
 /// Following `SeaORM`'s architecture, this is a separate derive from Model.
 ///
 /// Note: This macro is typically used internally by `LifeModel`. See `LifeModel` for usage examples.
-#[proc_macro_derive(DeriveEntity, attributes(table_name, model, column, schema_name, soft_delete, cursor_tiebreak))]
+#[proc_macro_derive(
+    DeriveEntity,
+    attributes(table_name, model, column, schema_name, soft_delete, cursor_tiebreak)
+)]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     macros::derive_entity(input)
 }
@@ -47,7 +50,41 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 /// - `LifeModelTrait` implementation (via nested `DeriveEntity`)
 ///
 /// See `lifeguard-derive/tests/test_minimal.rs` for usage examples.
-#[proc_macro_derive(LifeModel, attributes(table_name, schema_name, primary_key, column_name, column_type, default_value, default_expr, renamed_from, select_as, save_as, comment, unique, indexed, nullable, auto_increment, enum_name, skip, table_comment, index, foreign_key, check, composite_unique, skip_from_row, soft_delete, auto_timestamp, lifecycle_hook, has_many, belongs_to, has_one, cursor_tiebreak))]
+#[proc_macro_derive(
+    LifeModel,
+    attributes(
+        table_name,
+        schema_name,
+        primary_key,
+        column_name,
+        column_type,
+        default_value,
+        default_expr,
+        renamed_from,
+        select_as,
+        save_as,
+        comment,
+        unique,
+        indexed,
+        nullable,
+        auto_increment,
+        enum_name,
+        skip,
+        table_comment,
+        index,
+        foreign_key,
+        check,
+        composite_unique,
+        skip_from_row,
+        soft_delete,
+        auto_timestamp,
+        lifecycle_hook,
+        has_many,
+        belongs_to,
+        has_one,
+        cursor_tiebreak
+    )
+)]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
     macros::derive_life_model(input)
 }
@@ -61,7 +98,31 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
-#[proc_macro_derive(LifeRecord, attributes(table_name, primary_key, column_name, column_type, default_value, default_expr, renamed_from, unique, indexed, nullable, auto_increment, enum_name, skip, soft_delete, auto_timestamp, lifecycle_hook, has_many, belongs_to, has_one, cursor_tiebreak))]
+#[proc_macro_derive(
+    LifeRecord,
+    attributes(
+        table_name,
+        primary_key,
+        column_name,
+        column_type,
+        default_value,
+        default_expr,
+        renamed_from,
+        unique,
+        indexed,
+        nullable,
+        auto_increment,
+        enum_name,
+        skip,
+        soft_delete,
+        auto_timestamp,
+        lifecycle_hook,
+        has_many,
+        belongs_to,
+        has_one,
+        cursor_tiebreak
+    )
+)]
 pub fn derive_life_record(input: TokenStream) -> TokenStream {
     macros::derive_life_record(input)
 }
@@ -85,7 +146,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 ///     #[lifeguard(belongs_to = "super::users::Entity")]
 ///     User,
 /// }
-/// 
+///
 /// // The macro generates Related trait implementations:
 /// // impl Related<super::posts::Entity> for Entity { ... }
 /// // impl Related<super::users::Entity> for Entity { ... }

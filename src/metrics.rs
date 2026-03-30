@@ -23,17 +23,17 @@
 //! - `lifeguard.release_connection`: Connection release
 
 #[cfg(feature = "metrics")]
-// Note: once_cell::sync::Lazy is deprecated in favor of std::sync::LazyLock,
-// but LazyLock requires Rust 1.80+. Using once_cell for compatibility.
-#[allow(deprecated)]
-use std::sync::LazyLock;
-#[cfg(feature = "metrics")]
 use opentelemetry::{
     global,
     metrics::{Counter, Gauge, Histogram},
 };
 #[cfg(feature = "metrics")]
 use opentelemetry_prometheus::PrometheusExporter;
+#[cfg(feature = "metrics")]
+// Note: once_cell::sync::Lazy is deprecated in favor of std::sync::LazyLock,
+// but LazyLock requires Rust 1.80+. Using once_cell for compatibility.
+#[allow(deprecated)]
+use std::sync::LazyLock;
 
 /// Lifeguard metrics collector
 ///
@@ -127,7 +127,8 @@ impl LifeguardMetrics {
 
     /// Record connection wait time
     pub fn record_connection_wait(&self, duration: std::time::Duration) {
-        self.connection_wait_time.record(duration.as_secs_f64(), &[]);
+        self.connection_wait_time
+            .record(duration.as_secs_f64(), &[]);
     }
 
     /// Update pool size

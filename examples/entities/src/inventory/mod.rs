@@ -3,10 +3,10 @@
 //! Example entities for demonstrating Lifeguard migration generation.
 
 pub mod category;
-pub mod product;
 pub mod inventory_item;
+pub mod product;
 
 // Re-export entities for convenience
 pub use category::Category;
-pub use product::Product;
 pub use inventory_item::InventoryItem;
+pub use product::Product;

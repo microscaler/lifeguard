@@ -38,12 +38,16 @@ pub fn extract_foreign_key_table(fk: &str) -> String {
 pub fn extract_foreign_key_dependencies<E>() -> Vec<String>
 where
     E: lifeguard::LifeModelTrait + lifeguard::LifeEntityName + Default,
-    E::Column: lifeguard::ColumnTrait + Copy + sea_query::IdenStatic + PartialEq + lifeguard::query::column::column_trait::ColumnDefHelper,
+    E::Column: lifeguard::ColumnTrait
+        + Copy
+        + sea_query::IdenStatic
+        + PartialEq
+        + lifeguard::query::column::column_trait::ColumnDefHelper,
 {
     use lifeguard::query::column::column_trait::ColumnDefHelper;
     let columns = E::all_columns();
     let mut dependencies = Vec::new();
-    
+
     for col in columns {
         let col_def = col.column_def();
         if let Some(fk) = &col_def.foreign_key {
@@ -51,7 +55,7 @@ where
             dependencies.push(table_name);
         }
     }
-    
+
     dependencies
 }
 
@@ -66,11 +70,11 @@ pub struct TableInfo {
 /// Build a dependency graph from table information
 pub fn build_dependency_graph(tables: &[TableInfo]) -> HashMap<String, Vec<String>> {
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
-    
+
     for table in tables {
         graph.insert(table.name.clone(), table.dependencies.clone());
     }
-    
+
     graph
 }
 
@@ -81,13 +85,13 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
     // Build reverse graph: for each table, track which tables depend on it
     let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
     let mut in_degree: HashMap<String, usize> = HashMap::new();
-    
+
     // Initialize
     for table in tables {
         in_degree.insert(table.name.clone(), table.dependencies.len());
         reverse_graph.insert(table.name.clone(), Vec::new());
     }
-    
+
     // Build reverse graph: if A depends on B, then B has A as a dependent
     for table in tables {
         for dep in &table.dependencies {
@@ -96,20 +100,20 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
             }
         }
     }
-    
+
     // Find all tables with no dependencies (can be created first)
     let mut queue: Vec<String> = tables
         .iter()
         .filter(|t| t.dependencies.is_empty())
         .map(|t| t.name.clone())
         .collect();
-    
+
     let mut result = Vec::new();
-    
+
     // Process queue
     while let Some(current) = queue.pop() {
         result.push(current.clone());
-        
+
         // For each table that depends on current, reduce its in-degree
         if let Some(dependents) = reverse_graph.get(&current) {
             for dependent in dependents {
@@ -121,12 +125,12 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
             }
         }
     }
-    
+
     // Check for circular dependencies
     if result.len() != tables.len() {
         return Err("Circular dependency detected in foreign key references".to_string());
     }
-    
+
     Ok(result)
 }
 
@@ -134,7 +138,7 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
 pub fn validate_foreign_key_references(tables: &[TableInfo]) -> Result<(), String> {
     let table_names: HashSet<String> = tables.iter().map(|t| t.name.clone()).collect();
     let mut errors = Vec::new();
-    
+
     for table in tables {
         for dep in &table.dependencies {
             if !table_names.contains(dep) {
@@ -145,25 +149,34 @@ pub fn validate_foreign_key_references(tables: &[TableInfo]) -> Result<(), Strin
             }
         }
     }
-    
+
     if !errors.is_empty() {
         return Err(errors.join("\n"));
     }
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_extract_foreign_key_table() {
-        assert_eq!(extract_foreign_key_table("banks(id) ON DELETE CASCADE"), "banks");
-        assert_eq!(extract_foreign_key_table("bank_accounts(id)"), "bank_accounts");
-        assert_eq!(extract_foreign_key_table("users(id) ON DELETE SET NULL"), "users");
+        assert_eq!(
+            extract_foreign_key_table("banks(id) ON DELETE CASCADE"),
+            "banks"
+        );
+        assert_eq!(
+            extract_foreign_key_table("bank_accounts(id)"),
+            "bank_accounts"
+        );
+        assert_eq!(
+            extract_foreign_key_table("users(id) ON DELETE SET NULL"),
+            "users"
+        );
     }
-    
+
     #[test]
     fn test_topological_sort_simple() {
         let tables = vec![
@@ -183,13 +196,13 @@ mod tests {
                 dependencies: vec!["bank_accounts".to_string()],
             },
         ];
-        
+
         let sorted = topological_sort(&tables).unwrap();
         assert_eq!(sorted[0], "banks");
         assert_eq!(sorted[1], "bank_accounts");
         assert_eq!(sorted[2], "bank_transactions");
     }
-    
+
     #[test]
     fn test_validate_foreign_key_references() {
         let tables = vec![
@@ -204,10 +217,10 @@ mod tests {
                 dependencies: vec!["bank_accounts".to_string()],
             },
         ];
-        
+
         // Should fail because "banks" is missing
         assert!(validate_foreign_key_references(&tables).is_err());
-        
+
         // Should pass when all dependencies exist
         let tables_with_banks = vec![
             TableInfo {
@@ -226,7 +239,7 @@ mod tests {
                 dependencies: vec!["bank_accounts".to_string()],
             },
         ];
-        
+
         assert!(validate_foreign_key_references(&tables_with_banks).is_ok());
     }
 }

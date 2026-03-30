@@ -21,17 +21,17 @@ use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::owned_param::OwnedParam;
 use crate::pool::wal::WalLagMonitor;
 use crossbeam_channel::SendTimeoutError;
-use may_postgres::{Client, Row};
 use may_postgres::types::ToSql;
+use may_postgres::{Client, Row};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "metrics")]
-use crate::metrics::METRICS;
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
+#[cfg(feature = "metrics")]
+use crate::metrics::METRICS;
 
 /// One tier of workers (primary or replica) with round-robin dispatch.
 struct WorkerPool {
@@ -71,9 +71,7 @@ impl WorkerPool {
                 .spawn(move || {
                     run_worker(client, job_rx);
                 })
-                .map_err(|e| {
-                    LifeError::Other(format!("{role} pool worker thread {slot}: {e}"))
-                })?;
+                .map_err(|e| LifeError::Other(format!("{role} pool worker thread {slot}: {e}")))?;
             #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
             std::mem::forget(handle);
 
@@ -270,7 +268,8 @@ impl LifeguardPool {
     ) -> Result<Self, LifeError> {
         if cfg.max_connections == 0 {
             return Err(LifeError::Pool(
-                "LifeguardPool::from_database_config: max_connections must be at least 1".to_string(),
+                "LifeguardPool::from_database_config: max_connections must be at least 1"
+                    .to_string(),
             ));
         }
         let settings = LifeguardPoolSettings::from_database_config(cfg);
@@ -431,11 +430,7 @@ fn exec_on_client<T>(
 }
 
 fn values_to_owned(values: &sea_query::Values) -> Result<Vec<OwnedParam>, LifeError> {
-    values
-        .0
-        .iter()
-        .map(OwnedParam::try_from)
-        .collect()
+    values.0.iter().map(OwnedParam::try_from).collect()
 }
 
 /// [`LifeExecutor`] that dispatches through a [`LifeguardPool`].
@@ -489,11 +484,7 @@ impl LifeExecutor for PooledLifeExecutor {
         ))
     }
 
-    fn execute_values(
-        &self,
-        query: &str,
-        values: &sea_query::Values,
-    ) -> Result<u64, LifeError> {
+    fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
         let params = values_to_owned(values)?;
         let query = query.to_string();
         self.pool.dispatch_write(|reply| WorkerJob::Execute {
@@ -503,11 +494,7 @@ impl LifeExecutor for PooledLifeExecutor {
         })
     }
 
-    fn query_one_values(
-        &self,
-        query: &str,
-        values: &sea_query::Values,
-    ) -> Result<Row, LifeError> {
+    fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
         let params = values_to_owned(values)?;
         let query = query.to_string();
         self.pool.dispatch_read(|reply| WorkerJob::QueryOne {

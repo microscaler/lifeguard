@@ -6,10 +6,10 @@
 use sea_query::{Condition, Expr, ExprTrait, IntoColumnRef, Order};
 use std::marker::PhantomData;
 
-use crate::{LifeExecutor, LifeError};
-use crate::query::traits::LifeModelTrait;
 use crate::query::traits::FromRow;
+use crate::query::traits::LifeModelTrait;
 use crate::query::SelectQuery;
+use crate::{LifeError, LifeExecutor};
 
 /// A cursor-based paginator utilizing deterministic indexes for offsets.
 ///
@@ -135,13 +135,11 @@ where
                     }
                 };
                 // Asc: strictly after (cv, pkv) in (col asc, pk asc)
-                let cond = Condition::any()
-                    .add(c.clone().gt(cv.clone()))
-                    .add(
-                        Condition::all()
-                            .add(c.clone().eq(cv))
-                            .add(pk.clone().gt(pkv)),
-                    );
+                let cond = Condition::any().add(c.clone().gt(cv.clone())).add(
+                    Condition::all()
+                        .add(c.clone().eq(cv))
+                        .add(pk.clone().gt(pkv)),
+                );
                 self.query = self.query.filter(cond);
             } else {
                 let (cv, pkv) = match (self.before_val.take(), self.before_pk_val.take()) {
@@ -154,13 +152,11 @@ where
                     }
                 };
                 // Desc on (col, pk): strictly “before” (cv, pkv) in that order
-                let cond = Condition::any()
-                    .add(c.clone().lt(cv.clone()))
-                    .add(
-                        Condition::all()
-                            .add(c.clone().eq(cv))
-                            .add(pk.clone().lt(pkv)),
-                    );
+                let cond = Condition::any().add(c.clone().lt(cv.clone())).add(
+                    Condition::all()
+                        .add(c.clone().eq(cv))
+                        .add(pk.clone().lt(pkv)),
+                );
                 self.query = self.query.filter(cond);
             }
 

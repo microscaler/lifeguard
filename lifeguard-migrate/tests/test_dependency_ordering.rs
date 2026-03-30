@@ -82,7 +82,10 @@ fn test_topological_sort_multiple_dependencies() {
     let banks_pos = sorted.iter().position(|s| s == "banks").unwrap();
     let accounts_pos = sorted.iter().position(|s| s == "bank_accounts").unwrap();
     let statements_pos = sorted.iter().position(|s| s == "bank_statements").unwrap();
-    let reconciliations_pos = sorted.iter().position(|s| s == "bank_reconciliations").unwrap();
+    let reconciliations_pos = sorted
+        .iter()
+        .position(|s| s == "bank_reconciliations")
+        .unwrap();
 
     assert!(accounts_pos > banks_pos);
     assert!(statements_pos > accounts_pos);

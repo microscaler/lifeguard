@@ -13,19 +13,19 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Testing SQL Generation from Entities\n");
-    
+
     // Test ChartOfAccount
     println!("📋 Testing ChartOfAccount entity...");
     test_chart_of_accounts()?;
-    
+
     // Test Account
     println!("\n📋 Testing Account entity...");
     test_account()?;
-    
+
     // Test JournalEntry
     println!("\n📋 Testing JournalEntry entity...");
     test_journal_entry()?;
-    
+
     println!("\n✅ All tests completed!");
     Ok(())
 }
@@ -61,15 +61,15 @@ fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std:
     // Extract CREATE TABLE statement for the specified table
     let start_marker = format!("CREATE TABLE IF NOT EXISTS {table_name}");
     let end_marker = ");";
-    
+
     if let Some(start) = sql.find(&start_marker) {
         if let Some(end) = sql[start..].find(end_marker) {
             let table_sql = &sql[start..start + end + end_marker.len()];
-            
+
             // Also extract indexes and comments for this table
             let mut result = table_sql.to_string();
             result.push('\n');
-            
+
             // Extract indexes
             for line in sql.lines() {
                 if line.contains(&format!("ON {table_name}")) {
@@ -77,7 +77,7 @@ fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std:
                     result.push('\n');
                 }
             }
-            
+
             // Extract comment
             for line in sql.lines() {
                 if line.contains(&format!("COMMENT ON TABLE {table_name}")) {
@@ -85,11 +85,11 @@ fn extract_table_sql(sql: &str, table_name: &str) -> Result<String, Box<dyn std:
                     result.push('\n');
                 }
             }
-            
+
             return Ok(result);
         }
     }
-    
+
     Err(format!("Could not find table definition for {table_name}").into())
 }
 
@@ -106,13 +106,13 @@ fn normalize_sql(sql: &str) -> String {
 fn compare_sql(generated: &str, original: &str) {
     let gen_lines: Vec<&str> = generated.lines().collect();
     let orig_lines: Vec<&str> = original.lines().collect();
-    
+
     let max_len = gen_lines.len().max(orig_lines.len());
-    
+
     for i in 0..max_len {
         let gen_line = gen_lines.get(i).copied().unwrap_or("");
         let orig_line = orig_lines.get(i).copied().unwrap_or("");
-        
+
         if gen_line != orig_line {
             println!("  Line {}:", i + 1);
             if !gen_line.is_empty() {

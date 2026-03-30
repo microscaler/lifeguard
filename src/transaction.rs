@@ -8,16 +8,16 @@
 //! - Nested transaction support (savepoints)
 //! - Commit/rollback operations
 
-use may_postgres::{Client, Error as PostgresError, Row};
+use crate::executor::{LifeError, LifeExecutor};
 use may_postgres::types::ToSql;
-use crate::executor::{LifeExecutor, LifeError};
+use may_postgres::{Client, Error as PostgresError, Row};
 use std::fmt;
 use std::time::Instant;
 
-#[cfg(feature = "metrics")]
-use crate::metrics::METRICS;
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
+#[cfg(feature = "metrics")]
+use crate::metrics::METRICS;
 
 /// Transaction isolation level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,8 +89,12 @@ impl From<TransactionError> for LifeError {
     fn from(err: TransactionError) -> Self {
         match err {
             TransactionError::PostgresError(e) => LifeError::PostgresError(e),
-            TransactionError::TransactionClosed => LifeError::Other("Transaction closed".to_string()),
-            TransactionError::NestedTransactionError(s) | TransactionError::Other(s) => LifeError::Other(s),
+            TransactionError::TransactionClosed => {
+                LifeError::Other("Transaction closed".to_string())
+            }
+            TransactionError::NestedTransactionError(s) | TransactionError::Other(s) => {
+                LifeError::Other(s)
+            }
         }
     }
 }
@@ -149,13 +153,18 @@ impl Transaction {
 
         // Set isolation level if not ReadCommitted (default)
         if isolation_level != IsolationLevel::ReadCommitted {
-            let isolation_sql = format!("SET TRANSACTION ISOLATION LEVEL {}", isolation_level.to_sql());
-            client.execute(isolation_sql.as_str(), &[])
+            let isolation_sql = format!(
+                "SET TRANSACTION ISOLATION LEVEL {}",
+                isolation_level.to_sql()
+            );
+            client
+                .execute(isolation_sql.as_str(), &[])
                 .map_err(TransactionError::from)?;
         }
 
         // Start the transaction
-        client.execute("BEGIN", &[])
+        client
+            .execute("BEGIN", &[])
             .map_err(TransactionError::from)?;
 
         Ok(Self {
@@ -208,7 +217,8 @@ impl Transaction {
 
         let savepoint_name = format!("sp_{}", self.depth + 1);
         let savepoint_sql = format!("SAVEPOINT {savepoint_name}");
-        self.client.execute(savepoint_sql.as_str(), &[])
+        self.client
+            .execute(savepoint_sql.as_str(), &[])
             .map_err(TransactionError::from)?;
 
         Ok(Transaction {
@@ -236,13 +246,15 @@ impl Transaction {
 
         if self.depth == 0 {
             // Top-level transaction: commit
-            self.client.execute("COMMIT", &[])
+            self.client
+                .execute("COMMIT", &[])
                 .map_err(TransactionError::from)?;
         } else {
             // Nested transaction: release savepoint
             let savepoint_name = format!("sp_{}", self.depth);
             let release_sql = format!("RELEASE SAVEPOINT {savepoint_name}");
-            self.client.execute(release_sql.as_str(), &[])
+            self.client
+                .execute(release_sql.as_str(), &[])
                 .map_err(TransactionError::from)?;
         }
 
@@ -268,13 +280,15 @@ impl Transaction {
 
         if self.depth == 0 {
             // Top-level transaction: rollback
-            self.client.execute("ROLLBACK", &[])
+            self.client
+                .execute("ROLLBACK", &[])
                 .map_err(TransactionError::from)?;
         } else {
             // Nested transaction: rollback to savepoint
             let savepoint_name = format!("sp_{}", self.depth);
             let rollback_sql = format!("ROLLBACK TO SAVEPOINT {savepoint_name}");
-            self.client.execute(rollback_sql.as_str(), &[])
+            self.client
+                .execute(rollback_sql.as_str(), &[])
                 .map_err(TransactionError::from)?;
         }
 
@@ -303,12 +317,11 @@ impl LifeExecutor for Transaction {
         let _span = tracing_helpers::execute_query_span(query).entered();
 
         let start = Instant::now();
-        let result = self.client.execute(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
+        let result = self.client.execute(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error();
+            LifeError::PostgresError(e)
+        });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
@@ -326,12 +339,11 @@ impl LifeExecutor for Transaction {
         let _span = tracing_helpers::execute_query_span(query).entered();
 
         let start = Instant::now();
-        let result = self.client.query_one(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
+        let result = self.client.query_one(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error();
+            LifeError::PostgresError(e)
+        });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
@@ -349,12 +361,11 @@ impl LifeExecutor for Transaction {
         let _span = tracing_helpers::execute_query_span(query).entered();
 
         let start = Instant::now();
-        let result = self.client.query(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
+        let result = self.client.query(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error();
+            LifeError::PostgresError(e)
+        });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
@@ -379,7 +390,9 @@ mod tests {
     #[test]
     fn test_transaction_error_display() {
         let err = TransactionError::TransactionClosed;
-        assert!(err.to_string().contains("Transaction has already been committed"));
+        assert!(err
+            .to_string()
+            .contains("Transaction has already been committed"));
 
         let err2 = TransactionError::NestedTransactionError("test".to_string());
         assert!(err2.to_string().contains("Nested transaction error"));

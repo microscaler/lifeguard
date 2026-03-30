@@ -52,10 +52,7 @@ pub fn wait_replica_replayed_at_least(
         format!("wait_replica_replayed_at_least: connect failed after {timeout:?}: {e}")
     })?;
 
-    if !min_lsn
-        .bytes()
-        .all(|b| b.is_ascii_hexdigit() || b == b'/')
-    {
+    if !min_lsn.bytes().all(|b| b.is_ascii_hexdigit() || b == b'/') {
         return Err(format!(
             "wait_replica_replayed_at_least: invalid min_lsn (expected pg_lsn text): {min_lsn}"
         ));

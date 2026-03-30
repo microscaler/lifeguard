@@ -1,11 +1,11 @@
 //! Migrator - Core migration execution engine
 
-use crate::LifeExecutor;
-use crate::migration::{
-    MigrationError, MigrationRecord, MigrationStatus, MigrationFile,
-    initialize_state_table, PendingMigration, SchemaManager,
-};
 use crate::migration::file::discover_migrations;
+use crate::migration::{
+    initialize_state_table, MigrationError, MigrationFile, MigrationRecord, MigrationStatus,
+    PendingMigration, SchemaManager,
+};
+use crate::LifeExecutor;
 use chrono::Utc;
 use std::path::Path;
 use std::time::Instant;
@@ -25,7 +25,7 @@ impl Migrator {
             migrations_dir: migrations_dir.as_ref().to_path_buf(),
         }
     }
-    
+
     /// Discover all migration files in the migrations directory
     ///
     /// Scans the directory for files matching the pattern `m{YYYYMMDDHHMMSS}_{name}.rs`
@@ -38,7 +38,7 @@ impl Migrator {
     pub fn discover_migrations(&self) -> Result<Vec<MigrationFile>, MigrationError> {
         discover_migrations(&self.migrations_dir)
     }
-    
+
     /// Get migration status (applied vs pending)
     ///
     /// Compares discovered migration files with the state table to determine
@@ -61,22 +61,21 @@ impl Migrator {
     pub fn status(&self, executor: &dyn LifeExecutor) -> Result<MigrationStatus, MigrationError> {
         // Ensure state table exists
         initialize_state_table(executor)?;
-        
+
         // Discover migration files
         let migration_files = self.discover_migrations()?;
-        
+
         // Query applied migrations from database
         let applied = Self::query_applied_migrations(executor)?;
-        
+
         // Build set of file versions for quick lookup
-        let file_versions: std::collections::HashSet<i64> = migration_files.iter()
-            .map(|f| f.version)
-            .collect();
-        
+        let file_versions: std::collections::HashSet<i64> =
+            migration_files.iter().map(|f| f.version).collect();
+
         // Separate into applied and pending
         let mut applied_records = Vec::new();
         let mut pending_migrations = Vec::new();
-        
+
         for file in &migration_files {
             if let Some(record) = applied.iter().find(|r| r.version == file.version) {
                 // Migration is applied - validate checksum
@@ -99,7 +98,7 @@ impl Migrator {
                 });
             }
         }
-        
+
         // Check for missing files (applied but file not found)
         for record in &applied {
             if !file_versions.contains(&record.version) {
@@ -109,10 +108,10 @@ impl Migrator {
                 });
             }
         }
-        
+
         Ok(MigrationStatus::new(applied_records, pending_migrations))
     }
-    
+
     /// Validate checksums of all applied migrations
     ///
     /// Reads all applied migrations from the state table, calculates current checksums
@@ -133,11 +132,11 @@ impl Migrator {
     /// Returns `MigrationError::FileNotFound` if migration files cannot be discovered.
     pub fn validate_checksums(&self, executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
         let _status = self.status(executor)?;
-        
+
         // Status already validates checksums, so if we get here, all are valid
         Ok(())
     }
-    
+
     /// Apply pending migrations (with lock already acquired)
     ///
     /// This is the internal method that actually applies migrations.
@@ -165,38 +164,37 @@ impl Migrator {
         steps: Option<usize>,
     ) -> Result<usize, MigrationError> {
         use crate::migration::registry::{execute_migration, MigrationDirection};
-        
+
         // Get status (validates checksums)
         let status = self.status(executor)?;
-        
+
         if status.pending.is_empty() {
             return Ok(0);
         }
-        
+
         // Determine how many migrations to apply
         let migrations_to_apply = steps.unwrap_or(status.pending.len());
-        let pending = status.pending.iter()
+        let pending = status
+            .pending
+            .iter()
             .take(migrations_to_apply)
             .collect::<Vec<_>>();
-        
+
         // Execute each migration
         let mut applied_count = 0;
-        
+
         for pending_migration in pending {
             let start = Instant::now();
-            
+
             // Execute migration using the registry
             // Note: The migration must be registered before execution
             // This is typically done at application startup or via a build script
-            execute_migration(
-                pending_migration.version,
-                manager,
-                MigrationDirection::Up,
-            )?;
-            
+            execute_migration(pending_migration.version, manager, MigrationDirection::Up)?;
+
             // Record migration in state table
             // Note: as_millis() returns u128, but we store as i64. Execution time should never exceed i64::MAX.
-            #[allow(clippy::cast_possible_truncation)] // Execution time in milliseconds will never exceed i64::MAX
+            #[allow(clippy::cast_possible_truncation)]
+            // Execution time in milliseconds will never exceed i64::MAX
             let execution_time = start.elapsed().as_millis() as i64;
             let record = MigrationRecord::new(
                 pending_migration.version,
@@ -206,14 +204,14 @@ impl Migrator {
                 Some(execution_time),
                 true,
             );
-            
+
             Self::record_migration(executor, &record)?;
             applied_count += 1;
         }
-        
+
         Ok(applied_count)
     }
-    
+
     /// Apply pending migrations
     ///
     /// Discovers pending migrations, acquires a lock, validates checksums,
@@ -241,44 +239,43 @@ impl Migrator {
     ) -> Result<usize, MigrationError> {
         use crate::migration::lock::MigrationLockGuard;
         use crate::migration::registry::{execute_migration, MigrationDirection};
-        
+
         // Acquire migration lock (Flyway-style: uses migration table itself)
         let _lock = MigrationLockGuard::new(executor, Some(60))?;
-        
+
         // Get status (validates checksums)
         let status = self.status(executor)?;
-        
+
         if status.pending.is_empty() {
             return Ok(0);
         }
-        
+
         // Determine how many migrations to apply
         let migrations_to_apply = steps.unwrap_or(status.pending.len());
-        let pending = status.pending.iter()
+        let pending = status
+            .pending
+            .iter()
             .take(migrations_to_apply)
             .collect::<Vec<_>>();
-        
+
         // Create SchemaManager with executor reference (no ownership needed!)
         let manager = SchemaManager::new(executor);
-        
+
         // Execute each migration
         let mut applied_count = 0;
-        
+
         for pending_migration in pending {
             let start = Instant::now();
-            
+
             // Execute migration using the registry
             // Note: The migration must be registered before execution
             // This is typically done at application startup or via a build script
-            execute_migration(
-                pending_migration.version,
-                &manager,
-                MigrationDirection::Up,
-            )?;
-            
+            execute_migration(pending_migration.version, &manager, MigrationDirection::Up)?;
+
             // Record migration in state table
             // Note: as_millis() returns u128, but we store as i64. Execution time should never exceed i64::MAX.
-            #[allow(clippy::cast_possible_truncation)] // Execution time in milliseconds will never exceed i64::MAX
+            #[allow(clippy::cast_possible_truncation)]
+            // Execution time in milliseconds will never exceed i64::MAX
             let execution_time = start.elapsed().as_millis() as i64;
             let record = MigrationRecord::new(
                 pending_migration.version,
@@ -288,14 +285,14 @@ impl Migrator {
                 Some(execution_time),
                 true,
             );
-            
+
             Self::record_migration(executor, &record)?;
             applied_count += 1;
         }
-        
+
         Ok(applied_count)
     }
-    
+
     /// Rollback migrations (with lock already acquired)
     ///
     /// This is the internal method that actually rolls back migrations.
@@ -321,32 +318,30 @@ impl Migrator {
     ) -> Result<usize, MigrationError> {
         // Get status
         let status = self.status(executor)?;
-        
+
         if status.applied.is_empty() {
             return Ok(0);
         }
-        
+
         // Get migrations to rollback (in reverse order - newest first)
         let steps = steps.unwrap_or(1);
         let mut applied = status.applied;
         applied.sort_by_key(|m| std::cmp::Reverse(m.version));
-        
-        let migrations_to_rollback: Vec<_> = applied.iter()
-            .take(steps)
-            .collect();
-        
+
+        let migrations_to_rollback: Vec<_> = applied.iter().take(steps).collect();
+
         let _rollback_count = migrations_to_rollback.len();
-        
+
         // Note: We can't create SchemaManager from a reference
         // This is a known limitation that needs to be addressed
         Err(MigrationError::InvalidFormat(
             "Migration rollback with lock guard requires SchemaManager refactoring. \
              SchemaManager needs executor ownership, but lock guard only provides a reference. \
              This is a known limitation that needs to be addressed."
-                .to_string()
+                .to_string(),
         ))
     }
-    
+
     /// Rollback migrations
     ///
     /// Rolls back the last N applied migrations by executing their `down()` methods.
@@ -372,47 +367,41 @@ impl Migrator {
     ) -> Result<usize, MigrationError> {
         use crate::migration::lock::MigrationLockGuard;
         use crate::migration::registry::{execute_migration, MigrationDirection};
-        
+
         // Acquire migration lock (Flyway-style: uses migration table itself)
         let _lock = MigrationLockGuard::new(executor, Some(60))?;
-        
+
         // Get status
         let status = self.status(executor)?;
-        
+
         if status.applied.is_empty() {
             return Ok(0);
         }
-        
+
         // Get migrations to rollback (in reverse order - newest first)
         let steps = steps.unwrap_or(1);
         let mut applied = status.applied;
         applied.sort_by_key(|m| std::cmp::Reverse(m.version));
-        
-        let migrations_to_rollback: Vec<_> = applied.iter()
-            .take(steps)
-            .collect();
-        
+
+        let migrations_to_rollback: Vec<_> = applied.iter().take(steps).collect();
+
         let rollback_count = migrations_to_rollback.len();
-        
+
         // Create SchemaManager with executor reference (no ownership needed!)
         let manager = SchemaManager::new(executor);
-        
+
         // Execute down() for each migration (in reverse order - newest first)
         for record in migrations_to_rollback {
             // Execute rollback
-            execute_migration(
-                record.version,
-                &manager,
-                MigrationDirection::Down,
-            )?;
-            
+            execute_migration(record.version, &manager, MigrationDirection::Down)?;
+
             // Remove from state table
             Self::remove_migration_record(executor, record.version)?;
         }
-        
+
         Ok(rollback_count)
     }
-    
+
     /// Query applied migrations from the state table
     ///
     /// Excludes the lock record (version = -1) from results.
@@ -420,65 +409,78 @@ impl Migrator {
     /// # Errors
     ///
     /// Returns `MigrationError::Database` if database operations fail.
-    fn query_applied_migrations(executor: &dyn LifeExecutor) -> Result<Vec<MigrationRecord>, MigrationError> {
+    fn query_applied_migrations(
+        executor: &dyn LifeExecutor,
+    ) -> Result<Vec<MigrationRecord>, MigrationError> {
         let sql = r"
             SELECT version, name, checksum, applied_at, execution_time_ms, success
             FROM lifeguard_migrations
             WHERE version > 0
             ORDER BY version ASC
         ";
-        
-        let rows = executor.query_all(sql, &[])
+
+        let rows = executor
+            .query_all(sql, &[])
             .map_err(MigrationError::Database)?;
-        
+
         let mut records = Vec::new();
         for row in rows {
-            let record = MigrationRecord::from_row(&row)
-                .map_err(MigrationError::Database)?;
+            let record = MigrationRecord::from_row(&row).map_err(MigrationError::Database)?;
             records.push(record);
         }
-        
+
         Ok(records)
     }
-    
+
     /// Record a migration in the state table
     ///
     /// # Errors
     ///
     /// Returns `MigrationError::Database` if database operations fail.
-    fn record_migration(executor: &dyn LifeExecutor, record: &MigrationRecord) -> Result<(), MigrationError> {
+    fn record_migration(
+        executor: &dyn LifeExecutor,
+        record: &MigrationRecord,
+    ) -> Result<(), MigrationError> {
         let sql = r"
             INSERT INTO lifeguard_migrations (version, name, checksum, applied_at, execution_time_ms, success)
             VALUES ($1, $2, $3, $4, $5, $6)
         ";
-        
+
         // Format timestamp as PostgreSQL timestamp string
         let timestamp_str = record.applied_at.format("%Y-%m-%d %H:%M:%S%.f").to_string();
-        
-        executor.execute(sql, &[
-            &record.version,
-            &record.name,
-            &record.checksum,
-            &timestamp_str,
-            &record.execution_time_ms,
-            &record.success,
-        ])
-        .map_err(MigrationError::Database)?;
-        
+
+        executor
+            .execute(
+                sql,
+                &[
+                    &record.version,
+                    &record.name,
+                    &record.checksum,
+                    &timestamp_str,
+                    &record.execution_time_ms,
+                    &record.success,
+                ],
+            )
+            .map_err(MigrationError::Database)?;
+
         Ok(())
     }
-    
+
     /// Remove a migration record from the state table
     ///
     /// # Errors
     ///
     /// Returns `MigrationError::Database` if database operations fail.
-    fn remove_migration_record(executor: &dyn LifeExecutor, version: i64) -> Result<(), MigrationError> {
+    fn remove_migration_record(
+        executor: &dyn LifeExecutor,
+        version: i64,
+    ) -> Result<(), MigrationError> {
         let sql = "DELETE FROM lifeguard_migrations WHERE version = $1";
-        
-        executor.execute(sql, &[&version])
+
+        executor
+            .execute(sql, &[&version])
             .map_err(MigrationError::Database)?;
-        
+
         Ok(())
     }
 }

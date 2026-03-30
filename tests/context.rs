@@ -99,27 +99,29 @@ fn start_pg_and_redis_containers() -> (String, String) {
     (pg_url, redis_url)
 }
 
-pub static TEST_CONTEXT: std::sync::LazyLock<LifeguardTestContext> = std::sync::LazyLock::new(|| {
-    if let Some(pg_url) = postgres_url_from_env() {
-        let redis_url = redis_url_from_env()
-            .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
-        let replica_pg_url = replica_url_from_env();
-        LifeguardTestContext {
-            pg_url,
-            redis_url,
-            replica_pg_url,
+pub static TEST_CONTEXT: std::sync::LazyLock<LifeguardTestContext> =
+    std::sync::LazyLock::new(|| {
+        if let Some(pg_url) = postgres_url_from_env() {
+            let redis_url =
+                redis_url_from_env().unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
+            let replica_pg_url = replica_url_from_env();
+            LifeguardTestContext {
+                pg_url,
+                redis_url,
+                replica_pg_url,
+            }
+        } else {
+            let (pg_url, redis_url) = start_pg_and_redis_containers();
+            LifeguardTestContext {
+                pg_url,
+                redis_url,
+                replica_pg_url: None,
+            }
         }
-    } else {
-        let (pg_url, redis_url) = start_pg_and_redis_containers();
-        LifeguardTestContext {
-            pg_url,
-            redis_url,
-            replica_pg_url: None,
-        }
-    }
-});
+    });
 
-#[must_use] pub fn get_test_context() -> &'static LifeguardTestContext {
+#[must_use]
+pub fn get_test_context() -> &'static LifeguardTestContext {
     &TEST_CONTEXT
 }
 
@@ -128,7 +130,10 @@ pub static TEST_CONTEXT: std::sync::LazyLock<LifeguardTestContext> = std::sync::
 pub fn clean_db(pg_url: &str, tables: &[&str]) {
     if let Ok(client) = may_postgres::connect(pg_url) {
         for table in tables {
-            let _ = client.execute(format!("DROP TABLE IF EXISTS {table} CASCADE;").as_str(), &[]);
+            let _ = client.execute(
+                format!("DROP TABLE IF EXISTS {table} CASCADE;").as_str(),
+                &[],
+            );
         }
     }
 }

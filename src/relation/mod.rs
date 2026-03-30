@@ -20,17 +20,19 @@
 // Identity types
 pub mod identity;
 #[doc(inline)]
-pub use identity::{Identity, BorrowedIdentityIter, IntoIdentity};
+pub use identity::{BorrowedIdentityIter, Identity, IntoIdentity};
 
 // Relation definitions
 pub mod def;
 #[doc(inline)]
-pub use def::{RelationDef, RelationType, join_tbl_on_condition, build_where_condition};
+pub use def::{build_where_condition, join_tbl_on_condition, RelationDef, RelationType};
 
 // Core traits
 pub mod traits;
 #[doc(inline)]
-pub use traits::{RelationTrait, RelationBuilder, RelationMetadata, Related, FindRelated, Linked, FindLinked};
+pub use traits::{
+    FindLinked, FindRelated, Linked, Related, RelationBuilder, RelationMetadata, RelationTrait,
+};
 
 // Helper functions
 pub mod helpers;

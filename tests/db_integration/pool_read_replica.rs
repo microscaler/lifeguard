@@ -97,10 +97,7 @@ fn pg_tcp_endpoint_key(url: &str) -> Option<String> {
 
 fn setup_schema_on_primary(executor: &lifeguard::MayPostgresExecutor) {
     executor
-        .execute(
-            "CREATE SCHEMA IF NOT EXISTS pool_replica_test",
-            &[],
-        )
+        .execute("CREATE SCHEMA IF NOT EXISTS pool_replica_test", &[])
         .expect("create schema");
     executor
         .execute(
@@ -185,7 +182,8 @@ fn pooled_pool_construct_write_read_with_replica() {
     log_timing("wait_replica_replayed_at_least", t3.elapsed());
 
     assert!(
-        crate::replication_sync::postgres_is_in_recovery(&replica_url).expect("is_in_recovery query"),
+        crate::replication_sync::postgres_is_in_recovery(&replica_url)
+            .expect("is_in_recovery query"),
         "TEST_REPLICA_URL must be a standby (pg_is_in_recovery)"
     );
 
@@ -214,7 +212,10 @@ fn pooled_pool_construct_write_read_with_replica() {
         .expect("pooled read");
     let note: String = row.get(0);
     assert_eq!(note, "via-pool");
-    log_timing("PooledLifeExecutor read (replica tier when healthy)", t5.elapsed());
+    log_timing(
+        "PooledLifeExecutor read (replica tier when healthy)",
+        t5.elapsed(),
+    );
     log_timing(
         "SUBTOTAL smoke (insert + replay wait + lag gate + pooled read)",
         t_smoke_path.elapsed(),
@@ -241,11 +242,14 @@ fn pooled_pool_construct_write_read_with_replica() {
     );
     exec.execute_values(&batch_sql, &Values(vec![]))
         .expect("batch insert via pool");
-    log_timing(&format!("batch INSERT {BATCH_LOAD_ROWS} rows (primary tier)"), t7.elapsed());
+    log_timing(
+        &format!("batch INSERT {BATCH_LOAD_ROWS} rows (primary tier)"),
+        t7.elapsed(),
+    );
 
     let t8 = Instant::now();
-    let lsn2 =
-        crate::replication_sync::primary_current_wal_lsn(&primary_url).expect("primary lsn after batch");
+    let lsn2 = crate::replication_sync::primary_current_wal_lsn(&primary_url)
+        .expect("primary lsn after batch");
     crate::replication_sync::wait_replica_replayed_at_least(
         &replica_url,
         &lsn2,

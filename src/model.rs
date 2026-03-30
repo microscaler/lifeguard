@@ -103,7 +103,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     /// # Returns
     ///
     /// The primary key value as a `sea_query::Value`.
-    /// 
+    ///
     /// # Edge Cases
     ///
     /// - **No primary key:** Returns `Value::String(None)` if the entity has no primary key defined.
@@ -111,7 +111,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     /// - **Composite primary keys:** Returns the first primary key value for backward compatibility.
     ///   Use `get_primary_key_values()` to get all primary key values.
     fn get_primary_key_value(&self) -> Value;
-    
+
     /// Get the primary key as Identity (supports composite keys)
     ///
     /// This method returns an `Identity` enum that represents the primary key column(s).
@@ -136,7 +136,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     /// // Returns: Identity::Binary(Column::Id.into_iden(), Column::TenantId.into_iden())
     /// ```
     fn get_primary_key_identity(&self) -> Identity;
-    
+
     /// Get primary key values as Vec<Value> (helper for WHERE clauses)
     ///
     /// This method extracts all primary key values from the model as a vector.
@@ -165,7 +165,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
         let identity = self.get_primary_key_identity();
         extract_values_from_identity(self, &identity)
     }
-    
+
     /// Get the value of a column by its name (string)
     ///
     /// This method allows runtime access to column values using a string column name.
@@ -202,7 +202,7 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
         // The macro can override this with a more efficient implementation
         extract_value_by_column_name(self, column_name)
     }
-    
+
     /// Get the Rust type string for a column
     ///
     /// This method returns the Rust type string representation for a given column.
@@ -234,7 +234,10 @@ pub trait ModelTrait: Clone + Send + std::fmt::Debug {
     ///
     /// The default implementation returns `None`. The `LifeModel` macro generates
     /// implementations that return the actual Rust type strings for each column.
-    fn get_value_type(&self, column: <Self::Entity as LifeModelTrait>::Column) -> Option<&'static str> {
+    fn get_value_type(
+        &self,
+        column: <Self::Entity as LifeModelTrait>::Column,
+    ) -> Option<&'static str> {
         // Default implementation returns None
         // The macro will override this with actual type strings
         let _ = column;
@@ -282,7 +285,7 @@ impl std::error::Error for ModelError {}
 #[allow(dead_code)]
 mod tests {
     use super::*;
-    use crate::{LifeModelTrait, LifeEntityName};
+    use crate::{LifeEntityName, LifeModelTrait};
     use sea_query::{Iden, IdenStatic, Value};
 
     // Test entity and column for ModelTrait tests
@@ -335,7 +338,7 @@ mod tests {
     impl ModelTrait for TestModel {
         type Entity = TestEntity;
 
-            fn get(&self, column: TestColumn) -> Value {
+        fn get(&self, column: TestColumn) -> Value {
             match column {
                 TestColumn::Id => Value::Int(Some(self.id)),
                 TestColumn::TenantId => Value::Int(self.tenant_id),
@@ -490,7 +493,7 @@ mod tests {
         let id_col: sea_query::DynIden = "id".into();
         let tenant_col: sea_query::DynIden = "tenant_id".into();
         let region_col: sea_query::DynIden = "region_id".into();
-        
+
         let identity = Identity::Ternary(id_col, tenant_col, region_col);
         assert_eq!(identity.arity(), 3);
     }
@@ -504,7 +507,7 @@ mod tests {
             "region_id".into(),
             "org_id".into(),
         ];
-        
+
         let identity = Identity::Many(cols);
         assert_eq!(identity.arity(), 4);
     }
@@ -513,7 +516,7 @@ mod tests {
 /// Extract values from model based on Identity columns
 ///
 /// This helper function extracts the actual `Value`s from a model based on
-/// the columns specified in the `Identity`. 
+/// the columns specified in the `Identity`.
 ///
 /// # Arguments
 ///
@@ -565,7 +568,6 @@ fn extract_value_by_column_name<M>(_model: &M, _column_name: &str) -> Option<Val
 where
     M: ModelTrait,
 {
-    
     // Try to match column name against all Column enum variants
     // This is a placeholder - the macro should override get_by_column_name() with
     // a more efficient implementation that directly matches column names to variants
@@ -596,68 +598,88 @@ where
 #[allow(dead_code)]
 mod get_by_column_name_tests {
     use super::*;
-    use crate::{LifeEntityName, LifeModelTrait};
     use crate::relation::identity::Identity;
+    use crate::{LifeEntityName, LifeModelTrait};
     use sea_query::IdenStatic;
-    
+
     #[test]
     fn test_get_by_column_name_edge_cases() {
         // Test edge cases for get_by_column_name default implementation
         // This tests the fallback implementation behavior
-        
+
         #[derive(Default, Copy, Clone)]
         struct TestEntity;
-        
+
         impl sea_query::Iden for TestEntity {
-            fn unquoted(&self) -> &'static str { "test" }
+            fn unquoted(&self) -> &'static str {
+                "test"
+            }
         }
-        
+
         impl LifeEntityName for TestEntity {
-            fn table_name(&self) -> &'static str { "test" }
+            fn table_name(&self) -> &'static str {
+                "test"
+            }
         }
-        
+
         impl LifeModelTrait for TestEntity {
             type Model = TestModel;
             type Column = TestColumn;
         }
-        
+
         #[derive(Clone, Debug)]
         struct TestModel;
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum TestColumn { Id }
-        
+        enum TestColumn {
+            Id,
+        }
+
         impl sea_query::Iden for TestColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         impl IdenStatic for TestColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TestColumn);
-        
+
         impl ModelTrait for TestModel {
             type Entity = TestEntity;
-            fn get(&self, _col: TestColumn) -> Value { Value::Int(None) }
-            fn set(&mut self, _col: TestColumn, _val: Value) -> Result<(), ModelError> { Ok(()) }
-            fn get_primary_key_value(&self) -> Value { Value::Int(None) }
-            fn get_primary_key_identity(&self) -> Identity { Identity::Unary("id".into()) }
-            fn get_primary_key_values(&self) -> Vec<Value> { vec![] }
+            fn get(&self, _col: TestColumn) -> Value {
+                Value::Int(None)
+            }
+            fn set(&mut self, _col: TestColumn, _val: Value) -> Result<(), ModelError> {
+                Ok(())
+            }
+            fn get_primary_key_value(&self) -> Value {
+                Value::Int(None)
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary("id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<Value> {
+                vec![]
+            }
             // Use default implementation of get_by_column_name
         }
-        
+
         let model = TestModel;
-        
+
         // Test non-existent column - should return None
         assert_eq!(model.get_by_column_name("nonexistent"), None);
-        
+
         // Test empty string - should return None
         assert_eq!(model.get_by_column_name(""), None);
-        
+
         // Test with different casing - should return None (default impl doesn't handle this)
         assert_eq!(model.get_by_column_name("ID"), None);
-        
+
         // Note: The default implementation returns None for all cases
         // The macro-generated implementation would handle actual column names
     }

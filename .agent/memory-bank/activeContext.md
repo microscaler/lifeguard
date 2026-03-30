@@ -8,6 +8,8 @@
 - Memory Bank initialized with codegen learnings
 
 ## Recent Changes
+- **Tiltfile — replication test resources (2026-03-28):** Targeted nextest runs for read-replica PRD work (`test-replication-pool`, `test-db-integration-replica`, `test-replication-pool-smoke`) with Kind ports 6543/6544/6545.
+- **Tiltfile — all workspace crates + deps (2026-03-28):** Build resources for `lifeguard-codegen`, `lifeguard-reflector`, `lifeguard-migrate` with `resource_deps` matching Cargo (`migrate` after `build-lifeguard`; derive/codegen/reflector parallel). Tests wired to those builds where appropriate.
 - **Read-replica CI/testing documentation (2026-03-28):** PRD + design doc under `docs/planning/`; `TEST_INFRASTRUCTURE.md` links. Implementation (Compose, harness, tests) deferred.
 - **`LifeguardPool::new` four-arg API + transparent routing (2026-03-28):** Single pool type holds primary workers and optional replica workers; `PooledLifeExecutor` dispatches writes to primary and reads to replica when lag allows. Call sites: primary-only is `replica_urls: vec![], replica_pool_size: 0`. `perf_orm` updated accordingly.
 - **Unsigned row decode (2026-03-28):** `lifeguard::from_row_unsigned_try_from_failed` + derive emits `TryFrom` for `u8`/`u16`/`u32`/`u64` in `from_row` / `life_model` / `partial_model`; `FromRow` standalone uses `try_get`. Landed on branch `fix/JSF-compliance-issues` (committed locally, not pushed).

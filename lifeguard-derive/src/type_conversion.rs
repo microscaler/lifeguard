@@ -30,15 +30,13 @@
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Type, TypePath, GenericArgument, PathArguments};
+use syn::{GenericArgument, PathArguments, Type, TypePath};
 
 /// Check if a type is `serde_json::Value`
 pub fn is_json_value_type(ty: &Type) -> bool {
     if let Type::Path(TypePath { path, .. }) = ty {
         let segments: Vec<_> = path.segments.iter().collect();
-        segments.len() == 2
-            && segments[0].ident == "serde_json"
-            && segments[1].ident == "Value"
+        segments.len() == 2 && segments[0].ident == "serde_json" && segments[1].ident == "Value"
     } else {
         false
     }
@@ -71,7 +69,11 @@ pub fn is_vec_u8_type(ty: &Type) -> bool {
         if let Some(segment) = path.segments.last() {
             if segment.ident == "Vec" {
                 if let PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(GenericArgument::Type(Type::Path(TypePath { path: inner_path, .. }))) = args.args.first() {
+                    if let Some(GenericArgument::Type(Type::Path(TypePath {
+                        path: inner_path,
+                        ..
+                    }))) = args.args.first()
+                    {
                         if let Some(inner_segment) = inner_path.segments.last() {
                             return inner_segment.ident == "u8";
                         }
@@ -141,12 +143,13 @@ pub fn is_decimal_type(ty: &Type) -> bool {
         let segments: Vec<_> = path.segments.iter().collect();
         // Check for rust_decimal::Decimal (2 segments)
         if segments.len() == 2
-            && segments[0].ident == "rust_decimal" && segments[1].ident == "Decimal" {
+            && segments[0].ident == "rust_decimal"
+            && segments[1].ident == "Decimal"
+        {
             return true;
         }
         // Check for Decimal (1 segment, if imported)
-        if segments.len() == 1
-            && segments[0].ident == "Decimal" {
+        if segments.len() == 1 && segments[0].ident == "Decimal" {
             return true;
         }
     }
@@ -158,16 +161,15 @@ pub fn is_money_type(ty: &Type) -> bool {
     if let Type::Path(TypePath { path, .. }) = ty {
         let segments: Vec<_> = path.segments.iter().collect();
         // Check for rusty_money::Money<...> (2 segments with generics)
-        if segments.len() == 2
-            && segments[0].ident == "rusty_money" && segments[1].ident == "Money" {
+        if segments.len() == 2 && segments[0].ident == "rusty_money" && segments[1].ident == "Money"
+        {
             // Check if it has generic arguments (Money<Currency>)
             if let PathArguments::AngleBracketed(_) = &segments[1].arguments {
                 return true;
             }
         }
         // Check for Money<...> (1 segment with generics, if imported)
-        if segments.len() == 1
-            && segments[0].ident == "Money" {
+        if segments.len() == 1 && segments[0].ident == "Money" {
             if let PathArguments::AngleBracketed(_) = &segments[0].arguments {
                 return true;
             }
@@ -196,13 +198,17 @@ pub fn type_to_string(ty: &Type) -> String {
     match ty {
         Type::Path(type_path) => {
             let path = &type_path.path;
-            let segments: Vec<String> = path.segments.iter()
+            let segments: Vec<String> = path
+                .segments
+                .iter()
                 .map(|seg| {
                     let mut result = seg.ident.to_string();
                     // Handle generic arguments
                     if let PathArguments::AngleBracketed(args) = &seg.arguments {
                         // Filter to only include Type arguments (exclude lifetimes, const generics, etc.)
-                        let generic_args: Vec<String> = args.args.iter()
+                        let generic_args: Vec<String> = args
+                            .args
+                            .iter()
                             .filter_map(|arg| {
                                 if let GenericArgument::Type(inner_ty) = arg {
                                     Some(type_to_string(inner_ty))
@@ -226,9 +232,7 @@ pub fn type_to_string(ty: &Type) -> String {
         Type::Array(_) => "array".to_string(),
         Type::Slice(_) => "slice".to_string(),
         Type::Tuple(tuple) => {
-            let elems: Vec<String> = tuple.elems.iter()
-                .map(type_to_string)
-                .collect();
+            let elems: Vec<String> = tuple.elems.iter().map(type_to_string).collect();
             format!("({})", elems.join(", "))
         }
         Type::Reference(_) => "reference".to_string(),
@@ -257,14 +261,14 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
             sea_query::Value::Json(Some(Box::new(self.#field_name.clone())))
         };
     }
-    
+
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(field_type) {
         return quote! {
             sea_query::Value::Bytes(Some(self.#field_name.clone()))
         };
     }
-    
+
     // Check for rust_decimal::Decimal
     if is_decimal_type(field_type) {
         // Convert Decimal to String for SeaQuery Value
@@ -273,7 +277,7 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
             sea_query::Value::String(Some(self.#field_name.to_string()))
         };
     }
-    
+
     // Check for rusty_money::Money
     if is_money_type(field_type) {
         // Extract the amount (Decimal) from Money and convert to String
@@ -294,7 +298,7 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
             sea_query::Value::ChronoDateTime(Some(self.#field_name))
         };
     }
-    
+
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = field_type {
         if let Some(segment) = path.segments.last() {
@@ -340,28 +344,31 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
 /// # Returns
 ///
 /// Returns a `TokenStream` that generates code to convert `Option<T>` to `Value`.
-pub fn generate_option_field_to_value_with_default(field_name: &syn::Ident, inner_type: &Type) -> TokenStream {
+pub fn generate_option_field_to_value_with_default(
+    field_name: &syn::Ident,
+    inner_type: &Type,
+) -> TokenStream {
     // Check for serde_json::Value first
     if is_json_value_type(inner_type) {
         return quote! {
             self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None))
         };
     }
-    
+
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(inner_type) {
         return quote! {
             self.#field_name.as_ref().map(|v| sea_query::Value::Bytes(Some(v.clone()))).unwrap_or(sea_query::Value::Bytes(None))
         };
     }
-    
+
     // Check for rust_decimal::Decimal
     if is_decimal_type(inner_type) {
         return quote! {
             self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.to_string()))).unwrap_or(sea_query::Value::String(None))
         };
     }
-    
+
     // Check for rusty_money::Money
     if is_money_type(inner_type) {
         return quote! {
@@ -380,7 +387,7 @@ pub fn generate_option_field_to_value_with_default(field_name: &syn::Ident, inne
             self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v))).unwrap_or(sea_query::Value::ChronoDateTime(None))
         };
     }
-    
+
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = inner_type {
         if let Some(segment) = path.segments.last() {
@@ -447,7 +454,7 @@ pub fn generate_option_field_to_value_with_default(field_name: &syn::Ident, inne
 /// # Returns
 ///
 /// Returns a `TokenStream` that generates code to convert `Option<T>` to `Option<Value>`.
-/// 
+///
 /// Returns `None` when the field is `None`, and `Some(Value::...)` when the field is `Some(v)`.
 /// This allows `get()` to correctly detect unset fields for CRUD operations.
 pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type) -> TokenStream {
@@ -458,7 +465,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
                 .map(|v| sea_query::Value::Json(Some(Box::new(v.clone()))))
         };
     }
-    
+
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(inner_type) {
         return quote! {
@@ -466,7 +473,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
                 .map(|v| sea_query::Value::Bytes(Some(v.clone())))
         };
     }
-    
+
     // Check for rust_decimal::Decimal
     if is_decimal_type(inner_type) {
         return quote! {
@@ -474,7 +481,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
                 .map(|v| sea_query::Value::String(Some(v.to_string())))
         };
     }
-    
+
     // Check for rusty_money::Money
     if is_money_type(inner_type) {
         return quote! {
@@ -494,7 +501,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
             self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v)))
         };
     }
-    
+
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = inner_type {
         if let Some(segment) = path.segments.last() {
@@ -543,13 +550,13 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
                 },
             }
         } else {
-            quote! { 
+            quote! {
                 // Path segment not found: return None for unset fields
                 self.#field_name.as_ref().map(|_| sea_query::Value::String(None))
             }
         }
     } else {
-        quote! { 
+        quote! {
             // Non-path type: return None for unset fields
             self.#field_name.as_ref().map(|_| sea_query::Value::String(None))
         }
@@ -600,7 +607,7 @@ pub fn generate_value_to_field(
             }
         };
     }
-    
+
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(field_type) {
         return quote! {
@@ -624,7 +631,7 @@ pub fn generate_value_to_field(
             }
         };
     }
-    
+
     // Check for rust_decimal::Decimal
     if is_decimal_type(field_type) {
         return quote! {
@@ -657,11 +664,11 @@ pub fn generate_value_to_field(
             }
         };
     }
-    
+
     // Note: Money type conversion requires currency_code field, handled in FromRow generation
     // This function is for Value-to-field conversion (used in Record setters)
     // Money will need special handling in FromRow to construct from amount + currency
-    
+
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = field_type {
         if let Some(segment) = path.segments.last() {
@@ -1028,7 +1035,7 @@ pub fn generate_value_to_option_field(
             }
         };
     }
-    
+
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(inner_type) {
         return quote! {
@@ -1049,7 +1056,7 @@ pub fn generate_value_to_option_field(
             }
         };
     }
-    
+
     // Check for rust_decimal::Decimal
     if is_decimal_type(inner_type) {
         return quote! {
@@ -1079,11 +1086,11 @@ pub fn generate_value_to_option_field(
             }
         };
     }
-    
+
     // Note: Money type conversion requires currency_code field, handled in FromRow generation
     // This function is for Value-to-option-field conversion (used in Record setters)
     // Money will need special handling in FromRow to construct from amount + currency
-    
+
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = inner_type {
         if let Some(segment) = path.segments.last() {
@@ -1421,7 +1428,10 @@ mod tests {
         assert_eq!(type_to_string(&ty), "serde_json::Value");
 
         let ty: Type = parse_str("std::collections::HashMap<String, i32>").unwrap();
-        assert_eq!(type_to_string(&ty), "std::collections::HashMap<String, i32>");
+        assert_eq!(
+            type_to_string(&ty),
+            "std::collections::HashMap<String, i32>"
+        );
     }
 
     #[test]
@@ -1431,7 +1441,10 @@ mod tests {
         // After filtering, generic_args will be empty, so no angle brackets should be added
         let ty: Type = parse_str("PhantomData").unwrap();
         assert_eq!(type_to_string(&ty), "PhantomData");
-        assert!(!type_to_string(&ty).contains("<>"), "Should not have empty angle brackets");
+        assert!(
+            !type_to_string(&ty).contains("<>"),
+            "Should not have empty angle brackets"
+        );
     }
 
     #[test]
@@ -1441,16 +1454,22 @@ mod tests {
         // Since syn::parse_str doesn't easily parse lifetime parameters,
         // we test the behavior by ensuring that a simple type without generics
         // doesn't get brackets, and that types with type generics do get brackets.
-        
+
         // Simple type - no brackets
         let ty: Type = parse_str("PhantomData").unwrap();
         assert_eq!(type_to_string(&ty), "PhantomData");
-        assert!(!type_to_string(&ty).contains("<>"), "Should not have empty angle brackets");
-        
+        assert!(
+            !type_to_string(&ty).contains("<>"),
+            "Should not have empty angle brackets"
+        );
+
         // Type with type generics - should have brackets
         let ty: Type = parse_str("Option<i32>").unwrap();
         assert_eq!(type_to_string(&ty), "Option<i32>");
-        assert!(type_to_string(&ty).contains("<"), "Should have angle brackets for type generics");
+        assert!(
+            type_to_string(&ty).contains("<"),
+            "Should have angle brackets for type generics"
+        );
     }
 
     #[test]
@@ -1458,7 +1477,7 @@ mod tests {
         // Test types with multiple generic arguments where some are types and some aren't
         // In practice, this would be like MyType<'a, T, 10> where 'a is lifetime, T is type, 10 is const
         // After filtering, only T should remain, so we should get MyType<T>
-        
+
         // Test with just type generics (what we can easily parse)
         let ty: Type = parse_str("Result<i32, String>").unwrap();
         assert_eq!(type_to_string(&ty), "Result<i32, String>");
@@ -1485,8 +1504,11 @@ mod tests {
     fn test_type_to_string_only_lifetime_generics() {
         // Test that types with only lifetime generics (no type generics) don't produce empty brackets
         // This test manually constructs a type with only lifetime generics to verify the fix
-        use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Lifetime};
-        
+        use syn::{
+            AngleBracketedGenericArguments, GenericArgument, Lifetime, Path, PathArguments,
+            PathSegment,
+        };
+
         // Create a PathSegment with only a lifetime argument
         let lifetime = Lifetime::new("'a", proc_macro2::Span::call_site());
         let lifetime_arg = GenericArgument::Lifetime(lifetime);
@@ -1496,27 +1518,33 @@ mod tests {
             args: syn::punctuated::Punctuated::from_iter(vec![lifetime_arg]),
             gt_token: syn::token::Gt::default(),
         };
-        
+
         let segment = PathSegment {
             ident: syn::Ident::new("PhantomData", proc_macro2::Span::call_site()),
             arguments: PathArguments::AngleBracketed(args),
         };
-        
+
         let path = Path {
             leading_colon: None,
             segments: syn::punctuated::Punctuated::from_iter(vec![segment]),
         };
-        
-        let ty = Type::Path(syn::TypePath {
-            qself: None,
-            path,
-        });
-        
+
+        let ty = Type::Path(syn::TypePath { qself: None, path });
+
         let result = type_to_string(&ty);
         // Should be "PhantomData" without empty angle brackets
-        assert_eq!(result, "PhantomData", "Type with only lifetime generics should not produce empty brackets");
-        assert!(!result.contains("<>"), "Should not have empty angle brackets");
-        assert!(!result.contains("<"), "Should not have any angle brackets when only non-type generics exist");
+        assert_eq!(
+            result, "PhantomData",
+            "Type with only lifetime generics should not produce empty brackets"
+        );
+        assert!(
+            !result.contains("<>"),
+            "Should not have empty angle brackets"
+        );
+        assert!(
+            !result.contains("<"),
+            "Should not have any angle brackets when only non-type generics exist"
+        );
     }
 
     #[test]
@@ -1526,18 +1554,18 @@ mod tests {
         // Note: syn::parse_str can't easily parse const generics, so we'll test the behavior
         // by ensuring that when we have a type with generics but filter out all type args,
         // we don't get empty brackets
-        
+
         // Create a type like "Buffer<10>" where 10 is a const generic
         // Since syn::parse_str doesn't support const generics easily, we'll verify the logic
         // by testing that filtering works correctly
-        
+
         // Test with a type that has mixed generics - we'll parse a type with type generics
         // and verify the filtering logic works, then document that const-only generics
         // would be handled the same way
         let ty: Type = parse_str("MyType<i32>").unwrap();
         let result = type_to_string(&ty);
         assert_eq!(result, "MyType<i32>");
-        
+
         // The key test: verify that if we manually construct a type with only const generics,
         // it would be handled correctly. Since syn doesn't easily support const generics in parse_str,
         // we verify the logic by ensuring the filter-then-check pattern works.
@@ -1549,41 +1577,47 @@ mod tests {
     fn test_type_to_string_mixed_type_and_non_type_generics() {
         // Test that types with both type and non-type generics only show type generics
         // This verifies the filtering logic works correctly
-        use syn::{PathSegment, Path, PathArguments, AngleBracketedGenericArguments, GenericArgument, Lifetime, Type};
-        
+        use syn::{
+            AngleBracketedGenericArguments, GenericArgument, Lifetime, Path, PathArguments,
+            PathSegment, Type,
+        };
+
         // Create a type like "MyType<'a, T>" where 'a is lifetime and T is type
         // After filtering, we should get "MyType<T>"
         let lifetime = Lifetime::new("'a", proc_macro2::Span::call_site());
         let lifetime_arg = GenericArgument::Lifetime(lifetime);
         let type_arg: Type = parse_str("i32").unwrap();
         let type_generic_arg = GenericArgument::Type(type_arg);
-        
+
         let args = AngleBracketedGenericArguments {
             colon2_token: None,
             lt_token: syn::token::Lt::default(),
             args: syn::punctuated::Punctuated::from_iter(vec![lifetime_arg, type_generic_arg]),
             gt_token: syn::token::Gt::default(),
         };
-        
+
         let segment = PathSegment {
             ident: syn::Ident::new("MyType", proc_macro2::Span::call_site()),
             arguments: PathArguments::AngleBracketed(args),
         };
-        
+
         let path = Path {
             leading_colon: None,
             segments: syn::punctuated::Punctuated::from_iter(vec![segment]),
         };
-        
-        let ty = Type::Path(syn::TypePath {
-            qself: None,
-            path,
-        });
-        
+
+        let ty = Type::Path(syn::TypePath { qself: None, path });
+
         let result = type_to_string(&ty);
         // Should be "MyType<i32>" - only the type generic, not the lifetime
-        assert_eq!(result, "MyType<i32>", "Should only include type generics, not lifetime generics");
-        assert!(!result.contains("'a"), "Should not include lifetime in output");
+        assert_eq!(
+            result, "MyType<i32>",
+            "Should only include type generics, not lifetime generics"
+        );
+        assert!(
+            !result.contains("'a"),
+            "Should not include lifetime in output"
+        );
     }
 
     #[test]

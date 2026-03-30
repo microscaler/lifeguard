@@ -32,25 +32,25 @@ impl WalLagMonitor {
         let lag_ref = is_lagging.clone();
 
         let handle = thread::spawn(move || {
-                // Retry initial connect with backoff (PRD R7.1): transient replica/startup failures
-                // must not permanently disable read routing for the process lifetime.
-                let mut backoff = Duration::from_millis(200);
-                let backoff_cap = Duration::from_secs(5);
-                let client = loop {
-                    match may_postgres::connect(&replica_conn_string) {
-                        Ok(c) => break c,
-                        Err(_) => {
-                            lag_ref.store(true, Ordering::Release);
-                            thread::sleep(backoff);
-                            backoff = (backoff * 2).min(backoff_cap);
-                        }
+            // Retry initial connect with backoff (PRD R7.1): transient replica/startup failures
+            // must not permanently disable read routing for the process lifetime.
+            let mut backoff = Duration::from_millis(200);
+            let backoff_cap = Duration::from_secs(5);
+            let client = loop {
+                match may_postgres::connect(&replica_conn_string) {
+                    Ok(c) => break c,
+                    Err(_) => {
+                        lag_ref.store(true, Ordering::Release);
+                        thread::sleep(backoff);
+                        backoff = (backoff * 2).min(backoff_cap);
                     }
-                };
+                }
+            };
 
-                loop {
-                    thread::sleep(poll_interval);
+            loop {
+                thread::sleep(poll_interval);
 
-                    let query = "
+                let query = "
                     SELECT (
                         CASE WHEN pg_is_in_recovery() THEN
                             pg_wal_lsn_diff(
@@ -63,34 +63,29 @@ impl WalLagMonitor {
                     ) AS lag_bytes
                 ";
 
-                    match client.query_one(query, &[]) {
-                        Ok(row) => {
-                            let lag_bytes: i64 = row.get(0);
-                            let lagging = lag_bytes > 1_000_000;
-                            lag_ref.store(lagging, Ordering::Release);
-                        }
-                        Err(_) => {
-                            lag_ref.store(true, Ordering::Release);
-                        }
+                match client.query_one(query, &[]) {
+                    Ok(row) => {
+                        let lag_bytes: i64 = row.get(0);
+                        let lagging = lag_bytes > 1_000_000;
+                        lag_ref.store(lagging, Ordering::Release);
+                    }
+                    Err(_) => {
+                        lag_ref.store(true, Ordering::Release);
                     }
                 }
-            });
+            }
+        });
 
         #[allow(clippy::mem_forget)]
         std::mem::forget(handle);
 
-        Self {
-            is_lagging,
-        }
+        Self { is_lagging }
     }
 
     /// Starts a background thread that polls the database for WAL lag every **500ms**.
     #[must_use]
     pub fn start_monitor(replica_conn_string: String) -> Self {
-        Self::start_monitor_with_poll_interval(
-            replica_conn_string,
-            Duration::from_millis(500),
-        )
+        Self::start_monitor_with_poll_interval(replica_conn_string, Duration::from_millis(500))
     }
 
     /// Check if the replica is currently lagging

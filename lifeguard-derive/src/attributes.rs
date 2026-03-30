@@ -1,6 +1,6 @@
 //! Attribute parsing utilities
 
-use syn::{Attribute, Field, ExprLit, Lit};
+use syn::{Attribute, ExprLit, Field, Lit};
 
 /// Extract table name from struct attributes
 pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
@@ -8,9 +8,9 @@ pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
         if attr.path().is_ident("table_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     return Some(s.value());
                 }
             }
@@ -25,9 +25,9 @@ pub fn extract_schema_name(attrs: &[Attribute]) -> Option<String> {
         if attr.path().is_ident("schema_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     return Some(s.value());
                 }
             }
@@ -42,9 +42,9 @@ pub fn extract_column_name(field: &Field) -> Option<String> {
         if attr.path().is_ident("column_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     return Some(s.value());
                 }
             }
@@ -60,9 +60,9 @@ pub fn extract_model_name(attrs: &[Attribute]) -> Option<syn::Ident> {
         if attr.path().is_ident("model") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     // Parse the string as an Ident
                     return syn::parse_str::<syn::Ident>(&s.value()).ok();
                 }
@@ -79,9 +79,9 @@ pub fn extract_column_enum_name(attrs: &[Attribute]) -> Option<syn::Ident> {
         if attr.path().is_ident("column") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     // Parse the string as an Ident
                     return syn::parse_str::<syn::Ident>(&s.value()).ok();
                 }
@@ -99,8 +99,7 @@ pub fn extract_cursor_tiebreak(attrs: &[Attribute]) -> Option<syn::Ident> {
         if attr.path().is_ident("cursor_tiebreak") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
+                    lit: Lit::Str(s), ..
                 }) = &meta.value
                 {
                     return syn::parse_str::<syn::Ident>(&s.value()).ok();
@@ -113,7 +112,10 @@ pub fn extract_cursor_tiebreak(attrs: &[Attribute]) -> Option<syn::Ident> {
 
 /// Check if field has a specific attribute
 pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
-    field.attrs.iter().any(|attr| attr.path().is_ident(attr_name))
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.path().is_ident(attr_name))
 }
 
 /// Holds the configuration extracted from `#[has_many]`, `#[belongs_to]`, etc.
@@ -125,7 +127,7 @@ pub struct RelationAttribute {
 }
 
 /// Extract all column attributes from a field
-/// 
+///
 /// This struct is a placeholder for future functionality that will support
 /// additional column attributes like unique, indexed, nullable, etc.
 #[allow(dead_code)]
@@ -159,10 +161,16 @@ pub struct ColumnAttributes {
 fn parse_relation_attr(attr: &Attribute) -> Result<RelationAttribute, syn::Error> {
     let mut rel = RelationAttribute::default();
     if let syn::Meta::List(meta_list) = &attr.meta {
-        let nested = meta_list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)?;
+        let nested = meta_list.parse_args_with(
+            syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+        )?;
         for meta in nested {
             if let syn::Meta::NameValue(nv) = meta {
-                if let syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) = &nv.value {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(s),
+                    ..
+                }) = &nv.value
+                {
                     if nv.path.is_ident("entity") {
                         rel.entity = s.value();
                     } else if nv.path.is_ident("from") {
@@ -183,31 +191,30 @@ fn parse_relation_attr(attr: &Attribute) -> Result<RelationAttribute, syn::Error
     Ok(rel)
 }
 
-
 /// Parse all column attributes from a field
-/// 
+///
 /// Extracts all column-related attributes from a field and returns them
 /// as a `ColumnAttributes` struct. Used by the `LifeModel` macro to generate
 /// `ColumnTrait::def()` implementations.
-/// 
+///
 /// Returns an error if invalid attribute values are found (e.g., empty strings
 /// in `select_as` or `save_as` attributes).
 #[allow(clippy::too_many_lines)]
 pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::Error> {
     let mut attrs = ColumnAttributes::default();
-    
+
     // Debug: Check if attributes are being seen
     // For now, just process them normally
-    
+
     for attr in &field.attrs {
         if attr.path().is_ident("primary_key") {
             attrs.is_primary_key = true;
         } else if attr.path().is_ident("column_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.column_name = Some(s.value());
                 }
             }
@@ -216,36 +223,36 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
             // Use the exact same pattern as extract_column_name which works
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.column_type = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("default_value") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.default_value = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("default_expr") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.default_expr = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("renamed_from") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.renamed_from = Some(s.value());
                 }
             }
@@ -260,9 +267,9 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
         } else if attr.path().is_ident("enum_name") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.enum_name = Some(s.value());
                 }
             }
@@ -271,9 +278,9 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
         } else if attr.path().is_ident("select_as") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     let value = s.value();
                     if value.is_empty() {
                         return Err(syn::Error::new_spanned(
@@ -299,9 +306,9 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
         } else if attr.path().is_ident("save_as") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     let value = s.value();
                     if value.is_empty() {
                         return Err(syn::Error::new_spanned(
@@ -336,33 +343,33 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
         } else if attr.path().is_ident("comment") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.comment = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("foreign_key") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.foreign_key = Some(s.value());
                 }
             }
         } else if attr.path().is_ident("check") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     attrs.check = Some(s.value());
                 }
             }
         }
     }
-    
+
     Ok(attrs)
 }
 
@@ -400,15 +407,18 @@ pub struct TableAttributes {
 }
 
 /// Parse table-level attributes from struct attributes
-/// 
+///
 /// # Parameters
 /// * `attrs` - Struct attributes to parse
 /// * `valid_columns` - Set of valid column names that exist on the struct (for validation)
 #[allow(dead_code)] // Used by macro expansion
 #[allow(clippy::too_many_lines)] // Single attribute-dispatch loop; splitting would obscure control flow
-pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collections::HashSet<String>) -> Result<TableAttributes, syn::Error> {
+pub fn parse_table_attributes(
+    attrs: &[Attribute],
+    valid_columns: &std::collections::HashSet<String>,
+) -> Result<TableAttributes, syn::Error> {
     let mut table_attrs = TableAttributes::default();
-    
+
     for attr in attrs {
         if attr.path().is_ident("skip_from_row") {
             // Skip FromRow generation - useful for SQL generation when types don't implement FromSql
@@ -416,9 +426,9 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
         } else if attr.path().is_ident("table_comment") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     table_attrs.table_comment = Some(s.value());
                 }
             }
@@ -426,10 +436,11 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             // Parse comma-separated column names: #[composite_unique = "col1, col2, col3"]
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
-                    let columns: Vec<String> = s.value()
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
+                    let columns: Vec<String> = s
+                        .value()
                         .split(',')
                         .map(|col| col.trim().to_string())
                         .filter(|col| !col.is_empty())
@@ -439,8 +450,8 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
                         if !valid_columns.contains(col) {
                             return Err(syn::Error::new_spanned(
                                 attr,
-                                format!("Column '{}' in composite_unique does not exist on this struct. Available columns: {}", 
-                                    col, 
+                                format!("Column '{}' in composite_unique does not exist on this struct. Available columns: {}",
+                                    col,
                                     valid_columns.iter().map(String::as_str).collect::<Vec<_>>().join(", "))
                             ));
                         }
@@ -455,9 +466,9 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             // Format: "idx_name(col1, col2) WHERE col1 IS NOT NULL"
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     let index_def = parse_index_definition(&s.value())?;
                     // Validate that all columns in the index exist
                     let (name, columns, unique, where_clause) = index_def;
@@ -465,14 +476,16 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
                         if !valid_columns.contains(col) {
                             return Err(syn::Error::new_spanned(
                                 attr,
-                                format!("Column '{}' in index '{}' does not exist on this struct. Available columns: {}", 
-                                    col, 
+                                format!("Column '{}' in index '{}' does not exist on this struct. Available columns: {}",
+                                    col,
                                     name,
                                     valid_columns.iter().map(String::as_str).collect::<Vec<_>>().join(", "))
                             ));
                         }
                     }
-                    table_attrs.indexes.push((name, columns, unique, where_clause));
+                    table_attrs
+                        .indexes
+                        .push((name, columns, unique, where_clause));
                 }
             }
         } else if attr.path().is_ident("check") {
@@ -482,9 +495,9 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             // Otherwise, generate a default name from the table name
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {
-                    lit: Lit::Str(s),
-                    ..
-                }) = &meta.value {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     let value = s.value();
                     // Check if format is "name: expression"
                     if let Some(colon_pos) = value.find(':') {
@@ -508,7 +521,10 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             table_attrs.soft_delete = true;
         } else if attr.path().is_ident("before_insert") {
             if let Ok(meta) = attr.meta.require_name_value() {
-                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     table_attrs.before_insert = Some(s.value());
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
@@ -516,7 +532,10 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             }
         } else if attr.path().is_ident("after_insert") {
             if let Ok(meta) = attr.meta.require_name_value() {
-                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     table_attrs.after_insert = Some(s.value());
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
@@ -524,7 +543,10 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             }
         } else if attr.path().is_ident("before_update") {
             if let Ok(meta) = attr.meta.require_name_value() {
-                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     table_attrs.before_update = Some(s.value());
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
@@ -532,7 +554,10 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             }
         } else if attr.path().is_ident("after_update") {
             if let Ok(meta) = attr.meta.require_name_value() {
-                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     table_attrs.after_update = Some(s.value());
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
@@ -540,7 +565,10 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             }
         } else if attr.path().is_ident("before_delete") {
             if let Ok(meta) = attr.meta.require_name_value() {
-                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     table_attrs.before_delete = Some(s.value());
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
@@ -548,7 +576,10 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             }
         } else if attr.path().is_ident("after_delete") {
             if let Ok(meta) = attr.meta.require_name_value() {
-                if let syn::Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &meta.value {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
                     table_attrs.after_delete = Some(s.value());
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
@@ -556,7 +587,7 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
             }
         }
     }
-    
+
     Ok(table_attrs)
 }
 
@@ -564,10 +595,12 @@ pub fn parse_table_attributes(attrs: &[Attribute], valid_columns: &std::collecti
 /// Format: "`idx_name(col1`, col2) WHERE col1 IS NOT NULL"
 /// Returns: (name, columns, unique, `partial_where`)
 #[allow(dead_code)] // Used by parse_table_attributes
-fn parse_index_definition(def: &str) -> Result<(String, Vec<String>, bool, Option<String>), syn::Error> {
+fn parse_index_definition(
+    def: &str,
+) -> Result<(String, Vec<String>, bool, Option<String>), syn::Error> {
     let def = def.trim();
     let mut unique = false;
-    
+
     // Check for UNIQUE prefix
     let def = if let Some(stripped) = def.strip_prefix("UNIQUE ") {
         unique = true;
@@ -575,7 +608,7 @@ fn parse_index_definition(def: &str) -> Result<(String, Vec<String>, bool, Optio
     } else {
         def
     };
-    
+
     // Parse: "idx_name(col1, col2) WHERE condition"
     let where_pos = def.find(" WHERE ");
     let (index_part, where_clause) = if let Some(pos) = where_pos {
@@ -583,24 +616,22 @@ fn parse_index_definition(def: &str) -> Result<(String, Vec<String>, bool, Optio
     } else {
         (def, None)
     };
-    
+
     // Parse: "idx_name(col1, col2)"
     let paren_pos = index_part.find('(');
     if let Some(pos) = paren_pos {
         let name = index_part[..pos].trim().to_string();
         let columns_str = &index_part[pos + 1..];
-        let columns_str = columns_str.strip_suffix(')')
-            .ok_or_else(|| syn::Error::new_spanned(
-                def,
-                "Invalid index definition: missing closing parenthesis"
-            ))?;
-        
+        let columns_str = columns_str.strip_suffix(')').ok_or_else(|| {
+            syn::Error::new_spanned(def, "Invalid index definition: missing closing parenthesis")
+        })?;
+
         let columns: Vec<String> = columns_str
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        
+
         Ok((name, columns, unique, where_clause))
     } else {
         // No columns specified - single column index

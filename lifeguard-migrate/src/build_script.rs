@@ -3,10 +3,10 @@
 //! This module provides functions that can be used in user's build.rs
 //! to automatically discover entities and generate a registry module.
 
+use regex;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use regex;
 
 /// Entity information discovered from source files
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ fn discover_entities_recursive(
     for entry in fs::read_dir(current_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_dir() {
             // Skip common directories
             let dir_name = path.file_name().unwrap().to_string_lossy();
@@ -57,7 +57,7 @@ fn discover_entities_recursive(
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -77,7 +77,7 @@ fn contains_lifemodel_derive(content: &str) -> bool {
     // Use regex to match #[derive(...)] attributes and extract the content inside parentheses
     // Pattern: #[derive(...)] where ... can contain LifeModel anywhere
     let derive_pattern = regex::Regex::new(r#"#\[derive\(([^)]*)\)\]"#).unwrap();
-    
+
     for line in content.lines() {
         if let Some(captures) = derive_pattern.captures(line) {
             // Extract just the content inside the parentheses (the derive list)
@@ -87,7 +87,8 @@ fn contains_lifemodel_derive(content: &str) -> bool {
                 // Look for "LifeModel" as a whole word (not part of another identifier)
                 // Pattern: LifeModel must be preceded by start, comma+space, or space
                 // and followed by comma, closing paren, or end
-                let lifemodel_pattern = regex::Regex::new(r#"(^|,\s*|\s+)LifeModel(\s*,\s*|\)|$)"#).unwrap();
+                let lifemodel_pattern =
+                    regex::Regex::new(r#"(^|,\s*|\s+)LifeModel(\s*,\s*|\)|$)"#).unwrap();
                 if lifemodel_pattern.is_match(derive_list_str) {
                     return true;
                 }
@@ -111,37 +112,38 @@ fn extract_entity_info(
     if !contains_lifemodel_derive(content) {
         return Ok(None);
     }
-    
+
     // Extract struct name - look for "pub struct" after derive
     let struct_name = extract_struct_name(content)?;
     if struct_name.is_none() {
         return Ok(None);
     }
     let struct_name = struct_name.unwrap();
-    
+
     // Extract table name from #[table_name = "..."] attribute
-    let table_name = extract_table_name_from_string(content)
-        .unwrap_or_else(|| snake_case(&struct_name));
-    
+    let table_name =
+        extract_table_name_from_string(content).unwrap_or_else(|| snake_case(&struct_name));
+
     // Extract file name without extension (e.g., "chart_of_accounts.rs" -> "chart_of_accounts")
     let file_name = file_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
         .to_string();
-    
+
     // Calculate module path (relative to root_dir)
-    let rel_path = file_path.strip_prefix(root_dir)
+    let rel_path = file_path
+        .strip_prefix(root_dir)
         .unwrap_or(file_path)
         .parent()
         .unwrap_or(Path::new(""));
-    
+
     let module_path = rel_path
         .iter()
         .map(|c| c.to_string_lossy().replace("-", "_"))
         .collect::<Vec<_>>()
         .join("::");
-    
+
     Ok(Some(EntityInfo {
         table_name,
         struct_name,
@@ -160,7 +162,7 @@ fn extract_struct_name(content: &str) -> Result<Option<String>, Box<dyn std::err
     // Look for pattern: pub struct StructName {
     // or: struct StructName {
     let lines: Vec<&str> = content.lines().collect();
-    
+
     for (i, line) in lines.iter().enumerate() {
         if contains_lifemodel_derive(line) {
             // Look ahead for struct definition (within next 25 lines to handle multiple attributes)
@@ -170,14 +172,15 @@ fn extract_struct_name(content: &str) -> Result<Option<String>, Box<dyn std::err
                     // Extract struct name
                     let parts: Vec<&str> = struct_line.split_whitespace().collect();
                     // Handle both "pub struct Name" and "struct Name"
-                    let name_index = if parts.len() >= 3 && parts[0] == "pub" && parts[1] == "struct" {
-                        2  // "pub struct Name" -> use index 2
-                    } else if parts.len() >= 2 && parts[0] == "struct" {
-                        1  // "struct Name" -> use index 1
-                    } else {
-                        continue; // Invalid format
-                    };
-                    
+                    let name_index =
+                        if parts.len() >= 3 && parts[0] == "pub" && parts[1] == "struct" {
+                            2 // "pub struct Name" -> use index 2
+                        } else if parts.len() >= 2 && parts[0] == "struct" {
+                            1 // "struct Name" -> use index 1
+                        } else {
+                            continue; // Invalid format
+                        };
+
                     if name_index < parts.len() {
                         let name = parts[name_index];
                         // Remove generics if present
@@ -190,7 +193,7 @@ fn extract_struct_name(content: &str) -> Result<Option<String>, Box<dyn std::err
             }
         }
     }
-    
+
     Ok(None)
 }
 
@@ -228,9 +231,10 @@ fn entity_service_path(entity: &EntityInfo) -> String {
         .parent()
         .and_then(|p| {
             let mut parts: Vec<_> = p.iter().collect();
-            if let Some(src_idx) = parts.iter().position(|c| {
-                c.to_string_lossy() == "src" || c.to_string_lossy() == "entities"
-            }) {
+            if let Some(src_idx) = parts
+                .iter()
+                .position(|c| c.to_string_lossy() == "src" || c.to_string_lossy() == "entities")
+            {
                 parts.drain(..=src_idx);
                 let path_str = parts
                     .iter()
@@ -251,12 +255,17 @@ fn entity_service_path(entity: &EntityInfo) -> String {
 
 /// Topologically order entities using `#[foreign_key = "..."]` targets that exist in the same crate.
 pub fn order_entities_for_registry(entities: &[EntityInfo]) -> Result<Vec<EntityInfo>, String> {
-    use crate::dependency_ordering::{topological_sort, validate_foreign_key_references, TableInfo};
+    use crate::dependency_ordering::{
+        topological_sort, validate_foreign_key_references, TableInfo,
+    };
     use crate::sql_dependency_order::extract_foreign_key_targets_from_rust_source;
     if entities.is_empty() {
         return Ok(Vec::new());
     }
-    let known: HashMap<String, ()> = entities.iter().map(|e| (e.table_name.clone(), ())).collect();
+    let known: HashMap<String, ()> = entities
+        .iter()
+        .map(|e| (e.table_name.clone(), ()))
+        .collect();
     let mut tables: Vec<TableInfo> = Vec::new();
     for e in entities {
         let content = fs::read_to_string(&e.file_path)
@@ -318,10 +327,11 @@ pub fn generate_registry_module(
         registry_content.push_str("    vec![]\n");
         registry_content.push_str("}\n\n");
         registry_content.push_str("/// Generate SQL for all entities\n");
-        registry_content.push_str("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
+        registry_content
+            .push_str("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
         registry_content.push_str("    Ok(vec![])\n");
         registry_content.push_str("}\n");
-        
+
         fs::write(output_path, registry_content)?;
         return Ok(());
     }
@@ -334,20 +344,20 @@ pub fn generate_registry_module(
     // So we don't wrap it in another mod declaration here
     let mut registry_content = String::from("// Auto-generated entity registry\n");
     registry_content.push_str("// DO NOT EDIT - This file is generated by build script\n\n");
-    
+
     registry_content.push_str("use lifeguard_migrate::sql_generator;\n\n");
-    
+
     // Generate entity metadata and iteration functions
     registry_content.push_str("/// Entity metadata for registry iteration\n");
     registry_content.push_str("pub struct EntityMetadata {\n");
     registry_content.push_str("    pub table_name: &'static str,\n");
     registry_content.push_str("    pub service_path: &'static str,\n");
     registry_content.push_str("}\n\n");
-    
+
     registry_content.push_str("/// Get all entity metadata\n");
     registry_content.push_str("pub fn all_entity_metadata() -> Vec<EntityMetadata> {\n");
     registry_content.push_str("    vec![\n");
-    
+
     for entity in &entities_ordered {
         let service_path = entity_service_path(entity);
         // Build module path from service_path and file name (which is the module name)
@@ -359,9 +369,7 @@ pub fn generate_registry_module(
             format!("crate::{}::{}", service_mod, file_name_sanitized)
         };
 
-        registry_content.push_str(&format!(
-            "        EntityMetadata {{\n"
-        ));
+        registry_content.push_str(&format!("        EntityMetadata {{\n"));
         registry_content.push_str(&format!(
             "            table_name: {}::Entity::TABLE_NAME,\n",
             module_path
@@ -372,15 +380,16 @@ pub fn generate_registry_module(
         ));
         registry_content.push_str("        },\n");
     }
-    
+
     registry_content.push_str("    ]\n");
     registry_content.push_str("}\n\n");
-    
+
     // Generate function to generate SQL for all entities
     registry_content.push_str("/// Generate SQL for all entities\n");
-    registry_content.push_str("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
+    registry_content
+        .push_str("pub fn generate_sql_for_all() -> Result<Vec<(String, String)>, String> {\n");
     registry_content.push_str("    let mut results = Vec::new();\n\n");
-    
+
     for entity in &entities_ordered {
         let service_path = entity_service_path(entity);
         let module_path = if service_path == "default" || service_path.is_empty() {
@@ -412,13 +421,13 @@ pub fn generate_registry_module(
         registry_content.push_str("        }\n");
         registry_content.push_str("    }\n\n");
     }
-    
+
     registry_content.push_str("    Ok(results)\n");
     registry_content.push_str("}\n");
-    
+
     // Write registry module
     fs::write(output_path, registry_content)?;
-    
+
     Ok(())
 }
 
@@ -435,7 +444,8 @@ fn sanitize_module_name(path: &str) -> String {
 /// Sanitize a module path segment (identifier) to be valid Rust
 /// Converts hyphens to underscores and removes invalid characters
 fn sanitize_module_segment(segment: &str) -> String {
-    segment.replace("-", "_")
+    segment
+        .replace("-", "_")
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect::<String>()

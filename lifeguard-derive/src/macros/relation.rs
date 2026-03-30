@@ -11,7 +11,14 @@ use quote::quote;
 use syn::{parse_macro_input, parse_quote, Data, DataEnum, DeriveInput, Variant};
 
 /// Type alias for complex relation extraction return type
-type RelationExtractionResult = Option<(TokenStream2, syn::Path, syn::Ident, Option<String>, Option<String>, TokenStream2)>;
+type RelationExtractionResult = Option<(
+    TokenStream2,
+    syn::Path,
+    syn::Ident,
+    Option<String>,
+    Option<String>,
+    TokenStream2,
+)>;
 
 /// Extract column name from column reference like "`Column::UserId`" or "`super::users::Column::Id`"
 fn extract_column_name(column_ref: &str) -> Option<String> {
@@ -28,7 +35,7 @@ fn extract_column_name(column_ref: &str) -> Option<String> {
 }
 
 /// Parse a column reference string and extract the column path and variant name
-/// 
+///
 /// Examples:
 /// ```text
 /// - Column::UserId -> (None, "UserId")
@@ -38,16 +45,16 @@ fn extract_column_name(column_ref: &str) -> Option<String> {
 fn parse_column_reference(column_ref: &str) -> (Option<String>, Vec<String>) {
     // Check if this is a composite key (multiple columns separated by comma)
     let columns: Vec<&str> = column_ref.split(',').map(str::trim).collect();
-    
+
     let mut column_variants = Vec::new();
     let mut path_prefix: Option<String> = None;
-    
+
     for col_ref in columns {
         let parts: Vec<&str> = col_ref.split("::").collect();
         if let Some(last_segment) = parts.last() {
             column_variants.push((*last_segment).to_string());
         }
-        
+
         // Extract path prefix (everything before the last "Column::" part)
         if parts.len() >= 2 {
             // Find the index of "Column" in the path
@@ -61,30 +68,33 @@ fn parse_column_reference(column_ref: &str) -> (Option<String>, Vec<String>) {
             }
         }
     }
-    
+
     (path_prefix, column_variants)
 }
 
 /// Build Identity from column reference string(s)
-/// 
+///
 /// Supports:
 /// - Single column: `` `Column::UserId` `` -> `Identity::Unary`
 /// - Composite keys: `` `Column::UserId`, `Column::TenantId` `` -> `Identity::Binary`
 /// - Path-qualified: `` `super::users::Column::Id` `` -> `Identity::Unary`
-/// 
+///
 /// Note: When the path is just "Column", it refers to the current entity's Column type.
 /// The macro uses `<Entity as LifeModelTrait>::Column` to access it.
 #[allow(clippy::too_many_lines)]
-fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Span) -> Result<TokenStream2, TokenStream2> {
+fn build_identity_from_column_ref(
+    column_ref: &str,
+    error_span: proc_macro2::Span,
+) -> Result<TokenStream2, TokenStream2> {
     let (path_prefix, column_variants) = parse_column_reference(column_ref);
-    
+
     // Build the column path (e.g., "Column" or "super::users::Column")
     // If no prefix, assume it's the current entity's Column type
-    
+
     let column_path_expr = if let Some(prefix) = path_prefix {
         // Full path like "super::users::Column"
         let prefix_segments: Vec<&str> = prefix.split("::").collect();
-        
+
         // Validate path segments before creating identifiers
         for (idx, segment) in prefix_segments.iter().enumerate() {
             if segment.is_empty() {
@@ -95,13 +105,9 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
                 } else {
                     format!("Column reference path has consecutive colons. Found empty segment at position {} in \"{}\". Use a valid path like \"super::users::Column::Id\".", idx + 1, column_ref)
                 };
-                return Err(syn::Error::new(
-                    error_span,
-                    error_msg,
-                )
-                .to_compile_error());
+                return Err(syn::Error::new(error_span, error_msg).to_compile_error());
             }
-            
+
             // Validate that the segment is a valid Rust identifier
             if syn::parse_str::<syn::Ident>(segment).is_err() {
                 return Err(syn::Error::new(
@@ -111,7 +117,7 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
                 .to_compile_error());
             }
         }
-        
+
         let mut path_tokens = quote! {};
         for segment in prefix_segments {
             // At this point, we've validated that segment is not empty and is a valid identifier
@@ -129,17 +135,21 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
         // No prefix - use Entity's Column type
         quote! { <Entity as lifeguard::LifeModelTrait>::Column }
     };
-    
+
     // Validate column variant identifiers
     for (idx, col_variant) in column_variants.iter().enumerate() {
         if col_variant.is_empty() {
             return Err(syn::Error::new(
                 error_span,
-                format!("Column variant cannot be empty at position {} in column reference \"{}\".", idx + 1, column_ref),
+                format!(
+                    "Column variant cannot be empty at position {} in column reference \"{}\".",
+                    idx + 1,
+                    column_ref
+                ),
             )
             .to_compile_error());
         }
-        
+
         // Validate that the column variant is a valid Rust identifier
         if syn::parse_str::<syn::Ident>(col_variant).is_err() {
             return Err(syn::Error::new(
@@ -149,7 +159,7 @@ fn build_identity_from_column_ref(column_ref: &str, error_span: proc_macro2::Spa
             .to_compile_error());
         }
     }
-    
+
     match column_variants.len() {
         1 => {
             let col_variant = &column_variants[0];
@@ -282,7 +292,7 @@ fn convert_pascal_to_snake_case(s: &str) -> String {
 }
 
 /// Extract entity name from entity path and infer foreign key column name
-/// 
+///
 /// Examples:
 /// - `` `super::users::Entity` `` -> "users" -> `` `user_id` ``
 /// - `` `CommentEntity` `` -> "Comment" -> `` `comment_id` ``
@@ -305,7 +315,7 @@ fn infer_foreign_key_column_name(entity_path: &str) -> String {
     } else {
         entity_path
     };
-    
+
     // Convert to snake_case and handle plural to singular
     // If the entity_name is already in snake_case (e.g., "users"), convert plural to singular
     let snake_case = if entity_name.contains('_') || entity_name.chars().all(char::is_lowercase) {
@@ -346,7 +356,7 @@ fn infer_foreign_key_column_name(entity_path: &str) -> String {
 ///     )]
 ///     User,
 /// }
-/// 
+///
 /// // The macro generates:
 /// // - Related trait implementations returning RelationDef
 /// // - RelationMetadata implementations when from/to are specified
@@ -354,9 +364,9 @@ fn infer_foreign_key_column_name(entity_path: &str) -> String {
 #[allow(clippy::too_many_lines)]
 pub fn derive_relation(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    
+
     let enum_name = &input.ident;
-    
+
     // Extract enum variants
     let Data::Enum(DataEnum { variants, .. }) = &input.data else {
         return syn::Error::new_spanned(
@@ -366,7 +376,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
         .to_compile_error()
         .into();
     };
-    
+
     // Process each variant to extract relationship information
     let mut related_impls = Vec::new();
     let mut related_entity_variants = Vec::new();
@@ -377,15 +387,19 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     // This prevents duplicate From impls when multiple relations target the same entity
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
     // We use a helper function to create a unique key from the path
-    let mut seen_target_entity_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_target_entity_paths: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     // Track which target entity paths we've already generated Related impls for
     // This prevents duplicate Related impls when multiple relations target the same entity
     // (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
     // Key: target entity path, Value: (from_col, to_col, variant_name, def_relation_def) for reuse
-    let mut seen_related_impls: std::collections::HashMap<String, (Option<String>, Option<String>, syn::Ident, TokenStream2)> = std::collections::HashMap::new();
+    let mut seen_related_impls: std::collections::HashMap<
+        String,
+        (Option<String>, Option<String>, syn::Ident, TokenStream2),
+    > = std::collections::HashMap::new();
     // Track all enum variants (including unannotated ones) for exhaustive def() match
     let mut all_variant_names: Vec<syn::Ident> = Vec::new();
-    
+
     // Helper function to create a unique string key from a syn::Path
     // This allows us to compare paths for equality
     let path_to_key = |path: &syn::Path| -> String {
@@ -401,14 +415,22 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
         }
         key
     };
-    
+
     // First pass: collect all variant names (including unannotated ones)
     for variant in variants {
         all_variant_names.push(variant.ident.clone());
     }
-    
+
     for variant in variants {
-        if let Some((related_impl, target_entity_path, variant_name, from_col, to_col, def_relation_def)) = process_relation_variant(variant, enum_name) {
+        if let Some((
+            related_impl,
+            target_entity_path,
+            variant_name,
+            from_col,
+            to_col,
+            def_relation_def,
+        )) = process_relation_variant(variant, enum_name)
+        {
             // Check if this is a dummy path (used for error cases)
             // Error cases are identified by:
             // 1. Path is just "Entity" without any module prefix
@@ -421,12 +443,12 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             // - Both from_col and to_col are None (defaults inferred, not explicitly specified)
             // - But def_relation_def is NOT empty (contains valid RelationDef construction code)
             let def_relation_def_str = def_relation_def.to_string();
-            let is_dummy_path = target_entity_path.segments.len() == 1 
+            let is_dummy_path = target_entity_path.segments.len() == 1
                 && target_entity_path.segments[0].ident == "Entity"
                 && from_col.is_none()
                 && to_col.is_none()
                 && def_relation_def_str.trim().is_empty();
-            
+
             // Only deduplicate Related impls if this is not a dummy path (error case)
             // Error cases should always be emitted to show the compile error
             if is_dummy_path {
@@ -440,15 +462,21 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 // Only generate one Related impl per unique target entity path to avoid conflicts
                 // when multiple relations target the same entity (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
                 let target_path_key = path_to_key(&target_entity_path);
-                
+
                 // Check if we've already seen this target entity path
-                if let Some((existing_from, existing_to, existing_variant, existing_def_relation_def)) = seen_related_impls.get(&target_path_key) {
+                if let Some((
+                    existing_from,
+                    existing_to,
+                    existing_variant,
+                    existing_def_relation_def,
+                )) = seen_related_impls.get(&target_path_key)
+                {
                     // Check if the column configuration is different
                     let from_col_str = from_col.as_deref().unwrap_or("default");
                     let to_col_str = to_col.as_deref().unwrap_or("default");
                     let existing_from_str = existing_from.as_deref().unwrap_or("default");
                     let existing_to_str = existing_to.as_deref().unwrap_or("default");
-                    
+
                     if from_col_str != existing_from_str || to_col_str != existing_to_str {
                         // Different column configuration - emit compile error
                         let error_msg = format!(
@@ -467,10 +495,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                             \n\
                             Solution: Use different target entities, or ensure all relations to the same entity use identical column configurations."
                         );
-                        let error = syn::Error::new_spanned(
-                            &variant.ident,
-                            error_msg,
-                        );
+                        let error = syn::Error::new_spanned(&variant.ident, error_msg);
                         related_impls.push(error.to_compile_error());
                         def_match_arms.push(quote! {
                             #enum_name::#variant_name => None,
@@ -493,9 +518,17 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                     continue;
                 }
                 // First time seeing this target entity path - record it and add the impl
-                seen_related_impls.insert(target_path_key.clone(), (from_col.clone(), to_col.clone(), variant_name.clone(), def_relation_def.clone()));
+                seen_related_impls.insert(
+                    target_path_key.clone(),
+                    (
+                        from_col.clone(),
+                        to_col.clone(),
+                        variant_name.clone(),
+                        def_relation_def.clone(),
+                    ),
+                );
                 related_impls.push(related_impl);
-                
+
                 // Store RelationDef construction for def() method generation
                 // Only add when we actually generate the Related impl
                 // Check that def_relation_def is not empty (error cases have empty quote! {})
@@ -512,7 +545,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                     });
                 }
             }
-            
+
             // Only generate RelatedEntity if this is not a dummy path (error case)
             if !is_dummy_path {
                 // Collect information for RelatedEntity enum generation
@@ -520,7 +553,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
                 related_entity_variants.push(quote! {
                     #variant_name(<#target_entity_path as lifeguard::LifeModelTrait>::Model),
                 });
-                
+
                 // Generate From implementation for RelatedEntity variant
                 // Only generate one From impl per unique target entity path to avoid conflicts
                 // when multiple relations target the same entity (e.g., CreatedPosts and EditedPosts both pointing to PostEntity)
@@ -544,7 +577,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             });
         }
     }
-    
+
     // Generate RelatedEntity enum if we have variants
     // Note: If there are parse errors, they will be in related_impls and will stop compilation
     // We don't need to check for errors here since the error token streams will be emitted
@@ -572,11 +605,11 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             pub enum RelatedEntity {
                 #(#related_entity_variants)*
             }
-            
+
             #(#related_entity_impls)*
         }
     };
-    
+
     // Generate def() method implementation for Relation enum (exhaustive match)
     let def_impl = if def_match_arms.is_empty() {
         quote! {}
@@ -604,13 +637,13 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
             }
         }
     };
-    
+
     let expanded: TokenStream2 = quote! {
         #(#related_impls)*
         #related_entity_enum
         #def_impl
     };
-    
+
     TokenStream::from(expanded)
 }
 
@@ -628,14 +661,13 @@ fn process_relation_variant(
     variant: &Variant,
     _enum_name: &syn::Ident,
 ) -> RelationExtractionResult {
-    
     // Parse attributes to find relationship type and target entity
     let mut relationship_type: Option<String> = None;
     let mut target_entity: Option<String> = None;
     let mut through_entity: Option<String> = None;
     let mut from_column: Option<String> = None;
     let mut to_column: Option<String> = None;
-    
+
     for attr in &variant.attrs {
         if attr.path().is_ident("lifeguard") {
             // Parse nested attributes like #[lifeguard(has_many = "...")]
@@ -643,8 +675,16 @@ fn process_relation_variant(
             // Check result and propagate errors instead of silently ignoring them
             if let Err(err) = attr.parse_nested_meta(|meta| {
                 // Check for key-value pairs like has_many = "..."
-                if meta.path.is_ident("has_many") || meta.path.is_ident("has_one") || meta.path.is_ident("belongs_to") || meta.path.is_ident("has_many_through") {
-                    let key = meta.path.get_ident().map(std::string::ToString::to_string).unwrap_or_default();
+                if meta.path.is_ident("has_many")
+                    || meta.path.is_ident("has_one")
+                    || meta.path.is_ident("belongs_to")
+                    || meta.path.is_ident("has_many_through")
+                {
+                    let key = meta
+                        .path
+                        .get_ident()
+                        .map(std::string::ToString::to_string)
+                        .unwrap_or_default();
                     let value: syn::LitStr = meta.value()?.parse()?;
                     relationship_type = Some(key);
                     target_entity = Some(value.value());
@@ -671,16 +711,17 @@ fn process_relation_variant(
                     err.to_compile_error(),
                     parse_quote!(Entity), // Dummy path - won't be used for RelatedEntity
                     variant.ident.clone(),
-                    None, // from_col
-                    None, // to_col
+                    None,      // from_col
+                    None,      // to_col
                     quote! {}, // Empty RelationDef construction for error case
                 ));
             }
         }
     }
-    
+
     // Generate Related trait implementation if we have the required information
-    if let (Some(rel_type_str), Some(target)) = (relationship_type.as_ref(), target_entity.as_ref()) {
+    if let (Some(rel_type_str), Some(target)) = (relationship_type.as_ref(), target_entity.as_ref())
+    {
         // Validate has_many_through requires through attribute
         if rel_type_str == "has_many_through" && through_entity.is_none() {
             return Some((
@@ -696,7 +737,7 @@ fn process_relation_variant(
                 quote! {}, // Empty RelationDef construction for error case
             ));
         }
-        
+
         // Capture relationship type before move
         let rel_type = match rel_type_str.as_str() {
             "has_one" => quote! { lifeguard::RelationType::HasOne },
@@ -704,15 +745,17 @@ fn process_relation_variant(
             "has_many_through" => quote! { lifeguard::RelationType::HasManyThrough },
             _ => quote! { lifeguard::RelationType::HasMany }, // Default (includes "has_many")
         };
-        
+
         // Helper function to parse and validate entity path
-        let parse_entity_path = |entity_str: &str, error_context: &str| -> Result<syn::Path, TokenStream2> {
+        let parse_entity_path = |entity_str: &str,
+                                 error_context: &str|
+         -> Result<syn::Path, TokenStream2> {
             if let Ok(path) = syn::parse_str(entity_str) {
                 Ok(path)
             } else {
                 // If parsing fails, try to construct a path manually
                 let segments: Vec<&str> = entity_str.split("::").collect();
-                
+
                 // Validate segments before creating identifiers
                 for (idx, segment) in segments.iter().enumerate() {
                     if segment.is_empty() {
@@ -723,13 +766,11 @@ fn process_relation_variant(
                         } else {
                             format!("Entity path has consecutive colons. Found empty segment at position {} in {} \"{}\". Use a valid path like \"super::users::Entity\".", idx + 1, error_context, entity_str)
                         };
-                        return Err(syn::Error::new(
-                            variant.ident.span(),
-                            error_msg,
-                        )
-                        .to_compile_error());
+                        return Err(
+                            syn::Error::new(variant.ident.span(), error_msg).to_compile_error()
+                        );
                     }
-                    
+
                     // Validate that the segment is a valid Rust identifier
                     if syn::parse_str::<syn::Ident>(segment).is_err() {
                         return Err(syn::Error::new(
@@ -739,7 +780,7 @@ fn process_relation_variant(
                         .to_compile_error());
                     }
                 }
-                
+
                 // Build the path after validation
                 let mut path = syn::Path {
                     leading_colon: None,
@@ -761,20 +802,40 @@ fn process_relation_variant(
                 Ok(path)
             }
         };
-        
+
         let dummy_entity: syn::Path = parse_quote!(Entity);
-        
+
         // Parse target entity path (e.g., "super::posts::Entity")
         let target_entity_path: syn::Path = match parse_entity_path(target, "entity path") {
             Ok(path) => path,
-            Err(err) => return Some((err, dummy_entity.clone(), variant.ident.clone(), None, None, quote! {})),
+            Err(err) => {
+                return Some((
+                    err,
+                    dummy_entity.clone(),
+                    variant.ident.clone(),
+                    None,
+                    None,
+                    quote! {},
+                ))
+            }
         };
-        
+
         // Parse through entity path for has_many_through relationships
-        let (through_entity_path, through_table_name) = if let Some(through) = through_entity.as_ref() {
+        let (through_entity_path, through_table_name) = if let Some(through) =
+            through_entity.as_ref()
+        {
             let through_path: syn::Path = match parse_entity_path(through, "through entity path") {
                 Ok(path) => path,
-                Err(err) => return Some((err, dummy_entity.clone(), variant.ident.clone(), None, None, quote! {})),
+                Err(err) => {
+                    return Some((
+                        err,
+                        dummy_entity.clone(),
+                        variant.ident.clone(),
+                        None,
+                        None,
+                        quote! {},
+                    ))
+                }
             };
             let through_table = quote! {
                 {
@@ -787,36 +848,37 @@ fn process_relation_variant(
         } else {
             (None, None)
         };
-        
+
         // Generate Related trait implementation and RelationMetadata implementation
         // Parse from/to columns if provided
         // Generate RelationMetadata implementation if from/to columns are provided
         // Store foreign key column name as a const for use in find_related()
-        let fk_col_impl = if let (Some(from_col), Some(_to_col)) = (from_column.as_ref(), to_column.as_ref()) {
-            // Extract column name from "Column::UserId" format
-            // The "from" column is the foreign key column in the related entity's table
-            if let Some(fk_name) = extract_column_name(from_col) {
-                // Convert to snake_case for column name
-                let fk_name_lit = syn::LitStr::new(&fk_name, proc_macro2::Span::call_site());
-                quote! {
-                    impl lifeguard::relation::RelationMetadata<Entity> for #target_entity_path {
-                        fn foreign_key_column() -> Option<&'static str> {
-                            Some(#fk_name_lit)
+        let fk_col_impl =
+            if let (Some(from_col), Some(_to_col)) = (from_column.as_ref(), to_column.as_ref()) {
+                // Extract column name from "Column::UserId" format
+                // The "from" column is the foreign key column in the related entity's table
+                if let Some(fk_name) = extract_column_name(from_col) {
+                    // Convert to snake_case for column name
+                    let fk_name_lit = syn::LitStr::new(&fk_name, proc_macro2::Span::call_site());
+                    quote! {
+                        impl lifeguard::relation::RelationMetadata<Entity> for #target_entity_path {
+                            fn foreign_key_column() -> Option<&'static str> {
+                                Some(#fk_name_lit)
+                            }
                         }
                     }
+                } else {
+                    quote! {}
                 }
             } else {
+                // No from/to columns specified - use default behavior
                 quote! {}
-            }
-        } else {
-            // No from/to columns specified - use default behavior
-            quote! {}
-        };
-        
+            };
+
         // Generate Related trait implementation with RelationDef
         // Note: Entity is assumed to be in the same module as the Relation enum
         // This is a simplified implementation - full Phase 6 will add proper Identity handling
-        
+
         // Get table names using entity's table_name() method
         // Note: Entity is assumed to be in the same module as the Relation enum (documented assumption)
         let from_table_name = quote! {
@@ -833,14 +895,23 @@ fn process_relation_variant(
                 entity.table_name()
             }
         };
-        
+
         // Build Identity for from_col and to_col
         // Phase 6: Enhanced to support composite keys and proper column references
         let from_col_identity = if let Some(from_col) = from_column.as_ref() {
             // Parse the column reference and build Identity
             match build_identity_from_column_ref(from_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone(), quote! {})),
+                Err(err) => {
+                    return Some((
+                        err,
+                        target_entity_path.clone(),
+                        variant.ident.clone(),
+                        from_column.clone(),
+                        to_column.clone(),
+                        quote! {},
+                    ))
+                }
             }
         } else {
             // Default: infer from relationship type
@@ -849,7 +920,8 @@ fn process_relation_variant(
                     // For belongs_to: from_col is the foreign key in the current table
                     // Infer FK column name from target entity: <target_entity_name>_id
                     let fk_col_name = infer_foreign_key_column_name(target);
-                    let fk_col_name_lit = syn::LitStr::new(&fk_col_name, proc_macro2::Span::call_site());
+                    let fk_col_name_lit =
+                        syn::LitStr::new(&fk_col_name, proc_macro2::Span::call_site());
                     quote! {
                         {
                             use sea_query::IdenStatic;
@@ -883,13 +955,22 @@ fn process_relation_variant(
                 }
             }
         };
-        
+
         let to_col_identity = if let Some(to_col) = to_column.as_ref() {
             // Parse the column reference and build Identity
             // The "to" column might be in a different module (e.g., "super::users::Column::Id")
             match build_identity_from_column_ref(to_col, variant.ident.span()) {
                 Ok(identity) => identity,
-                Err(err) => return Some((err, target_entity_path.clone(), variant.ident.clone(), from_column.clone(), to_column.clone(), quote! {})),
+                Err(err) => {
+                    return Some((
+                        err,
+                        target_entity_path.clone(),
+                        variant.ident.clone(),
+                        from_column.clone(),
+                        to_column.clone(),
+                        quote! {},
+                    ))
+                }
             }
         } else {
             // Default: infer from relationship type
@@ -957,9 +1038,11 @@ fn process_relation_variant(
                 }
             }
         };
-        
+
         // Generate through_tbl field for has_many_through relationships
-        let through_tbl_expr = if let (Some(_through_path), Some(through_table)) = (through_entity_path.as_ref(), through_table_name.as_ref()) {
+        let through_tbl_expr = if let (Some(_through_path), Some(through_table)) =
+            (through_entity_path.as_ref(), through_table_name.as_ref())
+        {
             // through_path is used inside through_table quote! macro above
             quote! {
                 Some(TableRef::Table(TableName(None, #through_table.into_iden()), None))
@@ -967,14 +1050,14 @@ fn process_relation_variant(
         } else {
             quote! { None }
         };
-        
+
         // Generate through_from_col and through_to_col for has_many_through relationships
         // These are the foreign key columns in the join table pointing to source and target entities
         let (through_from_col_expr, through_to_col_expr) = if rel_type_str == "has_many_through" {
             // For has_many_through: infer FK column names from source and target entity names
             // through_from_col: FK in join table pointing to source (e.g., "post_id" in PostTags for Post -> PostTags -> Tags)
             // through_to_col: FK in join table pointing to target (e.g., "tag_id" in PostTags for Post -> PostTags -> Tags)
-            
+
             // Infer FK column name from source entity (Entity)
             // We need to get the entity name - assume it's "Entity" in the same module
             // Use the table name to infer the FK column name
@@ -995,22 +1078,23 @@ fn process_relation_variant(
                     Some(lifeguard::Identity::Unary(sea_query::DynIden::from(fk_name)))
                 }
             };
-            
+
             // Infer FK column name from target entity
             let target_fk_col_name = infer_foreign_key_column_name(target);
-            let target_fk_col_name_lit = syn::LitStr::new(&target_fk_col_name, proc_macro2::Span::call_site());
+            let target_fk_col_name_lit =
+                syn::LitStr::new(&target_fk_col_name, proc_macro2::Span::call_site());
             let target_fk_col = quote! {
                 Some(lifeguard::Identity::Unary(sea_query::DynIden::from(#target_fk_col_name_lit)))
             };
-            
+
             (source_fk_col, target_fk_col)
         } else {
             // For non-has_many_through relationships, these fields are None
             (quote! { None }, quote! { None })
         };
-        
+
         let variant_name = variant.ident.clone();
-        
+
         // Extract RelationDef construction code for reuse in def() method
         let relation_def_construction = quote! {
             {
@@ -1031,7 +1115,7 @@ fn process_relation_variant(
                 }
             }
         };
-        
+
         let related_impl = quote! {
             impl lifeguard::Related<#target_entity_path> for Entity {
                 fn to() -> lifeguard::RelationDef {
@@ -1040,8 +1124,15 @@ fn process_relation_variant(
             }
             #fk_col_impl
         };
-        
-        Some((related_impl, target_entity_path.clone(), variant_name, from_column.clone(), to_column.clone(), relation_def_construction))
+
+        Some((
+            related_impl,
+            target_entity_path.clone(),
+            variant_name,
+            from_column.clone(),
+            to_column.clone(),
+            relation_def_construction,
+        ))
     } else {
         None
     }

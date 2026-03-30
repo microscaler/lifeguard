@@ -148,11 +148,7 @@ fn stats(name: &'static str, samples: &mut [f64]) -> ScenarioStats {
     let p50 = percentile(samples, 50.0);
     let p95 = percentile(samples, 95.0);
     let p99 = percentile(samples, 99.0);
-    let throughput_per_s = if mean > 0.0 {
-        1_000_000.0 / mean
-    } else {
-        0.0
-    };
+    let throughput_per_s = if mean > 0.0 { 1_000_000.0 / mean } else { 0.0 };
     ScenarioStats {
         name,
         iterations,
@@ -343,7 +339,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         require_row(
             "warmup session_by_token_fingerprint",
             perf_session::Entity::find()
-                .filter(perf_session::Column::TokenFingerprint.eq(token_fps[i % session_n].as_str()))
+                .filter(
+                    perf_session::Column::TokenFingerprint.eq(token_fps[i % session_n].as_str()),
+                )
                 .find_one(&executor)?,
         )?;
         require_row(
@@ -469,10 +467,8 @@ mod guard_tests {
 
     #[test]
     fn database_url_prefers_perf_over_test() {
-        let r = resolve_database_url_values(
-            Some("postgres://a".into()),
-            Some("postgres://b".into()),
-        );
+        let r =
+            resolve_database_url_values(Some("postgres://a".into()), Some("postgres://b".into()));
         assert_eq!(r.unwrap(), "postgres://a");
     }
 

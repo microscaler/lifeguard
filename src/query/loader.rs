@@ -1,6 +1,6 @@
 //! `DataLoader` architecture for resolving N+1 queries.
-use crate::executor::LifeExecutor;
 use crate::executor::LifeError;
+use crate::executor::LifeExecutor;
 use crate::model::ModelTrait;
 use crate::query::traits::{FromRow, LifeModelTrait};
 use crate::relation::identity::Identity;
@@ -179,7 +179,8 @@ where
             for tup in &unique_tuples {
                 let mut and_cond = Condition::all();
                 for (col_name, val) in to_cols.iter().zip(tup.iter()) {
-                    and_cond = and_cond.add(Expr::col(sea_query::Alias::new(col_name)).eq(val.clone()));
+                    and_cond =
+                        and_cond.add(Expr::col(sea_query::Alias::new(col_name)).eq(val.clone()));
                 }
                 or_cond = or_cond.add(and_cond);
             }
@@ -191,9 +192,8 @@ where
         let rows = exec.query_all_values(&sql, &values)?;
         let mut children = Vec::new();
         for row in rows {
-            let model = <R::Model as FromRow>::from_row(&row).map_err(|e| {
-                LifeError::ParseError(format!("Failed to parse row: {e}"))
-            })?;
+            let model = <R::Model as FromRow>::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
             children.push(model);
         }
         for loader in &loaders {
@@ -232,21 +232,37 @@ mod tests {
     #[test]
     fn relation_side_value_present_filters_null_variants() {
         assert!(!relation_side_value_present(&sea_query::Value::Int(None)));
-        assert!(!relation_side_value_present(&sea_query::Value::String(None)));
-        assert!(!relation_side_value_present(&sea_query::Value::BigInt(None)));
+        assert!(!relation_side_value_present(&sea_query::Value::String(
+            None
+        )));
+        assert!(!relation_side_value_present(&sea_query::Value::BigInt(
+            None
+        )));
         assert!(!relation_side_value_present(&sea_query::Value::Float(None)));
-        assert!(!relation_side_value_present(&sea_query::Value::Double(None)));
+        assert!(!relation_side_value_present(&sea_query::Value::Double(
+            None
+        )));
         assert!(!relation_side_value_present(&sea_query::Value::Bool(None)));
         assert!(!relation_side_value_present(&sea_query::Value::Json(None)));
-        assert!(!relation_side_value_present(&sea_query::Value::ChronoDateTimeUtc(None)));
+        assert!(!relation_side_value_present(
+            &sea_query::Value::ChronoDateTimeUtc(None)
+        ));
         assert!(relation_side_value_present(&sea_query::Value::Int(Some(1))));
-        assert!(relation_side_value_present(&sea_query::Value::String(Some("x".into()))));
+        assert!(relation_side_value_present(&sea_query::Value::String(
+            Some("x".into())
+        )));
     }
 
     #[test]
     fn fk_tuple_map_key_distinct() {
-        let a = vec![sea_query::Value::Int(Some(1)), sea_query::Value::Int(Some(2))];
-        let b = vec![sea_query::Value::Int(Some(1)), sea_query::Value::Int(Some(3))];
+        let a = vec![
+            sea_query::Value::Int(Some(1)),
+            sea_query::Value::Int(Some(2)),
+        ];
+        let b = vec![
+            sea_query::Value::Int(Some(1)),
+            sea_query::Value::Int(Some(3)),
+        ];
         assert_ne!(fk_tuple_map_key(&a), fk_tuple_map_key(&b));
     }
 }

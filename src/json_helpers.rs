@@ -11,75 +11,75 @@ use serde::Deserializer;
 /// This allows deserializing JSON values that were serialized with our custom
 /// serializer, which converts `NaN`/infinity to strings.
 ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use serde_json::json;
-    /// use lifeguard::json_helpers::deserialize_f32;
-    ///
-    /// // Normal number
-    /// let val: f32 = deserialize_f32(&json!(3.14)).unwrap();
-    /// assert_eq!(val, 3.14);
-    ///
-    /// // `NaN` as string
-    /// let val: f32 = deserialize_f32(&json!("NaN")).unwrap();
-    /// assert!(val.is_nan());
-    ///
-    /// // `Infinity` as string
-    /// let val: f32 = deserialize_f32(&json!("Infinity")).unwrap();
-    /// assert!(val.is_infinite() && val.is_sign_positive());
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `deserializer` - The `Deserializer` to deserialize from
-    ///
-    /// # Returns
-    ///
-    /// Returns the deserialized `f32` value, or a deserialization error.
-    ///
-    /// # Errors
-    ///
-    /// Returns `D::Error` if the value cannot be deserialized as a number or a valid special string (`NaN`, `Infinity`, `-Infinity`).
-    pub fn deserialize_f32<'de, D>(deserializer: D) -> Result<f32, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use serde::de::{self, Visitor};
-        use std::fmt;
+/// # Examples
+///
+/// ```rust,ignore
+/// use serde_json::json;
+/// use lifeguard::json_helpers::deserialize_f32;
+///
+/// // Normal number
+/// let val: f32 = deserialize_f32(&json!(3.14)).unwrap();
+/// assert_eq!(val, 3.14);
+///
+/// // `NaN` as string
+/// let val: f32 = deserialize_f32(&json!("NaN")).unwrap();
+/// assert!(val.is_nan());
+///
+/// // `Infinity` as string
+/// let val: f32 = deserialize_f32(&json!("Infinity")).unwrap();
+/// assert!(val.is_infinite() && val.is_sign_positive());
+/// ```
+///
+/// # Arguments
+///
+/// * `deserializer` - The `Deserializer` to deserialize from
+///
+/// # Returns
+///
+/// Returns the deserialized `f32` value, or a deserialization error.
+///
+/// # Errors
+///
+/// Returns `D::Error` if the value cannot be deserialized as a number or a valid special string (`NaN`, `Infinity`, `-Infinity`).
+pub fn deserialize_f32<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
 
-        struct F32Visitor;
+    struct F32Visitor;
 
-        impl Visitor<'_> for F32Visitor {
-            type Value = f32;
+    impl Visitor<'_> for F32Visitor {
+        type Value = f32;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
-            }
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
+        }
 
-            fn visit_f64<E>(self, value: f64) -> Result<f32, E>
-            where
-                E: de::Error,
-            {
-                #[allow(clippy::cast_possible_truncation)] // f64 to f32 truncation is intentional
-                Ok(value as f32)
-            }
+        fn visit_f64<E>(self, value: f64) -> Result<f32, E>
+        where
+            E: de::Error,
+        {
+            #[allow(clippy::cast_possible_truncation)] // f64 to f32 truncation is intentional
+            Ok(value as f32)
+        }
 
-            fn visit_i64<E>(self, value: i64) -> Result<f32, E>
-            where
-                E: de::Error,
-            {
-                #[allow(clippy::cast_precision_loss)] // i64 to f32 precision loss is intentional
-                Ok(value as f32)
-            }
+        fn visit_i64<E>(self, value: i64) -> Result<f32, E>
+        where
+            E: de::Error,
+        {
+            #[allow(clippy::cast_precision_loss)] // i64 to f32 precision loss is intentional
+            Ok(value as f32)
+        }
 
-            fn visit_u64<E>(self, value: u64) -> Result<f32, E>
-            where
-                E: de::Error,
-            {
-                #[allow(clippy::cast_precision_loss)] // u64 to f32 precision loss is intentional
-                Ok(value as f32)
-            }
+        fn visit_u64<E>(self, value: u64) -> Result<f32, E>
+        where
+            E: de::Error,
+        {
+            #[allow(clippy::cast_precision_loss)] // u64 to f32 precision loss is intentional
+            Ok(value as f32)
+        }
 
         fn visit_str<E>(self, value: &str) -> Result<f32, E>
         where
@@ -105,74 +105,74 @@ use serde::Deserializer;
 /// This allows deserializing JSON values that were serialized with our custom
 /// serializer, which converts `NaN`/infinity to strings.
 ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// use serde_json::json;
-    /// use lifeguard::json_helpers::deserialize_f64;
-    ///
-    /// // Normal number
-    /// let val: f64 = deserialize_f64(&json!(3.14)).unwrap();
-    /// assert_eq!(val, 3.14);
-    ///
-    /// // `NaN` as string
-    /// let val: f64 = deserialize_f64(&json!("NaN")).unwrap();
-    /// assert!(val.is_nan());
-    ///
-    /// // `Infinity` as string
-    /// let val: f64 = deserialize_f64(&json!("Infinity")).unwrap();
-    /// assert!(val.is_infinite() && val.is_sign_positive());
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `deserializer` - The `Deserializer` to deserialize from
-    ///
-    /// # Returns
-    ///
-    /// Returns the deserialized `f64` value, or a deserialization error.
-    ///
-    /// # Errors
-    ///
-    /// Returns `D::Error` if the value cannot be deserialized as a number or a valid special string (`NaN`, `Infinity`, `-Infinity`).
-    pub fn deserialize_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use serde::de::{self, Visitor};
-        use std::fmt;
+/// # Examples
+///
+/// ```rust,ignore
+/// use serde_json::json;
+/// use lifeguard::json_helpers::deserialize_f64;
+///
+/// // Normal number
+/// let val: f64 = deserialize_f64(&json!(3.14)).unwrap();
+/// assert_eq!(val, 3.14);
+///
+/// // `NaN` as string
+/// let val: f64 = deserialize_f64(&json!("NaN")).unwrap();
+/// assert!(val.is_nan());
+///
+/// // `Infinity` as string
+/// let val: f64 = deserialize_f64(&json!("Infinity")).unwrap();
+/// assert!(val.is_infinite() && val.is_sign_positive());
+/// ```
+///
+/// # Arguments
+///
+/// * `deserializer` - The `Deserializer` to deserialize from
+///
+/// # Returns
+///
+/// Returns the deserialized `f64` value, or a deserialization error.
+///
+/// # Errors
+///
+/// Returns `D::Error` if the value cannot be deserialized as a number or a valid special string (`NaN`, `Infinity`, `-Infinity`).
+pub fn deserialize_f64<'de, D>(deserializer: D) -> Result<f64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
 
-        struct F64Visitor;
+    struct F64Visitor;
 
-        impl Visitor<'_> for F64Visitor {
-            type Value = f64;
+    impl Visitor<'_> for F64Visitor {
+        type Value = f64;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
-            }
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a number or a string representing a special floating-point value (NaN, Infinity, -Infinity)")
+        }
 
-            fn visit_f64<E>(self, value: f64) -> Result<f64, E>
-            where
-                E: de::Error,
-            {
-                Ok(value)
-            }
+        fn visit_f64<E>(self, value: f64) -> Result<f64, E>
+        where
+            E: de::Error,
+        {
+            Ok(value)
+        }
 
-            fn visit_i64<E>(self, value: i64) -> Result<f64, E>
-            where
-                E: de::Error,
-            {
-                #[allow(clippy::cast_precision_loss)] // i64 to f64 precision loss is intentional
-                Ok(value as f64)
-            }
+        fn visit_i64<E>(self, value: i64) -> Result<f64, E>
+        where
+            E: de::Error,
+        {
+            #[allow(clippy::cast_precision_loss)] // i64 to f64 precision loss is intentional
+            Ok(value as f64)
+        }
 
-            fn visit_u64<E>(self, value: u64) -> Result<f64, E>
-            where
-                E: de::Error,
-            {
-                #[allow(clippy::cast_precision_loss)] // u64 to f64 precision loss is intentional
-                Ok(value as f64)
-            }
+        fn visit_u64<E>(self, value: u64) -> Result<f64, E>
+        where
+            E: de::Error,
+        {
+            #[allow(clippy::cast_precision_loss)] // u64 to f64 precision loss is intentional
+            Ok(value as f64)
+        }
 
         fn visit_str<E>(self, value: &str) -> Result<f64, E>
         where
@@ -211,7 +211,9 @@ where
         type Value = Option<f32>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a number, a string representing a special floating-point value, or null")
+            formatter.write_str(
+                "a number, a string representing a special floating-point value, or null",
+            )
         }
 
         fn visit_none<E>(self) -> Result<Option<f32>, E>
@@ -296,7 +298,9 @@ where
         type Value = Option<f64>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a number, a string representing a special floating-point value, or null")
+            formatter.write_str(
+                "a number, a string representing a special floating-point value, or null",
+            )
         }
 
         fn visit_none<E>(self) -> Result<Option<f64>, E>

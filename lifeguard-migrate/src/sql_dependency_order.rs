@@ -1,6 +1,8 @@
 //! Order SQL migrations using foreign-key edges parsed from SQL and Rust sources.
 
-use crate::dependency_ordering::{extract_foreign_key_table, topological_sort, validate_foreign_key_references, TableInfo};
+use crate::dependency_ordering::{
+    extract_foreign_key_table, topological_sort, validate_foreign_key_references, TableInfo,
+};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -23,10 +25,9 @@ pub fn extract_foreign_key_targets_from_rust_source(content: &str) -> Vec<String
 
 /// `REFERENCES other_table (` in migration SQL (inline FKs).
 pub fn extract_referenced_tables_from_migration_sql(sql: &str) -> Vec<String> {
-    let re = Regex::new(
-        r"(?i)REFERENCES\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\(",
-    )
-    .expect("regex");
+    let re =
+        Regex::new(r"(?i)REFERENCES\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s*\(")
+            .expect("regex");
     let mut out = Vec::new();
     for cap in re.captures_iter(sql) {
         let raw = cap.get(1).unwrap().as_str();
@@ -258,8 +259,11 @@ pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
 
     let out_path = migrations_dir.join("apply_order.txt");
     let mut f = fs::File::create(&out_path).map_err(|e| e.to_string())?;
-    writeln!(f, "# Auto-generated FK-safe apply order. Regenerate with: cargo run -p hauliage_migrator")
-        .map_err(|e| e.to_string())?;
+    writeln!(
+        f,
+        "# Auto-generated FK-safe apply order. Regenerate with: cargo run -p hauliage_migrator"
+    )
+    .map_err(|e| e.to_string())?;
     for rel in ordered {
         writeln!(f, "{}", rel).map_err(|e| e.to_string())?;
     }

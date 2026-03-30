@@ -8,7 +8,15 @@ set shell := ["bash", "-uc"]
 set dotenv-load := true
 
 # Variables
-DATABASE_URL := "postgres://postgres:postgres@localhost:5432/postgres"
+# Kind/Tilt port-forwards (see `config/k8s/test-infrastructure` + Tiltfile): 6543 primary, 6544 replica-0, 6545 redis, 6546 replica-1.
+# Passwords match `config/k8s/test-infrastructure/postgresql-credentials-secret.yaml` (default `postgres`).
+TEST_DATABASE_URL := "postgres://postgres:postgres@127.0.0.1:6543/postgres"
+TEST_REPLICA_URL := "postgres://postgres:postgres@127.0.0.1:6544/postgres"
+TEST_REDIS_URL := "redis://127.0.0.1:6545"
+# Optional second streaming replica (pool tests that target a specific standby)
+TEST_REPLICA_URL_SECOND := "postgres://postgres:postgres@127.0.0.1:6546/postgres"
+# Primary URL for app code + migrate CLIs (same as TEST_DATABASE_URL for Kind)
+DATABASE_URL := TEST_DATABASE_URL
 ENTITY_DIR := "src/entity"
 
 # Default recipe to display help
@@ -29,24 +37,32 @@ dev-down:
 
 # Wait for database to be ready
 dev-wait-db:
-    @echo "⏳ Waiting for PostgreSQL to be ready..."
-    @kubectl wait --for=condition=available --timeout=120s deployment/postgres -n lifeguard-test || \
-        (echo "⚠️  PostgreSQL not ready. Check status:" && kubectl get pods -n lifeguard-test && exit 1)
+    @echo "⏳ Waiting for Postgres primary + replicas + Redis..."
+    @kubectl wait --for=condition=available --timeout=300s deployment/postgresql-primary deployment/postgresql-replica-0 deployment/postgresql-replica-1 deployment/redis -n lifeguard-test || \
+        (echo "⚠️  Stack not ready. Check status:" && kubectl get pods -n lifeguard-test && exit 1)
 
 # Get test database connection string
 dev-connection-string:
     @./scripts/get_test_connection_string.sh
 
+# Print `export ...` lines for manual cargo runs (same URLs as `nt-db-suite` / `nt-workspace`)
+kind-test-env:
+    @echo "export DATABASE_URL='{{DATABASE_URL}}'"
+    @echo "export TEST_DATABASE_URL='{{TEST_DATABASE_URL}}'"
+    @echo "export TEST_REPLICA_URL='{{TEST_REPLICA_URL}}'"
+    @echo "export TEST_REDIS_URL='{{TEST_REDIS_URL}}'"
+    @echo "# optional: use second replica instead — export TEST_REPLICA_URL='{{TEST_REPLICA_URL_SECOND}}'"
+
 # Port-forward PostgreSQL service for local access
 dev-port-forward:
-    @echo "🔌 Port-forwarding PostgreSQL service..."
-    @kubectl port-forward -n lifeguard-test svc/postgres 5432:5432
+    @echo "🔌 Primary Postgres only on 6543:5432 (use \`tilt up\` for full stack: primary 6543, replica-0 6544, redis 6545, replica-1 6546)."
+    @kubectl port-forward -n lifeguard-test svc/postgresql-primary 6543:5432
 
 # Start Tilt (assumes cluster is already running)
 tilt-up:
     @echo "🎯 Starting Tilt..."
     @echo "   Tilt UI: http://localhost:10350"
-    @echo "   PostgreSQL: localhost:5432 (via Tilt port forward)"
+    @echo "   Postgres primary: localhost:6543 | replica-0: 6544 | replica-1: 6546 | Redis: 6545"
     @tilt up
 
 # Stop Tilt
@@ -91,17 +107,17 @@ test: test-unit
 # Run unit tests
 test-unit:
     @echo "🧪 Running unit tests..."
-    @DATABASE_URL={{DATABASE_URL}} cargo test --lib --no-fail-fast
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo test --lib --no-fail-fast
 
 # Run unit tests with output
 test-unit-verbose:
     @echo "🧪 Running unit tests (verbose)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo test --lib -- --nocapture --no-fail-fast
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo test --lib -- --nocapture --no-fail-fast
 
 # Workspace nextest: excludes lifeguard-integration-tests and db_integration_suite (use nt-db-suite)
 nextest-test:
     @echo "🧪 Running tests with nextest (excluding DB-heavy integration binaries)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
 alias nt := nextest-test
 
@@ -109,12 +125,12 @@ alias nt := nextest-test
 # Includes lifeguard-integration-tests; requires DATABASE_URL (and any deps those tests need).
 nt-workspace:
     @echo "🧪 Running workspace nextest (CI selection: all members except db_integration_suite binary)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --profile ci -E 'not binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run --workspace --all-features --profile ci -E 'not binary(db_integration_suite)'
 
 # Run tests with nextest (no capture - passes through stdout/stderr directly)
 nt-verbose:
     @echo "🧪 Running tests with nextest (no capture - full output)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --no-capture --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run --workspace --all-features --no-capture --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
 # Same as `nt-workspace` (alias for discoverability)
 nt-ci:
@@ -123,7 +139,7 @@ nt-ci:
 # Run unit tests only with nextest (same selection as nextest-test)
 nt-unit:
     @echo "🧪 Running tests with nextest (excluding DB-heavy integration binaries)..."
-    @DATABASE_URL={{DATABASE_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
 # lifeguard-derive (matches CI)
 nt-derive:
@@ -137,15 +153,15 @@ nt-codegen:
 
 # Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB
 nt-db-suite:
-    @echo "🧪 Running lifeguard db_integration_suite (serial profile; needs TEST_DATABASE_URL or Docker)..."
-    @TEST_DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
+    @echo "🧪 Running lifeguard db_integration_suite (serial profile; Kind/Tilt: TEST_* from justfile)..."
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
 
 alias nt-db := nt-db-suite
 
 # Verbose output for db suite only
 nt-db-suite-verbose:
     @echo "🧪 Running lifeguard db_integration_suite (serial, no-capture)..."
-    @TEST_DATABASE_URL={{DATABASE_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --no-capture -E 'binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --no-capture -E 'binary(db_integration_suite)'
 
 # Typical local run: fast workspace (no cluster integration crate) + serial DB suite
 nt-complete: nextest-test nt-db-suite
@@ -159,18 +175,18 @@ nt-ci-parity: nt-workspace nt-db-suite
 test-integration:
     @echo "🧪 Running integration tests..."
     @echo "⚠️  Note: These tests require a running database connection"
-    @TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo test --package lifeguard-integration-tests
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo test --package lifeguard-integration-tests
 
 # Run integration tests with nextest
 nt-integration:
     @echo "🧪 Running integration tests with nextest..."
     @echo "⚠️  Note: These tests require a running database connection"
-    @TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo nextest run --package lifeguard-integration-tests
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run --package lifeguard-integration-tests
 
 # Run tests with standard cargo (fallback)
 test-cargo:
     @echo "🧪 Running tests with cargo..."
-    @DATABASE_URL={{DATABASE_URL}} cargo test --all -- --nocapture
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo test --all -- --nocapture
 
 # Run tests with LLVM coverage
 test-coverage:
@@ -200,15 +216,23 @@ test-coverage-check:
 # Code Quality
 # ============================================================================
 
-# Format code
+# Format all Rust trees: root workspace + standalone example workspaces (each has its own Cargo.toml / lockfile).
 fmt:
-    @echo "🎨 Formatting code..."
+    @echo "🎨 Formatting root workspace (lifeguard + members)..."
     @cargo fmt
+    @echo "🎨 Formatting examples/entities..."
+    @cd examples/entities && cargo fmt
+    @echo "🎨 Formatting examples/perf-idam..."
+    @cd examples/perf-idam && cargo fmt
 
-# Check formatting
+# Check formatting (same directories as `fmt`)
 fmt-check:
-    @echo "🎨 Checking code formatting..."
+    @echo "🎨 Checking code formatting (root workspace)..."
     @cargo fmt -- --check
+    @echo "🎨 Checking examples/entities..."
+    @cd examples/entities && cargo fmt -- --check
+    @echo "🎨 Checking examples/perf-idam..."
+    @cd examples/perf-idam && cargo fmt -- --check
 
 # Lint code
 lint:
@@ -305,8 +329,8 @@ status:
 
 # Show PostgreSQL logs
 logs-db:
-    @echo "📜 PostgreSQL logs..."
-    @kubectl logs -n lifeguard-test deployment/postgres --tail=100 -f
+    @echo "📜 PostgreSQL primary logs..."
+    @kubectl logs -n lifeguard-test deployment/postgresql-primary --tail=100 -f
 
 # ============================================================================
 # Documentation

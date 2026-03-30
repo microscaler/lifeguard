@@ -3,14 +3,14 @@
 //! Provides the `SelectQueryStreamEx` trait providing `may` channel streaming
 //! capabilities to `SelectQuery`.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use sea_query::PostgresQueryBuilder;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{LifeError, MayPostgresExecutor, LifeExecutor};
-use crate::query::traits::LifeModelTrait;
 use crate::query::traits::FromRow;
+use crate::query::traits::LifeModelTrait;
 use crate::query::SelectQuery;
 use crate::transaction::Transaction;
+use crate::{LifeError, LifeExecutor, MayPostgresExecutor};
 use sea_query::Values;
 
 static UUID_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -47,7 +47,7 @@ pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     /// Server-side cursors in `PostgreSQL` strictly require establishing an active `BEGIN ... COMMIT`
     /// transactional session that survives continuously across multiple polls over a socket connection.
     /// Dynamic trait boundaries (`&dyn LifeExecutor`) abstract away connection pools meaning we
-    /// cannot safely acquire localized connection-lock bindings needed natively to orchestrate 
+    /// cannot safely acquire localized connection-lock bindings needed natively to orchestrate
     /// a coroutine safely looping fetches without intercepting parallel requests.
     ///
     /// **Why yield `Vec<E::Model>` chunks?**
@@ -61,7 +61,7 @@ pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     ) -> may::sync::mpsc::Receiver<Result<Vec<E::Model>, LifeError>>;
 }
 
-impl<E: LifeModelTrait + 'static> SelectQueryStreamEx<E> for SelectQuery<E> 
+impl<E: LifeModelTrait + 'static> SelectQueryStreamEx<E> for SelectQuery<E>
 where
     E::Model: FromRow + Send + Sync + 'static,
 {
@@ -71,7 +71,7 @@ where
         batch_size: usize,
     ) -> may::sync::mpsc::Receiver<Result<Vec<E::Model>, LifeError>> {
         let (tx, rx) = may::sync::mpsc::channel();
-        
+
         // Generate deterministic localized cursor UUID string
         let cursor_name = format!("lifeguard_stream_{}", next_cursor_id());
 

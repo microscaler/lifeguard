@@ -4,11 +4,24 @@ This document describes the test infrastructure setup for Lifeguard using Kind (
 
 ## Overview
 
-Lifeguard uses Kind (Kubernetes in Docker) for integration testing instead of Docker Compose. This provides:
+Lifeguard uses Kind (Kubernetes in Docker) for local development. The manifests under `config/k8s/test-infrastructure/` mirror **CI’s** [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml): **Bitnami legacy PostgreSQL 15** primary, **two streaming replicas**, and **Redis 7** (same images/env shape as Compose).
+
+This provides:
 - Isolated test environments
 - Kubernetes-native service discovery
-- Better alignment with production deployments
-- Consistent test infrastructure across environments
+- **Host ports aligned with CI** when using Tilt (see table below)
+- **Kind Postgres primary** also provisions a **`pact`** login role (password `pact`, `pg_monitor` granted) via `postgres-pact-role.sql` so borrowed observability snippets do not fail with `FATAL: role "pact" does not exist`.
+
+### Tilt port-forwards (localhost → Kind)
+
+| Host port | Service | Matches CI compose |
+|-----------|---------|-------------------|
+| **6543** | `postgresql-primary` | Primary Postgres |
+| **6544** | `postgresql-replica-0` | First replica (CI maps single replica here) |
+| **6545** | `redis` | Redis |
+| **6546** | `postgresql-replica-1` | Second replica (extra vs single-replica CI) |
+
+Use `export TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:6543/postgres`, `TEST_REPLICA_URL=…:6544` (or `:6546`), and `TEST_REDIS_URL=redis://127.0.0.1:6545` when testing against the Kind stack from the host. Passwords match `config/k8s/test-infrastructure/postgresql-credentials-secret.yaml` (default `postgres` for local dev). The **`justfile`** defines the same values (`TEST_DATABASE_URL`, `TEST_REPLICA_URL`, `TEST_REDIS_URL`, optional `TEST_REPLICA_URL_SECOND`); run **`just kind-test-env`** to print `export …` lines, or use recipes like **`just nt-db-suite`** / **`just nt-workspace`** which set these automatically.
 
 ## Prerequisites
 
@@ -67,7 +80,7 @@ If you need to access PostgreSQL from your local machine:
 just dev-port-forward
 ```
 
-This will forward `localhost:5432` to the PostgreSQL service in the cluster.
+`just dev-port-forward` forwards **primary** Postgres only (`6543:5432`). Use **`tilt up`** for the full set (6543–6546) as in the table above.
 
 ### Teardown
 
@@ -93,7 +106,7 @@ The `examples/perf-idam` crate (standalone workspace) provides a `perf-orm` bina
 
 In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_suite`, the **`test`** job:
 
-1. Starts **primary + replica Postgres and Redis** via [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Bitnami legacy images). **Host** ports are **`6543`** (primary), **`6544`** (replica), **`6545`** (Redis) so **5432 / 5433 / 6379** stay free for **Kind/Tilt** Postgres and Redis on the same machine. The `test` job does **not** use GitHub `services:` for these — everything runs through this Compose file.
+1. Starts **primary + replica Postgres and Redis** via [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Bitnami legacy images). **Host** ports are **`6543`** (primary), **`6544`** (replica), **`6545`** (Redis). Local **Kind/Tilt** uses the **same** host port scheme (**6543–6546**) for primary, two replicas, and Redis — see table above — so you can reuse the same `TEST_*` URLs when switching between CI Compose and Kind on one machine (do not run both stacks at once on overlapping ports).
 2. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
 3. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
 4. Applies SQL to the **primary** only (`psql -h 127.0.0.1 -p 6543`): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
@@ -111,9 +124,9 @@ The `lifeguard` package runs database-backed tests from a **single** integration
 | `TEST_DATABASE_URL` | If set, **skips** starting Postgres via testcontainers; must point at a **dedicated test** Postgres (not `DATABASE_URL` — integration code can run destructive DDL). |
 | `TEST_REPLICA_URL` | Streaming standby URL for the same cluster as `TEST_DATABASE_URL`; enables `pool_read_replica` tests. **Unset** → those tests no-op (skip). CI sets this to `localhost:6544`. See [PRD_READ_REPLICA_TESTING.md](planning/PRD_READ_REPLICA_TESTING.md). |
 | `LIFEGUARD_POOL_TEST_TIMING` | Optional; if non-empty and not `0`/`false`, `pool_read_replica` prints phase timings (setup, pool open, replay wait, reads, batch load) to **stderr**. |
-| `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. If you use **CI Compose** locally (`.github/docker/docker-compose.yml`), set **`TEST_REDIS_URL=redis://127.0.0.1:6545`** so Redis matches the published port. |
+| `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. For **CI Compose** or **Kind/Tilt** on the host ports above, set **`TEST_REDIS_URL=redis://127.0.0.1:6545`**. |
 
-**CI Compose vs Kind/Tilt:** GitHub Actions and anyone running `.github/docker/docker-compose.yml` use **6543 / 6544 / 6545** on the host. **Do not** rely on `localhost:5432` for that stack. For **Kind/Tilt** development (Grafana, app Postgres, etc.), keep using your usual port-forwards (often **5432** on the host) and point `TEST_DATABASE_URL` / `TEST_REPLICA_URL` at those URLs — no conflict with Compose because the stacks are not meant to run the same DB ports simultaneously on the same host.
+**CI Compose vs Kind/Tilt:** Both use **6543 / 6544 / 6545** on the host for primary, first replica, and Redis. Kind adds a **second** replica on **6546**. Do not run Compose and Kind/Tilt port-forwards on the same host ports at the same time.
 
 **Shared Postgres (e.g. Kind + `just dev-up`):** parallel test threads can exhaust connections (`too many clients`) or race on `CREATE TABLE`. Prefer:
 
@@ -247,28 +260,28 @@ kind get clusters
 # Check cluster nodes
 kubectl get nodes
 
-# Check PostgreSQL deployment
-kubectl get deployment postgres -n lifeguard-test
+# Check Postgres / Redis deployments
+kubectl get deployment -n lifeguard-test
 
-# Check PostgreSQL pods
+# Check pods
 kubectl get pods -n lifeguard-test
 
-# Check PostgreSQL service
-kubectl get svc postgres -n lifeguard-test
+# Services (primary, replicas, redis)
+kubectl get svc -n lifeguard-test
 ```
 
 ### View Logs
 
 ```bash
-# PostgreSQL logs
-kubectl logs -n lifeguard-test deployment/postgres -f
+# Postgres primary logs
+kubectl logs -n lifeguard-test deployment/postgresql-primary -f
 ```
 
 ### Access PostgreSQL Shell
 
 ```bash
 # Exec into PostgreSQL pod
-kubectl exec -it -n lifeguard-test deployment/postgres -- psql -U postgres
+kubectl exec -it -n lifeguard-test deployment/postgresql-primary -- /bin/sh -c 'export PGPASSWORD=postgres; /opt/bitnami/postgresql/bin/psql -U postgres -h 127.0.0.1 -d postgres'
 ```
 
 ## Troubleshooting
@@ -283,7 +296,7 @@ kubectl exec -it -n lifeguard-test deployment/postgres -- psql -U postgres
 
 ```bash
 # Check pod status
-kubectl describe pod -n lifeguard-test -l app=postgres
+kubectl describe pod -n lifeguard-test -l app=postgresql-primary
 
 # Check events
 kubectl get events -n lifeguard-test --sort-by='.lastTimestamp'
@@ -291,8 +304,8 @@ kubectl get events -n lifeguard-test --sort-by='.lastTimestamp'
 
 ### Connection String Issues
 
-- Verify service exists: `kubectl get svc postgres -n lifeguard-test`
-- Check service DNS: `postgres.lifeguard-test.svc.cluster.local`
+- Verify services: `kubectl get svc -n lifeguard-test`
+- Primary DNS: `postgresql-primary.lifeguard-test.svc.cluster.local`
 - Use port-forward for local access: `just dev-port-forward`
 
 ## Commands

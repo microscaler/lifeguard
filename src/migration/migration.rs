@@ -1,7 +1,7 @@
 //! Migration trait definition
 
-use crate::LifeError;
 use super::schema_manager::SchemaManager;
+use crate::LifeError;
 
 /// Trait that all migrations must implement
 ///
@@ -10,10 +10,10 @@ use super::schema_manager::SchemaManager;
 pub trait Migration: Send + Sync {
     /// Get the migration name (human-readable identifier)
     fn name(&self) -> &str;
-    
+
     /// Get the migration version (timestamp: YYYYMMDDHHMMSS)
     fn version(&self) -> i64;
-    
+
     /// Apply the migration (forward migration)
     ///
     /// This method should contain the logic to apply the migration,
@@ -26,7 +26,7 @@ pub trait Migration: Send + Sync {
     ///
     /// Returns `LifeError` if the migration execution fails.
     fn up(&self, manager: &SchemaManager<'_>) -> Result<(), LifeError>;
-    
+
     /// Rollback the migration (reverse migration)
     ///
     /// This method should contain the logic to undo the migration,
