@@ -22,7 +22,9 @@ pub fn find_latest_generated_migration(dir: &Path) -> Option<PathBuf> {
         let Some(prefix) = name.strip_suffix("_generated_from_entities.sql") else {
             continue;
         };
-        let ts: u64 = prefix.parse().ok()?;
+        let Some(ts) = prefix.parse::<u64>().ok() else {
+            continue;
+        };
         match best {
             None => best = Some((ts, ent.path())),
             Some((t0, _)) if ts > t0 => best = Some((ts, ent.path())),
@@ -486,6 +488,7 @@ pub fn generated_tables_match_baseline(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     const WIDGETS_CREATE: &str = r"CREATE TABLE IF NOT EXISTS widgets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -565,8 +568,37 @@ COMMENT ON TABLE categories IS 'Product categories';
     }
 
     #[test]
+    fn find_latest_skips_non_numeric_prefix_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("20260101000002_generated_from_entities.sql");
+        let bad = dir.path().join("manual_backup_generated_from_entities.sql");
+        fs::write(&good, "-- x").unwrap();
+        fs::write(&bad, "-- y").unwrap();
+        assert_eq!(
+            find_latest_generated_migration(dir.path()),
+            Some(good)
+        );
+    }
+
+    #[test]
+    fn list_chronological_skips_non_numeric_prefix_files() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("20260101000001_generated_from_entities.sql"),
+            "a",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("not_a_timestamp_generated_from_entities.sql"),
+            "b",
+        )
+        .unwrap();
+        let paths = list_generated_migration_paths_chronological(dir.path());
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
     fn merged_chronological_full_then_alter_yields_empty_diff() {
-        use std::fs;
         let dir = tempfile::tempdir().unwrap();
         let inv = dir.path().join("inventory");
         fs::create_dir_all(&inv).unwrap();

@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **find_latest_generated_migration parse skip (2026-03-30):** Non-numeric `*_generated_from_entities.sql` prefix no longer aborts the whole scan (`continue` vs `?`); tests `find_latest_skips_non_numeric_prefix_files`, `list_chronological_skips_non_numeric_prefix_files`. Migration delta behavior unchanged (merged chronological baseline).
 - **Migration diff merged history (2026-03-30):** `accumulate_table_baselines_from_dir` replays all `*_generated_from_entities.sql` in timestamp order (full CREATE + delta fragments); `build_service_migration_body_from_service_dir` fixes false full regen when latest file is ALTER-only. Removed erroneous `20260330201157_*`; unit test `merged_chronological_full_then_alter_yields_empty_diff`. `migrations/README.md` updated.
 - **Example entity + ALTER delta verified (2026-03-30):** `Category.sort_order` (`INTEGER NOT NULL DEFAULT 0`) in `examples/entities/src/inventory/category.rs`; `generate-migrations` emitted `migrations/generated/inventory/20260330201148_generated_from_entities.sql` with `ALTER TABLE categories ADD COLUMN IF NOT EXISTS sort_order ...` only (delta header present). Not committed unless user requests.
 - **Inventory generated migrations deduped (2026-03-30):** Removed older duplicate `*_generated_from_entities.sql` under `migrations/generated/inventory/`, kept `20260330154130_*`; `apply_order.txt` synced; SEAORM mapping infer-schema row tweak. Committed locally; not pushed.
