@@ -1,0 +1,10 @@
+# Prometheus for Kind/Tilt — scrape in-cluster OpenTelemetry collector only.
+# App metrics on the host (e.g. :9898) are not reachable from the pod; use kubectl port-forward
+# for the app or add a PodMonitor when Lifeguard runs in the cluster.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:9464"]

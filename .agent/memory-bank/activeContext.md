@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Work
+- **Tilt observability (2026-03-30):** `config/k8s/observability/` — kustomize applies OTEL Collector, Prometheus, Loki, Grafana in `lifeguard-test` after test-infrastructure; `Tiltfile` wires `k8s_resource` port-forwards: Grafana **3000**, Prometheus **9090**, Loki **3100**, OTEL **4317/4318/9464**. Loki config includes `compactor.working_directory` under `/data` (fixes CrashLoop). OTEL + Grafana datasource YAMLs are duplicated under `observability/` (mirror `config/otel-collector-config.yml` and `config/grafana-datasources.yml` when editing). `scripts/dev_up.py` logs the same host ports.
 - **Kind Postgres validation (2026-03-30):** Fresh `kind-lifeguard-test` + Tilt — `kubectl` all deployments Ready; `pg_stat_replication` shows 2× `streaming` async standbys; Redis PONG; `cargo nextest` `db_integration_suite` **65/65** pass; workspace **818** pass **2** skip (`lifeguard-integration-tests` migration tests). Replica-1 smoke (`TEST_REPLICA_URL` :6546) passes for `pooled_pool_construct_write_read_with_replica`. Documented checklist + coverage gaps (Toxiproxy fallback no-op on Kind, second replica optional) in `docs/TEST_INFRASTRUCTURE.md` § Kind Postgres & Redis validation.
 - **JSF-style safety audit — PRD P1–P4 landed in tree (2026-03-28):** Library + derive hygiene per `docs/planning/audits/PRD_JSF_PANIC_SAFETY.md`; remaining long-tail items (if any) are policy/architecture (e.g. metrics init) or out-of-scope binaries, not open Phase 4 tasks.
 - ModelTrait edge case coverage implementation completed

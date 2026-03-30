@@ -3,6 +3,7 @@
 # This Tiltfile manages local development resources:
 # - PostgreSQL deployment with port forwards
 # - Test infrastructure
+# - Observability (OTEL Collector, Prometheus, Loki, Grafana) with port forwards
 #
 # Usage: tilt up
 #
@@ -39,6 +40,8 @@ LIFEGUARD_DIR = '.'
 # Host ports match CI: 6543 primary, 6544 replica-0, 6545 redis, 6546 replica-1 (Tilt forwards to cluster services).
 
 k8s_yaml(kustomize('%s/config/k8s/test-infrastructure' % LIFEGUARD_DIR))
+# Observability: OTEL Collector, Prometheus, Loki, Grafana (namespace lifeguard-test from test-infrastructure).
+k8s_yaml(kustomize('%s/config/k8s/observability' % LIFEGUARD_DIR))
 
 k8s_resource(
     'postgresql-primary',
@@ -65,6 +68,39 @@ k8s_resource(
     'redis',
     labels=['infrastructure'],
     port_forwards=['6545:6379'],
+    resource_deps=[],
+    auto_init=True,
+)
+
+k8s_resource(
+    'otel-collector',
+    labels=['observability'],
+    port_forwards=[
+        '4317:4317',
+        '4318:4318',
+        '9464:9464',
+    ],
+    resource_deps=[],
+    auto_init=True,
+)
+k8s_resource(
+    'prometheus',
+    labels=['observability'],
+    port_forwards=['9090:9090'],
+    resource_deps=[],
+    auto_init=True,
+)
+k8s_resource(
+    'loki',
+    labels=['observability'],
+    port_forwards=['3100:3100'],
+    resource_deps=[],
+    auto_init=True,
+)
+k8s_resource(
+    'grafana',
+    labels=['observability'],
+    port_forwards=['3000:3000'],
     resource_deps=[],
     auto_init=True,
 )
