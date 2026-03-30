@@ -24,6 +24,10 @@ pub struct Category {
     #[column_type = "VARCHAR(255)"]
     pub name: String,
 
+    /// Sort order among sibling categories (lower values first).
+    #[default_value = "0"]
+    pub sort_order: i32,
+
     pub description: Option<String>,
 
     // Self-referencing foreign key for hierarchical categories

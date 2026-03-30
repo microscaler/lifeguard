@@ -1,9 +1,11 @@
 //! Delta SQL for entity-driven migrations.
 //!
-//! When a prior `*_generated_from_entities.sql` exists in the service directory, new runs
-//! compare the previous `CREATE TABLE` column lists to the current generator output and emit
-//! **`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`** (and new index lines) instead of duplicating
-//! full `CREATE TABLE` bodies for unchanged tables.
+//! When prior `*_generated_from_entities.sql` files exist in the service directory, new runs
+//! merge **all** of them in timestamp order, then compare the effective schema to the current
+//! generator output and emit **`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`** (and new index lines)
+//! instead of duplicating full `CREATE TABLE` bodies. Delta-only files (ALTER without a new
+//! `CREATE TABLE` in that file) stay merged with the last full snapshot so the latest file is
+//! never misread as the whole baseline.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -28,6 +30,213 @@ pub fn find_latest_generated_migration(dir: &Path) -> Option<PathBuf> {
         }
     }
     best.map(|(_, p)| p)
+}
+
+/// All `TIMESTAMP_generated_from_entities.sql` in `dir`, sorted by numeric timestamp ascending.
+#[must_use]
+pub fn list_generated_migration_paths_chronological(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<(u64, PathBuf)> = Vec::new();
+    let Ok(read) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    for ent in read.flatten() {
+        let name = ent.file_name();
+        let name = name.to_string_lossy();
+        let Some(prefix) = name.strip_suffix("_generated_from_entities.sql") else {
+            continue;
+        };
+        let Some(ts) = prefix.parse::<u64>().ok() else {
+            continue;
+        };
+        v.push((ts, ent.path()));
+    }
+    v.sort_by_key(|(ts, _)| *ts);
+    v.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Per-table state after replaying migration files in chronological order.
+#[derive(Clone, Default)]
+pub struct TableBaselineParts {
+    /// Last section for this table that contained a full `CREATE TABLE IF NOT EXISTS`.
+    pub last_create_section: Option<String>,
+    /// Sections that were not a full `CREATE` (typically `ALTER TABLE ... ADD COLUMN`, extra indexes).
+    pub delta_section_fragments: Vec<String>,
+}
+
+/// Replay every `*_generated_from_entities.sql` under `dir` (oldest first) and merge table sections.
+#[must_use]
+pub fn accumulate_table_baselines_from_dir(dir: &Path) -> BTreeMap<String, TableBaselineParts> {
+    let mut map: BTreeMap<String, TableBaselineParts> = BTreeMap::new();
+    for path in list_generated_migration_paths_chronological(dir) {
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let sections = extract_table_sections(&content);
+        for (table_name, sec) in sections {
+            let entry = map.entry(table_name).or_default();
+            if extract_create_and_tail(&sec).is_some() {
+                entry.last_create_section = Some(sec);
+                entry.delta_section_fragments.clear();
+            } else {
+                entry.delta_section_fragments.push(sec);
+            }
+        }
+    }
+    map
+}
+
+#[must_use]
+pub fn combined_old_section(parts: &TableBaselineParts) -> String {
+    let mut s = parts.last_create_section.clone().unwrap_or_default();
+    for frag in &parts.delta_section_fragments {
+        if !s.is_empty() && !frag.trim().is_empty() {
+            s.push('\n');
+        }
+        s.push_str(frag);
+    }
+    s
+}
+
+/// True if `dir` contains at least one `*_generated_from_entities.sql`.
+#[must_use]
+pub fn service_dir_has_generated_migrations(dir: &Path) -> bool {
+    !list_generated_migration_paths_chronological(dir).is_empty()
+}
+
+fn parse_add_columns_from_alter_blob(blob: &str) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for raw in blob.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with("--") {
+            continue;
+        }
+        let upper = line.to_ascii_uppercase();
+        if !upper.starts_with("ALTER TABLE ") {
+            continue;
+        }
+        let rest = line["ALTER TABLE ".len()..].trim_start();
+        let Some(ws) = rest.find(char::is_whitespace) else {
+            continue;
+        };
+        let after_table = rest[ws..].trim_start();
+        let Some(rest2) = after_add_column_clause(after_table) else {
+            continue;
+        };
+        let rest2 = rest2.trim_end_matches(';').trim();
+        let Some(col_end) = rest2.find(char::is_whitespace) else {
+            continue;
+        };
+        let col = rest2[..col_end].trim_matches('"');
+        let def = rest2[col_end..].trim();
+        if is_simple_ident(col) && !def.is_empty() {
+            out.insert(col.to_string(), def.to_string());
+        }
+    }
+    out
+}
+
+fn after_add_column_clause(s: &str) -> Option<&str> {
+    let s = s.trim_start();
+    const LONG: &str = "ADD COLUMN IF NOT EXISTS ";
+    const SHORT: &str = "ADD COLUMN ";
+    if s.len() >= LONG.len() && s[..LONG.len()].eq_ignore_ascii_case(LONG) {
+        return Some(s[LONG.len()..].trim_start());
+    }
+    if s.len() >= SHORT.len() && s[..SHORT.len()].eq_ignore_ascii_case(SHORT) {
+        return Some(s[SHORT.len()..].trim_start());
+    }
+    None
+}
+
+fn accumulated_from_single_file_content(content: &str) -> BTreeMap<String, TableBaselineParts> {
+    let sections = extract_table_sections(content);
+    let mut out = BTreeMap::new();
+    for (name, sec) in sections {
+        let mut parts = TableBaselineParts::default();
+        if extract_create_and_tail(&sec).is_some() {
+            parts.last_create_section = Some(sec);
+        } else {
+            parts.delta_section_fragments.push(sec);
+        }
+        out.insert(name, parts);
+    }
+    out
+}
+
+/// Build SQL for one service using merged history from every migration file in `service_dir`.
+#[must_use]
+pub fn build_service_migration_body_from_service_dir(
+    service_dir: &Path,
+    tables: &[(String, String)],
+) -> String {
+    let acc = accumulate_table_baselines_from_dir(service_dir);
+    build_service_migration_body_from_accumulated(&acc, tables)
+}
+
+/// Build SQL from merged per-table baseline parts (see [`accumulate_table_baselines_from_dir`]).
+#[must_use]
+pub fn build_service_migration_body_from_accumulated(
+    acc: &BTreeMap<String, TableBaselineParts>,
+    tables: &[(String, String)],
+) -> String {
+    let mut out = String::new();
+
+    for (table_name, new_sql) in tables {
+        let Some(parts) = acc.get(table_name) else {
+            out.push_str(&format!("-- Table: {table_name}\n{new_sql}\n\n"));
+            continue;
+        };
+        if parts.last_create_section.is_none() && parts.delta_section_fragments.is_empty() {
+            out.push_str(&format!("-- Table: {table_name}\n{new_sql}\n\n"));
+            continue;
+        }
+
+        let combined = combined_old_section(parts);
+
+        let Some((_, new_body, new_tail)) = extract_create_and_tail(new_sql) else {
+            out.push_str(&format!("-- Table: {table_name}\n{new_sql}\n\n"));
+            continue;
+        };
+
+        let mut old_cols = BTreeMap::new();
+        if let Some(ref create_sec) = parts.last_create_section {
+            if let Some((_, body, _)) = extract_create_and_tail(create_sec) {
+                old_cols = parse_column_defs_from_create_body(&body);
+            }
+        }
+        for frag in &parts.delta_section_fragments {
+            for (c, d) in parse_add_columns_from_alter_blob(frag) {
+                old_cols.insert(c, d);
+            }
+        }
+
+        let new_cols = parse_column_defs_from_create_body(&new_body);
+
+        let mut table_delta = String::new();
+        for (col, def) in &new_cols {
+            if old_cols.contains_key(col) {
+                continue;
+            }
+            table_delta.push_str(&format!(
+                "ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col} {def};\n"
+            ));
+        }
+
+        let index_and_more = tail_lines_not_in_old(&combined, &new_tail);
+        if table_delta.is_empty() && index_and_more.is_empty() {
+            continue;
+        }
+
+        out.push_str(&format!("-- Table: {table_name}\n"));
+        out.push_str(&table_delta);
+        out.push_str(&index_and_more);
+        if !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    out
 }
 
 /// Split a generated migration file into `-- Table: name` sections (value = body after the header line).
@@ -218,59 +427,19 @@ fn tail_lines_not_in_old(old_section: &str, new_tail: &str) -> String {
 }
 
 /// Build SQL for one service: either full CREATE blobs (no baseline) or ALTER / new-table deltas.
+///
+/// `previous_file` is treated as a single migration document (tests and simple callers). For
+/// multiple files on disk use [`build_service_migration_body_from_service_dir`].
 #[must_use]
 pub fn build_service_migration_body(
     previous_file: Option<&str>,
     tables: &[(String, String)],
 ) -> String {
-    let old_sections = previous_file
-        .map(extract_table_sections)
-        .unwrap_or_default();
-
-    let mut out = String::new();
-
-    for (table_name, new_sql) in tables {
-        if let Some(old_sec) = old_sections.get(table_name) {
-            let Some((_, old_body, old_tail)) = extract_create_and_tail(old_sec) else {
-                out.push_str(&format!("-- Table: {table_name}\n{new_sql}\n\n"));
-                continue;
-            };
-            let Some((_, new_body, new_tail)) = extract_create_and_tail(new_sql) else {
-                out.push_str(&format!("-- Table: {table_name}\n{new_sql}\n\n"));
-                continue;
-            };
-
-            let old_cols = parse_column_defs_from_create_body(&old_body);
-            let new_cols = parse_column_defs_from_create_body(&new_body);
-
-            let mut table_delta = String::new();
-            for (col, def) in &new_cols {
-                if old_cols.contains_key(col) {
-                    continue;
-                }
-                table_delta.push_str(&format!(
-                    "ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col} {def};\n"
-                ));
-            }
-
-            let index_and_more = tail_lines_not_in_old(old_sec, &new_tail);
-            if table_delta.is_empty() && index_and_more.is_empty() {
-                continue;
-            }
-
-            out.push_str(&format!("-- Table: {table_name}\n"));
-            out.push_str(&table_delta);
-            out.push_str(&index_and_more);
-            if !out.ends_with("\n\n") {
-                out.push('\n');
-            }
-            out.push('\n');
-        } else {
-            out.push_str(&format!("-- Table: {table_name}\n{new_sql}\n\n"));
-        }
-    }
-
-    out
+    let acc = match previous_file {
+        None => BTreeMap::new(),
+        Some(content) => accumulated_from_single_file_content(content),
+    };
+    build_service_migration_body_from_accumulated(&acc, tables)
 }
 
 /// True if there is nothing to write (schema matches baseline).
@@ -290,10 +459,10 @@ pub fn normalize_table_sql_blob(s: &str) -> String {
         .to_string()
 }
 
-/// True when each entity-generated table SQL matches the same table section in the latest
-/// migration file. Ignores file-level headers (`-- Version:`, `-- Generated:`, etc.): only
-/// `-- Table: name` sections participate. Use this as a final guard so a new timestamped file
-/// is not written when the only drift is metadata or a diff false-positive.
+/// True when each entity-generated table SQL matches the same table section in a **single**
+/// migration document. Ignores file-level headers (`-- Version:`, `-- Generated:`, etc.): only
+/// `-- Table: name` sections participate. For multiple files on disk, use
+/// [`build_service_migration_body_from_service_dir`] and [`service_migration_is_empty`] instead.
 #[must_use]
 pub fn generated_tables_match_baseline(
     previous_file: &str,
@@ -393,6 +562,48 @@ COMMENT ON TABLE categories IS 'Product categories';
         );
         assert!(body.contains("CREATE TABLE IF NOT EXISTS orders"));
         assert!(!body.contains("ALTER TABLE widgets"));
+    }
+
+    #[test]
+    fn merged_chronological_full_then_alter_yields_empty_diff() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let inv = dir.path().join("inventory");
+        fs::create_dir_all(&inv).unwrap();
+        let full = "-- Table: widgets\nCREATE TABLE IF NOT EXISTS widgets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL
+);
+
+CREATE INDEX idx_widgets_name ON widgets(name);
+";
+        let delta = "-- Table: widgets\nALTER TABLE widgets ADD COLUMN IF NOT EXISTS sku VARCHAR(50) NOT NULL DEFAULT '';\n\n";
+        fs::write(
+            inv.join("20260101000000_generated_from_entities.sql"),
+            full,
+        )
+        .unwrap();
+        fs::write(
+            inv.join("20260101000001_generated_from_entities.sql"),
+            delta,
+        )
+        .unwrap();
+        let new_sql = r"CREATE TABLE IF NOT EXISTS widgets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    sku VARCHAR(50) NOT NULL DEFAULT ''
+);
+
+CREATE INDEX idx_widgets_name ON widgets(name);
+";
+        let body = build_service_migration_body_from_service_dir(
+            &inv,
+            &[("widgets".into(), new_sql.into())],
+        );
+        assert!(
+            service_migration_is_empty(&body),
+            "expected empty body, got: {body:?}"
+        );
     }
 
     #[test]

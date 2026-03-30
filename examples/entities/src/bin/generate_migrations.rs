@@ -97,42 +97,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::create_dir_all(&service_dir)?;
         }
 
-        let prev_path = generated_migration_diff::find_latest_generated_migration(&service_dir);
-        let prev_text = match prev_path
-            .as_ref()
-            .map(|p| fs::read_to_string(p))
-            .transpose()
-        {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!(
-                    "⚠️  Could not read previous migration in {}: {}",
-                    service_dir.display(),
-                    e
-                );
-                None
-            }
-        };
-
-        let body = generated_migration_diff::build_service_migration_body(prev_text.as_deref(), &tables);
-
-        // Ignore `-- Version` / `-- Generated` churn: if each table's SQL matches the latest file
-        // sections, do not emit another timestamped copy.
-        if let Some(prev) = prev_text.as_deref() {
-            if generated_migration_diff::generated_tables_match_baseline(prev, &tables) {
-                if !generated_migration_diff::service_migration_is_empty(&body) {
-                    eprintln!(
-                        "⚠️  Service `{}`: baseline table SQL matches entities but diff was non-empty; skipping new file (sanity).",
-                        service
-                    );
-                }
-                println!(
-                    "   ◆ No schema changes for service `{}` — skipped new migration file (baseline matches entities).",
-                    service
-                );
-                continue;
-            }
-        }
+        let body =
+            generated_migration_diff::build_service_migration_body_from_service_dir(&service_dir, &tables);
 
         if generated_migration_diff::service_migration_is_empty(&body) {
             println!(
@@ -155,9 +121,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sql_content
             .push_str("-- This migration was automatically generated from entity definitions.\n");
         sql_content.push_str("-- DO NOT EDIT MANUALLY - regenerate from entities instead.\n\n");
-        if prev_text.is_some() {
+        if generated_migration_diff::service_dir_has_generated_migrations(&service_dir) {
             sql_content.push_str(
-                "-- Delta migration: ALTER / new tables vs latest *_generated_from_entities.sql in this directory.\n\n",
+                "-- Delta migration: ALTER / new tables vs merged *_generated_from_entities.sql history in this directory.\n\n",
             );
         }
         sql_content.push_str(&body);
