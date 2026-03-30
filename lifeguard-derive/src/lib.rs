@@ -100,6 +100,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
 /// - Optional `#[validate(custom = path)]` on fields: `path` is `fn(&sea_query::Value) -> Result<(), String>`; runs when the field is set (`get` is `Some`) during `validate_fields`.
+/// - F-style **`UPDATE`**: `set_<field>_expr(sea_query::SimpleExpr)` schedules `SET col = <expr>` (e.g. `Column::n.f_add(1)`); stored in `__update_exprs` until `reset` / `from_model`. Literal `set_*` clears the expression for that column.
 #[proc_macro_derive(
     LifeRecord,
     attributes(

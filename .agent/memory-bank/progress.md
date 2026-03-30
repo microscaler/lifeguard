@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **PRD Phase D — F-1 ORM `LifeRecord::update` expr RHS (2026-03-30):** `__update_exprs: HashMap<Column, SimpleExpr>`, `set_<field>_expr` per non-PK column; SET clause prefers expr over literal/`save_as`; integration test `record_set_n_expr_update_increments_on_postgres` in `column_f_update.rs` (mutex + shared setup); PRD §8.7.
 - **PRD Phase D — F() in WHERE/ORDER BY (2026-03-30):** `tests/db_integration/column_f_where.rs` (`f_add_in_where_and_order_by_on_postgres`); `ColumnTrait::f_add` docs (`Expr::expr` + `ExprTrait` / `order_by_expr`); PRD §8.7 Phase D note.
 - **PRD V-5 `#[validate(custom = path)]` (2026-03-30):** `lifeguard-derive` parses field `#[validate(custom = path)]`, generates `ActiveModelBehavior::validate_fields` using `ActiveModelTrait::get` + UFCS; `validate` allowed on `LifeModel`/`LifeRecord`; reject on `#[ignore]` fields; tests `validate_attr_tests` in `lifeguard-derive/tests/test_minimal.rs`; PRD §6.7 + SEAORM parity row; `docs/planning/README.md` lists `DESIGN_FIND_RELATED_SCOPES.md`.
 - **PRD follow-on batch (2026-03-30):** `ValidateOp::Delete` + `run_validators` on derive `delete`; `SelectQuery::scope_or` / `scope_any`; SI-3 test `infer_schema_table_filter_si3.rs`; `db_integration/column_f_update.rs` (F-add UPDATE); `DESIGN_FIND_RELATED_SCOPES.md`; PRD §5.7/§6.7/§7.7/§8.7, SEAORM mapping, DEVELOPMENT, migrate README.

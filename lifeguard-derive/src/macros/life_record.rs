@@ -121,6 +121,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
     let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
     let mut field_validate_fragments: Vec<proc_macro2::TokenStream> = Vec::new(); // #[validate(custom = ...)] field checks
+    let mut update_expr_setters: Vec<proc_macro2::TokenStream> = Vec::new(); // set_<field>_expr for UPDATE SET expr RHS (F-style)
 
     for field in fields.iter() {
         let field_name = match utils::field_ident(field) {
@@ -296,13 +297,22 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             to_model_struct_fields.push(quote! { #field_name, });
         }
 
-        // Generate dirty field check
-        // For Option<T> fields (both cases), check if Some
-        dirty_fields_check.push(quote! {
-            if self.#field_name.is_some() {
-                dirty.push(stringify!(#field_name).to_string());
-            }
-        });
+        // Generate dirty field check: literal set, or F-style expression scheduled for UPDATE
+        if is_primary_key {
+            dirty_fields_check.push(quote! {
+                if self.#field_name.is_some() {
+                    dirty.push(stringify!(#field_name).to_string());
+                }
+            });
+        } else {
+            dirty_fields_check.push(quote! {
+                if self.#field_name.is_some()
+                    || self.__update_exprs.contains_key(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)
+                {
+                    dirty.push(stringify!(#field_name).to_string());
+                }
+            });
+        }
 
         // Generate setter method
         // If field is already Option<T>, setter accepts Option<T> directly
@@ -312,6 +322,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             setter_methods.push(quote! {
                 /// Set the #field_name field
                 pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     self.#field_name = value;
                     self
                 }
@@ -320,7 +331,22 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             setter_methods.push(quote! {
                 /// Set the #field_name field
                 pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     self.#field_name = Some(value);
+                    self
+                }
+            });
+        }
+
+        if !is_primary_key {
+            let expr_setter_name =
+                Ident::new(&format!("{setter_name}_expr"), field_name.span());
+            update_expr_setters.push(quote! {
+                /// Schedule a database expression for this column on [`ActiveModelTrait::update`](lifeguard::ActiveModelTrait::update) (e.g. [`ColumnTrait::f_add`](lifeguard::ColumnTrait::f_add)).
+                /// Clears any literal value previously set for this field.
+                pub fn #expr_setter_name(&mut self, expr: sea_query::SimpleExpr) -> &mut Self {
+                    self.#field_name = None;
+                    self.__update_exprs.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr);
                     self
                 }
             });
@@ -352,12 +378,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         );
         active_model_set_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                 #value_to_field_conversion
             }
         });
 
         active_model_set_col_match_arms.push(quote! {
             #db_column_name => {
+                self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                 #value_to_field_conversion
             }
         });
@@ -368,6 +396,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             type_conversion::generate_option_field_to_value(field_name, inner_type);
         active_model_take_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                 let value = #field_to_value_conversion;
                 self.#field_name = None;
                 value
@@ -458,7 +487,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             let has_save_as = col_attrs.save_as.is_some();
             if has_save_as {
                 update_set_clauses.push(quote! {
-                    if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
+                    if let Some(expr_entry) = self.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
                         use lifeguard::query::column::definition::get_static_expr;
                         if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
                             let static_str = get_static_expr(&save_expr);
@@ -468,7 +499,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 });
             } else {
                 update_set_clauses.push(quote! {
-                    if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    if let Some(expr_entry) = self.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                         query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
                     }
                 });
@@ -478,7 +511,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // This is the one actually used in update() method
             if has_save_as {
                 update_set_clauses_from_hooks.push(quote! {
-                    if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
+                    if let Some(expr_entry) = record_for_hooks.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
                         use lifeguard::query::column::definition::get_static_expr;
                         if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
                             let static_str = get_static_expr(&save_expr);
@@ -488,7 +523,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 });
             } else {
                 update_set_clauses_from_hooks.push(quote! {
-                    if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    if let Some(expr_entry) = record_for_hooks.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                         query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
                     }
                 });
@@ -780,6 +817,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         #[derive(Debug, Clone)]
         pub struct #record_name {
             #(#record_fields)*
+            /// F-style `UPDATE SET col = <expr>` assignments (see `set_*_expr` methods). Cleared on `reset` / `from_model`.
+            pub __update_exprs: std::collections::HashMap<<#entity_name as lifeguard::LifeModelTrait>::Column, sea_query::SimpleExpr>,
             pub __graph: lifeguard::active_model::graph::GraphContainer<Self>,
         }
 
@@ -803,6 +842,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     #(
                         #ignored_field_names: #ignored_field_defaults,
                     )*
+                    __update_exprs: std::collections::HashMap::new(),
                     __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
@@ -812,6 +852,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             pub fn from_model(model: &#model_name) -> Self {
                 Self {
                     #(#from_model_fields)*
+                    __update_exprs: std::collections::HashMap::new(),
                     __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
@@ -843,6 +884,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
 
             #(#setter_methods)*
+            #(#update_expr_setters)*
         }
 
         impl Default for #record_name {
@@ -889,6 +931,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             }
 
             fn reset(&mut self) {
+                self.__update_exprs.clear();
                 #(#active_model_reset_fields)*
             }
 
