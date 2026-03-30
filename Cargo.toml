@@ -13,6 +13,7 @@ members = [
     "lifeguard-derive",
     "lifeguard-codegen",
     "lifeguard-migrate",
+    "lifeguard-reflector",
     "tests-integration",
 ]
 resolver = "2"

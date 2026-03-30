@@ -27,7 +27,11 @@
 //! - **`LifeQuery`**: SQL builder layer (Epic 02)
 //! - **`LifeModel`/`LifeRecord`**: ORM layer (Epic 03)
 //! - **`LifeExecutor`**: Database execution abstraction (Epic 04)
-//! - **`LifeguardPool`**: Persistent connection pool (Epic 04)
+//! - **`LifeguardPool`**: Persistent connection pool with bounded worker queues, configurable
+//!   acquire timeout ([`LifeError::PoolAcquireTimeout`]), and optional [`LifeguardPool::from_database_config`].
+//!
+//!   See the [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md)
+//!   for the full pooling roadmap (also available in the repository checkout; this link works on **docs.rs**).
 
 pub mod config;
 
@@ -66,7 +70,7 @@ pub mod test_helpers;
 // Entity tests will be rebuilt in Epic 03
 // mod tests_cfg;
 
-pub use pool::{LifeguardPool, OwnedParam, PooledLifeExecutor};
+pub use pool::{DatabaseConfig, LifeguardPool, LifeguardPoolSettings, OwnedParam, PooledLifeExecutor};
 
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
 // Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version

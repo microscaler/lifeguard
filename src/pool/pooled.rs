@@ -1,9 +1,8 @@
 //! `may`-scheduled connection pool with one coroutine consumer per slot (SPSC per slot, MPSC overall).
 //!
-//! Each worker owns one [`may_postgres::Client`] and drains a dedicated [`may::sync::mpsc`] queue.
-//! **Note:** `may` 0.3 exposes an unbounded `channel()` on this path; bounded `sync_channel` is not
-//! part of the public `may::sync::mpsc` API in the pinned release. Callers should size pool counts
-//! to match expected concurrency.
+//! Each worker owns one [`may_postgres::Client`] and drains a dedicated **bounded**
+//! [`crossbeam_channel`] queue. Saturated workers apply [`LifeguardPoolSettings::acquire_timeout`]
+//! when enqueueing jobs (PRD P0: bounded queues + acquire timeout).
 //!
 //! ## Routing (transparent to typical callers)
 //!
@@ -15,13 +14,15 @@
 
 use crate::connection::connect;
 use crate::executor::{LifeError, LifeExecutor};
+use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::owned_param::OwnedParam;
 use crate::pool::wal::WalLagMonitor;
+use crossbeam_channel::SendTimeoutError;
 use may_postgres::{Client, Row};
 use may_postgres::types::ToSql;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::METRICS;
@@ -30,9 +31,10 @@ use crate::metrics::tracing_helpers;
 
 /// One tier of workers (primary or replica) with round-robin dispatch.
 struct WorkerPool {
-    worker_txs: Arc<[may::sync::mpsc::Sender<WorkerJob>]>,
+    worker_txs: Arc<[crossbeam_channel::Sender<WorkerJob>]>,
     next_worker: AtomicUsize,
     pool_size: usize,
+    acquire_timeout: Duration,
 }
 
 impl WorkerPool {
@@ -40,6 +42,7 @@ impl WorkerPool {
         pool_size: usize,
         mut url_for_slot: impl FnMut(usize) -> String,
         role: &str,
+        settings: &LifeguardPoolSettings,
     ) -> Result<Self, LifeError> {
         if pool_size == 0 {
             return Err(LifeError::Pool(format!(
@@ -48,6 +51,7 @@ impl WorkerPool {
         }
 
         let mut txs = Vec::with_capacity(pool_size);
+        let qcap = settings.job_queue_capacity_per_worker;
 
         for slot in 0..pool_size {
             let url = url_for_slot(slot);
@@ -55,7 +59,7 @@ impl WorkerPool {
                 LifeError::Other(format!("{role} pool connection slot {slot}: {e}"))
             })?;
 
-            let (job_tx, job_rx) = may::sync::mpsc::channel::<WorkerJob>();
+            let (job_tx, job_rx) = crossbeam_channel::bounded::<WorkerJob>(qcap);
 
             let handle = may::go!(move || {
                 run_worker(client, job_rx);
@@ -66,16 +70,17 @@ impl WorkerPool {
             txs.push(job_tx);
         }
 
-        let worker_txs: Arc<[may::sync::mpsc::Sender<WorkerJob>]> = txs.into();
+        let worker_txs: Arc<[crossbeam_channel::Sender<WorkerJob>]> = txs.into();
 
         Ok(Self {
             worker_txs,
             next_worker: AtomicUsize::new(0),
             pool_size,
+            acquire_timeout: settings.acquire_timeout,
         })
     }
 
-    fn pick_worker(&self) -> &may::sync::mpsc::Sender<WorkerJob> {
+    fn pick_worker(&self) -> &crossbeam_channel::Sender<WorkerJob> {
         let i = self.next_worker.fetch_add(1, Ordering::Relaxed) % self.pool_size;
         &self.worker_txs[i]
     }
@@ -88,11 +93,32 @@ impl WorkerPool {
         let _span = tracing_helpers::acquire_connection_span().entered();
 
         let wait_start = Instant::now();
+        let deadline = wait_start + self.acquire_timeout;
         let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
         let job = build(reply_tx);
         let tx = self.pick_worker();
-        tx.send(job)
-            .map_err(|e| LifeError::Pool(format!("pool job send failed: {e}")))?;
+
+        let mut current_job = job;
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(LifeError::PoolAcquireTimeout {
+                    waited: wait_start.elapsed(),
+                });
+            }
+            let slice = deadline.saturating_duration_since(now);
+            match tx.send_timeout(current_job, slice) {
+                Ok(()) => break,
+                Err(SendTimeoutError::Timeout(j)) => {
+                    current_job = j;
+                }
+                Err(SendTimeoutError::Disconnected(_)) => {
+                    return Err(LifeError::Pool(
+                        "pool worker queue disconnected".to_string(),
+                    ));
+                }
+            }
+        }
 
         #[cfg(feature = "metrics")]
         METRICS.record_connection_wait(wait_start.elapsed());
@@ -117,6 +143,31 @@ pub struct LifeguardPool {
 }
 
 impl LifeguardPool {
+    /// Open pools with default [`LifeguardPoolSettings`] (30s acquire timeout, queue depth 8 per worker).
+    ///
+    /// For file/env-driven timeouts and queue depth, use [`Self::new_with_settings`] or
+    /// [`Self::from_database_config`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LifeError::Pool`] for invalid size/URL combinations, [`LifeError::PoolAcquireTimeout`]
+    /// when no worker accepts a job within the acquire timeout, or [`LifeError::Other`] when a
+    /// connection slot fails (see [`connect`]).
+    pub fn new(
+        primary_url: &str,
+        primary_pool_size: usize,
+        replica_urls: Vec<String>,
+        replica_pool_size: usize,
+    ) -> Result<Self, LifeError> {
+        Self::new_with_settings(
+            primary_url,
+            primary_pool_size,
+            replica_urls,
+            replica_pool_size,
+            &LifeguardPoolSettings::default(),
+        )
+    }
+
     /// Open pools: `primary_pool_size` connections to `primary_url`, and optionally
     /// `replica_pool_size` connections spread round-robin across `replica_urls`.
     ///
@@ -124,23 +175,24 @@ impl LifeguardPool {
     /// `query_*_values` to the replica tier when configured and [`WalLagMonitor`] reports the
     /// replica is acceptable; otherwise queries use the primary tier.
     ///
-    /// # Errors
-    ///
-    /// Returns [`LifeError::Pool`] for invalid size/URL combinations, or [`LifeError::Other`] when
-    /// a connection slot fails (see [`connect`]).
-    ///
     /// # Replica configuration rules
     ///
     /// - `replica_urls` empty and `replica_pool_size == 0`: primary-only (all traffic to primary).
     /// - Non-empty `replica_urls` requires `replica_pool_size >= 1`.
     /// - `replica_pool_size >= 1` requires non-empty `replica_urls`.
-    pub fn new(
+    pub fn new_with_settings(
         primary_url: &str,
         primary_pool_size: usize,
         replica_urls: Vec<String>,
         replica_pool_size: usize,
+        settings: &LifeguardPoolSettings,
     ) -> Result<Self, LifeError> {
-        let primary = WorkerPool::new(primary_pool_size, |_| primary_url.to_string(), "primary")?;
+        let primary = WorkerPool::new(
+            primary_pool_size,
+            |_| primary_url.to_string(),
+            "primary",
+            settings,
+        )?;
 
         let replica_urls_trimmed: Vec<String> = replica_urls
             .into_iter()
@@ -169,6 +221,7 @@ impl LifeguardPool {
                 replica_pool_size,
                 move |slot| urls[slot % urls.len()].clone(),
                 "replica",
+                settings,
             )?;
             let monitor_url = replica_urls_trimmed[0].clone();
             let wal = WalLagMonitor::start_monitor(monitor_url);
@@ -189,6 +242,32 @@ impl LifeguardPool {
             replicas,
             wal_monitor,
         })
+    }
+
+    /// Builds a pool from [`DatabaseConfig`] (URL, `max_connections` as primary pool width, timeouts,
+    /// per-worker queue depth) plus explicit replica list and replica tier width.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LifeError::Pool`] if `max_connections` is zero.
+    pub fn from_database_config(
+        cfg: &DatabaseConfig,
+        replica_urls: Vec<String>,
+        replica_pool_size: usize,
+    ) -> Result<Self, LifeError> {
+        if cfg.max_connections == 0 {
+            return Err(LifeError::Pool(
+                "LifeguardPool::from_database_config: max_connections must be at least 1".to_string(),
+            ));
+        }
+        let settings = LifeguardPoolSettings::from_database_config(cfg);
+        Self::new_with_settings(
+            cfg.url.trim(),
+            cfg.max_connections,
+            replica_urls,
+            replica_pool_size,
+            &settings,
+        )
     }
 
     /// Workers connected to the primary URL (writes and fallback reads).
@@ -275,8 +354,8 @@ enum WorkerJob {
     },
 }
 
-fn run_worker(client: Client, job_rx: may::sync::mpsc::Receiver<WorkerJob>) {
-    for job in job_rx {
+fn run_worker(client: Client, job_rx: crossbeam_channel::Receiver<WorkerJob>) {
+    for job in job_rx.iter() {
         match job {
             WorkerJob::Execute {
                 query,

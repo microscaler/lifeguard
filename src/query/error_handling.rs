@@ -56,6 +56,6 @@ pub(crate) fn is_no_rows_error(error: &LifeError) -> bool {
                 || error_msg.contains("no rows returned")
                 || error_msg.contains("expected one row")
         }
-        LifeError::Pool(_) => false,
+        LifeError::Pool(_) | LifeError::PoolAcquireTimeout { .. } => false,
     }
 }

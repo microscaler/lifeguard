@@ -8,7 +8,7 @@
 use may_postgres::{Client, Error as PostgresError, Row};
 use may_postgres::types::ToSql;
 use std::fmt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::METRICS;
@@ -29,6 +29,14 @@ pub enum LifeError {
     Other(String),
     /// Pool-specific failures (dispatch, configuration, unsupported executor usage)
     Pool(String),
+    /// Timed out waiting to submit work to a pool worker (queue saturated or overload).
+    ///
+    /// Distinct from [`LifeError::QueryError`] and [`LifeError::Pool`] string cases so callers
+    /// can match without parsing display text (PRD connection pooling R1.2).
+    PoolAcquireTimeout {
+        /// Wall time spent waiting before giving up.
+        waited: Duration,
+    },
 }
 
 impl fmt::Display for LifeError {
@@ -48,6 +56,12 @@ impl fmt::Display for LifeError {
             }
             LifeError::Pool(s) => {
                 write!(f, "Pool error: {s}")
+            }
+            LifeError::PoolAcquireTimeout { waited } => {
+                write!(
+                    f,
+                    "Pool error: timed out acquiring a worker after {waited:?}"
+                )
             }
         }
     }
@@ -462,6 +476,7 @@ impl LifeExecutor for MayPostgresExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_life_error_display() {
@@ -493,6 +508,13 @@ mod tests {
 
         let err5 = LifeError::Pool("test".to_string());
         assert!(err5.to_string().contains("Pool error"));
+
+        let err6 = LifeError::PoolAcquireTimeout {
+            waited: Duration::from_millis(100),
+        };
+        let s6 = err6.to_string();
+        assert!(s6.contains("timed out"), "display: {s6}");
+        assert!(s6.contains("acquiring"), "display: {s6}");
     }
 
     #[test]

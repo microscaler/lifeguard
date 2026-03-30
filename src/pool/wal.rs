@@ -8,6 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Tracks whether a configured read replica is “lagging” for routing decisions.
+///
+/// A background coroutine polls the replica periodically; while lag is above an internal
+/// threshold, callers should treat reads as unsafe on the replica tier. See
+/// [`WalLagMonitor::start_monitor`] and the connection pooling PRD for evolution of lag semantics.
 #[derive(Clone)]
 pub struct WalLagMonitor {
     is_lagging: Arc<AtomicBool>,
@@ -24,13 +29,18 @@ impl WalLagMonitor {
         
         unsafe {
             coroutine::spawn::<_, ()>(move || {
-            // Attempt to connect inside the coroutine so it doesn't block startup
-            // If connection fails, we assume lag is true to be safe and fall back to primary
-            let client = match may_postgres::connect(&replica_conn_string) {
-                Ok(c) => c,
-                Err(_) => {
-                    lag_ref.store(true, Ordering::Release);
-                    return;
+            // Retry initial connect with backoff (PRD R7.1): transient replica/startup failures
+            // must not permanently disable read routing for the process lifetime.
+            let mut backoff = Duration::from_millis(200);
+            let backoff_cap = Duration::from_secs(5);
+            let client = loop {
+                match may_postgres::connect(&replica_conn_string) {
+                    Ok(c) => break c,
+                    Err(_) => {
+                        lag_ref.store(true, Ordering::Release);
+                        coroutine::sleep(backoff);
+                        backoff = (backoff * 2).min(backoff_cap);
+                    }
                 }
             };
 
