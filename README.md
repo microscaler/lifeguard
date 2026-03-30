@@ -628,6 +628,7 @@ These are **two incompatible worlds** with the only commonality being Rust itsel
 - [Tests & CI Postgres/Redis](./docs/TEST_INFRASTRUCTURE.md)
 - [Observability & host-owned OTel/tracing](./docs/OBSERVABILITY_APP_INTEGRATION.md)
 - [Metrics, tracing, **Kind/Tilt `kubectl apply`** to refresh Grafana dashboards, and Postgres replication lag (time vs bytes)](./docs/OBSERVABILITY.md#kubernetes-kind-tilt-apply-and-refresh-dashboards)
+- [**Connection pool** operations, tuning, non-goals (PgBouncer), migration notes](./docs/POOLING_OPERATIONS.md) · [design doc (queue policy, metrics, decisions)](./docs/planning/DESIGN_CONNECTION_POOLING.md)
 - [SeaORM ↔ Lifeguard mapping](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md)
 - [Epic notes](./docs/EPICS/) · [Story tree](./docs/planning/epics-stories/)
 - [Planning index](./docs/planning/README.md)

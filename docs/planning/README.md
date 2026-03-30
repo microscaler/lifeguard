@@ -33,3 +33,7 @@ These documents were moved here to:
 These files can be used by documentation generators to create comprehensive documentation websites that include the full development history, design decisions, and planning context.
 
 Generated: 2026-01-22
+
+## Active design docs (pooling)
+
+- [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md) — in-process pool behavior, metrics, PRD §9 decisions (companion to [`PRD_CONNECTION_POOLING.md`](./PRD_CONNECTION_POOLING.md)).

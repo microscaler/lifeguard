@@ -31,9 +31,10 @@
 //!   acquire timeout ([`LifeError::PoolAcquireTimeout`]), optional idle `SELECT 1` liveness probes
 //!   ([`LifeguardPoolSettings::idle_liveness_interval`]), and optional [`LifeguardPool::from_database_config`].
 //!
-//!   See the [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md)
+//!   See the [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md),
+//!   [operator tuning / non-goals](https://github.com/microscaler/lifeguard/blob/main/docs/POOLING_OPERATIONS.md),
 //!   and [TCP keepalive / idle tuning](https://github.com/microscaler/lifeguard/blob/main/docs/POOL_TCP_KEEPALIVE.md)
-//!   for the full pooling roadmap (also available in the repository checkout; PRD link works on **docs.rs**).
+//!   (PRD and ops links work on **docs.rs** via GitHub URLs; clone has the same paths under `docs/`).
 
 pub mod config;
 

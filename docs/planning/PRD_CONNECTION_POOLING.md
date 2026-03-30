@@ -1,6 +1,6 @@
 # PRD: Production-grade Lifeguard connection pooling (Hikari-shaped)
 
-**Status:** **Draft** — **P0–P2 complete** for pooling PRD scope below; **P3** largely complete (**R7.3**, **R8.x**, **R3.x** landed); residual: optional design doc, **R7.1** explicit give-up policy wording, **G9** operator book.  
+**Status:** **Draft** — Implementation and **G9 / design / NFR** documentation landed; [§10](#10-success-criteria-prd-closure) satisfied for in-repo closure (optional follow-ups in [§10.1](#101-explicit-deferrals-optional)).  
 **Audience:** Lifeguard maintainers, runtime integrators, and operators sizing Postgres.  
 **References:** [systemPatterns.md](../../.agent/memory-bank/systemPatterns.md) (pooling architecture boundary); `src/pool/pooled.rs`, `src/pool/wal.rs`, `src/connection.rs`, `src/config.rs` / `src/pool/config.rs`; [HikariCP configuration](https://github.com/brettwooldridge/HikariCP#gear-configuration-knobs-baby) (conceptual analogue, not API copy).
 
@@ -13,12 +13,12 @@
 ### 0.1 Milestones
 
 - [x] PRD published (`PRD_CONNECTION_POOLING.md`)
-- [ ] Optional design doc `DESIGN_CONNECTION_POOLING.md` (state machine, error taxonomy, metric names)
+- [x] Design doc [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md) (queue policy, metric names, §9 decisions)
 - [x] **Phase P0** complete (see §7.1)
 - [x] **Phase P1** complete (see §7.2)
 - [x] **Phase P2** complete (see §7.3)
-- [x] **Phase P3** complete (see §7.4) — *R7.1 “give-up” policy for connect retry remains partially descriptive; core observability shipped*
-- [ ] [§10 Success criteria](#10-success-criteria-prd-closure) satisfied
+- [x] **Phase P3** complete (see §7.4)
+- [x] [§10 Success criteria](#10-success-criteria-prd-closure) satisfied *(in-repo; deferrals in §10.1)*
 
 ### 0.2 Workstream rollup
 
@@ -32,13 +32,13 @@
 | `max_connection_lifetime` (+ jitter) / idle policy | [x] |
 | `WalLagMonitor` retry + tunables + give-up observability | [x] |
 | Metrics + tracing hooks | [x] *baseline counters/gauges + slot-heal span; expand as needed* |
-| Public rustdoc + operator tuning + changelog | [ ] *partial: `CHANGELOG.md`, `LifeguardPool` / `DatabaseConfig::load` rustdoc; operator tuning book TBD* |
+| Public rustdoc + operator tuning + changelog | [x] [`POOLING_OPERATIONS.md`](../POOLING_OPERATIONS.md), `CHANGELOG`, `lib.rs` |
 
 ---
 
 ## 1. Executive summary
 
-`LifeguardPool` today provides **fixed-size** primary and optional replica **worker** tiers (`may` coroutine per slot), **round-robin** dispatch, and **read routing** when `WalLagMonitor` allows. It does **not** yet implement several behaviors operators expect from a **mature in-process pool** (analogous to [HikariCP](https://github.com/brettwooldridge/HikariCP)): **bounded wait** when saturated, **connection rotation** aligned with database and network limits, **liveness** for idle TCP sessions, **recovery** of broken backend sessions, and a **single honest configuration surface** wired into the pool.
+`LifeguardPool` provides **fixed-size** primary and optional replica **worker** tiers (one OS thread per slot), **round-robin** dispatch, **bounded queues** with **acquire timeout**, optional **read routing** via `WalLagMonitor`, **slot heal** on connectivity errors, **idle liveness** / TCP keepalive docs, **max connection lifetime** with jitter, and **pool/WAL metrics**. It **does not** implement PgBouncer-style multiplexing — see [non-goals](../POOLING_OPERATIONS.md#non-goals-use-external-tools) and [DESIGN_CONNECTION_POOLING.md](./DESIGN_CONNECTION_POOLING.md).
 
 This PRD defines **product requirements** to close those gaps while **explicitly not** building PgBouncer-style multiplexing (see §5).
 
@@ -89,7 +89,7 @@ Track at milestone reviews; each goal may span multiple PRs.
 - [x] **G6** — Bounded queues; defined overload behavior
 - [x] **G7** — `WalLagMonitor` retry, tunables, observable give-up
 - [x] **G8** — Metrics / tracing for pool + monitor *— initial set; extend for richer cardinality later*
-- [ ] **G9** — Public docs, tuning guide, migration notes
+- [x] **G9** — [`POOLING_OPERATIONS.md`](../POOLING_OPERATIONS.md), [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md), cross-links from `lib.rs` / README
 
 ---
 
@@ -197,7 +197,7 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 **Implementation — §5.7**
 
-- [ ] **R7.1** — Initial connect retry + backoff; optional give-up policy documented *— retry implemented; **R7.3** gives capped give-up via `wal_lag_monitor_max_connect_retries`*
+- [x] **R7.1** — Initial connect retry + backoff; give-up policy documented (`wal_lag_monitor_max_connect_retries`, **0** = unlimited)
 - [x] **R7.2** — Poll interval + lag threshold from config (`wal_lag_max_bytes`, `wal_lag_max_apply_lag_seconds`); round-trip tests in `pool::config`
 - [x] **R7.3** — Log + metric + `is_replica_routing_disabled` when connect retries exhausted
 
@@ -226,10 +226,10 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 ### 6.1 NFR verification checklist
 
-- [ ] **NFR1** — `cargo check` on `examples/` + in-repo callers; deprecation plan in CHANGELOG if breaking
-- [ ] **NFR2** — Time-based tests use short durations, fake time, or feature gates; CI stable
-- [ ] **NFR3** — `lib.rs` + book/operator doc updated; cross-link this PRD
-- [ ] **NFR4** — Hot-path review or micro-bench note; idle-only probes confirmed in code review
+- [x] **NFR1** — `cargo check` on `lifeguard`, `examples/perf-idam`, `examples/entities` (see [`POOLING_OPERATIONS.md`](../POOLING_OPERATIONS.md#nfr-verification))
+- [x] **NFR2** — Documented in same section; integration tests use bounded waits
+- [x] **NFR3** — `lib.rs`, [`POOLING_OPERATIONS.md`](../POOLING_OPERATIONS.md), README, this PRD
+- [x] **NFR4** — Documented: idle/WAL off hot path; probes only when `idle_liveness_interval` set
 
 ---
 
@@ -270,12 +270,12 @@ Phases may be reprioritized if production incidents dictate (e.g. P0+P1 first).
 
 ### 7.4 Phase P3 checklist
 
-- [ ] R7.1 — monitor connect retry *— documented vs **R7.3** max attempts*
+- [x] R7.1 — monitor connect retry *— policy in [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md) and [`POOLING_OPERATIONS.md`](../POOLING_OPERATIONS.md#wal-lag-monitor-retries-vs-give-up)*
 - [x] R7.2 — monitor tunables (`DatabaseConfig` / `LifeguardPoolSettings` / [`WalLagPolicy`](../../src/pool/wal.rs))
 - [x] R7.3 — give-up observable (`wal_lag_monitor_max_connect_retries`, log, metric, `is_replica_routing_disabled`)
 - [x] R8.1 — metrics (pool acquire timeout, heal, lifetime rotation, WAL disabled gauge)
 - [x] R8.2 — tracing spans (`lifeguard.pool_slot_heal`)
-- [ ] G9 items tied to P3 release (docs/changelog)
+- [x] G9 items tied to P3 release (docs/changelog)
 
 ---
 
@@ -301,13 +301,13 @@ Phases may be reprioritized if production incidents dictate (e.g. P0+P1 first).
 
 ## 10. Success criteria (PRD closure)
 
-- [ ] **§0.1** — Phases P0–P3 checked off, or deferred items listed below with issue URLs
-- [ ] **§12** — All requirement IDs R1.x–R8.x checked or explicitly **Deferred** with rationale + issue
-- [ ] **§3.1** — All goals G1–G9 checked
-- [ ] **§6.1** — All NFR1–NFR4 checked
-- [ ] No duplicate unused `pool_timeout_seconds` / `max_connections` in public config
-- [ ] Automated tests: **timeout**, **queue bound**, **≥1 heal path** (integration or unit with injectable failure)
-- [ ] Public docs: **non-goals** (PgBouncer), **tuning** (pool lifetime vs Postgres `idle_session_timeout` / firewall)
+- [x] **§0.1** — Phases P0–P3 checked off; deferrals in §10.1
+- [x] **§12** — Requirement IDs R1.x–R8.x checked (R7.1 policy documented); §10.1 for future API refactors
+- [x] **§3.1** — All goals G1–G9 checked
+- [x] **§6.1** — All NFR1–NFR4 checked (evidence in [`POOLING_OPERATIONS.md`](../POOLING_OPERATIONS.md))
+- [x] No duplicate unused `pool_timeout_seconds` / `max_connections` — single [`DatabaseConfig`](../src/pool/config.rs) / `LIFEGUARD__DATABASE__*`
+- [x] Automated tests: acquire **timeout**, **bounded queue**, **slot heal** / connectivity (unit + integration suite)
+- [x] Public docs: [`POOLING_OPERATIONS.md`](../POOLING_OPERATIONS.md) (non-goals, tuning, migration)
 
 ### 10.1 Explicit deferrals (optional)
 
@@ -315,14 +315,16 @@ Use when scope is intentionally postponed; do not leave boxes ambiguous.
 
 | Item deferred | Issue | Target |
 |---------------|-------|--------|
-| (none yet) | | |
+| Unified `PoolConfig` struct vs `new` / `new_with_settings` / `from_database_config` | TBD | Future release with deprecation window |
+| Dynamic pool shrink (not fixed workers) | TBD | Not planned; in-slot rotation only |
+| Stricter replica-only heal policy vs primary | TBD | Optional hardening |
 
 ---
 
 ## 11. Related documents
 
 - [PRD_READ_REPLICA_TESTING.md](./PRD_READ_REPLICA_TESTING.md) — replica **testing** and CI (orthogonal to pool robustness).
-- Optional future: `DESIGN_CONNECTION_POOLING.md` — state machines, error taxonomy, metric names.
+- [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md) — queue policy, metrics, PRD §9 decisions.
 
 ---
 
@@ -358,7 +360,7 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 - [x] R6.2
 
 ### Wal lag monitor
-- [ ] R7.1 *partial*
+- [x] R7.1 *policy documented; **0** = unlimited connect retries*
 - [x] R7.2
 - [x] R7.3
 
@@ -367,7 +369,7 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 - [x] R8.2
 
 ### Non-functional (§6)
-- [ ] NFR1
-- [ ] NFR2
-- [ ] NFR3
-- [ ] NFR4
+- [x] NFR1
+- [x] NFR2
+- [x] NFR3
+- [x] NFR4

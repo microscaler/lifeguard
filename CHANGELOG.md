@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **PRD G9 / NFR3:** [`docs/POOLING_OPERATIONS.md`](./docs/POOLING_OPERATIONS.md) — operator tuning (lifetime vs `idle_session_timeout`, keepalive pointers), non-goals (PgBouncer), WAL retry vs `wal_lag_monitor_max_connect_retries`, migration notes, NFR evidence table.
+- **Design doc:** [`docs/planning/DESIGN_CONNECTION_POOLING.md`](./docs/planning/DESIGN_CONNECTION_POOLING.md) — queue policy, metric names, connectivity heal pointer, PRD §9 decisions.
+
 ### Added
 
 - **WAL monitor give-up (PRD R7.3):** `DatabaseConfig::wal_lag_monitor_max_connect_retries` / `LifeguardPoolSettings::wal_lag_monitor_max_connect_retries` — **`0`** = unlimited connect retries (default). When **`> 0`**, the monitor stops after that many failed replica connects, logs a warning, sets gauge **`lifeguard_wal_monitor_replica_routing_disabled`**, and `WalLagMonitor::is_replica_routing_disabled` / `LifeguardPool::is_replica_routing_disabled` become `true` (reads use primary).
