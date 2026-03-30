@@ -15,7 +15,8 @@
 //! # Composition
 //!
 //! Each [`SelectQuery::scope`] call **AND**s its condition with the rest of the `WHERE`
-//! clause (same as [`SelectQuery::filter`]).
+//! clause (same as [`SelectQuery::filter`]). Use [`SelectQuery::scope_or`] or
+//! [`SelectQuery::scope_any`] when you need **OR** between predicates (PRD SC-2).
 //!
 //! # Soft delete
 //!
@@ -27,6 +28,7 @@
 
 use crate::query::select::SelectQuery;
 use crate::query::traits::LifeModelTrait;
+use sea_query::Condition;
 
 /// Something that can be applied to a [`SelectQuery`] as a named scope.
 ///
@@ -55,6 +57,37 @@ where
     #[must_use]
     pub fn scope<S: IntoScope<E>>(self, s: S) -> Self {
         s.apply_scope(self)
+    }
+
+    /// OR two scope conditions: `(a) OR (b)` (PRD SC-2).
+    #[must_use]
+    pub fn scope_or<A, B>(self, a: A, b: B) -> Self
+    where
+        A: sea_query::IntoCondition,
+        B: sea_query::IntoCondition,
+    {
+        let c = Condition::any()
+            .add(a.into_condition())
+            .add(b.into_condition());
+        self.filter(c)
+    }
+
+    /// OR an iterator of conditions. Empty iterator returns `self` unchanged.
+    #[must_use]
+    pub fn scope_any<I, C>(self, iter: I) -> Self
+    where
+        I: IntoIterator<Item = C>,
+        C: sea_query::IntoCondition,
+    {
+        let mut it = iter.into_iter();
+        let Some(first) = it.next() else {
+            return self;
+        };
+        let mut c = Condition::any().add(first.into_condition());
+        for cond in it {
+            c = c.add(cond.into_condition());
+        }
+        self.filter(c)
     }
 }
 
@@ -241,5 +274,37 @@ mod tests {
             upper.contains("\"ID\"") || upper.contains("ID"),
             "user scope id: {sql}"
         );
+    }
+
+    #[test]
+    fn scope_or_produces_or_in_sql() {
+        let q = SelectQuery::<ScopeTestEntity>::new().scope_or(
+            ScopeTestColumn::Status.eq(1i32),
+            ScopeTestColumn::Status.eq(2i32),
+        );
+        let (sql, _) = q.query.build(PostgresQueryBuilder);
+        let upper = sql.to_uppercase();
+        assert!(upper.contains(" OR "), "expected OR in WHERE: {sql}");
+    }
+
+    #[test]
+    fn scope_any_empty_is_noop() {
+        let q = SelectQuery::<ScopeTestEntity>::new();
+        let q2 = q.clone().scope_any(std::iter::empty::<sea_query::SimpleExpr>());
+        let (s1, _) = q.query.build(PostgresQueryBuilder);
+        let (s2, _) = q2.query.build(PostgresQueryBuilder);
+        assert_eq!(s1, s2);
+    }
+
+    #[test]
+    fn scope_any_three_branches() {
+        let q = SelectQuery::<ScopeTestEntity>::new().scope_any([
+            ScopeTestColumn::Status.eq(1i32),
+            ScopeTestColumn::Status.eq(2i32),
+            ScopeTestColumn::Id.eq(99i32),
+        ]);
+        let (sql, _) = q.query.build(PostgresQueryBuilder);
+        let upper = sql.to_uppercase();
+        assert!(upper.matches(" OR ").count() >= 2, "expected multiple OR: {sql}");
     }
 }

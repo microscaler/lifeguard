@@ -118,6 +118,32 @@ pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
         .any(|attr| attr.path().is_ident(attr_name))
 }
 
+/// Parse `#[validate(custom = path)]` on a model field (PRD V-5).
+///
+/// Multiple attributes or `custom = a, custom = b` in one `#[validate(...)]` are supported.
+/// The generated code calls each path as `path(&sea_query::Value) -> Result<(), String>`.
+pub fn parse_field_validate_custom_paths(field: &Field) -> syn::Result<Vec<syn::Path>> {
+    let mut paths = Vec::new();
+    for attr in &field.attrs {
+        if !attr.path().is_ident("validate") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("custom") {
+                let value = meta.value()?;
+                let path: syn::Path = value.parse()?;
+                paths.push(path);
+                Ok(())
+            } else {
+                Err(meta.error(
+                    "unknown `validate` item; expected `custom = path` (function `fn(&sea_query::Value) -> Result<(), String>`)",
+                ))
+            }
+        })?;
+    }
+    Ok(paths)
+}
+
 /// Holds the configuration extracted from `#[has_many]`, `#[belongs_to]`, etc.
 #[derive(Debug, Clone, Default)]
 pub struct RelationAttribute {

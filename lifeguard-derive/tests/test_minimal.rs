@@ -53,6 +53,57 @@ pub mod column_name_tests {
     }
 }
 
+/// `#[validate(custom = ...)]` on `LifeRecord` fields (PRD V-5).
+pub mod validate_attr_tests {
+    use lifeguard::{run_validators, ValidateOp};
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    fn email_non_empty(v: &sea_query::Value) -> Result<(), String> {
+        match v {
+            sea_query::Value::String(Some(s)) if !s.is_empty() => Ok(()),
+            sea_query::Value::String(Some(_)) => Err("email must be non-empty".to_string()),
+            _ => Err("email must be a non-empty string".to_string()),
+        }
+    }
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "validated_users"]
+    pub struct ValidatedUser {
+        #[primary_key]
+        pub id: i32,
+        #[validate(custom = email_non_empty)]
+        pub email: String,
+    }
+
+    #[test]
+    fn validate_custom_rejects_empty_email() {
+        let mut r = ValidatedUserRecord::new();
+        r.set_email(String::new());
+        let err = run_validators(&r, ValidateOp::Insert).expect_err("validation should fail");
+        match err {
+            lifeguard::ActiveModelError::Validation(v) => {
+                assert_eq!(v.len(), 1);
+                assert_eq!(v[0].field.as_deref(), Some("email"));
+                assert!(v[0].message.contains("non-empty"));
+            }
+            e => panic!("expected Validation error, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn validate_custom_accepts_non_empty_email() {
+        let mut r = ValidatedUserRecord::new();
+        r.set_email("a@b.c".to_string());
+        run_validators(&r, ValidateOp::Insert).expect("validation should pass");
+    }
+
+    #[test]
+    fn validate_custom_skips_when_field_unset() {
+        let r = ValidatedUserRecord::new();
+        run_validators(&r, ValidateOp::Insert).expect("no field set => custom validator not run");
+    }
+}
+
 // Entity with numeric fields for testing all numeric types
 // Using a module to avoid name conflicts
 // NOTE: may_postgres doesn't support u8, u16, u64 in FromSql, so we manually implement ModelTrait

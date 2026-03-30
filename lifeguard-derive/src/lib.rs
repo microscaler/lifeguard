@@ -82,7 +82,8 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
         has_many,
         belongs_to,
         has_one,
-        cursor_tiebreak
+        cursor_tiebreak,
+        validate
     )
 )]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
@@ -98,6 +99,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
+/// - Optional `#[validate(custom = path)]` on fields: `path` is `fn(&sea_query::Value) -> Result<(), String>`; runs when the field is set (`get` is `Some`) during `validate_fields`.
 #[proc_macro_derive(
     LifeRecord,
     attributes(
@@ -120,7 +122,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         has_many,
         belongs_to,
         has_one,
-        cursor_tiebreak
+        cursor_tiebreak,
+        validate
     )
 )]
 pub fn derive_life_record(input: TokenStream) -> TokenStream {

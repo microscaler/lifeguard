@@ -3,6 +3,7 @@
 **Slug:** `schema_validators_session_and_scopes`  
 **Status:** **Draft** — Requirements and acceptance criteria; design splits into follow-on `DESIGN_*.md` per workstream as implementation starts.  
 **Audience:** Lifeguard maintainers, `lifeguard-derive` authors, and application teams targeting SeaORM-like ergonomics on `may`.  
+**Iteration 2 (PRD follow-on):** default git branch for the next tranche of work — `feat/schema_validators_session_and_scopes_2` (v0 landed via PR #56 on `main`; this branch continues §5–§9 “still to do” items).  
 **References:** [README.md](../../README.md) competitive matrix (“Not Implemented” rows); [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md); `src/query/`, `lifeguard-derive/`, `lifeguard::LifeRecord` / `LifeModel` patterns.
 
 ---
@@ -137,7 +138,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 **SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK TODO, table filter, SQL keyword field).
 
-**Still to do for Phase A closure:** optional live-Postgres smoke for the **`infer-schema` CLI** end-to-end; CI doc hook. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`), `DEVELOPMENT.md` (migrate / goldens).
+**Still to do for Phase A closure:** optional **`infer-schema` CLI** subprocess e2e. **Library / CI hooks:** `lifeguard-migrate/tests/infer_schema_postgres_smoke.rs` (connect + introspect `public`); `lifeguard-migrate/tests/infer_schema_table_filter_si3.rs` (SI-3 table filter — creates two scratch tables, infers one). Both skip when no DB URL. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`), `DEVELOPMENT.md` (migrate / goldens / infer smoke).
 
 **Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary).
 
@@ -192,11 +193,14 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 - **Types:** `lifeguard::ValidateOp` (`Insert` | `Update`), `lifeguard::ValidationError` (`field: Option<String>`, `message: String`, with `field` / `model` constructors).
 - **Errors:** `ActiveModelError::Validation(Vec<ValidationError>)` with `Display` listing field-scoped and model-scoped messages (fail-fast; no multi-error aggregation yet).
-- **Traits:** `ActiveModelBehavior::validate_fields` / `validate_model` (default no-op), invoked via `lifeguard::run_validators` in order **field → model**.
-- **Integration:** `lifeguard-derive` generated `insert` / `update` call `run_validators` **after** `before_insert` / `before_update` (so hook defaults are visible to validation) and **before** SQL build.
-- **Tests:** Unit tests on `run_validators` ordering and short-circuit; `cargo clippy` / `lifeguard-derive` tests pass.
+- **Traits:** `ActiveModelBehavior::validate_fields` / `validate_model` (default no-op), `validation_strategy` (default [`ValidationStrategy::FailFast`]), invoked via `lifeguard::run_validators` in order **field → model**.
+- **V-3:** `ValidationStrategy::Aggregate` collects all `Validation` errors from `validate_fields` then `validate_model`; override `validation_strategy` on the record or call `run_validators_with_strategy` directly.
+- **Delete:** `ValidateOp::Delete` after `before_delete`, before SQL; same validator hooks as insert/update.
+- **Integration:** `lifeguard-derive` generated `insert` / `update` / `delete` call `run_validators` **after** the corresponding `before_*` hook and **before** SQL build.
+- **Tests:** Unit tests on `run_validators` ordering, fail-fast, aggregate collection, and `Delete` op; `cargo clippy` / `lifeguard-derive` tests pass.
+- **V-5 (derive sugar):** `#[validate(custom = path)]` on model fields — `path` is `fn(&sea_query::Value) -> Result<(), String>`; `LifeRecord` implements `validate_fields` to run each custom validator when `ActiveModelTrait::get` is `Some` for that column. Unsupported on `#[ignore]`/`#[skip]` fields. Tests: `lifeguard-derive/tests/test_minimal.rs` (`validate_attr_tests`).
 
-**Still to do for fuller Phase B:** optional `#[validate(...)]` derive (V-5), explicit aggregate-errors mode if required (V-3), `DELETE` path validation if product wants it, README / mapping matrix updates (G6).
+**Still to do for fuller Phase B:** built-in predicates (`range`, `len`, …) if desired; README / mapping matrix polish (G6).
 
 ---
 
@@ -244,7 +248,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Soft delete:** `query::scope` module documents that `LifeModelTrait::soft_delete_column` is applied at execution time and **AND**ed with scoped predicates unless `with_trashed` is set; unit test `scope_and_soft_delete_both_anded_at_execution`.
 - **Tests:** `src/query/scope.rs` — composition + soft-delete interaction.
 
-**Still to do for fuller Phase C:** derive sugar (`#[scope]` / codegen), OR-composition helpers, `find_related`/loader interaction notes in a design doc, README matrix row (G6).
+**Still to do for fuller Phase C:** derive sugar (`#[scope]` / codegen). **OR:** `SelectQuery::scope_or` / `scope_any` in `src/query/scope.rs` (PRD SC-2). **`find_related` / loaders:** see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md). README matrix row (G6) ongoing.
 
 ---
 
@@ -291,7 +295,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Tests:** `src/query/column/column_trait.rs` — `test_f_add_update_sql_contains_arithmetic`, basic compile tests for `f_*`.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase D:** wire **`LifeRecord::update`** / derive to accept expression RHS without hand-built `Query::update` (F-1 end-to-end on ORM path), `WHERE`/`ORDER BY` examples, README matrix row (G6), integration test on Postgres.
+**Still to do for fuller Phase D:** wire **`LifeRecord::update`** / derive to accept expression RHS without hand-built `Query::update` (F-1 on ORM path). **Done in this iteration:** Postgres integration test `tests/db_integration/column_f_update.rs` (`db_integration_suite`) exercises `Query::update().value(Col, Col.f_add(1))` with `execute_values`. **`WHERE`/`ORDER BY` examples**, README matrix (G6) ongoing.
 
 ### 8.8 Dependency note
 

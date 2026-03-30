@@ -194,6 +194,8 @@ lifeguard-migrate infer-schema \
 cargo test -p lifeguard-migrate schema_infer
 ```
 
+**Optional live DB tests** (skip when no URL): `tests/infer_schema_postgres_smoke.rs` (introspect `public`); `tests/infer_schema_table_filter_si3.rs` (SI-3 — table filter excludes other tables). Set `TEST_DATABASE_URL`, `DATABASE_URL`, or `LIFEGUARD_DATABASE_URL`. See **`DEVELOPMENT.md`** (`lifeguard-migrate` section).
+
 ### `info`
 
 Show detailed migration information:

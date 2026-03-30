@@ -110,8 +110,8 @@ pub use query::{
 // ActiveModel operations - Epic 02 Story 07
 pub mod active_model;
 pub use active_model::{
-    run_validators, with_converted_params, ActiveModelBehavior, ActiveModelError, ActiveModelTrait,
-    ActiveValue, ValidateOp, ValidationError,
+    run_validators, run_validators_with_strategy, with_converted_params, ActiveModelBehavior,
+    ActiveModelError, ActiveModelTrait, ActiveValue, ValidateOp, ValidationError, ValidationStrategy,
 };
 
 // Model trait - Core Traits & Types

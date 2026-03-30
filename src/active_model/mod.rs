@@ -38,7 +38,7 @@
 // Validation types (PRD Phase B; no dependency on traits)
 pub mod validate_op;
 #[doc(inline)]
-pub use validate_op::{ValidateOp, ValidationError};
+pub use validate_op::{ValidateOp, ValidationError, ValidationStrategy};
 
 // Core traits
 pub mod traits;
@@ -58,7 +58,7 @@ pub use error::ActiveModelError;
 // Validation orchestration (`run_validators` after lifecycle hooks)
 pub mod validation;
 #[doc(inline)]
-pub use validation::run_validators;
+pub use validation::{run_validators, run_validators_with_strategy};
 
 // Graph sorting and nesting mechanics
 pub mod graph;

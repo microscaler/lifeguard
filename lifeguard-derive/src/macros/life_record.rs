@@ -120,6 +120,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
     let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
     let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
+    let mut field_validate_fragments: Vec<proc_macro2::TokenStream> = Vec::new(); // #[validate(custom = ...)] field checks
 
     for field in fields.iter() {
         let field_name = match utils::field_ident(field) {
@@ -171,6 +172,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Skip ignored fields - they're not included in database operations
         // But we still need to add them to the Record struct and conversion methods
         if is_ignored {
+            if attributes::has_attribute(field, "validate") {
+                return syn::Error::new_spanned(
+                    field,
+                    "`#[validate]` is not supported on `#[ignore]` / `#[skip]` fields",
+                )
+                .to_compile_error()
+                .into();
+            }
             // Still include in Record struct with original type (not Option<T>)
             record_fields.push(quote! {
                 pub #field_name: #field_type,
@@ -204,6 +213,29 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
         let column_variant_name = utils::pascal_case(&field_name.to_string());
         let column_variant = Ident::new(&column_variant_name, field_name.span());
+
+        let validate_custom_paths = match attributes::parse_field_validate_custom_paths(field) {
+            Ok(p) => p,
+            Err(e) => return e.to_compile_error().into(),
+        };
+        if !validate_custom_paths.is_empty() {
+            let col_name_lit = LitStr::new(&db_column_name, field_name.span());
+            let validator_calls = validate_custom_paths.iter().map(|path| {
+                quote! {
+                    #path(&val).map_err(|msg| lifeguard::ActiveModelError::Validation(
+                        vec![lifeguard::active_model::validate_op::ValidationError::field(#col_name_lit, msg)],
+                    ))?;
+                }
+            });
+            field_validate_fragments.push(quote! {
+                if let Some(val) = lifeguard::ActiveModelTrait::get(
+                    self,
+                    <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant,
+                ) {
+                    #(#validator_calls)*
+                }
+            });
+        }
 
         // Track primary key information
         if is_primary_key {
@@ -697,6 +729,21 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! { Ok(()) }
     };
 
+    let validate_fields_impl = if field_validate_fragments.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            fn validate_fields(
+                &self,
+                op: lifeguard::active_model::validate_op::ValidateOp,
+            ) -> Result<(), lifeguard::ActiveModelError> {
+                let _ = op;
+                #(#field_validate_fragments)*
+                Ok(())
+            }
+        }
+    };
+
     let build_delete_query_ts = if table_attrs.soft_delete {
         let set_updated_at = if table_attrs.auto_timestamp {
             quote! {
@@ -1149,6 +1196,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Call before_delete hook
                 let mut record_for_hooks = self.clone();
                 record_for_hooks.before_delete()?;
+                lifeguard::active_model::validation::run_validators(
+                    &record_for_hooks,
+                    lifeguard::active_model::validate_op::ValidateOp::Delete,
+                )?;
 
                 // Build DELETE or UPDATE (soft-delete) statement
                 // If soft_delete is enabled, this issues an UPDATE instead of DELETE
@@ -1211,6 +1262,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
         // Implement ActiveModelBehavior with optionally customized hooks
         impl lifeguard::ActiveModelBehavior for #record_name {
+            #validate_fields_impl
             fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
                 #before_insert_impl
             }
