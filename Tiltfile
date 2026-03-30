@@ -300,7 +300,9 @@ local_resource(
 )
 
 # Read-replica pool tests only (`tests/db_integration/pool_read_replica.rs`).
-# Requires Kind/Tilt port-forwards: primary 6543, replica-0 6544, Redis 6545 (matches `justfile` TEST_* defaults).
+# Filter matches only tests in that module (the only code paths using `TEST_REPLICA_URL`). Nextest would
+# otherwise print every other test in the binary as SKIP; `--status-level pass` keeps logs to PASS lines only.
+# Full DB integration with replica env: `test-db-integration-replica`. Ports: primary 6543, replica-0 6544, Redis 6545.
 local_resource(
     'test-replication-pool',
     cmd=(
@@ -308,7 +310,7 @@ local_resource(
         + 'TEST_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres '
         + 'TEST_REDIS_URL=redis://127.0.0.1:6545 '
         + 'cargo nextest run -p lifeguard --all-features --config-file .config/nextest.toml '
-        + '--profile db-serial '
+        + '--profile db-serial --status-level pass '
         + "-E 'binary(db_integration_suite) and test(~pool_read_replica)'"
     ),
     deps=[
@@ -385,7 +387,7 @@ local_resource(
         + 'TEST_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres '
         + 'TEST_REDIS_URL=redis://127.0.0.1:6545 '
         + 'cargo nextest run -p lifeguard --all-features --config-file .config/nextest.toml '
-        + '--profile db-serial '
+        + '--profile db-serial --status-level pass '
         + "-E 'binary(db_integration_suite) and test(pooled_pool_construct_write_read_with_replica)'"
     ),
     deps=[

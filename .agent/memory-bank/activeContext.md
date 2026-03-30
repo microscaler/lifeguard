@@ -8,7 +8,7 @@
 - Memory Bank initialized with codegen learnings
 
 ## Recent Changes
-- **Tiltfile — replication test resources (2026-03-28):** Targeted nextest runs for read-replica PRD work (`test-replication-pool`, `test-db-integration-replica`, `test-replication-pool-smoke`) with Kind ports 6543/6544/6545.
+- **Tiltfile — replication test resources (2026-03-28):** Targeted nextest runs for read-replica PRD work (`test-replication-pool`, `test-db-integration-replica`, `test-replication-pool-smoke`) with Kind ports 6543/6544/6545. **`test-replication-pool` / `-smoke`:** added nextest `--status-level pass` so filtered runs do not print one SKIP line per non-matching test in `db_integration_suite` (filter is intentionally narrow; full replica env suite remains `test-db-integration-replica`).
 - **Tiltfile — all workspace crates + deps (2026-03-28):** Build resources for `lifeguard-codegen`, `lifeguard-reflector`, `lifeguard-migrate` with `resource_deps` matching Cargo (`migrate` after `build-lifeguard`; derive/codegen/reflector parallel). Tests wired to those builds where appropriate.
 - **Read-replica CI/testing documentation (2026-03-28):** PRD + design doc under `docs/planning/`; `TEST_INFRASTRUCTURE.md` links. Implementation (Compose, harness, tests) deferred.
 - **`LifeguardPool::new` four-arg API + transparent routing (2026-03-28):** Single pool type holds primary workers and optional replica workers; `PooledLifeExecutor` dispatches writes to primary and reads to replica when lag allows. Call sites: primary-only is `replica_urls: vec![], replica_pool_size: 0`. `perf_orm` updated accordingly.
