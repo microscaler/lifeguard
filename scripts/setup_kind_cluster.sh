@@ -38,17 +38,9 @@ kind create cluster --name "${CLUSTER_NAME}" --config kind-config.yaml
 echo "⏳ Waiting for cluster to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=120s
 
-# Create namespace and PVC (volume) only
-# PostgreSQL deployment will be handled by Tilt
-echo "📦 Creating namespace and PostgreSQL volume..."
+# Namespace only — Postgres primary/replicas/Redis PVCs come from kustomize via Tilt
+echo "📦 Creating namespace..."
 kubectl apply -f config/k8s/test-infrastructure/namespace.yaml
-kubectl apply -f config/k8s/test-infrastructure/postgres-pvc.yaml
-
-# Wait for PVC to be bound
-echo "⏳ Waiting for PostgreSQL volume to be ready..."
-kubectl wait --for=condition=Bound --timeout=30s pvc/postgres-data -n "${NAMESPACE}" || {
-    echo "⚠️  PVC not bound yet, but continuing..."
-}
 
 echo ""
 echo "✅ Kind cluster setup complete!"
@@ -56,7 +48,6 @@ echo ""
 echo "📋 Cluster details:"
 echo "   Cluster: ${CLUSTER_NAME}"
 echo "   Namespace: ${NAMESPACE}"
-echo "   Volume: postgres-data (ready)"
 echo ""
-echo "💡 PostgreSQL will be deployed by Tilt when you run 'just dev-up'"
+echo "💡 Stack (Bitnami primary + 2 replicas + Redis) is applied by Tilt: just dev-up"
 echo ""

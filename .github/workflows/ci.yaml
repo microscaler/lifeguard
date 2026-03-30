@@ -11,41 +11,19 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Postgres is the `services.postgres` container below; the job connects via localhost:5432.
-    # Redis is `services.redis` on localhost:6379 — required when env supplies DB URLs: `tests/context.rs`
-    # uses TEST_REDIS_URL/REDIS_URL on that path; otherwise it would default to 127.0.0.1:6379 with no server.
-    # `TEST_DATABASE_URL` is required for `tests/context.rs` (integration binary); `DATABASE_URL` remains for lib/tests using `TestDatabase::get_connection_string`.
-    # Repository secret `PGPASSWORD`: same value for `services.postgres`, JDBC-style URLs below, and `psql` (via `PGPASSWORD`). Not available to workflows from fork PRs.
+    # All DB/Redis dependencies: `.github/docker/docker-compose.yml` (host primary :6543, replica via Toxiproxy :6547, Redis :6545 — avoids 5432/5433/6379 and :6544 which Kind/Tilt use for replica-0).
+    # Started via hoverkraft-tech/compose-action (up: `-d --wait`; post hook: `compose down -v`). See https://github.com/marketplace/actions/docker-compose-action
+    # No `jobs.*.services` — avoids duplicating Postgres/Redis and conflicting ports with Compose.
+    # `TEST_DATABASE_URL` / `TEST_REPLICA_URL` / Redis URLs for `tests/context.rs`; `DATABASE_URL` for `TestDatabase::get_connection_string`.
+    # Repository secret `PGPASSWORD`: exported to steps; Compose file interpolates `${PGPASSWORD}`; URLs / `psql` use the same. Not available to workflows from fork PRs.
     env:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
-      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
-      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
-      REDIS_URL: redis://127.0.0.1:6379
-      TEST_REDIS_URL: redis://127.0.0.1:6379
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ${{ secrets.PGPASSWORD }}
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
+      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
+      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6547/postgres
+      TOXIPROXY_API: http://127.0.0.1:8474
+      REDIS_URL: redis://127.0.0.1:6545
+      TEST_REDIS_URL: redis://127.0.0.1:6545
 
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +40,13 @@ jobs:
             ~/.cargo/registry
             target
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Start CI stack (Postgres primary + replica + Redis)
+        uses: hoverkraft-tech/compose-action@4894d2492015c1774ee5a13a95b1072093087ec3 # v2.5.0
+        with:
+          compose-file: .github/docker/docker-compose.yml
+          up-flags: -d --wait
+          down-flags: -v
 
       - name: Build
         run: cargo check
@@ -98,7 +83,7 @@ jobs:
           fi
           for f in "${sql_files[@]}"; do
             echo "Applying $f"
-            psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
+            psql -h 127.0.0.1 -p 6543 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
           done
 
       # Pin nextest: newer releases (e.g. 0.9.132+) require rustc 1.91+; CI uses nightly-2025-06-30.
@@ -144,31 +129,9 @@ jobs:
     name: ORM perf (perf-idam)
     needs: test
     runs-on: ubuntu-latest
+    # Same `.github/docker/docker-compose.yml` and hoverkraft-tech/compose-action pattern as `test`.
     env:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
-      PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:5432/postgres
-      PERF_RESET: "1" # Required opt-in: perf-orm applies destructive DDL to perf_* tables
-      PERF_TENANT_COUNT: "10"
-      PERF_USER_ROWS: "2000"
-      PERF_SESSION_ROWS: "2000"
-      PERF_WARMUP: "100"
-      PERF_ITERATIONS: "500"
-      PERF_OUTPUT: perf-results.json
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ${{ secrets.PGPASSWORD }}
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -185,7 +148,28 @@ jobs:
             examples/perf-idam/target
           key: cargo-perf-idam-${{ runner.os }}-${{ hashFiles('examples/perf-idam/Cargo.lock') }}
 
+      - name: Start CI stack (Postgres primary + replica + Redis)
+        uses: hoverkraft-tech/compose-action@4894d2492015c1774ee5a13a95b1072093087ec3 # v2.5.0
+        with:
+          compose-file: .github/docker/docker-compose.yml
+          up-flags: -d --wait
+          down-flags: -v
+
+      # perf-orm: Compose host ports :6543 / :6547 (replica via Toxiproxy) / :6545 (see `.github/docker/docker-compose.yml`).
       - name: Run perf-orm
+        env:
+          PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6543/postgres
+          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6547/postgres
+          REDIS_URL: redis://127.0.0.1:6545
+          TEST_REDIS_URL: redis://127.0.0.1:6545
+          PERF_RESET: "1" # destructive DDL on perf_* tables
+          PERF_POOL_SIZE: "8" # primary tier slots; JSON `replica_connections` when replica enabled
+          PERF_TENANT_COUNT: "10"
+          PERF_USER_ROWS: "2000"
+          PERF_SESSION_ROWS: "2000"
+          PERF_WARMUP: "100"
+          PERF_ITERATIONS: "500"
+          PERF_OUTPUT: perf-results.json
         run: |
           set -euo pipefail
           cd examples/perf-idam

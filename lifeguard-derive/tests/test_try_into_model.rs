@@ -5,8 +5,8 @@
 
 #![allow(warnings)]
 
+use lifeguard::{LifeEntityName, LifeModelTrait, ModelTrait, TryIntoModel};
 use lifeguard_derive::DeriveTryIntoModel;
-use lifeguard::{TryIntoModel, ModelTrait, LifeModelTrait, LifeEntityName};
 
 // Test entities and models
 #[derive(Default, Copy, Clone)]
@@ -269,10 +269,9 @@ impl From<ParseError> for CustomError {
 // Conversion function that takes a String and returns a String, but can fail with ParseError
 fn parse_and_format(s: String) -> Result<String, ParseError> {
     // Parse as number to validate, then return uppercase
-    s.parse::<i32>()
-        .map_err(|_| ParseError {
-            message: format!("Failed to parse '{}' as integer", s),
-        })?;
+    s.parse::<i32>().map_err(|_| ParseError {
+        message: format!("Failed to parse '{}' as integer", s),
+    })?;
     Ok(s.to_uppercase())
 }
 
@@ -330,7 +329,7 @@ struct CreateUserRequestSplitAttributes {
     #[lifeguard(map_from = "name")]
     #[lifeguard(convert = "convert_name_to_uppercase")]
     user_name: String,
-    
+
     email: String,
 }
 

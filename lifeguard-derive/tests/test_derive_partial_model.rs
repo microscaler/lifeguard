@@ -11,7 +11,7 @@
 #![allow(warnings)]
 
 use lifeguard::PartialModelTrait;
-use lifeguard::{LifeModelTrait, LifeEntityName};
+use lifeguard::{LifeEntityName, LifeModelTrait};
 
 // Test entity for partial models (manually defined, similar to DeriveRelation tests)
 #[derive(Default, Copy, Clone)]
@@ -80,14 +80,14 @@ mod generated {
 }
 
 // Re-export for use in tests
-pub use generated::{UserPartial, UserPartialWithColumnName, UserIdOnly, UserPartialSnakeCase};
+pub use generated::{UserIdOnly, UserPartial, UserPartialSnakeCase, UserPartialWithColumnName};
 
 #[test]
 fn test_derive_partial_model_basic() {
     // Verify PartialModelTrait is implemented
     let columns = UserPartial::selected_columns();
     assert_eq!(columns, vec!["id", "name"]);
-    
+
     // Verify Entity type is correct
     fn _test_entity_type<P: PartialModelTrait<Entity = UserEntity>>() {}
     _test_entity_type::<UserPartial>();
@@ -109,7 +109,7 @@ fn test_derive_partial_model_single_column() {
 #[test]
 fn test_derive_partial_model_from_row() {
     use lifeguard::FromRow;
-    
+
     // Verify FromRow is implemented
     fn _test_from_row<P: FromRow>() {}
     _test_from_row::<UserPartial>();

@@ -1,6 +1,6 @@
 //! Mechanism for defining and resolving nested `ActiveModel` graph hierarchies.
 
-use crate::{LifeExecutor, ActiveModelError};
+use crate::{ActiveModelError, LifeExecutor};
 
 /// Represents an edge in a directed graph of `ActiveModels` pending insertion or update.
 /// Contains the closure responsible for executing the persistence action topologically.
@@ -8,13 +8,13 @@ pub enum GraphEdge<R> {
     /// A "Belongs To" parent record that must be saved **FIRST**, before the root record.
     /// The closure is given mutable access to the root record `R` so it can assign its generated PK to the root's FK column.
     BelongsTo(Box<dyn FnOnce(&mut R, &dyn LifeExecutor) -> Result<(), ActiveModelError> + Send>),
-    
+
     /// A "Has Many" or "Has One" child record that must be saved **LAST**, after the root record.
     /// The closure is given immutable access to the root record `R` so it can read its generated PK.
     HasMany(Box<dyn FnOnce(&R, &dyn LifeExecutor) -> Result<(), ActiveModelError> + Send>),
 }
 
-/// A state container injected into every `LifeRecord` (via the `Lifeguard-Derive` macro) 
+/// A state container injected into every `LifeRecord` (via the `Lifeguard-Derive` macro)
 /// used to hold deferred parent (`BelongsTo`) and child (`HasMany`) edge records.
 pub struct GraphState<R> {
     /// List of un-executed edges.
@@ -33,14 +33,20 @@ impl<R> GraphState<R> {
     pub fn new() -> Self {
         Self { edges: Vec::new() }
     }
-    
+
     /// Queue a parent record to be saved *before* the current root record.
-    pub fn add_belongs_to(&mut self, action: Box<dyn FnOnce(&mut R, &dyn LifeExecutor) -> Result<(), ActiveModelError> + Send>) {
+    pub fn add_belongs_to(
+        &mut self,
+        action: Box<dyn FnOnce(&mut R, &dyn LifeExecutor) -> Result<(), ActiveModelError> + Send>,
+    ) {
         self.edges.push(GraphEdge::BelongsTo(action));
     }
-    
+
     /// Queue a child record to be saved *after* the current root record.
-    pub fn add_has_many(&mut self, action: Box<dyn FnOnce(&R, &dyn LifeExecutor) -> Result<(), ActiveModelError> + Send>) {
+    pub fn add_has_many(
+        &mut self,
+        action: Box<dyn FnOnce(&R, &dyn LifeExecutor) -> Result<(), ActiveModelError> + Send>,
+    ) {
         self.edges.push(GraphEdge::HasMany(action));
     }
 }

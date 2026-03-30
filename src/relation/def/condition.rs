@@ -33,7 +33,7 @@ pub fn extract_table_name(table_ref: &TableRef) -> String {
             // We need to extract the `DynIden` and use `Iden::unquoted()` to get the string
             // `TableName` is a tuple struct, so we need to access its fields
             // Based on `sea-query`'s structure: `TableName(schema: Option<DynIden>, table: DynIden)`
-            
+
             match table_name {
                 sea_query::TableName(_schema, table) => {
                     // If schema is present, we might want to include it, but for now just return table name
@@ -57,9 +57,7 @@ pub fn extract_table_name(table_ref: &TableRef) -> String {
 #[must_use]
 fn expr_for_related_table_column(table_ref: &TableRef, column: &DynIden) -> Expr {
     match table_ref {
-        TableRef::Table(_table_name, Some(alias)) => {
-            Expr::col((alias.clone(), column.clone()))
-        }
+        TableRef::Table(_table_name, Some(alias)) => Expr::col((alias.clone(), column.clone())),
         TableRef::Table(table_name, None) => {
             Expr::col(ColumnName(Some(table_name.clone()), column.clone()))
         }
@@ -177,7 +175,7 @@ pub fn join_tbl_on_condition(
         let pk_col_str = pk_col.to_string();
         let from_tbl_str = extract_table_name(from_tbl);
         let to_tbl_str = extract_table_name(to_tbl);
-        
+
         // Create join condition: from_table.fk_col = to_table.pk_col
         // This is a simplified approach - in the future we may want to use proper Expr::col()
         let join_expr = format!("{from_tbl_str}.{fk_col_str} = {to_tbl_str}.{pk_col_str}");
@@ -246,7 +244,7 @@ pub fn join_tbl_on_expr(
         let pk_col_str = pk_col.to_string();
         let from_tbl_str = extract_table_name(from_tbl);
         let to_tbl_str = extract_table_name(to_tbl);
-        
+
         // Create join condition: from_table.fk_col = to_table.pk_col
         let join_expr = format!("{from_tbl_str}.{fk_col_str} = {to_tbl_str}.{pk_col_str}");
         exprs.push(Expr::cust(join_expr));
@@ -255,7 +253,7 @@ pub fn join_tbl_on_expr(
     // Combine multiple conditions with AND
     // For single key, just return the first expression
     // For composite keys, chain with AND
-        match exprs.len() {
+    match exprs.len() {
         0 => Expr::value(true), // Should never happen due to arity check
         1 => exprs.into_iter().next().unwrap_or_else(|| {
             // This should never happen as we checked arity > 0, but handle gracefully
@@ -305,10 +303,7 @@ pub fn join_tbl_on_expr(
 /// - [`RelationDef`](crate::RelationDef) orientation for `Related<R>`.
 /// - Integration tests in `tests/db_integration/related_trait.rs`.
 /// - Custom `ModelTrait` authors: `docs/planning/lifeguard-derive/AUTHORING_MODEL_TRAIT.md`.
-pub fn build_where_condition<M>(
-    rel_def: &RelationDef,
-    model: &M,
-) -> Result<Condition, LifeError>
+pub fn build_where_condition<M>(rel_def: &RelationDef, model: &M) -> Result<Condition, LifeError>
 where
     M: ModelTrait,
 {
@@ -372,8 +367,8 @@ mod tests {
 
     #[test]
     fn test_join_tbl_on_condition_single_key() {
-        use sea_query::{TableName, IntoIden, Query, PostgresQueryBuilder};
-        
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
         let from_col = Identity::Unary("user_id".into());
@@ -386,18 +381,30 @@ mod tests {
         query.from("posts");
         query.cond_where(condition);
         let (sql, _) = query.build(PostgresQueryBuilder);
-        
+
         // Verify SQL contains actual table names, not debug representation
-        assert!(sql.contains("posts"), "SQL should contain table name 'posts'");
-        assert!(sql.contains("users"), "SQL should contain table name 'users'");
-        assert!(!sql.contains("Table("), "SQL should not contain Debug representation 'Table('");
-        assert!(!sql.contains("TableName("), "SQL should not contain Debug representation 'TableName('");
+        assert!(
+            sql.contains("posts"),
+            "SQL should contain table name 'posts'"
+        );
+        assert!(
+            sql.contains("users"),
+            "SQL should contain table name 'users'"
+        );
+        assert!(
+            !sql.contains("Table("),
+            "SQL should not contain Debug representation 'Table('"
+        );
+        assert!(
+            !sql.contains("TableName("),
+            "SQL should not contain Debug representation 'TableName('"
+        );
     }
 
     #[test]
     fn test_join_tbl_on_condition_composite_key() {
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
         let from_col = Identity::Binary("user_id".into(), "tenant_id".into());
@@ -411,8 +418,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "matching arity")]
     fn test_join_tbl_on_condition_mismatched_arity() {
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
         let from_col = Identity::Unary("user_id".into());
@@ -423,8 +430,8 @@ mod tests {
     #[test]
     fn test_relation_def_into_condition() {
         use crate::relation::def::{RelationDef, RelationType};
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let rel_def = RelationDef {
             rel_type: RelationType::HasMany,
             from_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
@@ -448,8 +455,8 @@ mod tests {
     #[test]
     fn test_join_tbl_on_condition_ternary() {
         // Edge case: Ternary composite key
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
         let from_col = Identity::Ternary("user_id".into(), "tenant_id".into(), "region_id".into());
@@ -462,12 +469,22 @@ mod tests {
     #[test]
     fn test_join_tbl_on_condition_many() {
         // Edge case: Many variant (4+ columns)
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
-        let from_col = Identity::Many(vec!["user_id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]);
-        let to_col = Identity::Many(vec!["id".into(), "tenant_id".into(), "region_id".into(), "org_id".into()]);
+        let from_col = Identity::Many(vec![
+            "user_id".into(),
+            "tenant_id".into(),
+            "region_id".into(),
+            "org_id".into(),
+        ]);
+        let to_col = Identity::Many(vec![
+            "id".into(),
+            "tenant_id".into(),
+            "region_id".into(),
+            "org_id".into(),
+        ]);
         let condition = join_tbl_on_condition(&from_tbl, &to_tbl, &from_col, &to_col);
 
         let _ = condition;
@@ -477,8 +494,8 @@ mod tests {
     #[should_panic(expected = "matching arity")]
     fn test_join_tbl_on_condition_ternary_mismatch() {
         // Edge case: Ternary vs Unary mismatch
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
         let from_col = Identity::Unary("user_id".into());
@@ -489,30 +506,30 @@ mod tests {
     #[test]
     fn test_extract_table_name() {
         // Test that extract_table_name returns actual table names, not debug output
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let table_ref = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let table_name = extract_table_name(&table_ref);
-        
+
         // Verify it returns the actual table name, not debug representation
         assert_eq!(table_name, "posts");
         assert!(!table_name.contains("Table("));
         assert!(!table_name.contains("TableName("));
-        
+
         // Test with different table name
         let table_ref2 = TableRef::Table(TableName(None, "users".into_iden()), None);
         let table_name2 = extract_table_name(&table_ref2);
         assert_eq!(table_name2, "users");
     }
-    
+
     #[test]
     fn test_build_where_condition_single_key() {
         // Edge case: Test build_where_condition with single key
         // Note: This test verifies the function compiles and creates a condition
         // Full integration testing would require a complete entity/model setup
         use crate::relation::def::{RelationDef, RelationType};
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         // Test that the function signature is correct and can be called
         // The actual implementation is tested in integration tests
         let rel_def = RelationDef {
@@ -529,11 +546,11 @@ mod tests {
             on_condition: None,
             condition_type: ConditionType::All,
         };
-        
+
         // Verify RelationDef structure is correct for single key
         assert_eq!(rel_def.from_col.arity(), 1);
         assert_eq!(rel_def.to_col.arity(), 1);
-        
+
         // Verify extract_table_name works correctly for the relation def
         let table_name = extract_table_name(&rel_def.from_tbl);
         assert_eq!(table_name, "related");
@@ -545,8 +562,8 @@ mod tests {
         // Edge case: Test RelationDef structure for composite key relationships
         // Note: Full integration testing of build_where_condition requires complete entity/model setup
         use crate::relation::def::{RelationDef, RelationType};
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let rel_def = RelationDef {
             rel_type: RelationType::HasMany,
             from_tbl: TableRef::Table(TableName(None, "related".into_iden()), None),
@@ -561,7 +578,7 @@ mod tests {
             on_condition: None,
             condition_type: ConditionType::All,
         };
-        
+
         // Verify RelationDef structure is correct for composite key
         assert_eq!(rel_def.from_col.arity(), 2);
         assert_eq!(rel_def.to_col.arity(), 2);
@@ -572,8 +589,8 @@ mod tests {
         // Edge case: Test RelationDef structure with mismatched arity
         // Note: The actual panic is tested in integration tests with real models
         use crate::relation::def::{RelationDef, RelationType};
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let rel_def = RelationDef {
             rel_type: RelationType::HasMany,
             from_tbl: TableRef::Table(TableName(None, "related".into_iden()), None),
@@ -588,13 +605,13 @@ mod tests {
             on_condition: None,
             condition_type: ConditionType::All,
         };
-        
+
         // Verify the structure shows mismatched arity
         assert_eq!(rel_def.from_col.arity(), 2);
         assert_eq!(rel_def.to_col.arity(), 1);
         // This would panic in build_where_condition if called with a model
     }
-    
+
     #[test]
     fn test_build_where_condition_no_primary_key_consistency() {
         // Test that entities without primary keys have consistent identity and values
@@ -603,13 +620,17 @@ mod tests {
         //
         // The fix: get_primary_key_identity() now returns Identity::Many(vec![]) (arity 0)
         // which matches the empty vec![] from get_primary_key_values()
-        
+
         // The actual test: verify that Identity::Many(vec![]) has arity 0
         // and matches an empty vector length
         let identity = Identity::Many(vec![]);
         let values: Vec<sea_query::Value> = vec![];
-        
-        assert_eq!(identity.arity(), 0, "Identity::Many(vec![]) should have arity 0");
+
+        assert_eq!(
+            identity.arity(),
+            0,
+            "Identity::Many(vec![]) should have arity 0"
+        );
         assert_eq!(values.len(), 0, "Values should be empty");
         assert_eq!(
             identity.arity(),
@@ -618,17 +639,21 @@ mod tests {
             identity.arity(),
             values.len()
         );
-        
+
         // Verify that the old buggy behavior would have failed
         // This demonstrates why the fix was necessary
         let buggy_identity = Identity::Unary("".into());
-        assert_eq!(buggy_identity.arity(), 1, "Buggy Identity::Unary would have arity 1");
+        assert_eq!(
+            buggy_identity.arity(),
+            1,
+            "Buggy Identity::Unary would have arity 1"
+        );
         assert_ne!(
             buggy_identity.arity(),
             values.len(),
             "Buggy behavior: arity (1) != values length (0) - this would cause assertion failure in build_where_condition"
         );
-        
+
         // Verify the fix: new behavior is consistent
         // When build_where_condition checks: pk_values.len() == pk_identity.arity()
         // With the fix: 0 == 0 ✅ (passes)
@@ -644,14 +669,14 @@ mod tests {
     #[test]
     fn test_join_tbl_on_expr_single_key() {
         // Test that join_tbl_on_expr generates correct Expr for single key
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
         let from_col = Identity::Unary("user_id".into());
         let to_col = Identity::Unary("id".into());
         let expr = join_tbl_on_expr(&from_tbl, &to_tbl, &from_col, &to_col);
-        
+
         // Verify expr was created (can't easily test the exact SQL string)
         let _ = expr;
     }
@@ -659,14 +684,14 @@ mod tests {
     #[test]
     fn test_join_tbl_on_expr_composite_key() {
         // Test that join_tbl_on_expr generates correct Expr for composite key
-        use sea_query::{TableName, IntoIden};
-        
+        use sea_query::{IntoIden, TableName};
+
         let from_tbl = TableRef::Table(TableName(None, "posts".into_iden()), None);
         let to_tbl = TableRef::Table(TableName(None, "users".into_iden()), None);
         let from_col = Identity::Binary("user_id".into(), "tenant_id".into());
         let to_col = Identity::Binary("id".into(), "tenant_id".into());
         let expr = join_tbl_on_expr(&from_tbl, &to_tbl, &from_col, &to_col);
-        
+
         // Verify expr was created (composite keys should be combined with AND)
         let _ = expr;
     }
@@ -675,8 +700,8 @@ mod tests {
     fn test_relation_def_join_on_expr() {
         // Test that RelationDef::join_on_expr() works correctly
         use crate::relation::def::{RelationDef, RelationType};
-        use sea_query::{TableName, IntoIden, ConditionType};
-        
+        use sea_query::{ConditionType, IntoIden, TableName};
+
         let rel_def = RelationDef {
             rel_type: RelationType::BelongsTo,
             from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
@@ -691,7 +716,7 @@ mod tests {
             on_condition: None,
             condition_type: ConditionType::All,
         };
-        
+
         let join_expr = rel_def.join_on_expr();
         // Verify expr was created
         let _ = join_expr;
@@ -701,10 +726,10 @@ mod tests {
     #[test]
     fn test_build_where_condition_belongs_to_uses_to_tbl_only() {
         use crate::model::{ModelError, ModelTrait};
-        use crate::{LifeEntityName, LifeModelTrait};
         use crate::relation::def::RelationType;
-        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
+        use crate::{LifeEntityName, LifeModelTrait};
         use sea_query::IdenStatic;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
 
         #[derive(Default, Copy, Clone)]
         struct PostE;
@@ -801,10 +826,7 @@ mod tests {
             condition_type: ConditionType::All,
         };
 
-        let post = PostM {
-            id: 1,
-            user_id: 42,
-        };
+        let post = PostM { id: 1, user_id: 42 };
         let cond = build_where_condition(&rel_def, &post).expect("where condition");
 
         let mut q = Query::select();
@@ -815,10 +837,7 @@ mod tests {
             sql.contains("users"),
             "expected related table in SQL, got: {sql}"
         );
-        assert!(
-            sql.contains("id"),
-            "expected to_col in SQL, got: {sql}"
-        );
+        assert!(sql.contains("id"), "expected to_col in SQL, got: {sql}");
         assert!(
             !sql.contains("posts."),
             "WHERE must not reference from_tbl alone: {sql}"
@@ -933,10 +952,10 @@ mod tests {
     #[test]
     fn test_build_where_condition_schema_qualified_to_tbl() {
         use crate::model::{ModelError, ModelTrait};
-        use crate::{LifeEntityName, LifeModelTrait};
         use crate::relation::def::RelationType;
-        use sea_query::{IntoIden, PostgresQueryBuilder, Query, SchemaName, TableName, Value};
+        use crate::{LifeEntityName, LifeModelTrait};
         use sea_query::IdenStatic;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, SchemaName, TableName, Value};
 
         #[derive(Default, Copy, Clone)]
         struct PostE;
@@ -1038,10 +1057,7 @@ mod tests {
             condition_type: ConditionType::All,
         };
 
-        let post = PostM {
-            id: 1,
-            user_id: 99,
-        };
+        let post = PostM { id: 1, user_id: 99 };
         let cond = build_where_condition(&rel_def, &post).expect("where condition");
 
         let mut q = Query::select();
@@ -1063,10 +1079,10 @@ mod tests {
     #[test]
     fn test_build_where_condition_has_many_pk_fallback() {
         use crate::model::{ModelError, ModelTrait};
-        use crate::{LifeEntityName, LifeModelTrait};
         use crate::relation::def::RelationType;
-        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
+        use crate::{LifeEntityName, LifeModelTrait};
         use sea_query::IdenStatic;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
 
         #[derive(Default, Copy, Clone)]
         struct UserE;
@@ -1167,10 +1183,10 @@ mod tests {
     #[test]
     fn test_build_where_condition_composite_to_tbl() {
         use crate::model::{ModelError, ModelTrait};
-        use crate::{LifeEntityName, LifeModelTrait};
         use crate::relation::def::RelationType;
-        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
+        use crate::{LifeEntityName, LifeModelTrait};
         use sea_query::IdenStatic;
+        use sea_query::{IntoIden, PostgresQueryBuilder, Query, TableName, Value};
 
         #[derive(Default, Copy, Clone)]
         struct TenantE;
@@ -1244,10 +1260,7 @@ mod tests {
             }
 
             fn get_primary_key_values(&self) -> Vec<Value> {
-                vec![
-                    Value::Int(Some(self.id)),
-                    Value::Int(Some(self.region_id)),
-                ]
+                vec![Value::Int(Some(self.id)), Value::Int(Some(self.region_id))]
             }
 
             fn get_by_column_name(&self, name: &str) -> Option<Value> {

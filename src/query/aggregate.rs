@@ -41,7 +41,8 @@ where
     E: LifeModelTrait,
     R: LifeAggregate,
 {
-    #[must_use] pub fn new(query: SelectStatement) -> Self {
+    #[must_use]
+    pub fn new(query: SelectStatement) -> Self {
         Self {
             query,
             _phantom_model: PhantomData,
@@ -52,13 +53,11 @@ where
     /// Execute the aggregate query returning a single scalar result
     pub fn one(self, executor: &dyn LifeExecutor) -> Result<R, crate::LifeError> {
         let (sql, values) = self.query.build(PostgresQueryBuilder);
-        
+
         // Execute resolving exactly one row via scalar execution pattern
-        crate::query::value_conversion::with_converted_params(&values, |params| {
-            match executor.query_one(&sql, params) {
-                Ok(row) => R::from_aggregate_row(&row),
-                Err(e) => Err(e),
-            }
-        })
+        match executor.query_one_values(&sql, &values) {
+            Ok(row) => R::from_aggregate_row(&row),
+            Err(e) => Err(e),
+        }
     }
 }

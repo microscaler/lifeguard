@@ -3,8 +3,8 @@
 //! These traits provide conversion between Rust tuples and `sea_query::Value` tuples
 //! for handling composite primary keys and other multi-column operations.
 
+use crate::value::{TryGetable, ValueExtractionError, ValueType};
 use sea_query::Value;
-use crate::value::{ValueType, ValueExtractionError, TryGetable};
 
 /// Trait for converting tuples to `Value` tuples
 ///
@@ -24,7 +24,7 @@ use crate::value::{ValueType, ValueExtractionError, TryGetable};
 pub trait IntoValueTuple {
     /// The type of the `Value` tuple (e.g., `(Value, Value)` for a 2-tuple)
     type ValueTuple;
-    
+
     /// Convert this tuple into a tuple of `Value` enums
     fn into_value_tuple(self) -> Self::ValueTuple;
 }
@@ -47,7 +47,7 @@ pub trait IntoValueTuple {
 pub trait FromValueTuple: Sized {
     /// The type of the `Value` tuple (e.g., `(Value, Value)` for a 2-tuple)
     type ValueTuple;
-    
+
     /// Try to convert a tuple of `Value` enums into this tuple type
     ///
     /// # Returns
@@ -65,7 +65,7 @@ pub trait FromValueTuple: Sized {
 
 impl<A: ValueType, B: ValueType> IntoValueTuple for (A, B) {
     type ValueTuple = (Value, Value);
-    
+
     fn into_value_tuple(self) -> Self::ValueTuple {
         (A::into_value(self.0), B::into_value(self.1))
     }
@@ -73,26 +73,27 @@ impl<A: ValueType, B: ValueType> IntoValueTuple for (A, B) {
 
 impl<A: TryGetable, B: TryGetable> FromValueTuple for (A, B) {
     type ValueTuple = (Value, Value);
-    
+
     fn from_value_tuple(value_tuple: Self::ValueTuple) -> Result<Self, ValueExtractionError> {
-        Ok((
-            A::try_get(value_tuple.0)?,
-            B::try_get(value_tuple.1)?,
-        ))
+        Ok((A::try_get(value_tuple.0)?, B::try_get(value_tuple.1)?))
     }
 }
 
 impl<A: ValueType, B: ValueType, C: ValueType> IntoValueTuple for (A, B, C) {
     type ValueTuple = (Value, Value, Value);
-    
+
     fn into_value_tuple(self) -> Self::ValueTuple {
-        (A::into_value(self.0), B::into_value(self.1), C::into_value(self.2))
+        (
+            A::into_value(self.0),
+            B::into_value(self.1),
+            C::into_value(self.2),
+        )
     }
 }
 
 impl<A: TryGetable, B: TryGetable, C: TryGetable> FromValueTuple for (A, B, C) {
     type ValueTuple = (Value, Value, Value);
-    
+
     fn from_value_tuple(value_tuple: Self::ValueTuple) -> Result<Self, ValueExtractionError> {
         Ok((
             A::try_get(value_tuple.0)?,
@@ -104,7 +105,7 @@ impl<A: TryGetable, B: TryGetable, C: TryGetable> FromValueTuple for (A, B, C) {
 
 impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType> IntoValueTuple for (A, B, C, D) {
     type ValueTuple = (Value, Value, Value, Value);
-    
+
     fn into_value_tuple(self) -> Self::ValueTuple {
         (
             A::into_value(self.0),
@@ -117,7 +118,7 @@ impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType> IntoValueTuple for 
 
 impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable> FromValueTuple for (A, B, C, D) {
     type ValueTuple = (Value, Value, Value, Value);
-    
+
     fn from_value_tuple(value_tuple: Self::ValueTuple) -> Result<Self, ValueExtractionError> {
         Ok((
             A::try_get(value_tuple.0)?,
@@ -128,9 +129,11 @@ impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable> FromValueTuple 
     }
 }
 
-impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType, E: ValueType> IntoValueTuple for (A, B, C, D, E) {
+impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType, E: ValueType> IntoValueTuple
+    for (A, B, C, D, E)
+{
     type ValueTuple = (Value, Value, Value, Value, Value);
-    
+
     fn into_value_tuple(self) -> Self::ValueTuple {
         (
             A::into_value(self.0),
@@ -142,9 +145,11 @@ impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType, E: ValueType> IntoV
     }
 }
 
-impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable, E: TryGetable> FromValueTuple for (A, B, C, D, E) {
+impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable, E: TryGetable> FromValueTuple
+    for (A, B, C, D, E)
+{
     type ValueTuple = (Value, Value, Value, Value, Value);
-    
+
     fn from_value_tuple(value_tuple: Self::ValueTuple) -> Result<Self, ValueExtractionError> {
         Ok((
             A::try_get(value_tuple.0)?,
@@ -156,9 +161,11 @@ impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable, E: TryGetable> 
     }
 }
 
-impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType, E: ValueType, F: ValueType> IntoValueTuple for (A, B, C, D, E, F) {
+impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType, E: ValueType, F: ValueType>
+    IntoValueTuple for (A, B, C, D, E, F)
+{
     type ValueTuple = (Value, Value, Value, Value, Value, Value);
-    
+
     fn into_value_tuple(self) -> Self::ValueTuple {
         (
             A::into_value(self.0),
@@ -171,9 +178,11 @@ impl<A: ValueType, B: ValueType, C: ValueType, D: ValueType, E: ValueType, F: Va
     }
 }
 
-impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable, E: TryGetable, F: TryGetable> FromValueTuple for (A, B, C, D, E, F) {
+impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable, E: TryGetable, F: TryGetable>
+    FromValueTuple for (A, B, C, D, E, F)
+{
     type ValueTuple = (Value, Value, Value, Value, Value, Value);
-    
+
     fn from_value_tuple(value_tuple: Self::ValueTuple) -> Result<Self, ValueExtractionError> {
         Ok((
             A::try_get(value_tuple.0)?,
@@ -191,7 +200,7 @@ impl<A: TryGetable, B: TryGetable, C: TryGetable, D: TryGetable, E: TryGetable, 
 
 impl IntoValueTuple for Vec<Value> {
     type ValueTuple = Vec<Value>;
-    
+
     fn into_value_tuple(self) -> Self::ValueTuple {
         self
     }
@@ -199,7 +208,7 @@ impl IntoValueTuple for Vec<Value> {
 
 impl FromValueTuple for Vec<Value> {
     type ValueTuple = Vec<Value>;
-    
+
     fn from_value_tuple(value_tuple: Self::ValueTuple) -> Result<Self, ValueExtractionError> {
         Ok(value_tuple)
     }
@@ -208,18 +217,18 @@ impl FromValueTuple for Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     // Tuple 2 tests
-    
+
     #[test]
     fn test_into_value_tuple_2() {
         let tuple = (42i32, "hello".to_string());
         let value_tuple = tuple.into_value_tuple();
-        
+
         assert!(matches!(value_tuple.0, Value::Int(Some(42))));
         assert!(matches!(value_tuple.1, Value::String(Some(ref s)) if s == "hello"));
     }
-    
+
     #[test]
     fn test_from_value_tuple_2() {
         let value_tuple = (
@@ -229,7 +238,7 @@ mod tests {
         let result: Result<(i32, String), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((42, "hello".to_string())));
     }
-    
+
     #[test]
     fn test_from_value_tuple_2_error() {
         let value_tuple = (
@@ -237,31 +246,31 @@ mod tests {
             Value::String(Some("hello".to_string())),
         );
         let result: Result<(i32, i32), _> = FromValueTuple::from_value_tuple(value_tuple);
-        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(ValueExtractionError::TypeMismatch { .. })
+        ));
     }
-    
+
     #[test]
     fn test_from_value_tuple_2_null() {
-        let value_tuple = (
-            Value::Int(Some(42)),
-            Value::String(None),
-        );
+        let value_tuple = (Value::Int(Some(42)), Value::String(None));
         let result: Result<(i32, String), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert!(matches!(result, Err(ValueExtractionError::NullValue)));
     }
-    
+
     // Tuple 3 tests
-    
+
     #[test]
     fn test_into_value_tuple_3() {
         let tuple = (1i32, 2i32, 3i32);
         let value_tuple = tuple.into_value_tuple();
-        
+
         assert!(matches!(value_tuple.0, Value::Int(Some(1))));
         assert!(matches!(value_tuple.1, Value::Int(Some(2))));
         assert!(matches!(value_tuple.2, Value::Int(Some(3))));
     }
-    
+
     #[test]
     fn test_from_value_tuple_3() {
         let value_tuple = (
@@ -272,33 +281,33 @@ mod tests {
         let result: Result<(i32, i32, i32), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((1, 2, 3)));
     }
-    
+
     #[test]
     fn test_mixed_type_tuple_3() {
         let tuple = (42i32, "hello".to_string(), true);
         let value_tuple = tuple.into_value_tuple();
-        
+
         assert!(matches!(value_tuple.0, Value::Int(Some(42))));
         assert!(matches!(value_tuple.1, Value::String(Some(ref s)) if s == "hello"));
         assert!(matches!(value_tuple.2, Value::Bool(Some(true))));
-        
+
         let result: Result<(i32, String, bool), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((42, "hello".to_string(), true)));
     }
-    
+
     // Tuple 4 tests
-    
+
     #[test]
     fn test_into_value_tuple_4() {
         let tuple = (1i32, 2i32, 3i32, 4i32);
         let value_tuple = tuple.into_value_tuple();
-        
+
         assert!(matches!(value_tuple.0, Value::Int(Some(1))));
         assert!(matches!(value_tuple.1, Value::Int(Some(2))));
         assert!(matches!(value_tuple.2, Value::Int(Some(3))));
         assert!(matches!(value_tuple.3, Value::Int(Some(4))));
     }
-    
+
     #[test]
     fn test_from_value_tuple_4() {
         let value_tuple = (
@@ -310,18 +319,19 @@ mod tests {
         let result: Result<(i32, i32, i32, i32), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((1, 2, 3, 4)));
     }
-    
+
     #[test]
     fn test_mixed_type_tuple_4() {
         let tuple = (1i32, "a".to_string(), true, 2.5f64);
         let value_tuple = tuple.into_value_tuple();
-        
+
         assert!(matches!(value_tuple.0, Value::Int(Some(1))));
         assert!(matches!(value_tuple.1, Value::String(Some(ref s)) if s == "a"));
         assert!(matches!(value_tuple.2, Value::Bool(Some(true))));
         assert!(matches!(value_tuple.3, Value::Double(Some(v)) if (v - 2.5).abs() < f64::EPSILON));
-        
-        let result: Result<(i32, String, bool, f64), _> = FromValueTuple::from_value_tuple(value_tuple);
+
+        let result: Result<(i32, String, bool, f64), _> =
+            FromValueTuple::from_value_tuple(value_tuple);
         #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let (i, s, b, f) = result.unwrap();
         assert_eq!(i, 1);
@@ -329,21 +339,21 @@ mod tests {
         assert!(b);
         assert!((f - 2.5).abs() < f64::EPSILON);
     }
-    
+
     // Tuple 5 tests
-    
+
     #[test]
     fn test_into_value_tuple_5() {
         let tuple = (1i32, 2i32, 3i32, 4i32, 5i32);
         let value_tuple = tuple.into_value_tuple();
-        
+
         assert!(matches!(value_tuple.0, Value::Int(Some(1))));
         assert!(matches!(value_tuple.1, Value::Int(Some(2))));
         assert!(matches!(value_tuple.2, Value::Int(Some(3))));
         assert!(matches!(value_tuple.3, Value::Int(Some(4))));
         assert!(matches!(value_tuple.4, Value::Int(Some(5))));
     }
-    
+
     #[test]
     fn test_from_value_tuple_5() {
         let value_tuple = (
@@ -353,17 +363,18 @@ mod tests {
             Value::Int(Some(4)),
             Value::Int(Some(5)),
         );
-        let result: Result<(i32, i32, i32, i32, i32), _> = FromValueTuple::from_value_tuple(value_tuple);
+        let result: Result<(i32, i32, i32, i32, i32), _> =
+            FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((1, 2, 3, 4, 5)));
     }
-    
+
     // Tuple 6 tests
-    
+
     #[test]
     fn test_into_value_tuple_6() {
         let tuple = (1i32, 2i32, 3i32, 4i32, 5i32, 6i32);
         let value_tuple = tuple.into_value_tuple();
-        
+
         assert!(matches!(value_tuple.0, Value::Int(Some(1))));
         assert!(matches!(value_tuple.1, Value::Int(Some(2))));
         assert!(matches!(value_tuple.2, Value::Int(Some(3))));
@@ -371,7 +382,7 @@ mod tests {
         assert!(matches!(value_tuple.4, Value::Int(Some(5))));
         assert!(matches!(value_tuple.5, Value::Int(Some(6))));
     }
-    
+
     #[test]
     fn test_from_value_tuple_6() {
         let value_tuple = (
@@ -382,12 +393,13 @@ mod tests {
             Value::Int(Some(5)),
             Value::Int(Some(6)),
         );
-        let result: Result<(i32, i32, i32, i32, i32, i32), _> = FromValueTuple::from_value_tuple(value_tuple);
+        let result: Result<(i32, i32, i32, i32, i32, i32), _> =
+            FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((1, 2, 3, 4, 5, 6)));
     }
-    
+
     // Vec<Value> tests (for 6+ tuples)
-    
+
     #[test]
     fn test_vec_value_into_value_tuple() {
         let vec = vec![
@@ -398,7 +410,7 @@ mod tests {
         let result = vec.clone().into_value_tuple();
         assert_eq!(result.len(), 3);
     }
-    
+
     #[test]
     fn test_vec_value_from_value_tuple() {
         let vec = vec![
@@ -409,9 +421,9 @@ mod tests {
         let result: Result<Vec<Value>, _> = FromValueTuple::from_value_tuple(vec.clone());
         assert_eq!(result, Ok(vec));
     }
-    
+
     // Error cases
-    
+
     #[test]
     fn test_from_value_tuple_error_type_mismatch() {
         let value_tuple = (
@@ -419,37 +431,37 @@ mod tests {
             Value::String(Some("hello".to_string())),
         );
         let result: Result<(i32, i32), _> = FromValueTuple::from_value_tuple(value_tuple);
-        assert!(matches!(result, Err(ValueExtractionError::TypeMismatch { .. })));
+        assert!(matches!(
+            result,
+            Err(ValueExtractionError::TypeMismatch { .. })
+        ));
     }
-    
+
     #[test]
     fn test_from_value_tuple_error_null() {
-        let value_tuple = (
-            Value::Int(Some(42)),
-            Value::String(None),
-        );
+        let value_tuple = (Value::Int(Some(42)), Value::String(None));
         let result: Result<(i32, String), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert!(matches!(result, Err(ValueExtractionError::NullValue)));
     }
-    
+
     // Composite key scenarios
-    
+
     #[test]
     fn test_composite_key_i32_string() {
         // Common composite key pattern: (i32, String)
         let tuple = (42i32, "tenant_1".to_string());
         let value_tuple = tuple.into_value_tuple();
-        
+
         let result: Result<(i32, String), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((42, "tenant_1".to_string())));
     }
-    
+
     #[test]
     fn test_composite_key_mixed_types() {
         // Mixed type composite key
         let tuple = (1i32, "key".to_string(), true);
         let value_tuple = tuple.into_value_tuple();
-        
+
         let result: Result<(i32, String, bool), _> = FromValueTuple::from_value_tuple(value_tuple);
         assert_eq!(result, Ok((1, "key".to_string(), true)));
     }

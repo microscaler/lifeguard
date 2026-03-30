@@ -12,11 +12,11 @@ use lifeguard::connection::{connect, validate_connection_string};
 #[allow(clippy::unnecessary_wraps)] // Example code - Result wrapper is intentional for error propagation
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example connection strings
-    let uri_format = "postgresql://postgres:postgres@localhost:5432/postgres";
+    let uri_format = "postgresql://postgres:postgres@localhost:6543/postgres";
     let key_value_format = "host=localhost user=postgres dbname=postgres";
 
     println!("Validating connection strings...");
-    
+
     // Validate URI format
     #[allow(clippy::ignored_unit_patterns)] // Example code - explicit unit pattern is acceptable
     match validate_connection_string(uri_format) {

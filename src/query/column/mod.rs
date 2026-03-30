@@ -9,10 +9,10 @@
 //! - `trait`: `ColumnTrait` for building filter expressions
 //! - `type_mapping`: Type mapping utilities (internal)
 
-mod type_mapping;
-pub mod definition;
 pub mod column_trait;
+pub mod definition;
+mod type_mapping;
 
 // Re-export public types
-pub use definition::ColumnDefinition;
 pub use column_trait::ColumnTrait;
+pub use definition::ColumnDefinition;

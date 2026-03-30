@@ -9,7 +9,7 @@
 fn main() {
     println!("SQL generation from entities example");
     println!("This will be implemented in lifeguard-migrate CLI");
-    
+
     // TODO: Implement entity-based SQL generation
     // 1. Read entity definitions
     // 2. Extract ColumnDefinition and TableDefinition

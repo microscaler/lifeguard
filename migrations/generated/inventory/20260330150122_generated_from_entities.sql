@@ -1,7 +1,7 @@
 -- Migration: Generated from Lifeguard entities
 -- Service: inventory
--- Version: 20260328192153
--- Generated: 2026-03-28 19:21:53 UTC
+-- Version: 20260330150122
+-- Generated: 2026-03-30 15:01:22 UTC
 
 -- This migration was automatically generated from entity definitions.
 -- DO NOT EDIT MANUALLY - regenerate from entities instead.

@@ -2,4 +2,4 @@
 
 pub mod definition;
 
-pub use definition::{TableDefinition, IndexDefinition};
+pub use definition::{IndexDefinition, TableDefinition};

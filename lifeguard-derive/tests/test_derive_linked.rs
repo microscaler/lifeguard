@@ -5,8 +5,8 @@
 
 #![allow(warnings)]
 
+use lifeguard::{relation::Linked, LifeEntityName, LifeModelTrait, RelationDef};
 use lifeguard_derive::DeriveLinked;
-use lifeguard::{relation::Linked, RelationDef, LifeModelTrait, LifeEntityName};
 
 // Test entities
 #[derive(Default, Copy, Clone)]
@@ -155,7 +155,7 @@ lifeguard::impl_column_def_helper_for_test!(CommentColumn);
 // Define Related implementations (required for Linked to work)
 impl lifeguard::Related<PostEntity> for UserEntity {
     fn to() -> RelationDef {
-        use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+        use sea_query::{ConditionType, IntoIden, TableName, TableRef};
         RelationDef {
             rel_type: lifeguard::RelationType::HasMany,
             from_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
@@ -175,7 +175,7 @@ impl lifeguard::Related<PostEntity> for UserEntity {
 
 impl lifeguard::Related<CommentEntity> for PostEntity {
     fn to() -> RelationDef {
-        use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+        use sea_query::{ConditionType, IntoIden, TableName, TableRef};
         RelationDef {
             rel_type: lifeguard::RelationType::HasMany,
             from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
@@ -196,10 +196,10 @@ impl lifeguard::Related<CommentEntity> for PostEntity {
 // Test module for basic two-hop linked relationship
 mod basic_linked_test {
     use super::*;
-    
+
     // Define Entity as UserEntity for this test
     pub type Entity = super::UserEntity;
-    
+
     #[derive(DeriveLinked)]
     pub enum LinkedRelation {
         #[lifeguard(linked = "PostEntity -> CommentEntity")]
@@ -210,16 +210,17 @@ mod basic_linked_test {
 #[test]
 fn test_derive_linked_two_hop() {
     use basic_linked_test::*;
-    
+
     // Test that Linked trait implementation was generated
-    let path: Vec<RelationDef> = <Entity as lifeguard::relation::Linked<PostEntity, CommentEntity>>::via();
-    
+    let path: Vec<RelationDef> =
+        <Entity as lifeguard::relation::Linked<PostEntity, CommentEntity>>::via();
+
     // Verify path has 2 hops
     assert_eq!(path.len(), 2, "Linked path should have 2 hops");
-    
+
     // Verify first hop: User -> Post
     assert_eq!(path[0].rel_type, lifeguard::RelationType::HasMany);
-    
+
     // Verify second hop: Post -> Comment
     assert_eq!(path[1].rel_type, lifeguard::RelationType::HasMany);
 }
@@ -227,24 +228,28 @@ fn test_derive_linked_two_hop() {
 // Test module for three-hop linked relationship
 mod three_hop_test {
     use super::*;
-    
+
     #[derive(Default, Copy, Clone)]
     pub struct ReactionEntity;
-    
+
     impl sea_query::Iden for ReactionEntity {
-        fn unquoted(&self) -> &str { "reactions" }
+        fn unquoted(&self) -> &str {
+            "reactions"
+        }
     }
-    
+
     impl LifeEntityName for ReactionEntity {
-        fn table_name(&self) -> &'static str { "reactions" }
+        fn table_name(&self) -> &'static str {
+            "reactions"
+        }
     }
-    
+
     #[derive(Copy, Clone, Debug)]
     pub enum ReactionColumn {
         Id,
         CommentId,
     }
-    
+
     impl sea_query::Iden for ReactionColumn {
         fn unquoted(&self) -> &str {
             match self {
@@ -253,7 +258,7 @@ mod three_hop_test {
             }
         }
     }
-    
+
     impl sea_query::IdenStatic for ReactionColumn {
         fn as_str(&self) -> &'static str {
             match self {
@@ -262,17 +267,17 @@ mod three_hop_test {
             }
         }
     }
-    
+
     lifeguard::impl_column_def_helper_for_test!(ReactionColumn);
-    
+
     impl LifeModelTrait for ReactionEntity {
         type Model = ();
         type Column = ReactionColumn;
     }
-    
+
     impl lifeguard::Related<ReactionEntity> for CommentEntity {
         fn to() -> RelationDef {
-            use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+            use sea_query::{ConditionType, IntoIden, TableName, TableRef};
             RelationDef {
                 rel_type: lifeguard::RelationType::HasMany,
                 from_tbl: TableRef::Table(TableName(None, "comments".into_iden()), None),
@@ -289,9 +294,9 @@ mod three_hop_test {
             }
         }
     }
-    
+
     pub type Entity = super::UserEntity;
-    
+
     #[derive(DeriveLinked)]
     pub enum LinkedRelation {
         #[lifeguard(linked = "PostEntity -> CommentEntity -> ReactionEntity")]
@@ -302,10 +307,11 @@ mod three_hop_test {
 #[test]
 fn test_derive_linked_three_hop() {
     use three_hop_test::*;
-    
+
     // Test that Linked trait implementation was generated for three-hop path
-    let path: Vec<RelationDef> = <Entity as lifeguard::relation::Linked<PostEntity, ReactionEntity>>::via();
-    
+    let path: Vec<RelationDef> =
+        <Entity as lifeguard::relation::Linked<PostEntity, ReactionEntity>>::via();
+
     // Verify path has 3 hops
     assert_eq!(path.len(), 3, "Linked path should have 3 hops");
 }
@@ -313,24 +319,28 @@ fn test_derive_linked_three_hop() {
 // Test module for multiple linked paths
 mod multiple_paths_test {
     use super::*;
-    
+
     #[derive(Default, Copy, Clone)]
     pub struct TagEntity;
-    
+
     impl sea_query::Iden for TagEntity {
-        fn unquoted(&self) -> &str { "tags" }
+        fn unquoted(&self) -> &str {
+            "tags"
+        }
     }
-    
+
     impl LifeEntityName for TagEntity {
-        fn table_name(&self) -> &'static str { "tags" }
+        fn table_name(&self) -> &'static str {
+            "tags"
+        }
     }
-    
+
     #[derive(Copy, Clone, Debug)]
     pub enum TagColumn {
         Id,
         PostId,
     }
-    
+
     impl sea_query::Iden for TagColumn {
         fn unquoted(&self) -> &str {
             match self {
@@ -339,7 +349,7 @@ mod multiple_paths_test {
             }
         }
     }
-    
+
     impl sea_query::IdenStatic for TagColumn {
         fn as_str(&self) -> &'static str {
             match self {
@@ -348,17 +358,17 @@ mod multiple_paths_test {
             }
         }
     }
-    
+
     lifeguard::impl_column_def_helper_for_test!(TagColumn);
-    
+
     impl LifeModelTrait for TagEntity {
         type Model = ();
         type Column = TagColumn;
     }
-    
+
     impl lifeguard::Related<TagEntity> for PostEntity {
         fn to() -> RelationDef {
-            use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+            use sea_query::{ConditionType, IntoIden, TableName, TableRef};
             RelationDef {
                 rel_type: lifeguard::RelationType::HasMany,
                 from_tbl: TableRef::Table(TableName(None, "posts".into_iden()), None),
@@ -375,9 +385,9 @@ mod multiple_paths_test {
             }
         }
     }
-    
+
     pub type Entity = super::UserEntity;
-    
+
     #[derive(DeriveLinked)]
     pub enum LinkedRelation {
         #[lifeguard(linked = "PostEntity -> TagEntity")]
@@ -388,27 +398,28 @@ mod multiple_paths_test {
 #[test]
 fn test_derive_linked_multiple_paths() {
     use multiple_paths_test::*;
-    
+
     // Test that both linked paths work
     // Note: We can't test Comments path here because it conflicts with basic_linked_test
     // Instead, we test that Tags path works and that multiple variants in one enum work
-    let tags_path: Vec<RelationDef> = <Entity as lifeguard::relation::Linked<PostEntity, TagEntity>>::via();
-    
+    let tags_path: Vec<RelationDef> =
+        <Entity as lifeguard::relation::Linked<PostEntity, TagEntity>>::via();
+
     assert_eq!(tags_path.len(), 2, "Tags path should have 2 hops");
 }
 
 // Test module for self-referential linked relationship
 mod self_referential_test {
     use super::*;
-    
+
     // Define Entity as UserEntity for this test
     pub type Entity = super::UserEntity;
-    
+
     // Self-referential: User -> User (via parent relationship)
     // This requires a Related<UserEntity> for UserEntity implementation
     impl lifeguard::Related<UserEntity> for UserEntity {
         fn to() -> RelationDef {
-            use sea_query::{TableRef, TableName, ConditionType, IntoIden};
+            use sea_query::{ConditionType, IntoIden, TableName, TableRef};
             RelationDef {
                 rel_type: lifeguard::RelationType::BelongsTo,
                 from_tbl: TableRef::Table(TableName(None, "users".into_iden()), None),
@@ -425,7 +436,7 @@ mod self_referential_test {
             }
         }
     }
-    
+
     #[derive(DeriveLinked)]
     pub enum LinkedRelation {
         // Self-referential: Entity -> Entity
@@ -437,13 +448,13 @@ mod self_referential_test {
 #[test]
 fn test_derive_linked_self_referential() {
     use self_referential_test::*;
-    
+
     // Test that self-referential linked path works
     let path: Vec<RelationDef> = <Entity as lifeguard::relation::Linked<Entity, Entity>>::via();
-    
+
     // Verify path has 2 hops (Entity -> Entity)
     assert_eq!(path.len(), 2, "Self-referential path should have 2 hops");
-    
+
     // Both hops should be Entity -> Entity
     assert_eq!(path[0].rel_type, lifeguard::RelationType::BelongsTo);
     assert_eq!(path[1].rel_type, lifeguard::RelationType::BelongsTo);

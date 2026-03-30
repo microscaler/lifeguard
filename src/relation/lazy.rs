@@ -40,11 +40,11 @@
 //! [`Related::to()`](crate::Related::to), so filters reference the **related** table (`to_tbl` /
 //! `to_col`) with values from the parent model’s `from_col` fields.
 
-use crate::executor::{LifeExecutor, LifeError};
+use crate::executor::{LifeError, LifeExecutor};
 use crate::model::ModelTrait;
-use crate::query::{SelectQuery, LifeModelTrait};
+use crate::query::{LifeModelTrait, SelectQuery};
+use crate::relation::def::{build_where_condition, RelationDef};
 use crate::relation::traits::Related;
-use crate::relation::def::{RelationDef, build_where_condition};
 
 /// A lazy loader for related entities
 ///
@@ -165,7 +165,7 @@ where
 
         // Build the query using the relationship definition
         let mut query = SelectQuery::<R>::new();
-        
+
         // Filter the related table (`to_tbl`) using `to_col` = values from the source model's
         // `from_col` columns (same rule as `FindRelated::find_related`).
         let where_condition = build_where_condition(&rel_def, self.entity)?;
@@ -189,7 +189,7 @@ mod tests {
         // This is a compile-time test to verify LazyLoader API compiles correctly
         // Actual execution tests would require a real executor setup
         // The API is verified by the fact that this test compiles
-        
+
         // LazyLoader::new() and LazyLoader::load() signatures are tested
         // by their usage in the documentation examples above
     }
@@ -198,49 +198,66 @@ mod tests {
     #[allow(clippy::too_many_lines)] // Test code - long test function is acceptable
     fn test_lazy_loader_composite_key() {
         // Test that LazyLoader works with composite key entities
-        use sea_query::{TableName, IntoIden, ConditionType};
         use crate::relation::def::{RelationDef, RelationType};
-        
+        use sea_query::{ConditionType, IntoIden, TableName};
+
         #[derive(Default, Copy, Clone)]
         struct TenantEntity;
-        
+
         impl sea_query::Iden for TenantEntity {
-            fn unquoted(&self) -> &'static str { "tenants" }
+            fn unquoted(&self) -> &'static str {
+                "tenants"
+            }
         }
-        
+
         impl crate::LifeEntityName for TenantEntity {
-            fn table_name(&self) -> &'static str { "tenants" }
+            fn table_name(&self) -> &'static str {
+                "tenants"
+            }
         }
-        
+
         impl crate::LifeModelTrait for TenantEntity {
             type Model = TenantModel;
             type Column = TenantColumn;
         }
-        
+
         #[derive(Default, Copy, Clone)]
         struct UserEntity;
-        
+
         impl sea_query::Iden for UserEntity {
-            fn unquoted(&self) -> &'static str { "users" }
+            fn unquoted(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl crate::LifeEntityName for UserEntity {
-            fn table_name(&self) -> &'static str { "users" }
+            fn table_name(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl crate::LifeModelTrait for UserEntity {
             type Model = UserModel;
             type Column = UserColumn;
         }
-        
+
         #[derive(Clone, Debug)]
-        struct TenantModel { id: i32, tenant_id: i32 }
+        struct TenantModel {
+            id: i32,
+            tenant_id: i32,
+        }
         #[derive(Clone, Debug)]
-        struct UserModel { id: i32, tenant_id: i32 }
-        
+        struct UserModel {
+            id: i32,
+            tenant_id: i32,
+        }
+
         #[derive(Copy, Clone, Debug)]
-        enum TenantColumn { Id, TenantId }
-        
+        enum TenantColumn {
+            Id,
+            TenantId,
+        }
+
         impl sea_query::Iden for TenantColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
@@ -249,7 +266,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl sea_query::IdenStatic for TenantColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -258,12 +275,15 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TenantColumn);
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum UserColumn { Id, TenantId }
-        
+        enum UserColumn {
+            Id,
+            TenantId,
+        }
+
         impl sea_query::Iden for UserColumn {
             fn unquoted(&self) -> &str {
                 match self {
@@ -272,7 +292,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl sea_query::IdenStatic for UserColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -281,16 +301,18 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(UserColumn);
-        
+
         impl crate::query::traits::FromRow for UserModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
-                Ok(UserModel { id: 0, tenant_id: 0 })
+                Ok(UserModel {
+                    id: 0,
+                    tenant_id: 0,
+                })
             }
-            
         }
-        
+
         impl ModelTrait for TenantModel {
             type Entity = TenantEntity;
             fn get(&self, col: TenantColumn) -> sea_query::Value {
@@ -300,7 +322,13 @@ mod tests {
                 }
             }
             #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
-            fn set(&mut self, _col: TenantColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn set(
+                &mut self,
+                _col: TenantColumn,
+                _val: sea_query::Value,
+            ) -> Result<(), crate::model::ModelError> {
+                todo!()
+            }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
@@ -321,12 +349,15 @@ mod tests {
                 }
             }
         }
-        
+
         impl Related<UserEntity> for TenantEntity {
             fn to() -> RelationDef {
                 RelationDef {
                     rel_type: RelationType::HasMany,
-                    from_tbl: sea_query::TableRef::Table(TableName(None, "tenants".into_iden()), None),
+                    from_tbl: sea_query::TableRef::Table(
+                        TableName(None, "tenants".into_iden()),
+                        None,
+                    ),
                     to_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
                     from_col: Identity::Binary("id".into(), "tenant_id".into()),
                     to_col: Identity::Binary("id".into(), "tenant_id".into()),
@@ -340,9 +371,12 @@ mod tests {
                 }
             }
         }
-        
-        let tenant = TenantModel { id: 1, tenant_id: 10 };
-        
+
+        let tenant = TenantModel {
+            id: 1,
+            tenant_id: 10,
+        };
+
         // Verify LazyLoader can be created with composite key entity
         #[allow(clippy::items_after_statements)] // Test code - function definition after statement is acceptable
         fn _test_composite_key<'a, M: ModelTrait, Ex: LifeExecutor>(
@@ -351,7 +385,7 @@ mod tests {
         ) -> LazyLoader<'a, M, Ex> {
             LazyLoader::new(entity, executor)
         }
-        
+
         // Just verify it compiles - actual execution test would need executor setup
         let _ = tenant;
     }
@@ -361,78 +395,99 @@ mod tests {
     fn test_lazy_loader_has_many_uses_to_col() {
         // Test that LazyLoader::load() for has_many relationships uses to_col (FK in target table)
         // instead of from_col (PK in source table), which would reference an unjoined table
-        // 
+        //
         // BUG FIX: Previously, build_where_condition used from_tbl.from_col (e.g., users.id),
         // but the query selects from to_tbl (posts) without joining users, causing invalid SQL.
         // The fix uses to_col (posts.user_id) instead.
-        
-        use sea_query::{TableName, IntoIden, ConditionType};
+
         use crate::relation::def::{RelationDef, RelationType};
         use crate::relation::identity::Identity;
-        
+        use sea_query::{ConditionType, IntoIden, TableName};
+
         #[derive(Default, Copy, Clone)]
         struct UserEntity;
-        
+
         impl sea_query::Iden for UserEntity {
-            fn unquoted(&self) -> &'static str { "users" }
+            fn unquoted(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl crate::LifeEntityName for UserEntity {
-            fn table_name(&self) -> &'static str { "users" }
+            fn table_name(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl crate::LifeModelTrait for UserEntity {
             type Model = UserModel;
             type Column = UserColumn;
         }
-        
+
         #[derive(Default, Copy, Clone)]
         struct PostEntity;
-        
+
         impl sea_query::Iden for PostEntity {
-            fn unquoted(&self) -> &'static str { "posts" }
+            fn unquoted(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         impl crate::LifeEntityName for PostEntity {
-            fn table_name(&self) -> &'static str { "posts" }
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         impl crate::LifeModelTrait for PostEntity {
             type Model = PostModel;
             type Column = PostColumn;
         }
-        
+
         #[derive(Clone, Debug)]
-        struct UserModel { id: i32 }
+        struct UserModel {
+            id: i32,
+        }
         #[derive(Clone, Debug)]
-        struct PostModel { id: i32, user_id: i32 }
-        
+        struct PostModel {
+            id: i32,
+            user_id: i32,
+        }
+
         #[derive(Copy, Clone, Debug)]
-        enum UserColumn { Id }
-        
+        enum UserColumn {
+            Id,
+        }
+
         impl sea_query::Iden for UserColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         impl sea_query::IdenStatic for UserColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(UserColumn);
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum PostColumn { Id, UserId }
-        
+        enum PostColumn {
+            Id,
+            UserId,
+        }
+
         impl sea_query::Iden for PostColumn {
             fn unquoted(&self) -> &str {
                 match self {
                     PostColumn::Id => "id",
                     PostColumn::UserId => "user_id",
                 }
-                
             }
         }
-        
+
         impl sea_query::IdenStatic for PostColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -441,16 +496,15 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(PostColumn);
-        
+
         impl crate::query::traits::FromRow for PostModel {
             fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
                 Ok(PostModel { id: 0, user_id: 0 })
             }
-            
         }
-        
+
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
             fn get(&self, col: UserColumn) -> sea_query::Value {
@@ -459,7 +513,13 @@ mod tests {
                 }
             }
             #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
-            fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn set(
+                &mut self,
+                _col: UserColumn,
+                _val: sea_query::Value,
+            ) -> Result<(), crate::model::ModelError> {
+                todo!()
+            }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
@@ -470,14 +530,17 @@ mod tests {
                 vec![sea_query::Value::Int(Some(self.id))]
             }
         }
-        
+
         impl Related<PostEntity> for UserEntity {
             fn to() -> RelationDef {
                 RelationDef {
                     rel_type: RelationType::HasMany,
-                    from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                    from_tbl: sea_query::TableRef::Table(
+                        TableName(None, "users".into_iden()),
+                        None,
+                    ),
                     to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
-                    from_col: Identity::Unary("id".into()),  // users.id (source PK)
+                    from_col: Identity::Unary("id".into()), // users.id (source PK)
                     to_col: Identity::Unary("user_id".into()), // posts.user_id (target FK)
                     through_tbl: None,
                     through_from_col: None,
@@ -489,9 +552,9 @@ mod tests {
                 }
             }
         }
-        
+
         let user = UserModel { id: 42 };
-        
+
         // Verify that LazyLoader::load() would use to_col (posts.user_id) not from_col (users.id)
         // The fix ensures the WHERE condition references posts.user_id, not users.id
         // This test verifies the function compiles with the fix
@@ -508,7 +571,7 @@ mod tests {
             let loader = LazyLoader::new(entity, executor);
             loader.load()
         }
-        
+
         // Just verify it compiles - actual execution test would need executor setup
         let _ = user;
     }

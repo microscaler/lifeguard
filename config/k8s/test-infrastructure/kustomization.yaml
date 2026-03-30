@@ -5,6 +5,22 @@ namespace: lifeguard-test
 
 resources:
   - namespace.yaml
-  - postgres-pvc.yaml
-  - postgres-deployment.yaml
-  - postgres-service.yaml
+  - postgresql-credentials-secret.yaml
+  - postgresql-primary-pvc.yaml
+  - postgresql-primary-deployment.yaml
+  - postgresql-primary-service.yaml
+  - postgresql-replica-0-pvc.yaml
+  - postgresql-replica-0-deployment.yaml
+  - postgresql-replica-0-service.yaml
+  - postgresql-replica-1-pvc.yaml
+  - postgresql-replica-1-deployment.yaml
+  - postgresql-replica-1-service.yaml
+  - redis-deployment.yaml
+  - redis-service.yaml
+
+configMapGenerator:
+  - name: postgres-pact-init
+    files:
+      - 10-pact-role.sql=postgres-pact-role.sql
+    options:
+      disableNameSuffixHash: true

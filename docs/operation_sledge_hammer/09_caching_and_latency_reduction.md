@@ -658,9 +658,9 @@ Concretely, I’d update the PRD like this (headlines only):
 If you want, next I can:
 
 * **Patch the existing Lifeguard PRD** to include the *correct LifeReflector microservice design*.
-* **Update the README** to mention Redis caching and the external reflector.
+* **Update the README** to mention Redis caching and the `lifeguard-reflector` workspace crate (in this repository).
 * **Sketch the LifeReflector API** (config, DB listeners, Redis ops, message formats).
-* **Give you a concrete module layout** for `lifeguard-reflector` as its own binary crate.
+* **Give you a concrete module layout** for `lifeguard-reflector` as its own binary crate under the monorepo root.
 
 Tell me which you want first and I’ll lay it out.
 

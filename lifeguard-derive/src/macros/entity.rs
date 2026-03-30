@@ -11,7 +11,11 @@ use syn::{parse_macro_input, Attribute, DeriveInput};
 use crate::attributes;
 use crate::utils;
 
-fn default_stripped_suffix_ident(struct_name: &syn::Ident, strip_suffix: &str, append: &str) -> syn::Ident {
+fn default_stripped_suffix_ident(
+    struct_name: &syn::Ident,
+    strip_suffix: &str,
+    append: &str,
+) -> syn::Ident {
     let s = struct_name.to_string();
     let base = if let Some(prefix) = s.strip_suffix(strip_suffix) {
         prefix.to_string()
@@ -76,15 +80,15 @@ fn generate_life_model_trait_impl(
 /// Generate Entity, `EntityName`, Iden, and `IdenStatic` implementations
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    
+
     // Extract struct name (Entity should be a unit struct)
     let struct_name = &input.ident;
-    
+
     // Extract table name and schema name from attributes
     let table_name = attributes::extract_table_name(&input.attrs)
         .unwrap_or_else(|| utils::snake_case(&struct_name.to_string()));
     let schema_name = attributes::extract_schema_name(&input.attrs);
-    
+
     // Following SeaORM's EXACT pattern: DeriveEntity generates EntityName, Iden, IdenStatic, and EntityTrait
     // via NESTED expansion from LifeModel so Entity::Model resolves in a later phase.
     let model_name = resolve_entity_model_name(struct_name, &input.attrs);
@@ -93,11 +97,11 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
     // Following SeaORM's EXACT pattern: DeriveEntity generates trait implementations
     // for an already-declared Entity struct. The struct itself is NOT generated here.
     // This is called via NESTED macro expansion from DeriveEntityModel (or our LifeModel).
-    // 
+    //
     // KEY INSIGHT: EntityTrait is generated in a SEPARATE expansion phase via DeriveEntity,
     // not in the same expansion as Entity and Model. This allows the compiler to resolve
     // types properly across expansion phases.
-    
+
     let schema_name_impl = if let Some(ref schema) = schema_name {
         let schema_lit = syn::LitStr::new(schema, struct_name.span());
         quote! {
@@ -112,11 +116,14 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
             }
         }
     };
-    
+
     // Check if soft_delete is enabled
     // The parent expansion (LifeModel) passes #[soft_delete] down if it's enabled
-    let soft_delete = input.attrs.iter().any(|attr| attr.path().is_ident("soft_delete"));
-    
+    let soft_delete = input
+        .attrs
+        .iter()
+        .any(|attr| attr.path().is_ident("soft_delete"));
+
     let find_impl = if soft_delete {
         quote! {
             fn find() -> lifeguard::SelectQuery<Self> {
@@ -164,33 +171,33 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
                 #struct_name
             }
         }
-        
+
         // Implement LifeEntityName for Entity (provides table_name method)
         impl lifeguard::LifeEntityName for #struct_name {
             fn table_name(&self) -> &'static str {
                 #table_name
             }
-            
+
             #schema_name_impl
         }
-        
+
         // Implement Iden for Entity (for use in sea_query)
         impl sea_query::Iden for #struct_name {
             fn unquoted(&self) -> &str {
                 #table_name
             }
         }
-        
+
         // Implement IdenStatic for Entity (for use in sea_query)
         impl sea_query::IdenStatic for #struct_name {
             fn as_str(&self) -> &'static str {
                 #table_name
             }
         }
-        
+
         // CRITICAL: LifeModelTrait is generated in DeriveEntity (nested expansion) so Entity::Model resolves.
         #life_model_trait_impl
     };
-    
+
     TokenStream::from(expanded)
 }

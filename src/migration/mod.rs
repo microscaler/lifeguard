@@ -39,32 +39,37 @@
 //! }
 //! ```
 
+pub mod checksum;
 pub mod error;
+pub mod file;
+pub mod lock;
 #[allow(clippy::module_inception)]
 pub mod migration;
-pub mod schema_manager;
-pub mod record;
-pub mod checksum;
-pub mod state_table;
-pub mod lock;
-pub mod file;
-pub mod status;
 pub mod migrator;
-pub mod startup;
+pub mod record;
 pub mod registry;
+pub mod schema_manager;
+pub mod startup;
+pub mod state_table;
+pub mod status;
 
-pub use error::MigrationError;
-pub use migration::Migration;
-pub use schema_manager::SchemaManager;
-pub use record::MigrationRecord;
 pub use checksum::{calculate_checksum, validate_checksum};
-pub use state_table::{create_state_table, create_state_table_index, initialize_state_table};
-pub use lock::{MigrationLockGuard, acquire_migration_lock, release_migration_lock, is_migration_lock_held};
-pub use file::{MigrationFile, discover_migrations};
-pub use status::{MigrationStatus, PendingMigration};
+pub use error::MigrationError;
+pub use file::{discover_migrations, MigrationFile};
+pub use lock::{
+    acquire_migration_lock, is_migration_lock_held, release_migration_lock, MigrationLockGuard,
+};
+pub use migration::Migration;
 pub use migrator::Migrator;
+pub use record::MigrationRecord;
+pub use registry::{
+    clear_registry, execute_migration, get_migration, is_registered, register_migration,
+    unregister_migration, MigrationDirection,
+};
+pub use schema_manager::SchemaManager;
 pub use startup::{startup_migrations, startup_migrations_with_timeout};
-pub use registry::{register_migration, get_migration, is_registered, execute_migration, MigrationDirection, clear_registry, unregister_migration};
+pub use state_table::{create_state_table, create_state_table_index, initialize_state_table};
+pub use status::{MigrationStatus, PendingMigration};
 
 // Re-export for convenience
 pub use crate::LifeError;

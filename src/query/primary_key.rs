@@ -76,12 +76,12 @@ pub trait PrimaryKeyTrait: Copy + std::fmt::Debug {
 /// // In a real application, the macro would generate this:
 /// // impl PrimaryKeyToColumn for UserPrimaryKey {
 /// //     type Column = UserColumn;
-    /// //     fn to_column(self) -> Self::Column {
-    /// //         match self {
-    /// //             UserPrimaryKey::Id => UserColumn::Id,
-    /// //         }
-    /// //     }
-    /// // }
+/// //     fn to_column(self) -> Self::Column {
+/// //         match self {
+/// //             UserPrimaryKey::Id => UserColumn::Id,
+/// //         }
+/// //     }
+/// // }
 /// ```
 pub trait PrimaryKeyToColumn {
     /// The Column enum type for this entity
@@ -265,7 +265,7 @@ mod tests {
         let tuple4 = PrimaryKeyArity::Tuple4;
         let tuple5 = PrimaryKeyArity::Tuple5;
         let tuple6plus = PrimaryKeyArity::Tuple6Plus;
-        
+
         assert_eq!(single, PrimaryKeyArity::Single);
         assert_eq!(tuple2, PrimaryKeyArity::Tuple2);
         assert_eq!(tuple3, PrimaryKeyArity::Tuple3);

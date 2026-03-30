@@ -1,7 +1,7 @@
 //! Migration state table management
 
-use crate::{LifeExecutor, LifeError};
-use sea_query::{Table, ColumnDef, TableCreateStatement, Index, IndexCreateStatement};
+use crate::{LifeError, LifeExecutor};
+use sea_query::{ColumnDef, Index, IndexCreateStatement, Table, TableCreateStatement};
 
 /// Create the `lifeguard_migrations` state tracking table
 ///
@@ -24,35 +24,22 @@ pub fn create_state_table() -> TableCreateStatement {
             ColumnDef::new("version")
                 .big_integer()
                 .not_null()
-                .primary_key()
+                .primary_key(),
         )
-        .col(
-            ColumnDef::new("name")
-                .string()
-                .string_len(255)
-                .not_null()
-        )
+        .col(ColumnDef::new("name").string().string_len(255).not_null())
         .col(
             ColumnDef::new("checksum")
                 .string()
                 .string_len(64)
-                .not_null()
+                .not_null(),
         )
-        .col(
-            ColumnDef::new("applied_at")
-                .timestamp()
-                .not_null()
-        )
-        .col(
-            ColumnDef::new("execution_time_ms")
-                .integer()
-                .null()
-        )
+        .col(ColumnDef::new("applied_at").timestamp().not_null())
+        .col(ColumnDef::new("execution_time_ms").integer().null())
         .col(
             ColumnDef::new("success")
                 .boolean()
                 .not_null()
-                .default(false)
+                .default(false),
         )
         .to_owned()
 }
@@ -96,16 +83,16 @@ pub fn initialize_state_table(executor: &dyn LifeExecutor) -> Result<(), LifeErr
             success BOOLEAN NOT NULL DEFAULT true
         )
     ";
-    
+
     executor.execute(sql, &[])?;
-    
+
     // Create index (IF NOT EXISTS)
     let index_sql = r"
         CREATE INDEX IF NOT EXISTS idx_lifeguard_migrations_applied_at 
         ON lifeguard_migrations(applied_at)
     ";
-    
+
     executor.execute(index_sql, &[])?;
-    
+
     Ok(())
 }

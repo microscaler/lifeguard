@@ -7,8 +7,7 @@
 ///
 /// Stores information about table-level constraints, indexes, and metadata.
 /// This is used for entity-driven migration generation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TableDefinition {
     /// Table comment/documentation
     pub table_comment: Option<String>,
@@ -23,7 +22,6 @@ pub struct TableDefinition {
     /// If `constraint_name` is `None`, a default name will be generated from the table name
     pub check_constraints: Vec<(Option<String>, String)>,
 }
-
 
 /// Index definition metadata
 #[derive(Debug, Clone, PartialEq, Eq)]

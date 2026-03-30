@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: lifeguard-test
+
+resources:
+  - otel-collector.yaml
+  - prometheus.yaml
+  - loki.yaml
+  - postgres-exporter.yaml
+  - redis-exporter.yaml
+  - grafana.yaml
+
+configMapGenerator:
+  - name: otel-collector-config
+    files:
+      - config.yaml=otel-collector-config.yml
+    options:
+      disableNameSuffixHash: true
+  - name: prometheus-config
+    files:
+      - prometheus.yml=prometheus-k8s.yml
+    options:
+      disableNameSuffixHash: true
+  - name: loki-config
+    files:
+      - config.yml=loki-k8s-config.yml
+    options:
+      disableNameSuffixHash: true
+  - name: grafana-datasources
+    files:
+      - datasources.yaml=grafana-datasources.yml
+    options:
+      disableNameSuffixHash: true
+  - name: grafana-dashboard-provider
+    files:
+      - lifeguard.yaml=grafana-dashboard-provider.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: grafana-dashboard-lifeguard
+    files:
+      - lifeguard-kind-infra.json=grafana-dashboard-lifeguard-kind.json
+    options:
+      disableNameSuffixHash: true

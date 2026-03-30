@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: postgres-data
+  name: postgresql-replica-0-data
   namespace: lifeguard-test
 spec:
   accessModes:

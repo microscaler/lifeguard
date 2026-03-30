@@ -138,7 +138,13 @@ pub trait RelationTrait: LifeModelTrait {
     /// # Returns
     ///
     /// Returns a `SelectQuery` builder for the related entities with both joins applied
-    fn has_many_through<R, T>(&self, rel: R, through: T, first_join: Expr, second_join: Expr) -> SelectQuery<R>
+    fn has_many_through<R, T>(
+        &self,
+        rel: R,
+        through: T,
+        first_join: Expr,
+        second_join: Expr,
+    ) -> SelectQuery<R>
     where
         R: LifeModelTrait + Iden,
         T: LifeModelTrait + Iden,
@@ -188,7 +194,11 @@ pub trait RelationTrait: LifeModelTrait {
     /// // Use automatic join condition generation
     /// let query = Post::default().belongs_to_with_def(User, <Post as Related<User>>::to());
     /// ```
-    fn belongs_to_with_def<R>(&self, rel: R, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    fn belongs_to_with_def<R>(
+        &self,
+        rel: R,
+        rel_def: crate::relation::def::RelationDef,
+    ) -> SelectQuery<R>
     where
         R: LifeModelTrait + Iden,
     {
@@ -209,7 +219,11 @@ pub trait RelationTrait: LifeModelTrait {
     /// # Returns
     ///
     /// Returns a `SelectQuery` builder for the related entity with automatically generated join condition
-    fn has_one_with_def<R>(&self, rel: R, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    fn has_one_with_def<R>(
+        &self,
+        rel: R,
+        rel_def: crate::relation::def::RelationDef,
+    ) -> SelectQuery<R>
     where
         R: LifeModelTrait + Iden,
     {
@@ -230,7 +244,11 @@ pub trait RelationTrait: LifeModelTrait {
     /// # Returns
     ///
     /// Returns a `SelectQuery` builder for the related entities with automatically generated join condition
-    fn has_many_with_def<R>(&self, rel: R, rel_def: crate::relation::def::RelationDef) -> SelectQuery<R>
+    fn has_many_with_def<R>(
+        &self,
+        rel: R,
+        rel_def: crate::relation::def::RelationDef,
+    ) -> SelectQuery<R>
     where
         R: LifeModelTrait + Iden,
     {
@@ -467,15 +485,15 @@ where
         // So Self::Entity::to() returns RelationDef for the relationship from Self::Entity to R
         // This is the correct relationship direction for find_related()
         let rel_def = <Self::Entity as Related<R>>::to();
-        
+
         // Create a new query for the related entity
         let mut query = SelectQuery::new();
-        
+
         // Filter the related entity's table using `to_tbl`/`to_col` and source-side values
         // from `from_col` (see `build_where_condition` in `relation::def::condition`).
         let condition = build_where_condition(&rel_def, self)?;
         query = query.filter(condition);
-        
+
         Ok(query)
     }
 }
@@ -607,24 +625,24 @@ where
     {
         // Get the linked path from Linked trait
         let path = <Self::Entity as Linked<I, T>>::via();
-        
+
         // Empty `via()` would yield an unrestricted `SelectQuery<T>`; require an explicit path.
         if path.is_empty() {
             return Err(LifeError::Other(
                 "find_linked: Linked::via() returned an empty path".to_string(),
             ));
         }
-        
+
         // Build query with joins through intermediate entities
         let mut query = SelectQuery::new();
-        
+
         // For each hop in the path, add a LEFT JOIN
         // First hop: Self::Entity -> I (intermediate)
         if let Some(first_hop) = path.first() {
             let join_expr = first_hop.join_on_expr();
             query = query.left_join(I::default(), join_expr);
         }
-        
+
         // Second hop: I -> T (target)
         if path.len() >= 2 {
             if let Some(second_hop) = path.get(1) {
@@ -632,14 +650,14 @@ where
                 query = query.left_join(T::default(), join_expr);
             }
         }
-        
+
         // Filter by the current model's primary key
         // Use the first hop's relation definition to build the WHERE condition
         if let Some(first_hop) = path.first() {
             let condition = build_where_condition(first_hop, self)?;
             query = query.filter(condition);
         }
-        
+
         Ok(query)
     }
 }
@@ -650,7 +668,7 @@ mod tests {
     use super::*;
     use crate::relation::def::{RelationDef, RelationType};
     use crate::relation::identity::Identity;
-    use sea_query::{IdenStatic, ConditionType, TableRef};
+    use sea_query::{ConditionType, IdenStatic, TableRef};
 
     #[test]
     #[allow(clippy::items_after_statements)] // Test code - use statement after variable is acceptable
@@ -658,48 +676,48 @@ mod tests {
         // Test that RelationTrait methods exist and can be called
         // This is a compile-time check that the trait is properly defined
         use crate::{LifeEntityName, LifeModelTrait};
-        
+
         #[derive(Default, Copy, Clone)]
         struct TestEntity;
-        
+
         impl sea_query::Iden for TestEntity {
             fn unquoted(&self) -> &'static str {
                 "test_entities"
             }
         }
-        
+
         #[derive(Copy, Clone, Debug)]
         enum TestColumn {
             Id,
         }
-        
+
         impl sea_query::Iden for TestColumn {
             fn unquoted(&self) -> &'static str {
                 "id"
             }
         }
-        
+
         impl IdenStatic for TestColumn {
             fn as_str(&self) -> &'static str {
                 "id"
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TestColumn);
-        
+
         impl LifeEntityName for TestEntity {
             fn table_name(&self) -> &'static str {
                 "test_entities"
             }
         }
-        
+
         impl LifeModelTrait for TestEntity {
             type Model = ();
             type Column = TestColumn;
         }
-        
+
         impl RelationTrait for TestEntity {}
-        
+
         let entity = TestEntity;
         use sea_query::Expr;
         // Create placeholder join conditions for testing
@@ -714,36 +732,46 @@ mod tests {
     fn test_relation_belongs_to_with_empty_join_condition() {
         // EDGE CASE: belongs_to with empty/invalid join condition
         use crate::{LifeEntityName, LifeModelTrait};
-        
+
         #[derive(Default, Copy, Clone)]
         struct TestEntity;
-        
+
         impl sea_query::Iden for TestEntity {
-            fn unquoted(&self) -> &'static str { "test_entities" }
+            fn unquoted(&self) -> &'static str {
+                "test_entities"
+            }
         }
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum TestColumn { Id }
+        enum TestColumn {
+            Id,
+        }
         impl sea_query::Iden for TestColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
         impl IdenStatic for TestColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TestColumn);
-        
+
         impl LifeEntityName for TestEntity {
-            fn table_name(&self) -> &'static str { "test_entities" }
+            fn table_name(&self) -> &'static str {
+                "test_entities"
+            }
         }
-        
+
         impl LifeModelTrait for TestEntity {
             type Model = ();
             type Column = TestColumn;
         }
-        
+
         impl RelationTrait for TestEntity {}
-        
+
         let entity = TestEntity;
         let join_cond = Expr::cust("1 = 1");
         let _query = entity.belongs_to(TestEntity, "user_id", join_cond);
@@ -757,33 +785,37 @@ mod tests {
         // which Models don't implement (only Entities do).
         use crate::{LifeEntityName, LifeModelTrait};
         use sea_query::{IntoIden, TableName};
-        
+
         // Define test entities
         #[derive(Default, Copy, Clone)]
         struct UserEntity;
-        
+
         #[derive(Default, Copy, Clone)]
         struct PostEntity;
-        
+
         impl sea_query::Iden for UserEntity {
-            fn unquoted(&self) -> &'static str { "users" }
+            fn unquoted(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl sea_query::Iden for PostEntity {
-            fn unquoted(&self) -> &'static str { "posts" }
+            fn unquoted(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         #[derive(Copy, Clone, Debug)]
         enum UserColumn {
             Id,
         }
-        
+
         #[derive(Copy, Clone, Debug)]
         enum PostColumn {
             Id,
             UserId,
         }
-        
+
         impl sea_query::Iden for UserColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
@@ -791,7 +823,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl sea_query::Iden for PostColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
@@ -800,7 +832,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl IdenStatic for UserColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -808,9 +840,9 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(UserColumn);
-        
+
         impl IdenStatic for PostColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -819,49 +851,57 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(PostColumn);
-        
+
         impl LifeEntityName for UserEntity {
-            fn table_name(&self) -> &'static str { "users" }
+            fn table_name(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl LifeEntityName for PostEntity {
-            fn table_name(&self) -> &'static str { "posts" }
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         impl LifeModelTrait for UserEntity {
             type Model = UserModel;
             type Column = UserColumn;
         }
-        
+
         impl LifeModelTrait for PostEntity {
             type Model = PostModel;
             type Column = PostColumn;
         }
-        
+
         // Define test models
         #[derive(Clone, Debug)]
         struct UserModel {
             id: i32,
         }
-        
+
         #[derive(Clone, Debug)]
         struct PostModel {
             id: i32,
             user_id: i32,
         }
-        
+
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
-            
+
             fn get(&self, column: UserColumn) -> sea_query::Value {
                 match column {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
             }
-            
-            fn set(&mut self, column: UserColumn, value: sea_query::Value) -> Result<(), crate::ModelError> {
+
+            fn set(
+                &mut self,
+                column: UserColumn,
+                value: sea_query::Value,
+            ) -> Result<(), crate::ModelError> {
                 match column {
                     UserColumn::Id => {
                         if let sea_query::Value::Int(Some(v)) = value {
@@ -877,31 +917,35 @@ mod tests {
                     }
                 }
             }
-            
+
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
-            
+
             fn get_primary_key_identity(&self) -> Identity {
                 Identity::Unary(sea_query::DynIden::from(UserColumn::Id.as_str()))
             }
-            
+
             fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
                 vec![sea_query::Value::Int(Some(self.id))]
             }
         }
-        
+
         impl ModelTrait for PostModel {
             type Entity = PostEntity;
-            
+
             fn get(&self, column: PostColumn) -> sea_query::Value {
                 match column {
                     PostColumn::Id => sea_query::Value::Int(Some(self.id)),
                     PostColumn::UserId => sea_query::Value::Int(Some(self.user_id)),
                 }
             }
-            
-            fn set(&mut self, column: PostColumn, value: sea_query::Value) -> Result<(), crate::ModelError> {
+
+            fn set(
+                &mut self,
+                column: PostColumn,
+                value: sea_query::Value,
+            ) -> Result<(), crate::ModelError> {
                 match column {
                     PostColumn::Id => {
                         if let sea_query::Value::Int(Some(v)) = value {
@@ -929,27 +973,33 @@ mod tests {
                     }
                 }
             }
-            
+
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
-            
+
             fn get_primary_key_identity(&self) -> Identity {
                 Identity::Unary(sea_query::DynIden::from(PostColumn::Id.as_str()))
             }
-            
+
             fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
                 vec![sea_query::Value::Int(Some(self.id))]
             }
         }
-        
+
         // Define relationship: User has_many Posts
         impl Related<PostEntity> for UserEntity {
             fn to() -> RelationDef {
                 RelationDef {
                     rel_type: RelationType::HasMany,
-                    from_tbl: TableRef::Table(TableName(None, UserEntity::table_name(&UserEntity).into_iden()), None),
-                    to_tbl: TableRef::Table(TableName(None, PostEntity::table_name(&PostEntity).into_iden()), None),
+                    from_tbl: TableRef::Table(
+                        TableName(None, UserEntity::table_name(&UserEntity).into_iden()),
+                        None,
+                    ),
+                    to_tbl: TableRef::Table(
+                        TableName(None, PostEntity::table_name(&PostEntity).into_iden()),
+                        None,
+                    ),
                     from_col: Identity::Unary(sea_query::DynIden::from(UserColumn::Id.as_str())),
                     to_col: Identity::Unary(sea_query::DynIden::from(PostColumn::UserId.as_str())),
                     through_tbl: None,
@@ -962,7 +1012,7 @@ mod tests {
                 }
             }
         }
-        
+
         // Test that find_related() can be called on a Model instance
         // This verifies that Models (which only implement ModelTrait, not LifeModelTrait)
         // can use FindRelated trait
@@ -978,119 +1028,134 @@ mod tests {
         // This is a compile-time test - if it compiles, the trait works
         use crate::relation::def::{RelationDef, RelationType};
         use crate::relation::identity::Identity;
-        use sea_query::{TableName, IntoIden, ConditionType, Iden};
-        
+        use sea_query::{ConditionType, Iden, IntoIden, TableName};
+
         // Define a simple linked relationship for testing
         #[derive(Default, Copy, Clone)]
         struct TestUser;
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum TestUserColumn { Id }
+        enum TestUserColumn {
+            Id,
+        }
         impl sea_query::Iden for TestUserColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
         impl IdenStatic for TestUserColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TestUserColumn);
-        
+
         impl Iden for TestUser {
             fn unquoted(&self) -> &'static str {
                 "users"
             }
-            
         }
-        
+
         impl LifeEntityName for TestUser {
             fn table_name(&self) -> &'static str {
                 "users"
             }
-            
         }
-        
+
         impl LifeModelTrait for TestUser {
             type Model = ();
             type Column = TestUserColumn;
         }
-        
-        
+
         #[derive(Default, Copy, Clone)]
         struct TestPost;
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum TestPostColumn { Id }
+        enum TestPostColumn {
+            Id,
+        }
         impl sea_query::Iden for TestPostColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
         impl IdenStatic for TestPostColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TestPostColumn);
-        
+
         impl Iden for TestPost {
             fn unquoted(&self) -> &'static str {
                 "posts"
             }
-            
         }
-        
+
         impl LifeEntityName for TestPost {
             fn table_name(&self) -> &'static str {
                 "posts"
             }
-            
         }
-        
+
         impl LifeModelTrait for TestPost {
             type Model = ();
             type Column = TestPostColumn;
         }
-        
-        
+
         #[derive(Default, Copy, Clone)]
         struct TestComment;
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum TestCommentColumn { Id }
+        enum TestCommentColumn {
+            Id,
+        }
         impl sea_query::Iden for TestCommentColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
         impl IdenStatic for TestCommentColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TestCommentColumn);
-        
+
         impl Iden for TestComment {
             fn unquoted(&self) -> &'static str {
                 "comments"
             }
-            
         }
-        
+
         impl LifeEntityName for TestComment {
             fn table_name(&self) -> &'static str {
                 "comments"
             }
-            
         }
-        
+
         impl LifeModelTrait for TestComment {
             type Model = ();
             type Column = TestCommentColumn;
         }
-        
-        
+
         impl Linked<TestPost, TestComment> for TestUser {
             fn via() -> Vec<RelationDef> {
                 vec![
                     // First hop: User -> Post
                     RelationDef {
                         rel_type: RelationType::HasMany,
-                        from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
-                        to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
+                        from_tbl: sea_query::TableRef::Table(
+                            TableName(None, "users".into_iden()),
+                            None,
+                        ),
+                        to_tbl: sea_query::TableRef::Table(
+                            TableName(None, "posts".into_iden()),
+                            None,
+                        ),
                         from_col: Identity::Unary("id".into()),
                         to_col: Identity::Unary("user_id".into()),
                         through_tbl: None,
@@ -1104,8 +1169,14 @@ mod tests {
                     // Second hop: Post -> Comment
                     RelationDef {
                         rel_type: RelationType::HasMany,
-                        from_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
-                        to_tbl: sea_query::TableRef::Table(TableName(None, "comments".into_iden()), None),
+                        from_tbl: sea_query::TableRef::Table(
+                            TableName(None, "posts".into_iden()),
+                            None,
+                        ),
+                        to_tbl: sea_query::TableRef::Table(
+                            TableName(None, "comments".into_iden()),
+                            None,
+                        ),
                         from_col: Identity::Unary("id".into()),
                         to_col: Identity::Unary("post_id".into()),
                         through_tbl: None,
@@ -1119,7 +1190,7 @@ mod tests {
                 ]
             }
         }
-        
+
         // Verify the trait can be used
         let path = <TestUser as Linked<TestPost, TestComment>>::via();
         assert_eq!(path.len(), 2);
@@ -1131,89 +1202,111 @@ mod tests {
         // Test that find_linked() builds a query with proper joins
         // This is a compile-time test to verify the function signature
         use crate::relation::traits::FindLinked;
-        use sea_query::{TableName, IntoIden, TableRef};
-        
+        use sea_query::{IntoIden, TableName, TableRef};
+
         #[derive(Default, Copy, Clone)]
         struct UserEntity;
-        
+
         impl sea_query::Iden for UserEntity {
-            fn unquoted(&self) -> &'static str { "users" }
+            fn unquoted(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl LifeEntityName for UserEntity {
-            fn table_name(&self) -> &'static str { "users" }
+            fn table_name(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl LifeModelTrait for UserEntity {
             type Model = UserModel;
             type Column = UserColumn;
         }
-        
+
         #[derive(Default, Copy, Clone)]
         struct PostEntity;
-        
+
         impl sea_query::Iden for PostEntity {
-            fn unquoted(&self) -> &'static str { "posts" }
+            fn unquoted(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         impl LifeEntityName for PostEntity {
-            fn table_name(&self) -> &'static str { "posts" }
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         impl LifeModelTrait for PostEntity {
             type Model = PostModel;
             type Column = PostColumn;
         }
-        
+
         #[derive(Default, Copy, Clone)]
         struct CommentEntity;
-        
+
         impl sea_query::Iden for CommentEntity {
-            fn unquoted(&self) -> &'static str { "comments" }
+            fn unquoted(&self) -> &'static str {
+                "comments"
+            }
         }
-        
+
         impl LifeEntityName for CommentEntity {
-            fn table_name(&self) -> &'static str { "comments" }
+            fn table_name(&self) -> &'static str {
+                "comments"
+            }
         }
-        
+
         impl LifeModelTrait for CommentEntity {
             type Model = CommentModel;
             type Column = CommentColumn;
         }
-        
+
         #[derive(Clone, Debug)]
-        struct UserModel { id: i32 }
+        struct UserModel {
+            id: i32,
+        }
         #[derive(Clone, Debug)]
         struct PostModel;
         #[derive(Clone, Debug)]
         struct CommentModel;
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum UserColumn { Id }
-        
+        enum UserColumn {
+            Id,
+        }
+
         impl sea_query::Iden for UserColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         impl IdenStatic for UserColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(UserColumn);
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum PostColumn { Id, UserId }
-        
+        enum PostColumn {
+            Id,
+            UserId,
+        }
+
         impl sea_query::Iden for PostColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
                     PostColumn::Id => "id",
                     PostColumn::UserId => "user_id",
                 }
-                
             }
         }
-        
+
         impl IdenStatic for PostColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -1222,22 +1315,24 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(PostColumn);
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum CommentColumn { Id, PostId }
-        
+        enum CommentColumn {
+            Id,
+            PostId,
+        }
+
         impl sea_query::Iden for CommentColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
                     CommentColumn::Id => "id",
                     CommentColumn::PostId => "post_id",
                 }
-                
             }
         }
-        
+
         impl IdenStatic for CommentColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -1246,23 +1341,28 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(CommentColumn);
-        
+
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
             fn get(&self, col: UserColumn) -> sea_query::Value {
                 match col {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
-                
             }
             #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
-            fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn set(
+                &mut self,
+                _col: UserColumn,
+                _val: sea_query::Value,
+            ) -> Result<(), crate::model::ModelError> {
+                todo!()
+            }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
-            
+
             fn get_primary_key_identity(&self) -> Identity {
                 Identity::Unary("id".into())
             }
@@ -1270,12 +1370,15 @@ mod tests {
                 vec![sea_query::Value::Int(Some(self.id))]
             }
         }
-        
+
         impl Related<PostEntity> for UserEntity {
             fn to() -> RelationDef {
                 RelationDef {
                     rel_type: RelationType::HasMany,
-                    from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                    from_tbl: sea_query::TableRef::Table(
+                        TableName(None, "users".into_iden()),
+                        None,
+                    ),
                     to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
                     from_col: Identity::Unary("id".into()),
                     to_col: Identity::Unary("user_id".into()),
@@ -1289,7 +1392,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl Related<CommentEntity> for PostEntity {
             fn to() -> RelationDef {
                 RelationDef {
@@ -1308,7 +1411,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl Linked<PostEntity, CommentEntity> for UserEntity {
             fn via() -> Vec<RelationDef> {
                 vec![
@@ -1317,11 +1420,13 @@ mod tests {
                 ]
             }
         }
-        
+
         let user = UserModel { id: 1 };
-        
+
         // Verify find_linked() returns a query
-        let _query = user.find_linked::<PostEntity, CommentEntity>().expect("find_linked");
+        let _query = user
+            .find_linked::<PostEntity, CommentEntity>()
+            .expect("find_linked");
         // Just verify it compiles - the actual query execution would require an executor
     }
 
@@ -1331,97 +1436,124 @@ mod tests {
         // Test that find_linked() works with three-hop relationships
         // User → Posts → Comments → Reactions
         use crate::relation::traits::FindLinked;
-        use sea_query::{TableName, IntoIden, TableRef};
-        
+        use sea_query::{IntoIden, TableName, TableRef};
+
         #[derive(Default, Copy, Clone)]
         struct UserEntity;
-        
+
         impl sea_query::Iden for UserEntity {
-            fn unquoted(&self) -> &'static str { "users" }
+            fn unquoted(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl LifeEntityName for UserEntity {
-            fn table_name(&self) -> &'static str { "users" }
+            fn table_name(&self) -> &'static str {
+                "users"
+            }
         }
-        
+
         impl LifeModelTrait for UserEntity {
             type Model = UserModel;
             type Column = UserColumn;
         }
-        
+
         #[derive(Default, Copy, Clone)]
         struct PostEntity;
-        
+
         impl sea_query::Iden for PostEntity {
-            fn unquoted(&self) -> &'static str { "posts" }
+            fn unquoted(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         impl LifeEntityName for PostEntity {
-            fn table_name(&self) -> &'static str { "posts" }
+            fn table_name(&self) -> &'static str {
+                "posts"
+            }
         }
-        
+
         impl LifeModelTrait for PostEntity {
             type Model = PostModel;
             type Column = PostColumn;
         }
-        
+
         #[derive(Default, Copy, Clone)]
         struct CommentEntity;
-        
+
         impl sea_query::Iden for CommentEntity {
-            fn unquoted(&self) -> &'static str { "comments" }
+            fn unquoted(&self) -> &'static str {
+                "comments"
+            }
         }
-        
+
         impl LifeEntityName for CommentEntity {
-            fn table_name(&self) -> &'static str { "comments" }
+            fn table_name(&self) -> &'static str {
+                "comments"
+            }
         }
-        
+
         impl LifeModelTrait for CommentEntity {
             type Model = CommentModel;
             type Column = CommentColumn;
         }
-        
+
         #[derive(Default, Copy, Clone)]
         struct ReactionEntity;
-        
+
         impl sea_query::Iden for ReactionEntity {
-            fn unquoted(&self) -> &'static str { "reactions" }
+            fn unquoted(&self) -> &'static str {
+                "reactions"
+            }
         }
-        
+
         impl LifeEntityName for ReactionEntity {
-            fn table_name(&self) -> &'static str { "reactions" }
+            fn table_name(&self) -> &'static str {
+                "reactions"
+            }
         }
-        
+
         impl LifeModelTrait for ReactionEntity {
             type Model = ReactionModel;
             type Column = ReactionColumn;
         }
-        
+
         #[derive(Clone, Debug)]
-        struct UserModel { id: i32 }
+        struct UserModel {
+            id: i32,
+        }
         #[derive(Clone, Debug)]
         struct PostModel;
         #[derive(Clone, Debug)]
         struct CommentModel;
         #[derive(Clone, Debug)]
         struct ReactionModel;
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum UserColumn { Id }
-        
+        enum UserColumn {
+            Id,
+        }
+
         impl sea_query::Iden for UserColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         impl IdenStatic for UserColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(UserColumn);
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum PostColumn { Id, UserId }
-        
+        enum PostColumn {
+            Id,
+            UserId,
+        }
+
         impl sea_query::Iden for PostColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
@@ -1430,7 +1562,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl IdenStatic for PostColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -1439,22 +1571,24 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(PostColumn);
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum CommentColumn { Id, PostId }
-        
+        enum CommentColumn {
+            Id,
+            PostId,
+        }
+
         impl sea_query::Iden for CommentColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
                     CommentColumn::Id => "id",
                     CommentColumn::PostId => "post_id",
                 }
-                
             }
         }
-        
+
         impl IdenStatic for CommentColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -1463,22 +1597,24 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(CommentColumn);
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum ReactionColumn { Id, CommentId }
-        
+        enum ReactionColumn {
+            Id,
+            CommentId,
+        }
+
         impl sea_query::Iden for ReactionColumn {
             fn unquoted(&self) -> &'static str {
                 match self {
                     ReactionColumn::Id => "id",
                     ReactionColumn::CommentId => "comment_id",
                 }
-                
             }
         }
-        
+
         impl IdenStatic for ReactionColumn {
             fn as_str(&self) -> &'static str {
                 match self {
@@ -1487,23 +1623,28 @@ mod tests {
                 }
             }
         }
-        
+
         crate::impl_column_def_helper_for_test!(ReactionColumn);
-        
+
         impl ModelTrait for UserModel {
             type Entity = UserEntity;
             fn get(&self, col: UserColumn) -> sea_query::Value {
                 match col {
                     UserColumn::Id => sea_query::Value::Int(Some(self.id)),
                 }
-                
             }
             #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
-            fn set(&mut self, _col: UserColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn set(
+                &mut self,
+                _col: UserColumn,
+                _val: sea_query::Value,
+            ) -> Result<(), crate::model::ModelError> {
+                todo!()
+            }
             fn get_primary_key_value(&self) -> sea_query::Value {
                 sea_query::Value::Int(Some(self.id))
             }
-            
+
             fn get_primary_key_identity(&self) -> Identity {
                 Identity::Unary("id".into())
             }
@@ -1511,12 +1652,15 @@ mod tests {
                 vec![sea_query::Value::Int(Some(self.id))]
             }
         }
-        
+
         impl Related<PostEntity> for UserEntity {
             fn to() -> RelationDef {
                 RelationDef {
                     rel_type: RelationType::HasMany,
-                    from_tbl: sea_query::TableRef::Table(TableName(None, "users".into_iden()), None),
+                    from_tbl: sea_query::TableRef::Table(
+                        TableName(None, "users".into_iden()),
+                        None,
+                    ),
                     to_tbl: sea_query::TableRef::Table(TableName(None, "posts".into_iden()), None),
                     from_col: Identity::Unary("id".into()),
                     to_col: Identity::Unary("user_id".into()),
@@ -1530,7 +1674,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl Related<CommentEntity> for PostEntity {
             fn to() -> RelationDef {
                 RelationDef {
@@ -1549,7 +1693,7 @@ mod tests {
                 }
             }
         }
-        
+
         impl Related<ReactionEntity> for CommentEntity {
             fn to() -> RelationDef {
                 RelationDef {
@@ -1568,7 +1712,7 @@ mod tests {
                 }
             }
         }
-        
+
         // Three-hop: User → Posts → Comments → Reactions
         impl Linked<PostEntity, CommentEntity> for UserEntity {
             fn via() -> Vec<RelationDef> {
@@ -1578,14 +1722,16 @@ mod tests {
                 ]
             }
         }
-        
+
         // Note: We can't directly do User → Reactions in one Linked, but we can chain
         // For this test, we verify the three-hop path compiles
         let user = UserModel { id: 1 };
-        
+
         // First hop: User → Comments (through Posts)
-        let _comments_query = user.find_linked::<PostEntity, CommentEntity>().expect("find_linked");
-        
+        let _comments_query = user
+            .find_linked::<PostEntity, CommentEntity>()
+            .expect("find_linked");
+
         // Verify it compiles - actual execution would require executor setup
     }
 
@@ -1594,119 +1740,158 @@ mod tests {
     fn test_find_linked_empty_path() {
         // Empty `via()` must not return an unrestricted target query
         use crate::relation::traits::FindLinked;
-        
+
         #[derive(Default, Copy, Clone)]
         struct TestEntity;
-        
+
         impl sea_query::Iden for TestEntity {
-            fn unquoted(&self) -> &'static str { "test" }
+            fn unquoted(&self) -> &'static str {
+                "test"
+            }
         }
-        
+
         impl LifeEntityName for TestEntity {
-            fn table_name(&self) -> &'static str { "test" }
+            fn table_name(&self) -> &'static str {
+                "test"
+            }
         }
-        
+
         impl LifeModelTrait for TestEntity {
             type Model = TestModel;
             type Column = TestColumn;
         }
-        
+
         #[derive(Clone, Debug)]
         struct TestModel;
         #[derive(Default, Copy, Clone)]
         struct IntermediateEntity;
         #[derive(Default, Copy, Clone)]
         struct TargetEntity;
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum TestColumn { Id }
-        
+        enum TestColumn {
+            Id,
+        }
+
         impl sea_query::Iden for TestColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         impl IdenStatic for TestColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TestColumn);
-        
+
         impl sea_query::Iden for IntermediateEntity {
-            fn unquoted(&self) -> &'static str { "intermediate" }
+            fn unquoted(&self) -> &'static str {
+                "intermediate"
+            }
         }
-        
+
         impl sea_query::Iden for TargetEntity {
-            fn unquoted(&self) -> &'static str { "target" }
+            fn unquoted(&self) -> &'static str {
+                "target"
+            }
         }
-        
-        
+
         impl LifeEntityName for IntermediateEntity {
-            fn table_name(&self) -> &'static str { "intermediate" }
+            fn table_name(&self) -> &'static str {
+                "intermediate"
+            }
         }
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum IntermediateColumn { Id }
-        
+        enum IntermediateColumn {
+            Id,
+        }
+
         impl sea_query::Iden for IntermediateColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         impl IdenStatic for IntermediateColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(IntermediateColumn);
-        
+
         impl LifeModelTrait for IntermediateEntity {
             type Model = ();
             type Column = IntermediateColumn;
         }
-        
-        
+
         impl LifeEntityName for TargetEntity {
-            fn table_name(&self) -> &'static str { "target" }
+            fn table_name(&self) -> &'static str {
+                "target"
+            }
         }
-        
+
         #[derive(Copy, Clone, Debug)]
-        enum TargetColumn { Id }
-        
+        enum TargetColumn {
+            Id,
+        }
+
         impl sea_query::Iden for TargetColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
-        
+
         impl IdenStatic for TargetColumn {
-            fn as_str(&self) -> &'static str { "id" }
+            fn as_str(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         crate::impl_column_def_helper_for_test!(TargetColumn);
-        
+
         impl LifeModelTrait for TargetEntity {
             type Model = ();
             type Column = TargetColumn;
         }
-        
-        
+
         impl ModelTrait for TestModel {
             type Entity = TestEntity;
             #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
-            fn get(&self, _col: TestColumn) -> sea_query::Value { todo!() }
+            fn get(&self, _col: TestColumn) -> sea_query::Value {
+                todo!()
+            }
             #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
-            fn set(&mut self, _col: TestColumn, _val: sea_query::Value) -> Result<(), crate::model::ModelError> { todo!() }
+            fn set(
+                &mut self,
+                _col: TestColumn,
+                _val: sea_query::Value,
+            ) -> Result<(), crate::model::ModelError> {
+                todo!()
+            }
             #[allow(clippy::todo)] // Test code - todo!() is acceptable for unimplemented test helpers
-            fn get_primary_key_value(&self) -> sea_query::Value { todo!() }
-            fn get_primary_key_identity(&self) -> Identity { Identity::Unary("id".into()) }
-            fn get_primary_key_values(&self) -> Vec<sea_query::Value> { vec![] }
+            fn get_primary_key_value(&self) -> sea_query::Value {
+                todo!()
+            }
+            fn get_primary_key_identity(&self) -> Identity {
+                Identity::Unary("id".into())
+            }
+            fn get_primary_key_values(&self) -> Vec<sea_query::Value> {
+                vec![]
+            }
         }
-        
-        
+
         impl super::Linked<IntermediateEntity, TargetEntity> for TestEntity {
             fn via() -> Vec<RelationDef> {
                 // Return empty path to test edge case
                 vec![]
             }
         }
-        
+
         let model = TestModel;
         if let Err(e) = model.find_linked::<IntermediateEntity, TargetEntity>() {
             let msg = e.to_string();

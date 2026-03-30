@@ -1,82 +1,274 @@
 //! WAL Lag Monitoring
 //!
-//! Spawns a background coroutine to periodically poll PostgreSQL replica lag to determine
-//! if reads are safe to route to the replica or if they must fall back to the primary.
+//! Spawns a background **OS thread** to periodically poll PostgreSQL replica lag so routing does
+//! not depend on the `may` scheduler or coroutine stack size (same rationale as [`super::pooled`] workers).
 
-use may::coroutine;
+use super::config::LifeguardPoolSettings;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
+/// Session-level guardrails so a dead TCP session cannot block the monitor loop indefinitely
+/// (e.g. Toxiproxy disabled: half-open reads may otherwise never return).
+///
+/// TODO: `pooled_read_falls_back_to_primary_when_replica_lagging` in `tests/db_integration` is
+/// `#[ignore]` until fault injection reliably flips [`WalLagMonitor::is_replica_lagging`] in CI.
+fn apply_wal_monitor_session(client: &may_postgres::Client) {
+    let _ = client.execute("SET statement_timeout = '3s'", &[]);
+}
+
+/// Policy for when [`WalLagMonitor`] treats a standby as **lagging** (PRD R7.2).
+///
+/// Byte lag uses `pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())` on the
+/// standby. Optional **apply lag** uses wall-clock time since `pg_last_xact_replay_timestamp()` on
+/// the standby (rough “how far behind primary commits” in time when transactions are flowing).
+#[derive(Debug, Clone)]
+pub struct WalLagPolicy {
+    /// **`0`** disables the byte criterion (unless both limits are off — see [`Self::from_pool_settings`]).
+    pub max_bytes: u64,
+    /// When **Some**, lagging if apply lag exceeds this duration.
+    pub max_apply_lag: Option<Duration>,
+}
+
+impl Default for WalLagPolicy {
+    fn default() -> Self {
+        Self {
+            max_bytes: 1_000_000,
+            max_apply_lag: None,
+        }
+    }
+}
+
+impl WalLagPolicy {
+    /// Builds an effective policy from [`LifeguardPoolSettings`].
+    ///
+    /// If **both** byte and time limits are disabled (`max_bytes == 0` and `max_apply_lag` is `None`),
+    /// the historical default **1_000_000** bytes is restored so routing stays conservative.
+    #[must_use]
+    pub fn from_pool_settings(settings: &LifeguardPoolSettings) -> Self {
+        let mut max_bytes = settings.wal_lag_max_bytes;
+        let max_apply_lag = settings.wal_lag_max_apply_lag;
+        if max_bytes == 0 && max_apply_lag.is_none() {
+            max_bytes = 1_000_000;
+        }
+        Self {
+            max_bytes,
+            max_apply_lag,
+        }
+    }
+
+    /// Returns `true` if the replica should be treated as lagging for routing.
+    #[must_use]
+    pub fn is_lagging(&self, lag_bytes: i64, lag_seconds: Option<f64>) -> bool {
+        let mut lagging = false;
+        if self.max_bytes > 0 && lag_bytes > i64::try_from(self.max_bytes).unwrap_or(i64::MAX) {
+            lagging = true;
+        }
+        if let Some(limit) = self.max_apply_lag {
+            let cap = limit.as_secs_f64();
+            if cap > 0.0 {
+                if let Some(s) = lag_seconds {
+                    if s > cap {
+                        lagging = true;
+                    }
+                }
+            }
+        }
+        lagging
+    }
+}
+
+/// Tracks whether a configured read replica is “lagging” for routing decisions.
+///
+/// A background thread polls the replica periodically; while lag is above an internal
+/// threshold, callers should treat reads as unsafe on the replica tier. See
+/// [`WalLagMonitor::start_monitor`] and the connection pooling PRD for evolution of lag semantics.
+///
+/// If initial connection fails repeatedly beyond [`LifeguardPoolSettings::wal_lag_monitor_max_connect_retries`],
+/// the monitor **gives up** (PRD R7.3): [`Self::is_replica_routing_disabled`] becomes `true`, reads use
+/// the primary tier, and a warning is logged (and a metric set when the `metrics` feature is on).
 #[derive(Clone)]
 pub struct WalLagMonitor {
     is_lagging: Arc<AtomicBool>,
+    replica_routing_disabled: Arc<AtomicBool>,
 }
 
 impl WalLagMonitor {
-    /// Starts a background coroutine that polls the database for WAL lag
-    /// 
-    /// In a real implementation, this will use a dedicated `may_postgres::Client`
-    /// to poll `pg_current_wal_lsn()` and `pg_last_wal_replay_lsn()` every 500ms.
+    /// Starts a background thread that polls the database for WAL lag every **500ms**,
+    /// using [`WalLagPolicy::default`] and unlimited initial connect retries.
+    #[must_use]
     pub fn start_monitor(replica_conn_string: String) -> Self {
+        Self::start_monitor_with_poll_interval(
+            replica_conn_string,
+            Duration::from_millis(500),
+            WalLagPolicy::default(),
+            0,
+        )
+    }
+
+    /// Starts a background thread that polls the database for WAL lag every `poll_interval`
+    /// (minimum **10ms**).
+    ///
+    /// `max_connect_retries`: **`0`** = retry forever (default). **`N > 0`** = give up after **N**
+    /// failed connect attempts; see [`Self::is_replica_routing_disabled`].
+    #[must_use]
+    pub fn start_monitor_with_poll_interval(
+        replica_conn_string: String,
+        poll_interval: Duration,
+        policy: WalLagPolicy,
+        max_connect_retries: u32,
+    ) -> Self {
+        let poll_interval = poll_interval.max(Duration::from_millis(10));
         let is_lagging = Arc::new(AtomicBool::new(false));
+        let replica_routing_disabled = Arc::new(AtomicBool::new(false));
         let lag_ref = is_lagging.clone();
-        
-        unsafe {
-            coroutine::spawn::<_, ()>(move || {
-            // Attempt to connect inside the coroutine so it doesn't block startup
-            // If connection fails, we assume lag is true to be safe and fall back to primary
-            let mut client = match may_postgres::connect(&replica_conn_string) {
-                Ok(c) => c,
-                Err(_) => {
-                    lag_ref.store(true, Ordering::Release);
-                    return;
+        let disabled_ref = replica_routing_disabled.clone();
+
+        let handle = thread::spawn(move || {
+            // Retry initial connect with backoff (PRD R7.1); optional cap (PRD R7.3).
+            let mut backoff = Duration::from_millis(200);
+            let backoff_cap = Duration::from_secs(5);
+            let mut attempts: u32 = 0;
+            let mut client = loop {
+                match may_postgres::connect(&replica_conn_string) {
+                    Ok(c) => {
+                        apply_wal_monitor_session(&c);
+                        break c;
+                    }
+                    Err(e) => {
+                        lag_ref.store(true, Ordering::Release);
+                        attempts = attempts.saturating_add(1);
+                        if max_connect_retries > 0 && attempts >= max_connect_retries {
+                            log::warn!(
+                                "lifeguard: WAL lag monitor stopped after {attempts} failed connect attempts to replica (last error: {e}); read queries use primary tier only until process restart",
+                            );
+                            disabled_ref.store(true, Ordering::Release);
+                            #[cfg(feature = "metrics")]
+                            crate::metrics::METRICS.set_wal_monitor_replica_routing_disabled(1);
+                            return;
+                        }
+                        thread::sleep(backoff);
+                        backoff = (backoff * 2).min(backoff_cap);
+                    }
                 }
             };
 
-            loop {
-                // Poll every 500ms as per design
-                coroutine::sleep(Duration::from_millis(500));
-                
-                // Simplified replica check using pg_is_in_recovery() and WAL replay
-                // (In PostgreSQL 10+, lsns are used: pg_last_wal_replay_lsn)
-                let query = "
-                    SELECT 
+            let query = "
+                SELECT
+                    (
                         CASE WHEN pg_is_in_recovery() THEN
-                            pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+                            pg_wal_lsn_diff(
+                                pg_last_wal_receive_lsn(),
+                                pg_last_wal_replay_lsn()
+                            )::bigint
                         ELSE
-                            0
-                        END as lag_bytes
-                ";
+                            0::bigint
+                        END
+                    ) AS lag_bytes,
+                    (
+                        CASE WHEN pg_is_in_recovery()
+                             AND pg_last_xact_replay_timestamp() IS NOT NULL THEN
+                            EXTRACT(EPOCH FROM (
+                                clock_timestamp() - pg_last_xact_replay_timestamp()
+                            ))::double precision
+                        ELSE
+                            NULL::double precision
+                        END
+                    ) AS lag_seconds
+            ";
+
+            loop {
+                thread::sleep(poll_interval);
 
                 match client.query_one(query, &[]) {
                     Ok(row) => {
                         let lag_bytes: i64 = row.get(0);
-                        // Define threshold (e.g., > 1 MB lag)
-                        let lagging = lag_bytes > 1_000_000;
+                        let lag_seconds: Option<f64> = row.get(1);
+                        let lagging = policy.is_lagging(lag_bytes, lag_seconds);
                         lag_ref.store(lagging, Ordering::Release);
                     }
                     Err(_) => {
-                        // On query error, assume lagging to route safely to primary
                         lag_ref.store(true, Ordering::Release);
-                        
-                        // Try to reconnect if the connection dropped
-                        if let Ok(new_client) = may_postgres::connect(&replica_conn_string) {
-                            client = new_client;
+                        // Drop dead sessions and try a fresh connect so the next poll does not spin on
+                        // a closed socket; when the path is still down (e.g. proxy fault), connect fails
+                        // and we keep reporting lagging until the replica is reachable again.
+                        if let Ok(c) = may_postgres::connect(&replica_conn_string) {
+                            apply_wal_monitor_session(&c);
+                            client = c;
                         }
                     }
                 }
             }
-            });
-        }
+        });
+
+        #[allow(clippy::mem_forget)]
+        std::mem::forget(handle);
 
         Self {
             is_lagging,
+            replica_routing_disabled,
         }
     }
 
-    /// Check if the replica is currently lagging
+    /// `true` when the replica is behind policy or the monitor could not query lag.
+    #[must_use]
     pub fn is_replica_lagging(&self) -> bool {
         self.is_lagging.load(Ordering::Acquire)
+            || self.replica_routing_disabled.load(Ordering::Acquire)
+    }
+
+    /// `true` when the monitor **gave up** connecting to the replica (PRD R7.3). Read routing uses
+    /// the primary tier until restart.
+    #[must_use]
+    pub fn is_replica_routing_disabled(&self) -> bool {
+        self.replica_routing_disabled.load(Ordering::Acquire)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn policy_default_bytes_only_over_1m() {
+        let p = WalLagPolicy::default();
+        assert!(!p.is_lagging(100, None));
+        assert!(p.is_lagging(1_000_001, None));
+        assert!(!p.is_lagging(1_000_000, None));
+    }
+
+    #[test]
+    fn policy_apply_lag_seconds() {
+        let p = WalLagPolicy {
+            max_bytes: 0,
+            max_apply_lag: Some(Duration::from_secs(10)),
+        };
+        assert!(!p.is_lagging(0, Some(5.0)));
+        assert!(p.is_lagging(0, Some(15.0)));
+        assert!(!p.is_lagging(0, None));
+    }
+
+    #[test]
+    fn policy_bytes_or_time() {
+        let p = WalLagPolicy {
+            max_bytes: 100,
+            max_apply_lag: Some(Duration::from_secs(2)),
+        };
+        assert!(p.is_lagging(200, Some(0.5)));
+        assert!(p.is_lagging(50, Some(5.0)));
+        assert!(!p.is_lagging(50, Some(1.0)));
+    }
+
+    #[test]
+    fn from_pool_settings_restores_default_bytes_when_both_off() {
+        let s = LifeguardPoolSettings {
+            wal_lag_max_bytes: 0,
+            wal_lag_max_apply_lag: None,
+            ..Default::default()
+        };
+        let p = WalLagPolicy::from_pool_settings(&s);
+        assert_eq!(p.max_bytes, 1_000_000);
+        assert!(p.is_lagging(2_000_000, None));
     }
 }

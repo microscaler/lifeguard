@@ -1,0 +1,15 @@
+[package]
+name = "lifeguard-reflector"
+version = "0.1.0"
+edition = "2021"
+license = "PROPRIETARY"
+repository = "https://github.com/microscaler/lifeguard"
+description = "Enterprise-grade distributed cache coherence microservice for Lifeguard ORM"
+authors = ["Microscaler, Inc. <enterprise@microscaler.io>"]
+
+[dependencies]
+# TODO: Add dependencies as implementation progresses
+# - PostgreSQL client for LISTEN/NOTIFY
+# - Redis client
+# - Raft consensus library
+# - Logging and observability

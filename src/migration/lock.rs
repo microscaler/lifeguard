@@ -1,11 +1,11 @@
 //! Flyway-style migration table-based locking mechanism
 
-use crate::LifeExecutor;
 use crate::migration::MigrationError;
-use std::time::{Instant, Duration};
+use crate::LifeExecutor;
+use std::time::{Duration, Instant};
 
 /// Reserved version number for lock record
-/// 
+///
 /// This value is never used for real migrations (which use positive timestamps).
 /// The lock record uses version = -1 to identify it as a lock, not a migration.
 const LOCK_VERSION: i64 = -1;
@@ -44,10 +44,10 @@ impl<'a> MigrationLockGuard<'a> {
     ) -> Result<Self, MigrationError> {
         let timeout = timeout_seconds.unwrap_or(60);
         acquire_migration_lock(executor, timeout)?;
-        
+
         Ok(Self { executor })
     }
-    
+
     /// Get a reference to the underlying executor
     #[must_use]
     pub fn executor(&self) -> &'a dyn LifeExecutor {
@@ -94,7 +94,7 @@ pub fn acquire_migration_lock(
 ) -> Result<(), MigrationError> {
     let start = Instant::now();
     let timeout = Duration::from_secs(timeout_seconds);
-    
+
     // Set a per-query timeout to prevent hanging queries
     // Use a shorter timeout per attempt (5 seconds) to detect hanging queries quickly
     // The overall timeout is still enforced by the loop
@@ -102,12 +102,12 @@ pub fn acquire_migration_lock(
     // We'll reset it after acquiring the lock
     let query_timeout_seconds = 5u64;
     let set_timeout_sql = format!("SET statement_timeout = '{query_timeout_seconds}s'");
-    
+
     // Set query timeout for this session
     // This ensures individual queries don't hang indefinitely
     // PostgreSQL will cancel queries that exceed this timeout
     let _ = executor.execute(&set_timeout_sql, &[]);
-    
+
     loop {
         // CRITICAL: Check overall timeout BEFORE attempting query
         // This prevents infinite loops if queries hang indefinitely
@@ -122,7 +122,7 @@ pub fn acquire_migration_lock(
                  the lock record: DELETE FROM lifeguard_migrations WHERE version = {LOCK_VERSION}"
             )));
         }
-        
+
         // Try to insert lock record
         // ON CONFLICT DO NOTHING ensures atomicity via PRIMARY KEY constraint
         let sql = format!(
@@ -132,7 +132,7 @@ pub fn acquire_migration_lock(
             ON CONFLICT (version) DO NOTHING
             "
         );
-        
+
         // Execute with timeout protection
         // If this query hangs, PostgreSQL will cancel it after query_timeout_seconds
         // We also check timeout before each attempt to catch cases where query never returns
@@ -161,14 +161,14 @@ pub fn acquire_migration_lock(
                 return Err(MigrationError::Database(e));
             }
         };
-        
+
         if rows_affected > 0 {
             // Lock acquired! We successfully inserted the lock record
             // Reset statement_timeout to default (unlimited) so it doesn't affect other operations
             let _ = executor.execute("RESET statement_timeout", &[]);
             return Ok(());
         }
-        
+
         // Lock already held by another process
         // Wait before retrying (100ms)
         std::thread::sleep(Duration::from_millis(100));
@@ -188,16 +188,13 @@ pub fn acquire_migration_lock(
 /// # Errors
 ///
 /// Returns `MigrationError::Database` if a database error occurs during lock release.
-pub fn release_migration_lock(
-    executor: &dyn LifeExecutor,
-) -> Result<(), MigrationError> {
-    let sql = format!(
-        "DELETE FROM lifeguard_migrations WHERE version = {LOCK_VERSION}"
-    );
-    
-    executor.execute(&sql, &[])
+pub fn release_migration_lock(executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
+    let sql = format!("DELETE FROM lifeguard_migrations WHERE version = {LOCK_VERSION}");
+
+    executor
+        .execute(&sql, &[])
         .map_err(MigrationError::Database)?;
-    
+
     Ok(())
 }
 
@@ -214,17 +211,13 @@ pub fn release_migration_lock(
 /// # Errors
 ///
 /// Returns `MigrationError::Database` if a database error occurs while checking the lock status.
-pub fn is_migration_lock_held(
-    executor: &dyn LifeExecutor,
-) -> Result<bool, MigrationError> {
-    let sql = format!(
-        "SELECT COUNT(*) FROM lifeguard_migrations WHERE version = {LOCK_VERSION}"
-    );
-    
-    let row = executor.query_one(&sql, &[])
+pub fn is_migration_lock_held(executor: &dyn LifeExecutor) -> Result<bool, MigrationError> {
+    let sql = format!("SELECT COUNT(*) FROM lifeguard_migrations WHERE version = {LOCK_VERSION}");
+
+    let row = executor
+        .query_one(&sql, &[])
         .map_err(MigrationError::Database)?;
-    
+
     let count: i64 = row.get(0);
     Ok(count > 0)
 }
-

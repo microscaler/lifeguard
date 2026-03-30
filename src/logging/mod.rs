@@ -293,7 +293,11 @@ mod tests {
 
     #[test]
     fn format_line_escapes_newlines_in_message() {
-        let r = LogRecord::new(LogLevel::Warn, "my::target", "a\n[999][INFO] fake next line");
+        let r = LogRecord::new(
+            LogLevel::Warn,
+            "my::target",
+            "a\n[999][INFO] fake next line",
+        );
         let line = r.format_line();
         assert!(
             !line.contains('\n') && !line.contains('\r'),
@@ -305,11 +309,16 @@ mod tests {
 
     #[test]
     fn format_line_escapes_cr_lf_in_message_and_span() {
-        let r = LogRecord::new(LogLevel::Info, "t", "x\ry")
-            .with_active_span("s\np");
+        let r = LogRecord::new(LogLevel::Info, "t", "x\ry").with_active_span("s\np");
         let line = r.format_line();
-        assert!(!line.contains('\n') && !line.contains('\r'), "line: {line:?}");
-        assert!(line.contains("\\r") && line.contains("\\n"), "line: {line:?}");
+        assert!(
+            !line.contains('\n') && !line.contains('\r'),
+            "line: {line:?}"
+        );
+        assert!(
+            line.contains("\\r") && line.contains("\\n"),
+            "line: {line:?}"
+        );
     }
 
     #[test]

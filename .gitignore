@@ -15,7 +15,7 @@ lifeguard-codegen/target/
 scripts/__pycache__/
 *.log
 .agent/session.log
-
+.cursor/plans/
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

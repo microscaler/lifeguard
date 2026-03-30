@@ -2,10 +2,12 @@
 //!
 //! This example demonstrates how to use the `TryIntoModel` trait and `DeriveTryIntoModel`
 //! macro to convert custom types (DTOs, request structs, etc.) into Model instances.
+//!
+//! Success paths print only the model **`id`** so sample name/email values are not written to stdout.
 
 #![allow(clippy::needless_update)]
 
-use lifeguard::{TryIntoModel, ModelTrait, LifeModelTrait, LifeEntityName};
+use lifeguard::{LifeEntityName, LifeModelTrait, ModelTrait, TryIntoModel};
 use lifeguard_derive::DeriveTryIntoModel;
 
 // Example Entity and Model (simplified for demonstration)
@@ -164,10 +166,9 @@ struct UpdateUserRequest {
 struct ExternalUserData {
     #[lifeguard(map_from = "name")]
     user_name: String,
-    
+
     #[lifeguard(map_from = "email")]
     user_email: String,
-    
     // id is missing - will use Default::default()
 }
 
@@ -177,67 +178,62 @@ fn main() {
         name: "John Doe".to_string(),
         email: "john@example.com".to_string(),
     };
-    
+
     let model: Result<UserModel, lifeguard::LifeError> = request.try_into_model();
     match model {
         Ok(user) => {
-            println!("Created user: id={}, name={}, email={}", user.id, user.name, user.email);
-            // Output: Created user: id=0, name=John Doe, email=john@example.com
+            println!("Created user model (id={})", user.id);
+            // Avoid logging PII (name/email) in examples; conversion success is shown by id.
         }
         Err(e) => {
             eprintln!("Failed to convert request to model: {e}");
         }
     }
-    
+
     // Example 2: Conversion with all fields
     let update_request = UpdateUserRequest {
         id: 42,
         name: "Jane Smith".to_string(),
         email: "jane@example.com".to_string(),
     };
-    
+
     let model: Result<UserModel, _> = update_request.try_into_model();
     match model {
         Ok(user) => {
-            println!("Updated user: id={}, name={}, email={}", user.id, user.name, user.email);
-            // Output: Updated user: id=42, name=Jane Smith, email=jane@example.com
+            println!("Updated user model (id={})", user.id);
         }
         Err(e) => {
             eprintln!("Failed to convert update request to model: {e}");
         }
     }
-    
+
     // Example 3: Conversion with custom field mapping
     let external_data = ExternalUserData {
         user_name: "Bob Johnson".to_string(),
         user_email: "bob@example.com".to_string(),
     };
-    
+
     let model: Result<UserModel, _> = external_data.try_into_model();
     match model {
         Ok(user) => {
-            println!("Converted external data: id={}, name={}, email={}", 
-                     user.id, user.name, user.email);
-            // Output: Converted external data: id=0, name=Bob Johnson, email=bob@example.com
+            println!("Converted external data to user model (id={})", user.id);
         }
         Err(e) => {
             eprintln!("Failed to convert external data to model: {e}");
         }
     }
-    
+
     // Example 4: Trivial self-conversion (default implementation)
     let user = UserModel {
         id: 100,
         name: "Self".to_string(),
         email: "self@example.com".to_string(),
     };
-    
+
     let converted: Result<UserModel, _> = user.try_into_model();
     match converted {
         Ok(model) => {
-            println!("Self-converted user: id={}, name={}, email={}", 
-                     model.id, model.name, model.email);
-            // Output: Self-converted user: id=100, name=Self, email=self@example.com
+            println!("Self-converted user model (id={})", model.id);
         }
         Err(_) => {
             // This should never happen for self-conversion (uses Infallible error type)

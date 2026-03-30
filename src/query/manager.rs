@@ -105,8 +105,8 @@
 //! }
 //! ```
 
-use crate::executor::{LifeExecutor, LifeError};
-use crate::query::traits::{LifeModelTrait, FromRow};
+use crate::executor::{LifeError, LifeExecutor};
+use crate::query::traits::{FromRow, LifeModelTrait};
 use may_postgres::types::ToSql;
 
 /// Trait for Model Manager patterns.
@@ -141,7 +141,6 @@ pub trait ModelManager: LifeModelTrait
 where
     <Self as LifeModelTrait>::Model: FromRow,
 {
-
     /// Find a model by its primary key ID.
     ///
     /// This is a convenience method that assumes the primary key column is named "id".
@@ -204,7 +203,9 @@ where
 
         // 2. Fallback to Primary DB Layer (using hardcoded "id" column)
         let model = Self::find()
-            .filter(sea_query::Expr::col(sea_query::Alias::new("id")).eq(sea_query::Expr::value(id)))
+            .filter(
+                sea_query::Expr::col(sea_query::Alias::new("id")).eq(sea_query::Expr::value(id)),
+            )
             .find_one(executor)?;
 
         // 3. Transparent Cache Write-Through
@@ -239,9 +240,7 @@ where
         executor: &Ex,
         condition: C,
     ) -> Result<Vec<<Self as LifeModelTrait>::Model>, LifeError> {
-        Self::find()
-            .filter(condition)
-            .all(executor)
+        Self::find().filter(condition).all(executor)
     }
 
     /// Count models matching a condition.
@@ -347,8 +346,7 @@ pub trait StoredProcedure: FromRow {
         params: &[&dyn ToSql],
     ) -> Result<Self, LifeError> {
         let row = crate::find_by_statement(executor, sql, params)?;
-        Self::from_row(&row)
-            .map_err(|e| LifeError::QueryError(e.to_string()))
+        Self::from_row(&row).map_err(|e| LifeError::QueryError(e.to_string()))
     }
 
     /// Call a stored procedure that returns multiple rows.

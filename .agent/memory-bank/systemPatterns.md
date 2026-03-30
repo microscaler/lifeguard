@@ -35,6 +35,14 @@
 - Comprehensive error handling with detailed error messages
 - Type-safe column access via enums
 
+## Connection pooling architecture
+
+**Direction:** Lifeguard’s pool is **Hikari-like**: an **in-process** pool for this application (sizing, acquire timeout, idle / max lifetime, keepalive or liveness checks, optional read-replica routing). Configuration and behavior should follow that mental model.
+
+**Non-goals:** Do **not** replicate **PgBouncer** (or similar proxy) responsibilities — cross-client multiplexing, transaction/statement pool modes, fleet-wide `max_client_conn` vs backend slot accounting, or global query queuing in front of Postgres. When that layer is needed, operators stand up **PgBouncer** (or equivalent) **beside** the app.
+
+**Rationale:** Keeps the crate focused on coroutine/session semantics and avoids rebuilding a separate product category that already has mature implementations.
+
 ## Procedural Macro Patterns
 
 ### Macro Expansion Order
@@ -137,6 +145,22 @@
 - Mark completed items with ✅
 - **Generated Code Comments**: Add warnings for missing primary keys, unknown types
 - **Bug Tracking**: All bugs must be documented in `.agent/bugs/` with detailed reports
+
+## Rustdoc hygiene (public API)
+
+**Rule:** Update **rustdoc** in the same change set as any **public** API or behavior change (`pub` items, re-exports, error variants users match on). Do not defer documentation to “when we are production ready”—the best time to capture intent and caveats is while the code is fresh.
+
+**Rationale:**
+- **docs.rs** and `cargo doc --open` are primary discovery paths; README and planning docs can lag.
+- Long-form PRDs under `docs/planning/` are **not** in the crates.io tarball; crate-level rustdoc should link to **GitHub** (or inline essentials) so published docs stay coherent.
+- Stale rustdoc is worse than “WIP” rustdoc: prefer honest **## Status** / **## Limitations** sections on modules and types.
+
+**Checklist when touching public API:**
+1. **`///` / `//!`** for new or changed `pub` items (summary line first, then details, errors, examples where non-obvious).
+2. **Cross-links** (`[`Type`]`, `[PRD](https://github.com/microscaler/lifeguard/blob/main/...)`) for related types and design context.
+3. **CHANGELOG** / release notes when the change is user-visible (semver implications).
+
+**Not required for every PR:** `#![warn(missing_docs)]` crate-wide until coverage is broad—opt-in per module or ratchet over time if the team wants enforcement.
 
 ## JSON Support Pattern
 - **Core Feature**: JSON is always enabled, no feature flags

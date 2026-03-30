@@ -16,9 +16,8 @@ use std::sync::{LazyLock, Mutex};
 /// accumulation when `apply_default_expr()` is called multiple times with
 /// the same expression (e.g., in tests or repeated migrations).
 #[cfg_attr(test, allow(dead_code))]
-static EXPR_CACHE: LazyLock<Mutex<HashMap<String, &'static str>>> = LazyLock::new(|| {
-    Mutex::new(HashMap::new())
-});
+static EXPR_CACHE: LazyLock<Mutex<HashMap<String, &'static str>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Get or create a static string reference for a SQL expression.
 ///
@@ -51,12 +50,12 @@ pub fn get_static_expr(expr: &str) -> &'static str {
         // This is safe for a cache - we just lose the lock protection temporarily
         poisoned.into_inner()
     });
-    
+
     // Check if we already have this expression cached
     if let Some(&cached) = cache.get(expr) {
         return cached;
     }
-    
+
     // Not in cache - leak it and store the reference
     let static_str: &'static str = Box::leak(expr.to_string().into_boxed_str());
     cache.insert(expr.to_string(), static_str);
@@ -67,8 +66,7 @@ pub fn get_static_expr(expr: &str) -> &'static str {
 ///
 /// Stores information about a column's type, nullability, default value, etc.
 /// This is used by `ColumnTrait::def()` to provide column metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[allow(clippy::struct_excessive_bools)] // Column metadata requires multiple boolean flags
 pub struct ColumnDefinition {
     /// Column type (e.g., `"Integer"`, `"String"`, `"Json"`)
@@ -100,7 +98,6 @@ pub struct ColumnDefinition {
     /// CHECK constraint expression (column-level)
     pub check: Option<String>,
 }
-
 
 impl ColumnDefinition {
     /// Convert to `SeaQuery`'s `ColumnDef` for use in migrations
@@ -151,7 +148,7 @@ impl ColumnDefinition {
     /// ```
     pub fn to_column_def<T: Iden>(&self, column_name: T) -> ColumnDef {
         let mut def = ColumnDef::new(column_name);
-        
+
         // Map column type string to `SeaQuery` `ColumnType`
         if let Some(ref col_type) = self.column_type {
             type_mapping::apply_column_type(col_type, &mut def);
@@ -159,19 +156,19 @@ impl ColumnDefinition {
             // No type specified, default to text
             def.text();
         }
-        
+
         // Set nullable if applicable
         if self.nullable {
             def.null();
         } else {
             def.not_null();
         }
-        
+
         // Set auto-increment if applicable
         if self.auto_increment {
             def.auto_increment();
         }
-        
+
         // Set default value if provided
         if let Some(ref _default) = self.default_value {
             // Note: `SeaQuery`'s `default_value()` expects an `Expr`, not a string
@@ -180,7 +177,7 @@ impl ColumnDefinition {
             // parsing SQL expressions or providing a more structured default value type
             // For migrations, users can manually set defaults using `SeaQuery`'s API
         }
-        
+
         // Set default SQL expression if provided
         // Note: Expr::cust() requires &'static str, but we have &String
         // For now, we store the expression as metadata and migration builders
@@ -193,15 +190,15 @@ impl ColumnDefinition {
             // Migration builders should use: Expr::cust(expr_str) and then def.default(expr)
             // For now, we just store the metadata - actual application happens in migrations
         }
-        
+
         // Note: Unique and indexed constraints are typically handled separately
         // in `SeaQuery` via `IndexDef`, not `ColumnDef`. The metadata is preserved
         // in ColumnDefinition for reference, but actual unique/index creation
         // should be done via migration builders.
-        
+
         def
     }
-    
+
     /// Apply default expression to a `ColumnDef` (for use in migrations)
     ///
     /// This helper method applies the default SQL expression to a `ColumnDef`.
@@ -236,7 +233,7 @@ impl ColumnDefinition {
     /// ```
     pub fn apply_default_expr(&self, def: &mut ColumnDef) {
         use sea_query::Expr;
-        
+
         if let Some(ref expr_str) = self.default_expr {
             // Use cached static string to avoid leaking memory on every call
             let static_str = get_static_expr(expr_str);
@@ -244,7 +241,7 @@ impl ColumnDefinition {
             def.default(expr);
         }
     }
-    
+
     /// Generate COMMENT ON COLUMN SQL statement (for use in migrations)
     ///
     /// This helper method generates a `PostgreSQL` `COMMENT ON COLUMN` SQL statement
@@ -288,12 +285,12 @@ impl ColumnDefinition {
                 eprintln!("WARNING: comment_sql() called with invalid table name: {err}");
                 // Continue anyway - the caller should fix this
             }
-            
+
             if let Some(err) = Self::validate_identifier(column_name, "Column") {
                 eprintln!("WARNING: comment_sql() called with invalid column name: {err}");
                 // Continue anyway - the caller should fix this
             }
-            
+
             // Escape backslashes first (order matters: backslashes before single quotes)
             // Then escape single quotes in comment text for SQL
             let escaped_comment = comment.replace('\\', "\\\\").replace('\'', "''");
@@ -304,7 +301,7 @@ impl ColumnDefinition {
             None
         }
     }
-    
+
     /// Validate identifier name to prevent SQL injection
     ///
     /// Checks for dangerous characters that could be used for SQL injection.
@@ -314,7 +311,7 @@ impl ColumnDefinition {
         if name.is_empty() {
             return Some(format!("{kind} name cannot be empty"));
         }
-        
+
         // Check for dangerous characters that could be used for SQL injection
         // `PostgreSQL` identifiers can contain letters, digits, underscores, and dollar signs
         // but we'll be more restrictive for safety
@@ -326,7 +323,7 @@ impl ColumnDefinition {
                 ));
             }
         }
-        
+
         // Check for dangerous SQL patterns (multi-character sequences)
         let dangerous_patterns = ["--", "/*", "*/"];
         for pattern in &dangerous_patterns {
@@ -336,22 +333,22 @@ impl ColumnDefinition {
                 ));
             }
         }
-        
+
         // Check for SQL keywords that could be problematic (basic check)
         // Note: This is a simple check - full keyword validation would be more complex
-        let sql_keywords = ["DROP", "DELETE", "INSERT", "UPDATE", "SELECT", "ALTER", "CREATE"];
+        let sql_keywords = [
+            "DROP", "DELETE", "INSERT", "UPDATE", "SELECT", "ALTER", "CREATE",
+        ];
         let upper_name = name.to_uppercase();
         for keyword in &sql_keywords {
             if upper_name == *keyword {
-                return Some(format!(
-                    "{kind} name cannot be a SQL keyword: '{keyword}'"
-                ));
+                return Some(format!("{kind} name cannot be a SQL keyword: '{keyword}'"));
             }
         }
-        
+
         None
     }
-    
+
     /// Create a `ColumnDefinition` from a Rust type
     ///
     /// This helper function infers column metadata from a Rust type.
@@ -367,11 +364,7 @@ impl ColumnDefinition {
     ///
     /// Returns a `ColumnDefinition` with inferred metadata.
     #[must_use]
-    pub fn from_rust_type(
-        rust_type: &str,
-        is_primary_key: bool,
-        is_auto_increment: bool,
-    ) -> Self {
+    pub fn from_rust_type(rust_type: &str, is_primary_key: bool, is_auto_increment: bool) -> Self {
         let (inner_type, nullable) = if rust_type.starts_with("Option<") {
             // Extract inner type from Option<T>
             let inner = rust_type
@@ -382,7 +375,7 @@ impl ColumnDefinition {
         } else {
             (rust_type, false)
         };
-        
+
         let column_type = match inner_type {
             "i32" => Some("Integer".to_string()),
             "i64" => Some("BigInt".to_string()),
@@ -396,7 +389,9 @@ impl ColumnDefinition {
             "f64" => Some("Double".to_string()),
             _ => {
                 // Try to infer from common patterns
-                if inner_type == "Vec<u8>" || inner_type.starts_with("Vec<") && inner_type.contains("u8") {
+                if inner_type == "Vec<u8>"
+                    || inner_type.starts_with("Vec<") && inner_type.contains("u8")
+                {
                     Some("Binary".to_string())
                 } else if inner_type.contains("Json") {
                     Some("Json".to_string())
@@ -409,7 +404,7 @@ impl ColumnDefinition {
                 }
             }
         };
-        
+
         Self {
             column_type,
             nullable,
@@ -420,7 +415,7 @@ impl ColumnDefinition {
             save_as: None,
             comment: None,
             primary_key: is_primary_key,
-            unique: is_primary_key, // Primary keys are typically unique
+            unique: is_primary_key,  // Primary keys are typically unique
             indexed: is_primary_key, // Primary keys are typically indexed
             auto_increment: is_auto_increment,
             foreign_key: None,
@@ -469,7 +464,7 @@ mod tests {
             foreign_key: None,
             check: None,
         };
-        
+
         assert_eq!(def.column_type, Some("String".to_string()));
         assert!(def.nullable);
         assert_eq!(def.default_value, Some("''".to_string()));
@@ -498,20 +493,22 @@ mod tests {
             foreign_key: None,
             check: None,
         };
-        
+
         // Test that to_column_def compiles and works
         #[allow(clippy::items_after_statements)] // Test code - struct definition after statement is acceptable
         struct TestColumn;
         #[allow(clippy::items_after_statements)] // Test code - impl after struct is acceptable
         impl sea_query::Iden for TestColumn {
-            fn unquoted(&self) -> &'static str { "id" }
+            fn unquoted(&self) -> &'static str {
+                "id"
+            }
         }
-        
+
         let column_def = def.to_column_def(TestColumn);
         // Can't easily test the ColumnDef internals, but we can verify it doesn't panic
         let _ = column_def;
     }
-    
+
     #[test]
     fn test_column_definition_apply_default_expr() {
         let def = ColumnDefinition {
@@ -530,26 +527,28 @@ mod tests {
             foreign_key: None,
             check: None,
         };
-        
+
         #[allow(clippy::items_after_statements)] // Test code - struct definition after statement is acceptable
         struct TestColumn;
         #[allow(clippy::items_after_statements)] // Test code - impl after struct is acceptable
         impl sea_query::Iden for TestColumn {
-            fn unquoted(&self) -> &'static str { "created_at" }
+            fn unquoted(&self) -> &'static str {
+                "created_at"
+            }
         }
-        
+
         let mut column_def = def.to_column_def(TestColumn);
         def.apply_default_expr(&mut column_def);
         // Can't easily test the ColumnDef internals, but we can verify it doesn't panic
         let _ = column_def;
     }
-    
+
     #[test]
     fn test_apply_default_expr_cache_prevents_multiple_leaks() {
         // This test verifies that calling apply_default_expr multiple times
         // with the same expression doesn't leak memory on each call.
         // The cache should ensure the same expression is reused.
-        
+
         let expr = "NOW()".to_string();
         let def1 = ColumnDefinition {
             default_expr: Some(expr.clone()),
@@ -559,27 +558,33 @@ mod tests {
             default_expr: Some(expr.clone()),
             ..Default::default()
         };
-        
+
         #[allow(clippy::items_after_statements)] // Test code - struct definition after statement is acceptable
         struct TestColumn;
         #[allow(clippy::items_after_statements)] // Test code - impl after struct is acceptable
         impl sea_query::Iden for TestColumn {
-            fn unquoted(&self) -> &'static str { "created_at" }
+            fn unquoted(&self) -> &'static str {
+                "created_at"
+            }
         }
-        
+
         // Call apply_default_expr multiple times with the same expression
         let mut def1_col = def1.to_column_def(TestColumn);
         def1.apply_default_expr(&mut def1_col);
-        
+
         let mut def2_col = def2.to_column_def(TestColumn);
         def2.apply_default_expr(&mut def2_col);
-        
+
         // Verify the cache contains exactly one entry for this expression
         #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         let cache = EXPR_CACHE.lock().unwrap();
-        assert_eq!(cache.len(), 1, "Cache should contain exactly one entry for 'NOW()'");
+        assert_eq!(
+            cache.len(),
+            1,
+            "Cache should contain exactly one entry for 'NOW()'"
+        );
         assert!(cache.contains_key("NOW()"), "Cache should contain 'NOW()'");
-        
+
         // Verify both calls returned the same static reference
         #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable for test assertions
         let cached_expr = cache.get("NOW()").unwrap();

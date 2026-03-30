@@ -3,15 +3,15 @@
 //! Provides the `SelectQueryStreamEx` trait providing `may` channel streaming
 //! capabilities to `SelectQuery`.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use sea_query::PostgresQueryBuilder;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{LifeError, MayPostgresExecutor, LifeExecutor};
-use crate::query::traits::LifeModelTrait;
 use crate::query::traits::FromRow;
+use crate::query::traits::LifeModelTrait;
 use crate::query::SelectQuery;
-use crate::query::value_conversion::with_converted_params;
 use crate::transaction::Transaction;
+use crate::{LifeError, LifeExecutor, MayPostgresExecutor};
+use sea_query::Values;
 
 static UUID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -47,7 +47,7 @@ pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     /// Server-side cursors in `PostgreSQL` strictly require establishing an active `BEGIN ... COMMIT`
     /// transactional session that survives continuously across multiple polls over a socket connection.
     /// Dynamic trait boundaries (`&dyn LifeExecutor`) abstract away connection pools meaning we
-    /// cannot safely acquire localized connection-lock bindings needed natively to orchestrate 
+    /// cannot safely acquire localized connection-lock bindings needed natively to orchestrate
     /// a coroutine safely looping fetches without intercepting parallel requests.
     ///
     /// **Why yield `Vec<E::Model>` chunks?**
@@ -61,7 +61,7 @@ pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     ) -> may::sync::mpsc::Receiver<Result<Vec<E::Model>, LifeError>>;
 }
 
-impl<E: LifeModelTrait + 'static> SelectQueryStreamEx<E> for SelectQuery<E> 
+impl<E: LifeModelTrait + 'static> SelectQueryStreamEx<E> for SelectQuery<E>
 where
     E::Model: FromRow + Send + Sync + 'static,
 {
@@ -71,7 +71,7 @@ where
         batch_size: usize,
     ) -> may::sync::mpsc::Receiver<Result<Vec<E::Model>, LifeError>> {
         let (tx, rx) = may::sync::mpsc::channel();
-        
+
         // Generate deterministic localized cursor UUID string
         let cursor_name = format!("lifeguard_stream_{}", next_cursor_id());
 
@@ -97,8 +97,7 @@ where
 
             let mut guard = StreamingTxnGuard { txn: Some(txn) };
 
-            // Map parameter pointers capturing localized memory vectors via the conversion stack!
-            let stream_result = with_converted_params(&values, |params| -> Result<(), LifeError> {
+            let stream_result: Result<(), LifeError> = (|| {
                 let Some(txn) = guard.txn.as_mut() else {
                     return Err(LifeError::Other(
                         "streaming transaction: internal guard state missing transaction".into(),
@@ -106,20 +105,17 @@ where
                 };
 
                 let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
+                txn.execute_values(&declare_statement, &values)?;
 
-                // 1. Declare Initial Transaction state
-                txn.execute(&declare_statement, params)?;
-
-                // 2. Continuous Loop until exhaustion
                 let fetch_statement = format!("FETCH FORWARD {batch_size} FROM {cursor_name}");
+                let empty = Values(Vec::new());
 
                 loop {
-                    let rows = txn.query_all(&fetch_statement, &[])?;
+                    let rows = txn.query_all_values(&fetch_statement, &empty)?;
                     if rows.is_empty() {
                         break;
                     }
 
-                    // Map subset array natively
                     let mut chunk: Vec<E::Model> = Vec::with_capacity(rows.len());
                     for row in rows {
                         let inner_model = <E::Model as FromRow>::from_row(&row).map_err(|e| {
@@ -128,14 +124,13 @@ where
                         chunk.push(inner_model);
                     }
 
-                    // If receiver queue terminates prematurely (drop), gracefully exit!
                     if tx.send(Ok(chunk)).is_err() {
                         return Ok(());
                     }
                 }
 
                 Ok(())
-            });
+            })();
 
             // Standardize any parsing boundary crashes outwards; end the transaction explicitly so
             // `StreamingTxnGuard` does not double-rollback after a successful commit.

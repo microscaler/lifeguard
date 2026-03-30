@@ -194,7 +194,7 @@ The current Lifeguard implementation uses a **bridge architecture** that wraps S
 10. `LifeMigration` system
 11. Redis caching integration
 12. Replica support with WAL monitoring
-13. LifeReflector microservice (separate crate)
+13. LifeReflector microservice (`lifeguard-reflector/` workspace crate in this repository)
 
 ---
 

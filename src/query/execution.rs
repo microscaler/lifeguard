@@ -3,14 +3,13 @@
 //! This module provides execution methods (`all`, `one`, `find_one`, `count`, etc.)
 //! for executing queries built with `SelectQuery` and `SelectModel`.
 //!
-//! The execution methods use `with_converted_params` from `value_conversion` to
-//! convert `SeaQuery` values to `may_postgres` `ToSql` parameters, avoiding code duplication.
+//! The execution methods use [`LifeExecutor::query_all_values`] and related helpers so
+//! `SeaQuery` values use the pool-safe parameter path.
 
-use crate::executor::{LifeExecutor, LifeError};
-use crate::query::select::{SelectQuery, SelectModel};
-use crate::query::traits::{LifeModelTrait, FromRow};
-use crate::query::value_conversion::with_converted_params;
+use crate::executor::{LifeError, LifeExecutor};
 use crate::query::error_handling::is_no_rows_error;
+use crate::query::select::{SelectModel, SelectQuery};
+use crate::query::traits::{FromRow, LifeModelTrait};
 use sea_query::PostgresQueryBuilder;
 
 // Execution methods for SelectQuery
@@ -46,25 +45,23 @@ where
     {
         let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
-        
-        with_converted_params(&values, |params| {
-            let rows = executor.query_all(&sql, params)?;
-            
-            let mut results = Vec::new();
-            for row in rows {
-                let model = <E::Model as FromRow>::from_row(&row)
-                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-                results.push(model);
-            }
 
-            for loader in &loaders {
-                loader.execute(&mut results, executor)?;
-            }
+        let rows = executor.query_all_values(&sql, &values)?;
 
-            Ok(results)
-        })
+        let mut results = Vec::new();
+        for row in rows {
+            let model = <E::Model as FromRow>::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+            results.push(model);
+        }
+
+        for loader in &loaders {
+            loader.execute(&mut results, executor)?;
+        }
+
+        Ok(results)
     }
-    
+
     /// Execute the query and return a single result
     ///
     /// Returns an error if zero or more than one row is returned.
@@ -95,26 +92,23 @@ where
     {
         let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
-        
-        with_converted_params(&values, |params| {
-            let row = executor.query_one(&sql, params)?;
-            let model = <E::Model as FromRow>::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-                
-            let mut results = vec![model];
-            for loader in &loaders {
-                // To support executors that accept slices/arrays
-                loader.execute(&mut results, executor)?;
-            }
-            
-            results.into_iter().next().ok_or_else(|| {
-                LifeError::Other(
-                    "internal error: expected one model after query (empty iterator)".to_string(),
-                )
-            })
+
+        let row = executor.query_one_values(&sql, &values)?;
+        let model = <E::Model as FromRow>::from_row(&row)
+            .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+
+        let mut results = vec![model];
+        for loader in &loaders {
+            loader.execute(&mut results, executor)?;
+        }
+
+        results.into_iter().next().ok_or_else(|| {
+            LifeError::Other(
+                "internal error: expected one model after query (empty iterator)".to_string(),
+            )
         })
     }
-    
+
     /// Execute the query and return the first result, or None if no results
     ///
     /// This is similar to `one()` but returns `Option<E::Model>` instead of an error
@@ -155,7 +149,7 @@ where
             }
         }
     }
-    
+
     /// Paginate results with a given page size
     ///
     /// Returns a `Paginator` that can be used to fetch pages of results.
@@ -209,7 +203,11 @@ where
     /// let total = paginator.num_items()?;
     /// let page_1 = paginator.fetch_page(1)?;
     /// ```
-    pub fn paginate_and_count<Ex: LifeExecutor>(self, executor: &Ex, page_size: usize) -> PaginatorWithCount<'_, E, Ex>
+    pub fn paginate_and_count<Ex: LifeExecutor>(
+        self,
+        executor: &Ex,
+        page_size: usize,
+    ) -> PaginatorWithCount<'_, E, Ex>
     where
         E::Model: FromRow,
     {
@@ -230,20 +228,18 @@ where
     /// Returns `LifeError` if the query execution or row parsing fails.
     pub fn all<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Vec<M>, LifeError> {
         let (sql, values) = self.query.query.build(PostgresQueryBuilder);
-        
-        with_converted_params(&values, |params| {
-            let rows = executor.query_all(&sql, params)?;
-            
-            let mut results = Vec::new();
-            for row in rows {
-                let model = M::from_row(&row)
-                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-                results.push(model);
-            }
-            Ok(results)
-        })
+
+        let rows = executor.query_all_values(&sql, &values)?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            let model = M::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+            results.push(model);
+        }
+        Ok(results)
     }
-    
+
     /// Execute the query and return a single result as the specified Model type
     ///
     /// # Errors
@@ -256,17 +252,17 @@ where
     /// - Internal error: expected one result but iterator returned None (should never happen)
     pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<M, LifeError> {
         let results = self.all(executor)?;
-        
+
         if results.len() != 1 {
             return Err(LifeError::Other(format!(
                 "Expected exactly one row, got {}",
                 results.len()
             )));
         }
-        
+
         results.into_iter().next().ok_or_else(|| {
             LifeError::Other(
-                "Internal error: expected one result but iterator returned None".to_string()
+                "Internal error: expected one result but iterator returned None".to_string(),
             )
         })
     }
@@ -298,7 +294,7 @@ where
             page_size,
         }
     }
-    
+
     /// Fetch a specific page (1-indexed)
     ///
     /// # Errors
@@ -351,7 +347,7 @@ where
             total_count: None,
         }
     }
-    
+
     /// Get the total number of items matching the query
     ///
     /// This method efficiently counts rows by executing a COUNT(*) query that
@@ -365,7 +361,7 @@ where
         if let Some(count) = self.total_count {
             return Ok(count);
         }
-        
+
         // Build and execute an efficient COUNT(*) query that preserves WHERE conditions
         // This avoids loading all rows into memory, which is critical for large datasets
         let count_i64 = self.query.clone().count().one(self.executor)?;
@@ -373,7 +369,7 @@ where
         self.total_count = Some(count);
         Ok(count)
     }
-    
+
     /// Fetch a specific page (1-indexed)
     ///
     /// # Errors
@@ -398,14 +394,14 @@ where
 #[cfg(test)]
 #[allow(dead_code, clippy::single_match)]
 mod tests {
-    use crate::query::select::SelectQuery;
-    use crate::query::traits::{LifeEntityName, LifeModelTrait, FromRow};
-    use crate::query::error_handling::is_no_rows_error;
     use crate::executor::{LifeError, LifeExecutor};
-    use sea_query::{Expr, Order, ExprTrait};
-    use std::sync::{Arc, Mutex};
+    use crate::query::error_handling::is_no_rows_error;
+    use crate::query::select::SelectQuery;
+    use crate::query::traits::{FromRow, LifeEntityName, LifeModelTrait};
     use may_postgres::types::ToSql;
     use may_postgres::Row;
+    use sea_query::{Expr, ExprTrait, Order};
+    use std::sync::{Arc, Mutex};
 
     // Test Entity for query builder tests
     #[derive(Copy, Clone, Default, Debug)]
@@ -509,23 +505,34 @@ mod tests {
         #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
             self.captured_sql.lock().unwrap().push(query.to_string());
-            self.captured_param_counts.lock().unwrap().push(params.len());
+            self.captured_param_counts
+                .lock()
+                .unwrap()
+                .push(params.len());
             Ok(0)
         }
 
         #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
             self.captured_sql.lock().unwrap().push(query.to_string());
-            self.captured_param_counts.lock().unwrap().push(params.len());
+            self.captured_param_counts
+                .lock()
+                .unwrap()
+                .push(params.len());
             // For testing, we don't actually need to return rows since tests only check SQL/params
             // Return an error to indicate no row available (tests don't use the returned value)
-            Err(LifeError::QueryError("MockExecutor: No rows available for testing".to_string()))
+            Err(LifeError::QueryError(
+                "MockExecutor: No rows available for testing".to_string(),
+            ))
         }
 
         #[allow(clippy::unwrap_used)] // Test code - Mutex::lock().unwrap() is safe in tests
         fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
             self.captured_sql.lock().unwrap().push(query.to_string());
-            self.captured_param_counts.lock().unwrap().push(params.len());
+            self.captured_param_counts
+                .lock()
+                .unwrap()
+                .push(params.len());
             // For testing, return empty vec since tests only check SQL/params
             // Row doesn't implement Clone, so we can't return stored rows
             Ok(vec![])
@@ -540,36 +547,31 @@ mod tests {
 
     #[test]
     fn test_query_builder_filter() {
-        let _query = SelectQuery::<TestEntity>::new()
-            .filter(Expr::col("id").eq(1));
+        let _query = SelectQuery::<TestEntity>::new().filter(Expr::col("id").eq(1));
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_order_by() {
-        let _query = SelectQuery::<TestEntity>::new()
-            .order_by("id", Order::Asc);
+        let _query = SelectQuery::<TestEntity>::new().order_by("id", Order::Asc);
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_limit() {
-        let _query = SelectQuery::<TestEntity>::new()
-            .limit(10);
+        let _query = SelectQuery::<TestEntity>::new().limit(10);
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_offset() {
-        let _query = SelectQuery::<TestEntity>::new()
-            .offset(20);
+        let _query = SelectQuery::<TestEntity>::new().offset(20);
         // Test passes if it compiles
     }
 
     #[test]
     fn test_query_builder_group_by() {
-        let _query = SelectQuery::<TestEntity>::new()
-            .group_by("status");
+        let _query = SelectQuery::<TestEntity>::new().group_by("status");
         // Test passes if it compiles
     }
 
@@ -635,113 +637,131 @@ mod tests {
         // So we focus on verifying SQL generation and parameter counts
         // The actual execution would fail, but that's OK - we're testing the fix
         let executor = MockExecutor::new(vec![]);
-        
+
         // This will fail at execution (no rows), but that's OK - we test the fix
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(42))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         // Verify the fix: SQL was generated and parameters were extracted
         assert!(!sql.is_empty(), "SQL should be generated");
         assert_eq!(param_counts.len(), 1, "Should have one query");
         // CRITICAL: With a filter using .eq(42), we MUST have parameters
         // Before the fix, this would be 0. After the fix, it should be > 0
-        assert!(param_counts[0] > 0, "Should have parameters for integer filter - THIS TESTS THE FIX");
+        assert!(
+            param_counts[0] > 0,
+            "Should have parameters for integer filter - THIS TESTS THE FIX"
+        );
         // Verify SQL contains placeholder
-        assert!(sql[0].contains('$'), "SQL should contain parameter placeholder");
+        assert!(
+            sql[0].contains('$'),
+            "SQL should contain parameter placeholder"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_string_filter() {
         // Test that string parameters are extracted and passed
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq("test"))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
         assert_eq!(param_counts.len(), 1, "Should have one query");
-        assert!(param_counts[0] > 0, "Should have parameters for string filter");
-        assert!(sql[0].contains('$'), "SQL should contain parameter placeholder");
+        assert!(
+            param_counts[0] > 0,
+            "Should have parameters for string filter"
+        );
+        assert!(
+            sql[0].contains('$'),
+            "SQL should contain parameter placeholder"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_multiple_filters() {
         // Test that multiple parameters are extracted correctly
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("id").gt(0))
             .filter(Expr::col("name").like("John%"))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
         assert_eq!(param_counts.len(), 1, "Should have one query");
         // Should have at least 3 parameters (1 for eq, 1 for gt, 1 for like)
-        assert!(param_counts[0] >= 3, "Should have parameters for all filters");
+        assert!(
+            param_counts[0] >= 3,
+            "Should have parameters for all filters"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_comparison_operators() {
         // Test all comparison operators generate parameters
         let executor = MockExecutor::new(vec![]);
-        
+
         // Test .eq()
         let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(10))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Test .ne()
         let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").ne(10))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Test .gt()
         let _result3 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(10))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Test .gte()
         let _result4 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gte(10))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Test .lt()
         let _result5 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").lt(10))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Test .lte()
         let _result6 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").lte(10))
             .all(&executor);
-        
+
         let param_counts = executor.get_captured_param_counts();
-        
+
         // All should have parameters
         for count in param_counts {
-            assert!(count > 0, "All comparison operators should generate parameters");
+            assert!(
+                count > 0,
+                "All comparison operators should generate parameters"
+            );
         }
     }
 
@@ -749,65 +769,80 @@ mod tests {
     fn test_parameter_extraction_like_operator() {
         // Test LIKE operator with string pattern
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").like("John%"))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
         assert!(param_counts[0] > 0, "LIKE should generate parameters");
-        assert!(sql[0].to_uppercase().contains("LIKE"), "SQL should contain LIKE");
+        assert!(
+            sql[0].to_uppercase().contains("LIKE"),
+            "SQL should contain LIKE"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_in_operator() {
         // Test IN operator with multiple values
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").is_in(vec![1, 2, 3]))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
-        assert!(param_counts[0] >= 3, "IN with 3 values should generate at least 3 parameters");
-        assert!(sql[0].to_uppercase().contains("IN"), "SQL should contain IN");
+        assert!(
+            param_counts[0] >= 3,
+            "IN with 3 values should generate at least 3 parameters"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("IN"),
+            "SQL should contain IN"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_between_operator() {
         // Test BETWEEN operator
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").between(1, 100))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
-        assert!(param_counts[0] >= 2, "BETWEEN should generate at least 2 parameters");
-        assert!(sql[0].to_uppercase().contains("BETWEEN"), "SQL should contain BETWEEN");
+        assert!(
+            param_counts[0] >= 2,
+            "BETWEEN should generate at least 2 parameters"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("BETWEEN"),
+            "SQL should contain BETWEEN"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_one_method() {
         // Test that one() method also extracts parameters
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .one(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
         assert_eq!(param_counts.len(), 1, "Should have one query");
         assert!(param_counts[0] > 0, "one() should extract parameters");
@@ -817,13 +852,12 @@ mod tests {
     fn test_parameter_extraction_no_filters() {
         // Test query with no filters (should have 0 parameters)
         let executor = MockExecutor::new(vec![]);
-        
-        let _result = SelectQuery::<TestEntity>::new()
-            .all(&executor);
-        
+
+        let _result = SelectQuery::<TestEntity>::new().all(&executor);
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
         assert_eq!(param_counts.len(), 1, "Should have one query");
         // No filters means no parameters (unless limit/offset use parameters)
@@ -834,27 +868,36 @@ mod tests {
     fn test_parameter_extraction_with_pagination() {
         // Test that limit/offset don't interfere with parameter extraction
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .limit(10)
             .offset(20)
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
-        assert!(param_counts[0] > 0, "Should have parameters even with pagination");
-        assert!(sql[0].to_uppercase().contains("LIMIT"), "SQL should contain LIMIT");
-        assert!(sql[0].to_uppercase().contains("OFFSET"), "SQL should contain OFFSET");
+        assert!(
+            param_counts[0] > 0,
+            "Should have parameters even with pagination"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("LIMIT"),
+            "SQL should contain LIMIT"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("OFFSET"),
+            "SQL should contain OFFSET"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_complex_query() {
         // Test complex query with multiple filters, ordering, and pagination
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(10))
             .filter(Expr::col("id").lt(100))
@@ -863,42 +906,51 @@ mod tests {
             .limit(5)
             .offset(10)
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
-        assert!(param_counts[0] >= 3, "Complex query should have multiple parameters");
-        assert!(sql[0].to_uppercase().contains("ORDER"), "SQL should contain ORDER BY");
-        assert!(sql[0].to_uppercase().contains("LIMIT"), "SQL should contain LIMIT");
+        assert!(
+            param_counts[0] >= 3,
+            "Complex query should have multiple parameters"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("ORDER"),
+            "SQL should contain ORDER BY"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("LIMIT"),
+            "SQL should contain LIMIT"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_numeric_types() {
         // Test various numeric types
         let executor = MockExecutor::new(vec![]);
-        
+
         // Test with i32
         let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(42i32))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Test with i64
         let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(42i64))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Test with negative numbers
         let _result3 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(-10))
             .all(&executor);
-        
+
         let param_counts = executor.get_captured_param_counts();
-        
+
         // All should have parameters
         for count in param_counts {
             assert!(count > 0, "All numeric types should generate parameters");
@@ -909,32 +961,35 @@ mod tests {
     fn test_parameter_extraction_string_edge_cases() {
         // Test string parameters with edge cases
         let executor = MockExecutor::new(vec![]);
-        
+
         // Empty string
         let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq(""))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // String with special characters
         let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq("test'string\"with%special"))
             .all(&executor);
-        
+
         executor.clear();
-        
+
         // Long string
         let long_string = "a".repeat(1000);
         let _result3 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").eq(long_string))
             .all(&executor);
-        
+
         let param_counts = executor.get_captured_param_counts();
-        
+
         // All should have parameters
         for count in param_counts {
-            assert!(count > 0, "All string edge cases should generate parameters");
+            assert!(
+                count > 0,
+                "All string edge cases should generate parameters"
+            );
         }
     }
 
@@ -942,101 +997,117 @@ mod tests {
     fn test_parameter_extraction_boolean_values() {
         // Test boolean parameters
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("active").eq(true))
             .all(&executor);
-        
+
         let param_counts = executor.get_captured_param_counts();
-        
-        assert!(param_counts[0] > 0, "Boolean values should generate parameters");
+
+        assert!(
+            param_counts[0] > 0,
+            "Boolean values should generate parameters"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_arithmetic_expressions() {
         // Test expressions with arithmetic
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").add(Expr::val(1)).gt(10))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
-        assert!(param_counts[0] > 0, "Arithmetic expressions should generate parameters");
+        assert!(
+            param_counts[0] > 0,
+            "Arithmetic expressions should generate parameters"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_nested_expressions() {
         // Test nested expressions
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
-            .filter(
-                Expr::col("id")
-                    .add(Expr::val(1))
-                    .mul(Expr::val(2))
-                    .gt(20)
-            )
+            .filter(Expr::col("id").add(Expr::val(1)).mul(Expr::val(2)).gt(20))
             .all(&executor);
-        
+
         let param_counts = executor.get_captured_param_counts();
-        
-        assert!(param_counts[0] > 0, "Nested expressions should generate parameters");
+
+        assert!(
+            param_counts[0] > 0,
+            "Nested expressions should generate parameters"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_or_conditions() {
         // Test OR conditions
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
-            .filter(
-                Expr::col("id").eq(1)
-                    .or(Expr::col("id").eq(2))
-            )
+            .filter(Expr::col("id").eq(1).or(Expr::col("id").eq(2)))
             .all(&executor);
-        
+
         let param_counts = executor.get_captured_param_counts();
-        
-        assert!(param_counts[0] >= 2, "OR conditions should generate multiple parameters");
+
+        assert!(
+            param_counts[0] >= 2,
+            "OR conditions should generate multiple parameters"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_and_conditions() {
         // Test AND conditions (multiple filters)
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"))
             .all(&executor);
-        
+
         let param_counts = executor.get_captured_param_counts();
-        
-        assert!(param_counts[0] >= 2, "Multiple filters should generate multiple parameters");
+
+        assert!(
+            param_counts[0] >= 2,
+            "Multiple filters should generate multiple parameters"
+        );
     }
 
     #[test]
     fn test_parameter_extraction_with_group_by_having() {
         // Test GROUP BY with HAVING clause
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("status").eq("active"))
             .group_by("category")
             .having(Expr::col("COUNT(*)").gt(5))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
-        assert!(param_counts[0] > 0, "GROUP BY with HAVING should generate parameters");
-        assert!(sql[0].to_uppercase().contains("GROUP"), "SQL should contain GROUP BY");
-        assert!(sql[0].to_uppercase().contains("HAVING"), "SQL should contain HAVING");
+        assert!(
+            param_counts[0] > 0,
+            "GROUP BY with HAVING should generate parameters"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("GROUP"),
+            "SQL should contain GROUP BY"
+        );
+        assert!(
+            sql[0].to_uppercase().contains("HAVING"),
+            "SQL should contain HAVING"
+        );
     }
 
     #[test]
@@ -1044,30 +1115,27 @@ mod tests {
         // CRITICAL TEST: Verify parameter count matches SQL placeholders
         // This is the KEY TEST that verifies the fix works correctly
         let executor = MockExecutor::new(vec![]);
-        
+
         // Query with known number of parameters
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"))
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
-        
+
         // Count $ placeholders in SQL
         let placeholder_count = sql[0].matches('$').count();
-        
+
         // The parameter count should match placeholder count
         // This is the KEY TEST that verifies the fix works
         assert_eq!(
-            param_counts[0], 
-            placeholder_count,
+            param_counts[0], placeholder_count,
             "Parameter count ({}) should match placeholder count ({}) in SQL: {}",
-            param_counts[0],
-            placeholder_count,
-            sql[0]
+            param_counts[0], placeholder_count, sql[0]
         );
     }
 
@@ -1075,14 +1143,14 @@ mod tests {
     fn test_parameter_extraction_empty_params_when_no_filters() {
         // Test that queries without filters have 0 parameters
         let executor = MockExecutor::new(vec![]);
-        
+
         let _result = SelectQuery::<TestEntity>::new()
             .order_by("id", Order::Asc)
             .all(&executor);
-        
+
         let sql = executor.get_captured_sql();
         let _param_counts = executor.get_captured_param_counts();
-        
+
         assert!(!sql.is_empty(), "SQL should be generated");
         // No filters = no parameters (limit/offset might add some, but basic query shouldn't)
         // This verifies we don't pass empty slice incorrectly
@@ -1098,41 +1166,57 @@ mod tests {
         let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"));
-        
+
         // Build the query to inspect SQL
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // CRITICAL: Verify that values are NOT empty (this tests the fix)
         // Before the fix, we wouldn't check this. After the fix, values should contain parameters
         // Values is a tuple struct, so we check if it has any items
         let values_vec: Vec<_> = values.iter().collect();
-        assert!(!values_vec.is_empty(), "Values should be extracted from filters - THIS VERIFIES THE FIX");
-        
+        assert!(
+            !values_vec.is_empty(),
+            "Values should be extracted from filters - THIS VERIFIES THE FIX"
+        );
+
         // Verify SQL contains placeholders
-        assert!(sql.contains('$'), "SQL should contain parameter placeholders when filters are used");
-        
+        assert!(
+            sql.contains('$'),
+            "SQL should contain parameter placeholders when filters are used"
+        );
+
         // Count placeholders
         let placeholder_count = sql.matches('$').count();
-        assert!(placeholder_count > 0, "Should have placeholders for parameters");
-        
+        assert!(
+            placeholder_count > 0,
+            "Should have placeholders for parameters"
+        );
+
         // The values count should match placeholder count (once conversion is fixed)
         // For now, we just verify values are extracted
-        assert_eq!(values_vec.len(), placeholder_count, 
+        assert_eq!(
+            values_vec.len(),
+            placeholder_count,
             "Value count ({}) should match placeholder count ({}) - THIS IS THE KEY FIX",
-            values_vec.len(), placeholder_count);
+            values_vec.len(),
+            placeholder_count
+        );
     }
 
     #[test]
     fn test_sql_generation_no_parameters() {
         // Verify that queries without filters have no placeholders
-        let query = SelectQuery::<TestEntity>::new()
-            .order_by("id", Order::Asc);
-        
+        let query = SelectQuery::<TestEntity>::new().order_by("id", Order::Asc);
+
         let (_sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // No filters = no parameters
         let values_vec: Vec<_> = values.iter().collect();
-        assert_eq!(values_vec.len(), 0, "Queries without filters should have no parameters");
+        assert_eq!(
+            values_vec.len(),
+            0,
+            "Queries without filters should have no parameters"
+        );
         // SQL should not have $ placeholders (unless limit/offset use them)
         // Basic SELECT with ORDER BY shouldn't have parameters
     }
@@ -1140,30 +1224,45 @@ mod tests {
     #[test]
     fn test_sql_generation_all_value_types() {
         // Test that all value types generate SQL with placeholders
-        
+
         // Integer
-        let query1 = SelectQuery::<TestEntity>::new()
-            .filter(Expr::col("id").eq(42));
+        let query1 = SelectQuery::<TestEntity>::new().filter(Expr::col("id").eq(42));
         let (sql1, values1) = query1.query.build(sea_query::PostgresQueryBuilder);
         let values1_vec: Vec<_> = values1.iter().collect();
-        assert!(!values1_vec.is_empty(), "Integer filter should generate values");
-        assert!(sql1.contains('$'), "Integer filter should generate placeholders");
-        
+        assert!(
+            !values1_vec.is_empty(),
+            "Integer filter should generate values"
+        );
+        assert!(
+            sql1.contains('$'),
+            "Integer filter should generate placeholders"
+        );
+
         // String
-        let query2 = SelectQuery::<TestEntity>::new()
-            .filter(Expr::col("name").eq("test"));
+        let query2 = SelectQuery::<TestEntity>::new().filter(Expr::col("name").eq("test"));
         let (sql2, values2) = query2.query.build(sea_query::PostgresQueryBuilder);
         let values2_vec: Vec<_> = values2.iter().collect();
-        assert!(!values2_vec.is_empty(), "String filter should generate values");
-        assert!(sql2.contains('$'), "String filter should generate placeholders");
-        
+        assert!(
+            !values2_vec.is_empty(),
+            "String filter should generate values"
+        );
+        assert!(
+            sql2.contains('$'),
+            "String filter should generate placeholders"
+        );
+
         // Boolean
-        let query3 = SelectQuery::<TestEntity>::new()
-            .filter(Expr::col("active").eq(true));
+        let query3 = SelectQuery::<TestEntity>::new().filter(Expr::col("active").eq(true));
         let (sql3, values3) = query3.query.build(sea_query::PostgresQueryBuilder);
         let values3_vec: Vec<_> = values3.iter().collect();
-        assert!(!values3_vec.is_empty(), "Boolean filter should generate values");
-        assert!(sql3.contains('$'), "Boolean filter should generate placeholders");
+        assert!(
+            !values3_vec.is_empty(),
+            "Boolean filter should generate values"
+        );
+        assert!(
+            sql3.contains('$'),
+            "Boolean filter should generate placeholders"
+        );
     }
 
     // ============================================================================
@@ -1175,16 +1274,16 @@ mod tests {
     fn test_find_one_no_results() {
         // Test find_one() when no results are found
         let executor = MockExecutor::new(vec![]);
-        
+
         // MockExecutor returns QueryError for query_one, which should be handled as None
         let result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(999))
             .find_one(&executor);
-        
+
         // Should return Ok(None) when no rows found (fixed to handle QueryError variant)
         #[allow(clippy::panic)] // Test code - panic is acceptable
         match result {
-            Ok(None) => {}, // Expected - find_one should return None when no rows found
+            Ok(None) => {} // Expected - find_one should return None when no rows found
             Ok(Some(_)) => panic!("find_one should return None when no results"),
             Err(e) => panic!("find_one should return Ok(None) for 'no rows' errors, got: {e:?}"),
         }
@@ -1194,50 +1293,70 @@ mod tests {
     fn test_find_one_legitimate_errors_not_swallowed() {
         // Test that legitimate database errors are NOT incorrectly swallowed
         // This verifies the fix for the fragile string matching issue
-        
+
         // Test 1: "table not found" should be an error, not Ok(None)
-        let table_not_found_error = LifeError::QueryError("relation \"users\" does not exist: table not found".to_string());
-        assert!(!is_no_rows_error(&table_not_found_error), 
-            "Table not found errors should NOT be treated as 'no rows found'");
-        
+        let table_not_found_error =
+            LifeError::QueryError("relation \"users\" does not exist: table not found".to_string());
+        assert!(
+            !is_no_rows_error(&table_not_found_error),
+            "Table not found errors should NOT be treated as 'no rows found'"
+        );
+
         // Test 2: "column not found" should be an error, not Ok(None)
-        let column_not_found_error = LifeError::QueryError("column \"invalid_column\" does not exist: column not found".to_string());
-        assert!(!is_no_rows_error(&column_not_found_error),
-            "Column not found errors should NOT be treated as 'no rows found'");
-        
+        let column_not_found_error = LifeError::QueryError(
+            "column \"invalid_column\" does not exist: column not found".to_string(),
+        );
+        assert!(
+            !is_no_rows_error(&column_not_found_error),
+            "Column not found errors should NOT be treated as 'no rows found'"
+        );
+
         // Test 3: "function not found" should be an error, not Ok(None)
-        let function_not_found_error = LifeError::QueryError("function invalid_func() does not exist: function not found".to_string());
-        assert!(!is_no_rows_error(&function_not_found_error),
-            "Function not found errors should NOT be treated as 'no rows found'");
-        
+        let function_not_found_error = LifeError::QueryError(
+            "function invalid_func() does not exist: function not found".to_string(),
+        );
+        assert!(
+            !is_no_rows_error(&function_not_found_error),
+            "Function not found errors should NOT be treated as 'no rows found'"
+        );
+
         // Test 4: "constraint not found" should be an error, not Ok(None)
-        let constraint_not_found_error = LifeError::QueryError("constraint \"invalid_constraint\" does not exist: constraint not found".to_string());
-        assert!(!is_no_rows_error(&constraint_not_found_error),
-            "Constraint not found errors should NOT be treated as 'no rows found'");
-        
+        let constraint_not_found_error = LifeError::QueryError(
+            "constraint \"invalid_constraint\" does not exist: constraint not found".to_string(),
+        );
+        assert!(
+            !is_no_rows_error(&constraint_not_found_error),
+            "Constraint not found errors should NOT be treated as 'no rows found'"
+        );
+
         // Test 5: Actual "no rows" errors should still be detected
         let no_rows_error = LifeError::QueryError("no rows returned".to_string());
-        assert!(is_no_rows_error(&no_rows_error),
-            "Actual 'no rows' errors should be detected");
-        
+        assert!(
+            is_no_rows_error(&no_rows_error),
+            "Actual 'no rows' errors should be detected"
+        );
+
         let single_row_error = LifeError::QueryError("no row found".to_string());
-        assert!(is_no_rows_error(&single_row_error),
-            "Actual 'no row' errors should be detected");
-        
+        assert!(
+            is_no_rows_error(&single_row_error),
+            "Actual 'no row' errors should be detected"
+        );
+
         // Test 6: PostgresError with "no rows" should be detected
         // Note: We can't easily create a PostgresError in tests, but the logic is the same
         let postgres_no_rows = LifeError::QueryError("PostgreSQL error: no rows".to_string());
-        assert!(is_no_rows_error(&postgres_no_rows),
-            "PostgresError with 'no rows' should be detected");
+        assert!(
+            is_no_rows_error(&postgres_no_rows),
+            "PostgresError with 'no rows' should be detected"
+        );
     }
 
     #[test]
     fn test_paginator_page_zero() {
         // Test paginator with page 0 (should be treated as page 1)
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestEntity>::new()
-            .paginate(&executor, 10);
-        
+        let mut paginator = SelectQuery::<TestEntity>::new().paginate(&executor, 10);
+
         // Page 0 should be treated as page 1 (offset = 0)
         let _result = paginator.fetch_page(0);
         // Should not panic - offset calculation uses saturating_sub
@@ -1250,12 +1369,12 @@ mod tests {
         let mut paginator = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(999))
             .paginate(&executor, 10);
-        
+
         // Should return empty vec, not panic
         let result = paginator.fetch_page(1);
         match result {
             Ok(vec) => assert!(vec.is_empty(), "Empty results should return empty vec"),
-            Err(_) => {}, // Acceptable if executor returns error
+            Err(_) => {} // Acceptable if executor returns error
         }
     }
 
@@ -1263,9 +1382,8 @@ mod tests {
     fn test_paginator_large_page_number() {
         // Test paginator with page number beyond available data
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestEntity>::new()
-            .paginate(&executor, 10);
-        
+        let mut paginator = SelectQuery::<TestEntity>::new().paginate(&executor, 10);
+
         // Page 1000 should not panic (offset = 9990)
         let _result = paginator.fetch_page(1000);
         // Should not panic - offset calculation handles large numbers
@@ -1275,9 +1393,8 @@ mod tests {
     fn test_paginator_page_size_zero() {
         // Test paginator with page_size = 0 (edge case)
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestEntity>::new()
-            .paginate(&executor, 0);
-        
+        let mut paginator = SelectQuery::<TestEntity>::new().paginate(&executor, 0);
+
         // Should handle gracefully (limit 0)
         let _result = paginator.fetch_page(1);
         // Should not panic
@@ -1290,12 +1407,12 @@ mod tests {
         let mut paginator = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(999))
             .paginate_and_count(&executor, 10);
-        
+
         // num_items should return 0 for empty results
         let count_result = paginator.num_items();
         match count_result {
             Ok(count) => assert_eq!(count, 0, "Empty results should return count 0"),
-            Err(_) => {}, // Acceptable if executor returns error
+            Err(_) => {} // Acceptable if executor returns error
         }
     }
 
@@ -1305,44 +1422,49 @@ mod tests {
         // Note: MockExecutor returns errors, so we test caching by manually setting
         // total_count and verifying that subsequent calls don't execute queries
         let executor = MockExecutor::new(vec![]);
-        let mut paginator = SelectQuery::<TestEntity>::new()
-            .paginate_and_count(&executor, 10);
-        
+        let mut paginator = SelectQuery::<TestEntity>::new().paginate_and_count(&executor, 10);
+
         // Manually set total_count to simulate a successful first call
         paginator.total_count = Some(42);
         let sql_calls_before = executor.get_captured_sql().len();
         #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let cached_count = paginator.num_items().unwrap();
         let sql_calls_after = executor.get_captured_sql().len();
-        
+
         // When total_count is set, num_items() should return cached value without executing query
         assert_eq!(cached_count, 42, "Should return cached count");
-        assert_eq!(sql_calls_before, sql_calls_after, "Cached call should not execute SQL");
-        
+        assert_eq!(
+            sql_calls_before, sql_calls_after,
+            "Cached call should not execute SQL"
+        );
+
         // Verify that multiple calls with cached value don't increase SQL calls
         #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let _count2 = paginator.num_items().unwrap();
         let sql_calls_final = executor.get_captured_sql().len();
-        assert_eq!(sql_calls_after, sql_calls_final, "Multiple cached calls should not execute SQL");
+        assert_eq!(
+            sql_calls_after, sql_calls_final,
+            "Multiple cached calls should not execute SQL"
+        );
     }
 
     #[test]
     fn test_filter_with_null_values() {
         // Test filters with null/None values
         let executor1 = MockExecutor::new(vec![]);
-        
+
         // IS NULL filter
         let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").is_null())
             .all(&executor1);
-        
+
         let executor2 = MockExecutor::new(vec![]);
-        
+
         // IS NOT NULL filter
         let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").is_not_null())
             .all(&executor2);
-        
+
         let sql1 = executor1.get_captured_sql();
         let sql2 = executor2.get_captured_sql();
         assert!(!sql1.is_empty(), "IS NULL should generate SQL");
@@ -1353,13 +1475,13 @@ mod tests {
     fn test_filter_with_empty_collections() {
         // Test IN and NOT IN with empty collections
         let executor = MockExecutor::new(vec![]);
-        
+
         // Empty IN clause (edge case - should handle gracefully)
         let empty_vec: Vec<i32> = vec![];
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").is_in(empty_vec))
             .all(&executor);
-        
+
         // Should not panic
         let sql = executor.get_captured_sql();
         assert!(!sql.is_empty(), "Empty IN should still generate SQL");
@@ -1369,48 +1491,55 @@ mod tests {
     fn test_filter_with_large_collections() {
         // Test IN with large collection (performance/stress test)
         let executor = MockExecutor::new(vec![]);
-        
+
         let large_vec: Vec<i32> = (1..1000).collect();
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").is_in(large_vec))
             .all(&executor);
-        
+
         // Should handle large collections
         let param_counts = executor.get_captured_param_counts();
-        assert!(!param_counts.is_empty(), "Large IN should generate parameters");
+        assert!(
+            !param_counts.is_empty(),
+            "Large IN should generate parameters"
+        );
     }
 
     #[test]
     fn test_between_edge_cases() {
         // Test BETWEEN with edge cases
         let executor1 = MockExecutor::new(vec![]);
-        
+
         // Same start and end (edge case)
         let _result1 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").between(5, 5))
             .all(&executor1);
-        
+
         let executor2 = MockExecutor::new(vec![]);
-        
+
         // Start > end (edge case - should still work, just returns nothing)
         let _result2 = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").between(10, 5))
             .all(&executor2);
-        
+
         let sql1 = executor1.get_captured_sql();
         let sql2 = executor2.get_captured_sql();
-        assert!(!sql1.is_empty(), "BETWEEN with same values should generate SQL");
-        assert!(!sql2.is_empty(), "BETWEEN with start > end should generate SQL");
+        assert!(
+            !sql1.is_empty(),
+            "BETWEEN with same values should generate SQL"
+        );
+        assert!(
+            !sql2.is_empty(),
+            "BETWEEN with start > end should generate SQL"
+        );
     }
 
     #[test]
     fn test_limit_zero() {
         // Test limit(0) edge case
         let executor = MockExecutor::new(vec![]);
-        let _result = SelectQuery::<TestEntity>::new()
-            .limit(0)
-            .all(&executor);
-        
+        let _result = SelectQuery::<TestEntity>::new().limit(0).all(&executor);
+
         // Should not panic - limit 0 is valid SQL
         let sql = executor.get_captured_sql();
         assert!(!sql.is_empty(), "Limit 0 should generate SQL");
@@ -1423,15 +1552,17 @@ mod tests {
         let result = SelectQuery::<TestEntity>::new()
             .offset(u64::MAX)
             .all(&executor);
-        
+
         // Should not panic - large offset is valid
         // MockExecutor returns error, but SQL should still be generated
         // The important thing is that it doesn't panic
         let sql = executor.get_captured_sql();
         // SQL may be empty if query building fails, but execution should not panic
         // We verify the query was attempted (either SQL generated or error returned)
-        assert!(!sql.is_empty() || result.is_err(), 
-            "Large offset should generate SQL or return error gracefully (no panic)");
+        assert!(
+            !sql.is_empty() || result.is_err(),
+            "Large offset should generate SQL or return error gracefully (no panic)"
+        );
     }
 
     #[test]
@@ -1439,17 +1570,20 @@ mod tests {
         // Test many chained filters (stress test)
         let executor = MockExecutor::new(vec![]);
         let mut query = SelectQuery::<TestEntity>::new();
-        
+
         // Chain many filters
         for i in 1..=50 {
             query = query.filter(Expr::col("id").ne(i));
         }
-        
+
         let _result = query.all(&executor);
-        
+
         // Should handle many filters
         let param_counts = executor.get_captured_param_counts();
-        assert!(!param_counts.is_empty(), "Many filters should generate parameters");
+        assert!(
+            !param_counts.is_empty(),
+            "Many filters should generate parameters"
+        );
     }
 
     #[test]
@@ -1457,14 +1591,14 @@ mod tests {
         // Test many ORDER BY clauses
         let executor = MockExecutor::new(vec![]);
         let mut query = SelectQuery::<TestEntity>::new();
-        
+
         // Chain many order_by calls
         for i in 1..=20 {
             query = query.order_by(format!("col_{i}"), Order::Asc);
         }
-        
+
         let _result = query.all(&executor);
-        
+
         // Should handle many ORDER BY clauses
         let sql = executor.get_captured_sql();
         assert!(!sql.is_empty(), "Many ORDER BY should generate SQL");
@@ -1477,10 +1611,13 @@ mod tests {
         let _result = SelectQuery::<TestEntity>::new()
             .group_by("status")
             .all(&executor);
-        
+
         // Should not require HAVING
         let sql = executor.get_captured_sql();
-        assert!(!sql.is_empty(), "GROUP BY without HAVING should generate SQL");
+        assert!(
+            !sql.is_empty(),
+            "GROUP BY without HAVING should generate SQL"
+        );
     }
 
     #[test]
@@ -1490,28 +1627,32 @@ mod tests {
         let _result = SelectQuery::<TestEntity>::new()
             .having(Expr::col("COUNT(*)").gt(5))
             .all(&executor);
-        
+
         // Should not panic (SQL validity checked by database)
         let sql = executor.get_captured_sql();
-        assert!(!sql.is_empty(), "HAVING without GROUP BY should generate SQL");
+        assert!(
+            !sql.is_empty(),
+            "HAVING without GROUP BY should generate SQL"
+        );
     }
 
     #[test]
     fn test_one_with_multiple_results() {
         // Test one() when multiple results exist (should error)
         let executor = MockExecutor::new(vec![]);
-        
+
         // Query that might return multiple results
         let result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").gt(1))
             .one(&executor);
-        
+
         // Should return error (MockExecutor returns error, which is fine for this test)
         // In real scenario, this would error if multiple rows returned
-        #[allow(clippy::match_same_arms)] // Both arms are intentionally empty - just verifying no panic
+        #[allow(clippy::match_same_arms)]
+        // Both arms are intentionally empty - just verifying no panic
         match result {
-            Ok(_) => {}, // Unlikely with MockExecutor
-            Err(_) => {}, // Expected when multiple rows or no rows
+            Ok(_) => {}  // Unlikely with MockExecutor
+            Err(_) => {} // Expected when multiple rows or no rows
         }
     }
 
@@ -1522,10 +1663,13 @@ mod tests {
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").like(""))
             .all(&executor);
-        
+
         // Should handle empty pattern
         let sql = executor.get_captured_sql();
-        assert!(!sql.is_empty(), "LIKE with empty pattern should generate SQL");
+        assert!(
+            !sql.is_empty(),
+            "LIKE with empty pattern should generate SQL"
+        );
     }
 
     #[test]
@@ -1535,10 +1679,13 @@ mod tests {
         let _result = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("name").like("%test'string\"with%special%"))
             .all(&executor);
-        
+
         // Should handle special characters (parameterized, so safe)
         let sql = executor.get_captured_sql();
-        assert!(!sql.is_empty(), "LIKE with special chars should generate SQL");
+        assert!(
+            !sql.is_empty(),
+            "LIKE with special chars should generate SQL"
+        );
     }
 
     #[test]
@@ -1555,10 +1702,13 @@ mod tests {
             .limit(100)
             .offset(50)
             .all(&executor);
-        
+
         // Should handle all clauses together
         let sql = executor.get_captured_sql();
-        assert!(!sql.is_empty(), "Query with all clauses should generate SQL");
+        assert!(
+            !sql.is_empty(),
+            "Query with all clauses should generate SQL"
+        );
     }
 
     #[test]
@@ -1567,16 +1717,26 @@ mod tests {
         let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").add(Expr::val(1)).gt(10))
             .filter(Expr::col("name").like("John%"));
-        
+
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // Complex expression should generate multiple parameters
         let values_vec: Vec<_> = values.iter().collect();
-        assert!(!values_vec.is_empty(), "Complex expressions should generate values");
+        assert!(
+            !values_vec.is_empty(),
+            "Complex expressions should generate values"
+        );
         let placeholder_count = sql.matches('$').count();
-        assert!(placeholder_count > 0, "Complex expressions should have placeholders");
+        assert!(
+            placeholder_count > 0,
+            "Complex expressions should have placeholders"
+        );
         // Values count should match placeholders (once conversion is fixed)
-        assert_eq!(values_vec.len(), placeholder_count, "Values should match placeholders");
+        assert_eq!(
+            values_vec.len(),
+            placeholder_count,
+            "Values should match placeholders"
+        );
     }
 
     #[test]
@@ -1586,48 +1746,76 @@ mod tests {
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("id").gt(0))
             .filter(Expr::col("name").eq("test"));
-        
+
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // Should have at least 3 parameters
         let values_vec: Vec<_> = values.iter().collect();
-        assert!(values_vec.len() >= 3, "Multiple filters should generate multiple values");
+        assert!(
+            values_vec.len() >= 3,
+            "Multiple filters should generate multiple values"
+        );
         let placeholder_count = sql.matches('$').count();
-        assert!(placeholder_count >= 3, "Multiple filters should have multiple placeholders");
-        assert_eq!(values_vec.len(), placeholder_count, 
-            "Value count should match placeholder count for multiple filters");
+        assert!(
+            placeholder_count >= 3,
+            "Multiple filters should have multiple placeholders"
+        );
+        assert_eq!(
+            values_vec.len(),
+            placeholder_count,
+            "Value count should match placeholder count for multiple filters"
+        );
     }
 
     #[test]
     fn test_sql_generation_in_operator() {
         // Test IN operator generates correct number of parameters
-        let query = SelectQuery::<TestEntity>::new()
-            .filter(Expr::col("id").is_in(vec![1, 2, 3, 4, 5]));
-        
+        let query =
+            SelectQuery::<TestEntity>::new().filter(Expr::col("id").is_in(vec![1, 2, 3, 4, 5]));
+
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // IN with 5 values should generate at least 5 parameters
         let values_vec: Vec<_> = values.iter().collect();
-        assert!(values_vec.len() >= 5, "IN operator should generate values for each item");
+        assert!(
+            values_vec.len() >= 5,
+            "IN operator should generate values for each item"
+        );
         let placeholder_count = sql.matches('$').count();
-        assert!(placeholder_count >= 5, "IN operator should have placeholders for each item");
-        assert_eq!(values_vec.len(), placeholder_count, "IN values should match placeholders");
+        assert!(
+            placeholder_count >= 5,
+            "IN operator should have placeholders for each item"
+        );
+        assert_eq!(
+            values_vec.len(),
+            placeholder_count,
+            "IN values should match placeholders"
+        );
     }
 
     #[test]
     fn test_sql_generation_between_operator() {
         // Test BETWEEN operator generates 2 parameters
-        let query = SelectQuery::<TestEntity>::new()
-            .filter(Expr::col("id").between(1, 100));
-        
+        let query = SelectQuery::<TestEntity>::new().filter(Expr::col("id").between(1, 100));
+
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // BETWEEN should generate 2 parameters
         let values_vec: Vec<_> = values.iter().collect();
-        assert!(values_vec.len() >= 2, "BETWEEN should generate at least 2 values");
+        assert!(
+            values_vec.len() >= 2,
+            "BETWEEN should generate at least 2 values"
+        );
         let placeholder_count = sql.matches('$').count();
-        assert!(placeholder_count >= 2, "BETWEEN should have at least 2 placeholders");
-        assert_eq!(values_vec.len(), placeholder_count, "BETWEEN values should match placeholders");
+        assert!(
+            placeholder_count >= 2,
+            "BETWEEN should have at least 2 placeholders"
+        );
+        assert_eq!(
+            values_vec.len(),
+            placeholder_count,
+            "BETWEEN values should match placeholders"
+        );
     }
 
     #[test]
@@ -1635,15 +1823,25 @@ mod tests {
         // Test OR conditions generate parameters for both sides
         let query = SelectQuery::<TestEntity>::new()
             .filter(Expr::col("id").eq(1).or(Expr::col("id").eq(2)));
-        
+
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // OR should generate parameters for both conditions
         let values_vec: Vec<_> = values.iter().collect();
-        assert!(values_vec.len() >= 2, "OR conditions should generate values for both sides");
+        assert!(
+            values_vec.len() >= 2,
+            "OR conditions should generate values for both sides"
+        );
         let placeholder_count = sql.matches('$').count();
-        assert!(placeholder_count >= 2, "OR conditions should have placeholders for both sides");
-        assert_eq!(values_vec.len(), placeholder_count, "OR values should match placeholders");
+        assert!(
+            placeholder_count >= 2,
+            "OR conditions should have placeholders for both sides"
+        );
+        assert_eq!(
+            values_vec.len(),
+            placeholder_count,
+            "OR values should match placeholders"
+        );
     }
 
     #[test]
@@ -1653,15 +1851,21 @@ mod tests {
             .filter(Expr::col("id").eq(1))
             .filter(Expr::col("name").eq("test"))
             .filter(Expr::col("id").gt(0));
-        
+
         let (sql, values) = query.query.build(sea_query::PostgresQueryBuilder);
-        
+
         // Should have parameters in the order filters were added
         let values_vec: Vec<_> = values.iter().collect();
-        assert!(values_vec.len() >= 3, "Should have parameters for all filters");
+        assert!(
+            values_vec.len() >= 3,
+            "Should have parameters for all filters"
+        );
         let placeholder_count = sql.matches('$').count();
-        assert_eq!(values_vec.len(), placeholder_count, 
-            "Parameter count should match placeholder count - verifies correct extraction");
+        assert_eq!(
+            values_vec.len(),
+            placeholder_count,
+            "Parameter count should match placeholder count - verifies correct extraction"
+        );
     }
 
     // Note: Execution tests (test_parameter_extraction_*) require the string/byte
@@ -1676,8 +1880,10 @@ mod tests {
     fn test_join_with_null_values() {
         // EDGE CASE: JOIN where foreign key is NULL
         // This should be handled by LEFT JOIN returning NULL for non-matching rows
-        let _query = TestEntity::find()
-            .left_join("other_table", Expr::cust("test_table.id = other_table.user_id"));
+        let _query = TestEntity::find().left_join(
+            "other_table",
+            Expr::cust("test_table.id = other_table.user_id"),
+        );
         // LEFT JOIN handles NULL foreign keys correctly
     }
 
@@ -1685,8 +1891,14 @@ mod tests {
     fn test_multiple_joins_same_table() {
         // EDGE CASE: Multiple joins to the same table (requires aliasing)
         let _query = TestEntity::find()
-            .left_join("other_table", Expr::cust("test_table.id = other_table.user_id"))
-            .left_join("other_table2", Expr::cust("test_table.id = other_table2.author_id"));
+            .left_join(
+                "other_table",
+                Expr::cust("test_table.id = other_table.user_id"),
+            )
+            .left_join(
+                "other_table2",
+                Expr::cust("test_table.id = other_table2.author_id"),
+            );
         // Note: This would need table aliasing in a full implementation
     }
 
@@ -1694,15 +1906,14 @@ mod tests {
     fn test_join_with_complex_condition() {
         // EDGE CASE: JOIN with complex condition (multiple columns, OR logic)
         let complex_condition = Expr::cust("(test_table.id = posts.user_id OR test_table.id = posts.author_id) AND posts.published = true");
-        let _query = TestEntity::find()
-            .left_join("posts", complex_condition);
+        let _query = TestEntity::find().left_join("posts", complex_condition);
     }
 
     #[test]
     fn test_join_types_all_variants() {
         // EDGE CASE: All JOIN types work correctly
         let join_cond = Expr::cust("test_table.id = posts.user_id");
-        
+
         let _inner = TestEntity::find().join("posts", join_cond.clone());
         let _left = TestEntity::find().left_join("posts", join_cond.clone());
         let _right = TestEntity::find().right_join("posts", join_cond.clone());
@@ -1713,8 +1924,8 @@ mod tests {
     fn test_join_with_subquery() {
         // EDGE CASE: JOIN with subquery (future enhancement)
         // For now, this documents the requirement
-        let _query = TestEntity::find()
-            .left_join("posts", Expr::cust("test_table.id = posts.user_id"));
+        let _query =
+            TestEntity::find().left_join("posts", Expr::cust("test_table.id = posts.user_id"));
         // Full subquery support would require additional API
     }
 

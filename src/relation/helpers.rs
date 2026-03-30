@@ -47,9 +47,7 @@ pub fn join_condition(
     // so we use a custom SQL expression
     // Note: This creates a raw SQL string, so table/column names should be validated
     // to prevent SQL injection if user input is involved
-    let condition = format!(
-        "{from_table}.{from_column} = {to_table}.{to_column}"
-    );
+    let condition = format!("{from_table}.{from_column} = {to_table}.{to_column}");
     Expr::cust(condition)
 }
 

@@ -45,7 +45,7 @@ pub enum Identity {
 impl<'a> IntoIterator for &'a Identity {
     type Item = &'a sea_query::DynIden;
     type IntoIter = BorrowedIdentityIter<'a>;
-    
+
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn test_identity_arity() {
         let id_col: DynIden = "id".into();
-        
+
         assert_eq!(Identity::Unary(id_col.clone()).arity(), 1);
         assert_eq!(Identity::Binary(id_col.clone(), id_col.clone()).arity(), 2);
         assert_eq!(
@@ -222,7 +222,13 @@ mod tests {
             3
         );
         assert_eq!(
-            Identity::Many(vec![id_col.clone(), id_col.clone(), id_col.clone(), id_col.clone()]).arity(),
+            Identity::Many(vec![
+                id_col.clone(),
+                id_col.clone(),
+                id_col.clone(),
+                id_col.clone()
+            ])
+            .arity(),
             4
         );
     }
@@ -288,10 +294,10 @@ mod tests {
 
         // identity1 contains identity2 (id is in Binary)
         assert!(identity1.fully_contains(&identity2));
-        
+
         // identity1 does not fully contain identity3 (missing region_col)
         assert!(!identity1.fully_contains(&identity3));
-        
+
         // identity3 fully contains identity1 (has both id and tenant_id)
         assert!(identity3.fully_contains(&identity1));
     }
@@ -301,7 +307,7 @@ mod tests {
         // Edge case: Many variant with 5+ columns
         let cols: Vec<DynIden> = (0..6).map(|i| format!("col_{i}").into()).collect();
         let identity = Identity::Many(cols.clone());
-        
+
         assert_eq!(identity.arity(), 6);
         let collected: Vec<&DynIden> = identity.iter().collect();
         assert_eq!(collected.len(), 6);
@@ -321,7 +327,7 @@ mod tests {
         // Edge case: Many variant with duplicate columns
         let id_col: DynIden = "id".into();
         let identity = Identity::Many(vec![id_col.clone(), id_col.clone(), id_col.clone()]);
-        
+
         assert_eq!(identity.arity(), 3);
         assert!(identity.contains(&id_col));
         // All three should be the same column
@@ -338,10 +344,10 @@ mod tests {
         let id_col: DynIden = "id".into();
         let tenant_col: DynIden = "tenant_id".into();
         let identity = Identity::Binary(id_col.clone(), tenant_col.clone());
-        
+
         let iter1: Vec<&DynIden> = identity.iter().collect();
         let iter2: Vec<&DynIden> = identity.iter().collect();
-        
+
         assert_eq!(iter1.len(), 2);
         assert_eq!(iter2.len(), 2);
         assert_eq!(iter1, iter2);
@@ -353,7 +359,7 @@ mod tests {
         let id_col: DynIden = "id".into();
         let other_col: DynIden = "other".into();
         let identity = Identity::Unary(id_col.clone());
-        
+
         assert!(identity.contains(&id_col));
         assert!(!identity.contains(&other_col));
     }
@@ -364,7 +370,7 @@ mod tests {
         let id_col: DynIden = "id".into();
         let tenant_col: DynIden = "tenant_id".into();
         let identity = Identity::Binary(id_col.clone(), tenant_col.clone());
-        
+
         assert!(identity.fully_contains(&identity));
     }
 
@@ -375,7 +381,7 @@ mod tests {
         let tenant_col: DynIden = "tenant_id".into();
         let region_col: DynIden = "region_id".into();
         let extra_col: DynIden = "extra".into();
-        
+
         let many_identity = Identity::Many(vec![
             id_col.clone(),
             tenant_col.clone(),
@@ -384,7 +390,7 @@ mod tests {
         ]);
         let binary_identity = Identity::Binary(id_col.clone(), tenant_col.clone());
         let unary_identity = Identity::Unary(id_col.clone());
-        
+
         assert!(many_identity.fully_contains(&binary_identity));
         assert!(many_identity.fully_contains(&unary_identity));
         assert!(!binary_identity.fully_contains(&many_identity));

@@ -1,7 +1,7 @@
 //! In-process migration execution helpers
 
+use crate::migration::{lock::MigrationLockGuard, MigrationError, Migrator};
 use crate::LifeExecutor;
-use crate::migration::{Migrator, MigrationError, lock::MigrationLockGuard};
 
 /// Run migrations on application startup
 ///
@@ -58,33 +58,33 @@ pub fn startup_migrations(
     timeout_seconds: Option<u64>,
 ) -> Result<(), MigrationError> {
     use crate::migration::SchemaManager;
-    
+
     // Acquire migration lock (Flyway-style: uses migration table itself)
     // This prevents concurrent execution in multi-instance deployments (e.g., Kubernetes)
     let _lock = MigrationLockGuard::new(executor, timeout_seconds)?;
-    
+
     // Create migrator
     let migrator = Migrator::new(migrations_dir);
-    
+
     // Validate checksums of already-applied migrations
     // This ensures migration files haven't been modified after deployment
     migrator.validate_checksums(executor)?;
-    
+
     // Create SchemaManager for migration execution
     // Note: We use up_with_lock() instead of up() since we already hold the lock
     // Calling up() would attempt to acquire the lock again, causing a deadlock
     let manager = SchemaManager::new(executor);
-    
+
     // Apply pending migrations (executor is just a reference - no ownership needed!)
     // Use up_with_lock() since lock is already held by MigrationLockGuard
     let applied = migrator.up_with_lock(executor, &manager, None)?;
-    
+
     if applied > 0 {
         log::info!("Applied {applied} migration(s) on startup");
     } else {
         log::debug!("No pending migrations to apply");
     }
-    
+
     // Lock is automatically released when _lock is dropped
     Ok(())
 }
@@ -104,28 +104,28 @@ pub fn startup_migrations_with_timeout(
     timeout_seconds: u64,
 ) -> Result<usize, MigrationError> {
     use crate::migration::SchemaManager;
-    
+
     // Acquire migration lock (Flyway-style: uses migration table itself)
     let _lock = MigrationLockGuard::new(executor, Some(timeout_seconds))?;
-    
+
     let migrator = Migrator::new(migrations_dir);
     migrator.validate_checksums(executor)?;
-    
+
     // Create SchemaManager for migration execution
     // Note: We use up_with_lock() instead of up() since we already hold the lock
     // Calling up() would attempt to acquire the lock again, causing a deadlock
     let manager = SchemaManager::new(executor);
-    
+
     // Apply pending migrations (executor is just a reference - no ownership needed!)
     // Use up_with_lock() since lock is already held by MigrationLockGuard
     let applied = migrator.up_with_lock(executor, &manager, None)?;
-    
+
     if applied > 0 {
         log::info!("Applied {applied} migration(s) on startup");
     } else {
         log::debug!("No pending migrations to apply");
     }
-    
+
     // Lock is automatically released when _lock is dropped
     Ok(applied)
 }

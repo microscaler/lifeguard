@@ -10,6 +10,6 @@ scrape_configs:
     static_configs:
       - targets: ['otel-collector:9464']
 
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['postgres-exporter:9187']
+  # No postgres-exporter job: the repo does not ship that service. Sample stacks often use a
+  # leftover `pact` DB user; our Kind Postgres is `postgres`/`postgres` only (see test-infrastructure).
+  # Re-add a scrape_config only when you deploy an exporter with matching DATA_SOURCE_URI.

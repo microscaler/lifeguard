@@ -13,6 +13,7 @@ members = [
     "lifeguard-derive",
     "lifeguard-codegen",
     "lifeguard-migrate",
+    "lifeguard-reflector",
     "tests-integration",
 ]
 resolver = "2"
@@ -60,14 +61,14 @@ serde_json = "1.0"  # JSON support is always enabled (core functionality)
 chrono = { version = "0.4.41", features = ["serde"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }  # For entity definitions
 # Enables `ToSql` for `uuid::Uuid` in `may_postgres` query parameters (insert/update/bind).
-postgres-types = { version = "0.2.12", features = ["with-uuid-1"] }
-rust_decimal = "1.33"  # For entity definitions (NUMERIC types)
+postgres-types = { version = "0.2.12", features = ["with-uuid-1", "with-serde_json-1"] }
+rust_decimal = { version = "1.33", features = ["db-postgres"] }  # NUMERIC + `ToSql` for pool binds
 sha2 = "0.10"  # For migration checksum calculation
 regex = "1.10"  # For migration file name parsing
 
 # SQL Builder (borrowed, runtime-agnostic)
 # JSON support is always enabled (core functionality)
-sea-query = { version = "1.0.0-rc.29", features = ["with-json", "with-chrono", "with-uuid"] }
+sea-query = { version = "1.0.0-rc.29", features = ["with-json", "with-chrono", "with-uuid", "with-rust_decimal"] }
 
 # GraphQL API generation (version pinned in [workspace.dependencies])
 async-graphql = { workspace = true, optional = true }
@@ -84,6 +85,7 @@ rand = "0.8"
 redis = "0.26"
 
 [dev-dependencies]
+ureq = { version = "2.10", default-features = false }
 bytes = "1"
 # Required when tests expand `LifeModel` with graphql: nested `SimpleObject` resolves `async_graphql` in this crate.
 async-graphql.workspace = true

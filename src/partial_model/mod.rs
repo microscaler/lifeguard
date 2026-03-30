@@ -13,7 +13,7 @@
 // Core traits
 pub mod traits;
 #[doc(inline)]
-pub use traits::{PartialModelTrait, PartialModelBuilder};
+pub use traits::{PartialModelBuilder, PartialModelTrait};
 
 // Query builder
 pub mod query;

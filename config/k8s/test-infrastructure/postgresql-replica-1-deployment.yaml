@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql-replica-1
+  namespace: lifeguard-test
+  labels:
+    app: postgresql-replica-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql-replica-1
+  template:
+    metadata:
+      labels:
+        app: postgresql-replica-1
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: postgresql
+          image: docker.io/bitnamilegacy/postgresql:15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          env:
+            - name: POSTGRESQL_REPLICATION_MODE
+              value: "slave"
+            - name: POSTGRESQL_REPLICATION_USER
+              value: "replicator"
+            - name: POSTGRESQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: postgresql-replication-password
+            - name: POSTGRESQL_MASTER_HOST
+              value: "postgresql-primary"
+            - name: POSTGRESQL_MASTER_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: postgresql-password
+            - name: POSTGRESQL_MASTER_ROOT_USER
+              value: "postgres"
+            - name: POSTGRESQL_MASTER_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-credentials
+                  key: postgresql-password
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: "200"
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+          livenessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - postgres
+                - -d
+                - postgres
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: 90
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - postgres
+                - -d
+                - postgres
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: 60
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgresql-replica-1-data

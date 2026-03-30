@@ -8,12 +8,8 @@
 //! Note: These tests require a running `PostgreSQL` database. Set `TEST_DATABASE_URL`
 //! environment variable or use the test infrastructure from `test_helpers`.
 
-use lifeguard::{
-    ActiveModelTrait, LifeExecutor, MayPostgresExecutor,
-    test_helpers::TestDatabase,
-};
+use lifeguard::{test_helpers::TestDatabase, ActiveModelTrait, LifeExecutor, MayPostgresExecutor};
 use lifeguard_derive::{LifeModel, LifeRecord};
-
 
 fn get_db() -> TestDatabase {
     let ctx = crate::context::get_test_context();
@@ -45,10 +41,10 @@ pub mod user_mod {
         pub user_id: i32,
         pub username: String,
         pub organization_id: i32, // FK to Organizations
-        
+
         #[belongs_to(entity = "org_mod::Entity", from = "organization_id", to = "id")]
         pub rel_organization: Option<org_mod::OrganizationModel>,
-        
+
         #[has_many(entity = "post_mod::Entity", from = "user_id", to = "author_id")]
         pub rel_posts: Option<Vec<post_mod::PostModel>>,
     }
@@ -144,18 +140,30 @@ fn test_nested_graph_persistence() {
     user.add_child(post2);
 
     // 5. Execute Single-Transaction Graph Persistence
-    let saved_user = user.save_graph(&executor).expect("Failed to execute topological graph save");
+    let saved_user = user
+        .save_graph(&executor)
+        .expect("Failed to execute topological graph save");
 
     // 6. Verification
-    assert!(saved_user.user_id > 0, "Root model should have an auto-incremented ID");
-    assert!(saved_user.organization_id > 0, "Root model should have dynamically acquired parent ID");
-    
+    assert!(
+        saved_user.user_id > 0,
+        "Root model should have an auto-incremented ID"
+    );
+    assert!(
+        saved_user.organization_id > 0,
+        "Root model should have dynamically acquired parent ID"
+    );
+
     // Verify DB State
-    let org_rows = executor.query_all("SELECT id, name FROM test_organizations", &[]).unwrap();
+    let org_rows = executor
+        .query_all("SELECT id, name FROM test_organizations", &[])
+        .unwrap();
     assert_eq!(org_rows.len(), 1);
     assert_eq!(org_rows[0].get::<_, i32>(0), saved_user.organization_id);
 
-    let post_rows = executor.query_all("SELECT author_id FROM test_posts", &[]).unwrap();
+    let post_rows = executor
+        .query_all("SELECT author_id FROM test_posts", &[])
+        .unwrap();
     assert_eq!(post_rows.len(), 2);
     assert_eq!(post_rows[0].get::<_, i32>(0), saved_user.user_id);
     assert_eq!(post_rows[1].get::<_, i32>(0), saved_user.user_id);

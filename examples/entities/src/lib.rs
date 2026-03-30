@@ -1,7 +1,7 @@
 //! Example Entities Library
 //!
 //! This library provides example Lifeguard entity definitions for demonstration purposes.
-//! 
+//!
 //! **Note**: RERP accounting entities have been moved to `rerp/entities/`.
 //! This examples directory is kept for Lifeguard documentation and testing purposes.
 //!

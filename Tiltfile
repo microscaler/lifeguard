@@ -3,14 +3,17 @@
 # This Tiltfile manages local development resources:
 # - PostgreSQL deployment with port forwards
 # - Test infrastructure
+# - Observability (OTEL Collector, Prometheus, Loki, Grafana) with port forwards
 #
 # Usage: tilt up
 #
 # Resources are organized into parallel streams using labels:
 # - 'infrastructure' label: PostgreSQL test database
-# - 'migration' label: Migration integration tests (runs in parallel with other tests)
+# - 'migration' label: migration tooling + inventory generated SQL checks + lifeguard-integration-tests
+# - 'replication' label: read-replica / pool tests (needs primary + replica-0 + Redis; see PRD read-replica)
+# - 'perf' label: examples/perf-idam — unit tests (`idam-perf`) and ORM harness run (`idam-perf-run`; destructive DDL when PERF_RESET=1)
 # - One label per component (no multi-label to avoid Tilt UI clutter).
-# - Inventory service: 'inventory_entities', 'inventory_gen_migrations', 'inventory_migrations'
+# - 'inventory_entities' label: entities example crate build only
 
 # ====================
 # Configuration
@@ -32,37 +35,87 @@ default_registry('localhost:5000')
 LIFEGUARD_DIR = '.'
 
 # ====================
-# PostgreSQL Deployment
+# Test stack (CI-parity topology)
 # ====================
-# PostgreSQL is deployed via kustomize for test infrastructure
-# Port forwards are configured here for convenient access
-# Note: Namespace and PVC are created by setup_kind_cluster.sh
-# Tilt only needs to deploy the deployment and service
+# Bitnami primary + 2 streaming replicas + Redis — same images/env shape as `.github/docker/docker-compose.yml`.
+# Host ports match CI: 6543 primary, 6544 replica-0, 6545 redis, 6546 replica-1 (Tilt forwards to cluster services).
 
-# Deploy PostgreSQL deployment and service (namespace and PVC already exist)
-k8s_yaml([
-    '%s/config/k8s/test-infrastructure/postgres-deployment.yaml' % LIFEGUARD_DIR,
-    '%s/config/k8s/test-infrastructure/postgres-service.yaml' % LIFEGUARD_DIR,
-])
+k8s_yaml(kustomize('%s/config/k8s/test-infrastructure' % LIFEGUARD_DIR))
+# Observability: OTEL Collector, Prometheus, Loki, Grafana (namespace lifeguard-test from test-infrastructure).
+k8s_yaml(kustomize('%s/config/k8s/observability' % LIFEGUARD_DIR))
 
-# Configure PostgreSQL resource with port forwards
-# Forward to service port 5432 for database access
-# Wait for deployment to be ready before marking resource as ready
 k8s_resource(
-    'postgres',
+    'postgresql-primary',
     labels=['infrastructure'],
+    port_forwards=['6543:5432'],
+    resource_deps=[],
+    auto_init=True,
+)
+k8s_resource(
+    'postgresql-replica-0',
+    labels=['infrastructure'],
+    port_forwards=['6544:5432'],
+    resource_deps=['postgresql-primary'],
+    auto_init=True,
+)
+k8s_resource(
+    'postgresql-replica-1',
+    labels=['infrastructure'],
+    port_forwards=['6546:5432'],
+    resource_deps=['postgresql-primary'],
+    auto_init=True,
+)
+k8s_resource(
+    'redis',
+    labels=['infrastructure'],
+    port_forwards=['6545:6379'],
+    resource_deps=[],
+    auto_init=True,
+)
+
+k8s_resource(
+    'otel-collector',
+    labels=['observability'],
     port_forwards=[
-        '5432:5432',  # PostgreSQL: localhost:5432 -> service:5432
+        '4317:4317',
+        '4318:4318',
+        '9464:9464',
     ],
-    resource_deps=[],  # No dependencies - namespace and PVC already exist
-    # Ensure port-forward is established before dependent resources start
+    resource_deps=[],
+    auto_init=True,
+)
+k8s_resource(
+    'prometheus',
+    labels=['observability'],
+    port_forwards=['9090:9090'],
+    resource_deps=[],
+    auto_init=True,
+)
+k8s_resource(
+    'loki',
+    labels=['observability'],
+    port_forwards=['3100:3100'],
+    resource_deps=[],
+    auto_init=True,
+)
+k8s_resource(
+    'grafana',
+    labels=['observability'],
+    port_forwards=['3000:3000'],
+    resource_deps=[],
     auto_init=True,
 )
 
 # ====================
 # Build Resources
 # ====================
-# Compilation resources for catching build errors early
+# Compilation resources for catching build errors early (workspace members in Cargo.toml).
+# Dependency graph (Cargo):
+#   lifeguard-derive — standalone proc-macro
+#   lifeguard-codegen — standalone CLI (clap/serde only)
+#   lifeguard-reflector — standalone stub (no path deps yet)
+#   lifeguard — depends on lifeguard-derive
+#   lifeguard-migrate — depends on lifeguard + lifeguard-derive (must follow build-lifeguard)
 
 # Build lifeguard-derive (procedural macros)
 local_resource(
@@ -77,26 +130,44 @@ local_resource(
         'target/**',
         '**/target/**',
     ],
-    resource_deps=[],  # No dependencies - standalone crate
+    resource_deps=[],
     labels=['build'],
-    allow_parallel=True,  # Can build in parallel with codegen
+    allow_parallel=True,
 )
 
 # Build lifeguard-codegen (code generation CLI tool)
-# Only build if Cargo.toml exists (crate may not be created yet)
 local_resource(
     'build-codegen',
-    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cargo build -p lifeguard-codegen; else echo "⚠️  lifeguard-codegen crate not found, skipping build"; fi',
+    cmd='cargo build -p lifeguard-codegen',
     deps=[
-        'lifeguard-codegen',
+        'lifeguard-codegen/src',
+        'lifeguard-codegen/Cargo.toml',
+        'lifeguard-codegen/Cargo.lock',
     ],
     ignore=[
         'target/**',
         '**/target/**',
     ],
-    resource_deps=[],  # No dependencies - standalone crate
+    resource_deps=[],
     labels=['build'],
-    allow_parallel=True,  # Can build in parallel with derive
+    allow_parallel=True,
+)
+
+# Build lifeguard-reflector (cache coherence service; workspace member)
+local_resource(
+    'build-reflector',
+    cmd='cargo build -p lifeguard-reflector',
+    deps=[
+        'lifeguard-reflector/src',
+        'lifeguard-reflector/Cargo.toml',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=[],
+    labels=['build'],
+    allow_parallel=True,
 )
 
 # Build main lifeguard crate (depends on lifeguard-derive)
@@ -114,9 +185,31 @@ local_resource(
         'target/**',
         '**/target/**',
     ],
-    resource_deps=['build-derive'],  # Wait for lifeguard-derive to compile first
+    resource_deps=['build-derive'],
     labels=['build'],
-    allow_parallel=False,  # Serialize after derive build to prevent storms
+    allow_parallel=False,
+)
+
+# Build lifeguard-migrate CLI (depends on lifeguard + lifeguard-derive)
+local_resource(
+    'build-migrate',
+    cmd='cargo build -p lifeguard-migrate',
+    deps=[
+        'lifeguard-migrate/src',
+        'lifeguard-migrate/Cargo.toml',
+        'lifeguard-migrate/tests',
+        'src',
+        'lifeguard-derive/src',
+        'Cargo.toml',
+        'Cargo.lock',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=['build-lifeguard'],
+    labels=['build'],
+    allow_parallel=False,
 )
 
 # Build example entities crate (showcase example)
@@ -158,7 +251,7 @@ local_resource(
         '**/target/**',
     ],
     resource_deps=['build-entities'],
-    labels=['inventory_gen_migrations'],
+    labels=['migration'],
     allow_parallel=False,
 )
 
@@ -170,7 +263,7 @@ local_resource(
          'echo "⚠️ No .sql in inventory/"'),
     deps=['migrations/generated/inventory'],
     resource_deps=['gen-migrations'],
-    labels=['inventory_migrations'],
+    labels=['migration'],
 )
 
 # ====================
@@ -195,22 +288,32 @@ local_resource(
         'nexttest-errors.log',
         'test-derive-errors.log',
     ],
-    resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
+    resource_deps=['postgresql-primary', 'build-migrate'],
     labels=['tests'],
     allow_parallel=False,  # Serialize to prevent build storms
 )
 
-# Run nextest (faster test execution for main crate)
-# Using nextest as the primary test runner
-# Excludes integration tests (lifeguard-integration-tests) which require database and run separately
-# Note: ignore patterns prevent infinite loops from test output files in target/
+# Run nextest (CI profile: matches .github/workflows/ci.yaml workspace step shape).
+# `db_integration_suite` is serialized via nextest test-group `lifeguard-shared-postgres` in .config/nextest.toml
+# (shared Kind Postgres + fixed table names — parallel processes used to flake). Replica/Redis env for pool_read_replica.
 local_resource(
     'test-nextest',
-    cmd='TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) cargo nextest run --workspace --all-features',
+    cmd=(
+        'TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) '
+        + 'TEST_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres '
+        + 'TEST_REDIS_URL=redis://127.0.0.1:6545 '
+        + 'cargo nextest run --workspace --all-features --profile ci --config-file .config/nextest.toml'
+    ),
     deps=[
         'src',
+        'lifeguard-derive',
+        'lifeguard-codegen',
+        'lifeguard-migrate',
+        'lifeguard-reflector',
+        'tests-integration',
         'Cargo.toml',
         'Cargo.lock',
+        '.config/nextest.toml',
         'scripts/get_test_connection_string.sh',
     ],
     ignore=[
@@ -221,9 +324,131 @@ local_resource(
         'nexttest-errors.log',
         'test-derive-errors.log',
     ],
-    resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
+    resource_deps=[
+        'postgresql-primary',
+        'postgresql-replica-0',
+        'redis',
+        'build-codegen',
+        'build-reflector',
+        'build-migrate',
+    ],
     labels=['tests'],
     allow_parallel=False,  # Serialize to prevent build storms
+)
+
+# Read-replica pool tests only (`tests/db_integration/pool_read_replica.rs`).
+# Filter matches only tests in that module (the only code paths using `TEST_REPLICA_URL`). Nextest would
+# otherwise print every other test in the binary as SKIP; `--status-level pass` keeps logs to PASS lines only.
+# Full DB integration with replica env: `test-db-integration-replica`. Ports: primary 6543, replica-0 6544, Redis 6545.
+local_resource(
+    'test-replication-pool',
+    cmd=(
+        'TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) '
+        + 'TEST_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres '
+        + 'TEST_REDIS_URL=redis://127.0.0.1:6545 '
+        + 'cargo nextest run -p lifeguard --all-features --config-file .config/nextest.toml '
+        + '--profile db-serial --status-level pass '
+        + "-E 'binary(db_integration_suite) and test(~pool_read_replica)'"
+    ),
+    deps=[
+        'tests/db_integration/pool_read_replica.rs',
+        'tests/db_integration/replication_sync.rs',
+        'tests/db_integration_suite.rs',
+        'tests/context.rs',
+        'Cargo.toml',
+        'Cargo.lock',
+        '.config/nextest.toml',
+        'scripts/get_test_connection_string.sh',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        '*.stderr',
+        '*.stdout',
+        'nexttest-errors.log',
+        'test-derive-errors.log',
+    ],
+    resource_deps=[
+        'postgresql-primary',
+        'postgresql-replica-0',
+        'redis',
+        'build-migrate',
+    ],
+    labels=['replication'],
+    allow_parallel=False,
+)
+
+# Full `db_integration_suite` with replica + Redis env (serial profile — same shape as `just nt-db-suite`).
+# Use for PRD read-replica / integration work; avoids running the entire workspace.
+local_resource(
+    'test-db-integration-replica',
+    cmd=(
+        'TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) '
+        + 'TEST_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres '
+        + 'TEST_REDIS_URL=redis://127.0.0.1:6545 '
+        + 'cargo nextest run -p lifeguard --all-features --config-file .config/nextest.toml '
+        + "--profile db-serial -E 'binary(db_integration_suite)'"
+    ),
+    deps=[
+        'tests/db_integration',
+        'tests/db_integration_suite.rs',
+        'tests/context.rs',
+        'Cargo.toml',
+        'Cargo.lock',
+        '.config/nextest.toml',
+        'scripts/get_test_connection_string.sh',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+        '*.stderr',
+        '*.stdout',
+        'nexttest-errors.log',
+        'test-derive-errors.log',
+    ],
+    resource_deps=[
+        'postgresql-primary',
+        'postgresql-replica-0',
+        'redis',
+        'build-migrate',
+    ],
+    labels=['replication'],
+    allow_parallel=False,
+)
+
+# Single integration test: `LifeguardPool` smoke against streaming replica (fastest loop for pool/replication changes).
+local_resource(
+    'test-replication-pool-smoke',
+    cmd=(
+        'TEST_DATABASE_URL=$(./scripts/get_test_connection_string.sh) '
+        + 'TEST_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres '
+        + 'TEST_REDIS_URL=redis://127.0.0.1:6545 '
+        + 'cargo nextest run -p lifeguard --all-features --config-file .config/nextest.toml '
+        + '--profile db-serial --status-level pass '
+        + "-E 'binary(db_integration_suite) and test(pooled_pool_construct_write_read_with_replica)'"
+    ),
+    deps=[
+        'tests/db_integration/pool_read_replica.rs',
+        'tests/db_integration/replication_sync.rs',
+        'tests/db_integration_suite.rs',
+        'tests/context.rs',
+        'Cargo.toml',
+        'Cargo.lock',
+        '.config/nextest.toml',
+        'scripts/get_test_connection_string.sh',
+    ],
+    ignore=[
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=[
+        'postgresql-primary',
+        'postgresql-replica-0',
+        'redis',
+        'build-migrate',
+    ],
+    labels=['replication'],
+    allow_parallel=False,
 )
 
 # Run migration integration tests (requires database connection)
@@ -247,7 +472,7 @@ local_resource(
         'nexttest-errors.log',
         'test-derive-errors.log',
     ],
-    resource_deps=['postgres', 'build-lifeguard'],  # Wait for PostgreSQL and build to be ready
+    resource_deps=['postgresql-primary', 'build-migrate'],
     labels=['migration'],
     allow_parallel=True,  # Can run in parallel with other tests (separate crate)
 )
@@ -265,7 +490,7 @@ local_resource(
 #         'Cargo.lock',
 #         'scripts/get_test_connection_string.sh',
 #     ],
-#     resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
+#     resource_deps=['postgresql-primary'],  # Primary DB for examples
 #     labels=['tests'],
 #     allow_parallel=False,
 # )
@@ -318,9 +543,11 @@ local_resource(
 # Only test if Cargo.toml exists (crate may not be created yet)
 local_resource(
     'test-codegen',
-    cmd='if [ -f lifeguard-codegen/Cargo.toml ]; then cd lifeguard-codegen && cargo test --no-fail-fast; else echo "⚠️  lifeguard-codegen crate not found, skipping tests"; fi',
+    cmd='cargo test -p lifeguard-codegen --no-fail-fast',
     deps=[
-        'lifeguard-codegen',
+        'lifeguard-codegen/src',
+        'lifeguard-codegen/Cargo.toml',
+        'lifeguard-codegen/Cargo.lock',
     ],
     ignore=[
         'target/**',
@@ -353,6 +580,54 @@ local_resource(
 # )
 
 # ====================
+# IDAM perf (standalone `examples/perf-idam` workspace)
+# ====================
+# See docs/PERF_ORM.md. Kind/Tilt host ports: primary 6543, replica-0 6544, Redis 6545 (CI Compose uses Toxiproxy :6547 for replica).
+
+local_resource(
+    'idam-perf',
+    cmd='cd examples/perf-idam && cargo test --locked --no-fail-fast',
+    deps=[
+        'examples/perf-idam',
+    ],
+    ignore=[
+        'examples/perf-idam/target/**',
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=['build-lifeguard'],
+    labels=['perf'],
+    allow_parallel=False,
+)
+
+local_resource(
+    'idam-perf-run',
+    cmd=(
+        'export PERF_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:6543/postgres && '
+        + 'export PERF_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres && '
+        + 'export REDIS_URL=redis://127.0.0.1:6545 && export TEST_REDIS_URL=redis://127.0.0.1:6545 && '
+        + 'export PERF_RESET=1 && export PERF_POOL_SIZE=8 && export PERF_TENANT_COUNT=10 && '
+        + 'export PERF_USER_ROWS=2000 && export PERF_SESSION_ROWS=2000 && '
+        + 'export PERF_WARMUP=100 && export PERF_ITERATIONS=500 && export PERF_OUTPUT=perf-results.json && '
+        + 'cd examples/perf-idam && cargo run --release --locked --bin perf-orm'
+    ),
+    deps=[
+        'examples/perf-idam',
+        'src',
+        'lifeguard-derive',
+        'Cargo.toml',
+    ],
+    ignore=[
+        'examples/perf-idam/target/**',
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=['postgresql-primary', 'postgresql-replica-0', 'redis', 'build-lifeguard'],
+    labels=['perf'],
+    allow_parallel=False,
+)
+
+# ====================
 # Examples
 # ====================
 # Run example applications
@@ -370,7 +645,7 @@ local_resource(
         'target/**',
         '**/target/**',
     ],
-    resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
+    resource_deps=['postgresql-primary'],  # Primary DB for examples
     labels=['examples'],
     allow_parallel=True,
 )
@@ -388,7 +663,7 @@ local_resource(
         'target/**',
         '**/target/**',
     ],
-    resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
+    resource_deps=['postgresql-primary'],  # Primary DB for examples
     labels=['examples'],
     allow_parallel=True,
 )
@@ -406,7 +681,7 @@ local_resource(
         'target/**',
         '**/target/**',
     ],
-    resource_deps=['postgres'],  # Wait for PostgreSQL to be ready
+    resource_deps=['postgresql-primary'],  # Primary DB for examples
     labels=['examples'],
     allow_parallel=True,
 )

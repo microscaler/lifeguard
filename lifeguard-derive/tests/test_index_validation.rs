@@ -11,8 +11,8 @@
 
 #![allow(warnings)]
 
-use lifeguard_derive::LifeModel;
 use lifeguard::LifeModelTrait;
+use lifeguard_derive::LifeModel;
 
 // ============================================================================
 // Positive Test Cases: Valid Indexes
@@ -29,7 +29,7 @@ fn test_valid_single_column_index() {
         pub name: String,
         pub email: String,
     }
-    
+
     // Should compile successfully - verify table definition includes the index
     let entity = Entity::default();
     let table_def = Entity::table_definition();
@@ -50,7 +50,7 @@ fn test_valid_multi_column_index() {
         pub email: String,
         pub age: i32,
     }
-    
+
     // Should compile successfully
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 1);
@@ -71,11 +71,11 @@ fn test_valid_multiple_indexes() {
         pub email: String,
         pub age: i32,
     }
-    
+
     // Should compile successfully with all three indexes
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 3);
-    
+
     let index_names: Vec<&str> = table_def.indexes.iter().map(|i| i.name.as_str()).collect();
     assert!(index_names.contains(&"idx_test_name"));
     assert!(index_names.contains(&"idx_test_email"));
@@ -93,11 +93,14 @@ fn test_valid_index_with_where_clause() {
         pub name: String,
         pub active: bool,
     }
-    
+
     // Should compile successfully
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 1);
-    assert_eq!(table_def.indexes[0].partial_where, Some("active = true".to_string()));
+    assert_eq!(
+        table_def.indexes[0].partial_where,
+        Some("active = true".to_string())
+    );
 }
 
 #[test]
@@ -110,7 +113,7 @@ fn test_valid_unique_index() {
         pub id: i32,
         pub email: String,
     }
-    
+
     // Should compile successfully
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 1);
@@ -129,7 +132,7 @@ fn test_valid_composite_unique_constraint() {
         pub user_id: i32,
         pub name: String,
     }
-    
+
     // Should compile successfully
     let table_def = Entity::table_definition();
     assert_eq!(table_def.composite_unique.len(), 1);
@@ -148,7 +151,7 @@ fn test_valid_index_on_foreign_key_column() {
         pub user_id: i32,
         pub name: String,
     }
-    
+
     // Should compile successfully - indexing foreign keys is common
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 1);
@@ -166,7 +169,7 @@ fn test_valid_index_with_column_name_attribute() {
         #[column_name = "email_address"]
         pub email: String,
     }
-    
+
     // Should compile successfully - index uses the column_name, not field name
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 1);
@@ -189,7 +192,7 @@ fn test_valid_index_on_child_entity_own_columns() {
         pub customer_id: i32,
         pub outstanding_amount: i64,
     }
-    
+
     // Should compile successfully - only indexing own columns
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 1);
@@ -216,7 +219,7 @@ fn test_valid_index_with_all_column_types() {
         pub bool_col: bool,
         pub option_col: Option<String>,
     }
-    
+
     // Should compile successfully
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 4);
@@ -234,7 +237,7 @@ fn test_valid_index_with_snake_case_columns() {
         pub first_name: String,
         pub last_name: String,
     }
-    
+
     // Should compile successfully
     let table_def = Entity::table_definition();
     assert_eq!(table_def.indexes.len(), 2);
@@ -254,7 +257,7 @@ fn test_valid_composite_unique_with_multiple_constraints() {
         pub organization_id: i32,
         pub project_id: i32,
     }
-    
+
     // Should compile successfully
     let table_def = Entity::table_definition();
     assert_eq!(table_def.composite_unique.len(), 2);

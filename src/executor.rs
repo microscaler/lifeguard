@@ -5,16 +5,15 @@
 //! This trait will be the foundation for all database operations, allowing the ORM layer
 //! and migrations to work with any executor implementation.
 
-use may_postgres::{Client, Error as PostgresError, Row};
 use may_postgres::types::ToSql;
+use may_postgres::{Client, Error as PostgresError, Row};
 use std::fmt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-#[cfg(feature = "metrics")]
-use crate::metrics::METRICS;
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
-
+#[cfg(feature = "metrics")]
+use crate::metrics::METRICS;
 
 /// `LifeExecutor` error type
 #[derive(Debug)]
@@ -27,6 +26,16 @@ pub enum LifeError {
     ParseError(String),
     /// Other execution errors
     Other(String),
+    /// Pool-specific failures (dispatch, configuration, unsupported executor usage)
+    Pool(String),
+    /// Timed out waiting to submit work to a pool worker (queue saturated or overload).
+    ///
+    /// Distinct from [`LifeError::QueryError`] and [`LifeError::Pool`] string cases so callers
+    /// can match without parsing display text (PRD connection pooling R1.2).
+    PoolAcquireTimeout {
+        /// Wall time spent waiting before giving up.
+        waited: Duration,
+    },
 }
 
 impl fmt::Display for LifeError {
@@ -43,6 +52,15 @@ impl fmt::Display for LifeError {
             }
             LifeError::Other(s) => {
                 write!(f, "Execution error: {s}")
+            }
+            LifeError::Pool(s) => {
+                write!(f, "Pool error: {s}")
+            }
+            LifeError::PoolAcquireTimeout { waited } => {
+                write!(
+                    f,
+                    "Pool error: timed out acquiring a worker after {waited:?}"
+                )
             }
         }
     }
@@ -170,6 +188,39 @@ pub trait LifeExecutor {
     /// ```
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError>;
 
+    /// Execute a statement with `sea_query::Values` (ORM / pool-safe parameter path).
+    ///
+    /// Default implementation converts values to `ToSql` on the stack and calls [`Self::execute`].
+    fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(
+            &values.0,
+            LifeError::Other,
+            |p| self.execute(query, p),
+        )
+    }
+
+    /// Query one row with `sea_query::Values`.
+    fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(
+            &values.0,
+            LifeError::Other,
+            |p| self.query_one(query, p),
+        )
+    }
+
+    /// Query all rows with `sea_query::Values`.
+    fn query_all_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Vec<Row>, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(
+            &values.0,
+            LifeError::Other,
+            |p| self.query_all(query, p),
+        )
+    }
+
     /// Retrieve the transparent cache provider if configured for this executor
     fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
         None
@@ -189,6 +240,22 @@ impl LifeExecutor for &dyn LifeExecutor {
 
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
         (*self).query_all(query, params)
+    }
+
+    fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
+        (*self).execute_values(query, values)
+    }
+
+    fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
+        (*self).query_one_values(query, values)
+    }
+
+    fn query_all_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Vec<Row>, LifeError> {
+        (*self).query_all_values(query, values)
     }
 
     fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
@@ -250,7 +317,9 @@ impl MayPostgresExecutor {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn begin(&self) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+    pub fn begin(
+        &self,
+    ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
         crate::transaction::Transaction::new(self.client.clone())
     }
 
@@ -340,57 +409,54 @@ impl LifeExecutor for MayPostgresExecutor {
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
-        
+
         let start = Instant::now();
-        let result = self.client.execute(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
-        
+        let result = self.client.execute(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error(None);
+            LifeError::PostgresError(e)
+        });
+
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration);
-        
+        METRICS.record_query_duration(duration, None);
+
         result
     }
 
     fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
-        
+
         let start = Instant::now();
-        let result = self.client.query_one(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
-        
+        let result = self.client.query_one(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error(None);
+            LifeError::PostgresError(e)
+        });
+
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration);
-        
+        METRICS.record_query_duration(duration, None);
+
         result
     }
 
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
-        
+
         let start = Instant::now();
-        let result = self.client.query(query, params)
-            .map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error();
-                LifeError::PostgresError(e)
-            });
-        
+        let result = self.client.query(query, params).map_err(|e| {
+            #[cfg(feature = "metrics")]
+            METRICS.record_query_error(None);
+            LifeError::PostgresError(e)
+        });
+
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration);
-        
+        METRICS.record_query_duration(duration, None);
+
         result
     }
 }
@@ -398,6 +464,7 @@ impl LifeExecutor for MayPostgresExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_life_error_display() {
@@ -426,6 +493,16 @@ mod tests {
 
         let err4 = LifeError::Other("test".to_string());
         assert!(err4.to_string().contains("Execution error"));
+
+        let err5 = LifeError::Pool("test".to_string());
+        assert!(err5.to_string().contains("Pool error"));
+
+        let err6 = LifeError::PoolAcquireTimeout {
+            waited: Duration::from_millis(100),
+        };
+        let s6 = err6.to_string();
+        assert!(s6.contains("timed out"), "display: {s6}");
+        assert!(s6.contains("acquiring"), "display: {s6}");
     }
 
     #[test]

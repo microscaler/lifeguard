@@ -91,7 +91,7 @@ impl TestDatabase {
         }
 
         // Priority 4: Default localhost
-        Ok("postgresql://postgres:postgres@localhost:5432/postgres".to_string())
+        Ok("postgresql://postgres:postgres@localhost:6543/postgres".to_string())
     }
 
     /// Get connection string from Kubernetes service
@@ -101,7 +101,7 @@ impl TestDatabase {
             .args([
                 "get",
                 "svc",
-                "postgres",
+                "postgresql-primary",
                 "-n",
                 "lifeguard-test",
                 "-o",
@@ -123,9 +123,11 @@ impl TestDatabase {
 
         if cluster_ip.is_empty() || cluster_ip == "None" {
             // Use service DNS name instead
-            Ok("postgresql://postgres:postgres@postgres.lifeguard-test.svc.cluster.local:5432/postgres".to_string())
+            Ok("postgresql://postgres:postgres@postgresql-primary.lifeguard-test.svc.cluster.local:5432/postgres".to_string())
         } else {
-            Ok(format!("postgresql://postgres:postgres@{cluster_ip}:5432/postgres"))
+            Ok(format!(
+                "postgresql://postgres:postgres@{cluster_ip}:5432/postgres"
+            ))
         }
     }
 
@@ -170,7 +172,11 @@ impl TestDatabase {
     /// # Errors
     ///
     /// Returns `TestError` if all connection attempts fail.
-    pub fn wait_for_ready(&mut self, max_attempts: u32, delay_seconds: u64) -> Result<(), TestError> {
+    pub fn wait_for_ready(
+        &mut self,
+        max_attempts: u32,
+        delay_seconds: u64,
+    ) -> Result<(), TestError> {
         for attempt in 1..=max_attempts {
             match self.connect() {
                 Ok(_) => return Ok(()),
@@ -222,16 +228,16 @@ mod tests {
         // Save old values to restore later
         let old_test_database_url = env::var("TEST_DATABASE_URL").ok();
         let old_database_url = env::var("DATABASE_URL").ok();
-        
+
         // Clear both to ensure TEST_DATABASE_URL takes priority when we set it
         env::remove_var("TEST_DATABASE_URL");
         env::remove_var("DATABASE_URL");
-        
+
         // Set TEST_DATABASE_URL to a test value with a unique identifier
         // Using a unique port number to make it easier to identify in error messages
         let test_url = "postgresql://test:test@localhost:9999/test_db";
         env::set_var("TEST_DATABASE_URL", test_url);
-        
+
         // Verify the environment variable is actually set
         // This helps catch issues where env::set_var doesn't work
         #[allow(clippy::expect_used)] // Test code - expect is acceptable
@@ -241,18 +247,18 @@ mod tests {
             env_check, test_url,
             "Environment variable check failed. This may indicate env::set_var is not working in this test environment."
         );
-        
+
         // Get connection string - should use TEST_DATABASE_URL
         #[allow(clippy::unwrap_used)] // Test code - unwrap is acceptable
         let url = TestDatabase::get_connection_string().unwrap();
-        
+
         // Verify it matches exactly (more strict than just containing "test")
         assert_eq!(
             url, test_url,
             "URL should match TEST_DATABASE_URL exactly. Got: {url}. This indicates the environment variable was not respected. \
              Possible causes: env::set_var not working in test environment, or environment variable was cleared/modified."
         );
-        
+
         // Cleanup - restore old values
         env::remove_var("TEST_DATABASE_URL");
         if let Some(old_url) = old_test_database_url {
@@ -267,7 +273,7 @@ mod tests {
     fn test_get_connection_string_default() {
         // Test default connection string when no env vars are set
         // Note: If Kind cluster is running, it may return:
-        // - Kubernetes service DNS (postgres.lifeguard-test.svc.cluster.local)
+        // - Kubernetes service DNS (postgresql-primary.lifeguard-test.svc.cluster.local)
         // - Cluster IP address (10.x.x.x)
         // - Or default to localhost
         // All are valid connection strings
@@ -281,6 +287,9 @@ mod tests {
             "Should be a PostgreSQL connection string, got: {url}"
         );
         // Should contain postgres user and database
-        assert!(url.contains("postgres"), "Should contain postgres user/database");
+        assert!(
+            url.contains("postgres"),
+            "Should contain postgres user/database"
+        );
     }
 }

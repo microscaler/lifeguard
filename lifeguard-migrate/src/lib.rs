@@ -7,12 +7,12 @@
 // duplicating the main library’s doc/style bar.
 #![allow(warnings)]
 
-pub mod sql_generator;
-pub mod entity_loader;
 pub mod build_script;
-pub mod registry_loader;
 pub mod dependency_ordering;
+pub mod entity_loader;
+pub mod registry_loader;
 pub mod sql_dependency_order;
+pub mod sql_generator;
 
 // Note: entities.rs has been removed - entities are now discovered via build script
 // and accessed through the generated registry module in the user's project

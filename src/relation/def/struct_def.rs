@@ -104,7 +104,14 @@ impl std::fmt::Debug for RelationDef {
             .field("through_to_col", &self.through_to_col)
             .field("is_owner", &self.is_owner)
             .field("skip_fk", &self.skip_fk)
-            .field("on_condition", &if self.on_condition.is_some() { "Some" } else { "None" })
+            .field(
+                "on_condition",
+                &if self.on_condition.is_some() {
+                    "Some"
+                } else {
+                    "None"
+                },
+            )
             .field("condition_type", &self.condition_type)
             .finish()
     }
@@ -159,12 +166,7 @@ impl RelationDef {
     #[must_use]
     pub fn join_on_expr(&self) -> sea_query::Expr {
         use crate::relation::def::condition::join_tbl_on_expr;
-        join_tbl_on_expr(
-            &self.from_tbl,
-            &self.to_tbl,
-            &self.from_col,
-            &self.to_col,
-        )
+        join_tbl_on_expr(&self.from_tbl, &self.to_tbl, &self.from_col, &self.to_col)
     }
 
     /// Generate join condition expressions for `has_many_through` relationships
@@ -202,28 +204,36 @@ impl RelationDef {
     /// // Use in has_many_through: query.left_join(through_entity, first_join).left_join(target_entity, second_join)
     /// ```
     // Note: Result<(Expr, Expr), ...> is already #[must_use] from Result, so we don't need the attribute here
-    pub fn join_on_exprs(&self) -> Result<(sea_query::Expr, sea_query::Expr), crate::executor::LifeError> {
+    pub fn join_on_exprs(
+        &self,
+    ) -> Result<(sea_query::Expr, sea_query::Expr), crate::executor::LifeError> {
         use crate::relation::def::condition::join_tbl_on_expr;
         use crate::relation::def::types::RelationType;
-        
+
         if self.rel_type != RelationType::HasManyThrough {
             return Err(crate::executor::LifeError::Other(
-                "join_on_exprs() can only be called on HasManyThrough relationships".to_string()
+                "join_on_exprs() can only be called on HasManyThrough relationships".to_string(),
             ));
         }
-        
+
         let through_tbl = self.through_tbl.as_ref().ok_or_else(|| {
-            crate::executor::LifeError::Other("HasManyThrough relationship must have through_tbl set".to_string())
+            crate::executor::LifeError::Other(
+                "HasManyThrough relationship must have through_tbl set".to_string(),
+            )
         })?;
-        
+
         let through_from_col = self.through_from_col.as_ref().ok_or_else(|| {
-            crate::executor::LifeError::Other("HasManyThrough relationship must have through_from_col set".to_string())
+            crate::executor::LifeError::Other(
+                "HasManyThrough relationship must have through_from_col set".to_string(),
+            )
         })?;
-        
+
         let through_to_col = self.through_to_col.as_ref().ok_or_else(|| {
-            crate::executor::LifeError::Other("HasManyThrough relationship must have through_to_col set".to_string())
+            crate::executor::LifeError::Other(
+                "HasManyThrough relationship must have through_to_col set".to_string(),
+            )
         })?;
-        
+
         // First join: source_table.primary_key = through_table.through_from_col
         // For has_many_through, from_col is the source entity's primary key
         let first_join = join_tbl_on_expr(
@@ -232,16 +242,11 @@ impl RelationDef {
             &self.from_col,
             through_from_col,
         );
-        
+
         // Second join: through_table.through_to_col = target_table.primary_key
         // For has_many_through, to_col is the target entity's primary key
-        let second_join = join_tbl_on_expr(
-            through_tbl,
-            &self.to_tbl,
-            through_to_col,
-            &self.to_col,
-        );
-        
+        let second_join = join_tbl_on_expr(through_tbl, &self.to_tbl, through_to_col, &self.to_col);
+
         Ok((first_join, second_join))
     }
 }

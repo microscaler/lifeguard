@@ -82,7 +82,8 @@ def start_tilt():
     """Start Tilt development environment."""
     log_info("🎯 Starting Tilt...")
     log_info("   Tilt UI: http://localhost:10350")
-    log_info("   PostgreSQL: localhost:5432 (via Tilt port forward)")
+    log_info("   Postgres primary :6543 | replica-0 :6544 | Redis :6545 | replica-1 :6546 (CI-parity ports)")
+    log_info("   Observability: Grafana :3000 | Prometheus :9090 | Loki :3100 | OTEL :4317 gRPC / :4318 HTTP / :9464 metrics")
     # Run tilt up in foreground (will block until user stops it)
     # KeyboardInterrupt will be caught by main() handler
     subprocess.run(["tilt", "up"], check=False)

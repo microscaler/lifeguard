@@ -3,23 +3,25 @@
 //! This module provides types and utilities for defining relationships between entities,
 //! including the `RelationDef` struct, `RelationType` enum, and condition building functions.
 
-pub mod types;
-pub mod struct_def;
 pub mod condition;
+pub mod struct_def;
+pub mod types;
 
 // Re-export public types
 #[doc(inline)]
-pub use types::RelationType;
+pub use condition::{
+    build_where_condition, extract_table_name, join_tbl_on_condition, join_tbl_on_expr,
+};
 #[doc(inline)]
 pub use struct_def::RelationDef;
 #[doc(inline)]
-pub use condition::{join_tbl_on_condition, join_tbl_on_expr, build_where_condition, extract_table_name};
+pub use types::RelationType;
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::relation::identity::Identity;
-    use sea_query::{TableName, IntoIden, ConditionType};
+    use sea_query::{ConditionType, IntoIden, TableName};
 
     #[test]
     fn test_relation_def_rev() {

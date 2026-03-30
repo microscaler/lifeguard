@@ -14,9 +14,9 @@ use crate::utils;
 /// Generate `FromRow` implementation for a Model struct
 pub fn derive_from_row(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    
+
     let struct_name = &input.ident;
-    
+
     // Extract struct fields
     let fields = match &input.data {
         Data::Struct(syn::DataStruct {
@@ -32,7 +32,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
             .into();
         }
     };
-    
+
     // Generate field extraction code
     let mut from_row_fields: Vec<TokenStream2> = Vec::new();
     for field in fields {
@@ -47,9 +47,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
             .attrs
             .iter()
             .find(|attr| attr.path().is_ident("column_name"))
-            .and_then(|attr| {
-                attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value())
-            })
+            .and_then(|attr| attr.parse_args::<syn::LitStr>().ok().map(|lit| lit.value()))
             .unwrap_or_else(|| {
                 // Convert field name to snake_case
                 let name = field_name.to_string();
@@ -116,7 +114,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
             #field_name: #get_expr,
         });
     }
-    
+
     let expanded: TokenStream2 = quote! {
         // Implement FromRow trait for Model
         impl lifeguard::FromRow for #struct_name {
@@ -127,6 +125,6 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
             }
         }
     };
-    
+
     TokenStream::from(expanded)
 }
