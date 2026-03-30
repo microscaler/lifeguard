@@ -1,6 +1,6 @@
 # PRD: Production-grade Lifeguard connection pooling (Hikari-shaped)
 
-**Status:** **Draft** — **P0 largely implemented** (2026-03-28): bounded worker queues, `send_timeout` acquire path + `LifeError::PoolAcquireTimeout`, `LifeguardPoolSettings` / `from_database_config`, merged `DatabaseConfig`; `WalLagMonitor` initial-connect retry. P1+ still open.  
+**Status:** **Draft** — **P0 complete** (2026-03-30): as below + R1.3 / R2.2 / R2.3 (defaults + `CHANGELOG`, `LIFEGUARD__DATABASE__*` parity + tests, constructor rustdoc). **P1+** (slot heal, liveness, lifetime, monitor tunables, metrics) open.  
 **Audience:** Lifeguard maintainers, runtime integrators, and operators sizing Postgres.  
 **References:** [systemPatterns.md](../../.agent/memory-bank/systemPatterns.md) (pooling architecture boundary); `src/pool/pooled.rs`, `src/pool/wal.rs`, `src/connection.rs`, `src/config.rs` / `src/pool/config.rs`; [HikariCP configuration](https://github.com/brettwooldridge/HikariCP#gear-configuration-knobs-baby) (conceptual analogue, not API copy).
 
@@ -14,7 +14,7 @@
 
 - [x] PRD published (`PRD_CONNECTION_POOLING.md`)
 - [ ] Optional design doc `DESIGN_CONNECTION_POOLING.md` (state machine, error taxonomy, metric names)
-- [x] **Phase P0** complete (see §7.1) — *R2.2 env parity unverified by automated test; R2.3 polish optional*
+- [x] **Phase P0** complete (see §7.1)
 - [ ] **Phase P1** complete (see §7.2)
 - [ ] **Phase P2** complete (see §7.3)
 - [ ] **Phase P3** complete (see §7.4)
@@ -32,7 +32,7 @@
 | `max_connection_lifetime` (+ jitter) / idle policy | [ ] |
 | `WalLagMonitor` retry + tunables + give-up observability | [ ] *partial: initial connect retry only* |
 | Metrics + tracing hooks | [ ] |
-| Public rustdoc + operator tuning + changelog | [ ] *partial: `lib.rs` + `pool/config` docs* |
+| Public rustdoc + operator tuning + changelog | [ ] *partial: `CHANGELOG.md`, `LifeguardPool` / `DatabaseConfig::load` rustdoc; operator tuning book TBD* |
 
 ---
 
@@ -119,7 +119,7 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 - [x] **R1.1** — Maximum wait configurable; enforced on every dispatch wait path
 - [x] **R1.2** — Timeout error type distinct from query/`LifeError::Other` paths
-- [ ] **R1.3** — Default documented; `CHANGELOG` / migration if default changes
+- [x] **R1.3** — Default documented; `CHANGELOG` / migration if default changes
 
 ### 5.2 Configuration
 
@@ -132,8 +132,8 @@ Track at milestone reviews; each goal may span multiple PRs.
 **Implementation — §5.2**
 
 - [x] **R2.1** — Duplicate `DatabaseConfig` removed or single source of truth; macros updated
-- [ ] **R2.2** — `LIFEGUARD__` env parity with file (table test or doc + manual QA checklist)
-- [ ] **R2.3** — `LifeguardPool` rustdoc: recommended vs expert construction path *— partial via `new` / `new_with_settings` / `from_database_config`*
+- [x] **R2.2** — `LIFEGUARD__` env parity with file (table test or doc + manual QA checklist)
+- [x] **R2.3** — `LifeguardPool` rustdoc: recommended vs expert construction path
 
 ### 5.3 Connection lifetime
 
@@ -248,10 +248,12 @@ Phases may be reprioritized if production incidents dictate (e.g. P0+P1 first).
 
 - [x] R1.1 — acquire timeout
 - [x] R1.2 — distinct error variant
-- [ ] R1.3 — default + changelog
+- [x] R1.3 — default + changelog
 - [x] R6.1 — bounded queue + full behavior
 - [x] R6.2 — no unbounded growth (validated)
 - [x] R2.1 — single config / merge duplicates
+- [x] R2.2 — env parity (`LIFEGUARD__DATABASE__*`)
+- [x] R2.3 — constructor rustdoc
 
 ### 7.2 Phase P1 checklist
 
@@ -331,12 +333,12 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 ### Acquisition & overload
 - [x] R1.1
 - [x] R1.2
-- [ ] R1.3
+- [x] R1.3
 
 ### Configuration
 - [x] R2.1
-- [ ] R2.2
-- [ ] R2.3
+- [x] R2.2
+- [x] R2.3
 
 ### Connection lifetime
 - [ ] R3.1

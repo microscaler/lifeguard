@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **PRD P0 pool config (2026-03-30):** `DatabaseConfig::load` deserializes `[database]` via `ConfigRoot`; env overrides `LIFEGUARD__DATABASE__*`; unit tests; `CHANGELOG.md`; `LifeguardPool` constructor rustdoc; PRD R1.3/R2.2/R2.3 checked.
 - **Flaky `db_integration_suite` root cause + fix (2026-03-28):** Parallel nextest processes against one `TEST_DATABASE_URL` and fixed table names caused row-count races in `active_model_crud`. Added nextest `[test-groups] lifeguard-shared-postgres` (`max-threads = 1`) + `[[profile.*.overrides]]` for `binary(db_integration_suite)`; removed invalid `profile.db-serial.overrides` `test-threads` key. Tilt `test-nextest` uses `--profile ci`, `.config/nextest.toml`, replica/Redis env, deps on replica+redis; docs `TEST_INFRASTRUCTURE.md` and `justfile` comment updated.
 - **Git: feat/lifeguard-pool pushed (2026-03-28):** `0b098c9` — `feat(pool): LifeguardPool read replicas, Kind test stack, Tilt replication targets` (farm git commit/push; no Cursor co-author).
 - **Tiltfile replication targets (2026-03-28):** `test-replication-pool` (nextest filter `pool_read_replica`), `test-db-integration-replica` (full `db_integration_suite` + `TEST_REPLICA_URL` / `TEST_REDIS_URL`, `db-serial`), `test-replication-pool-smoke` (single `pooled_pool_construct_write_read_with_replica`); `resource_deps` include `postgresql-primary`, `postgresql-replica-0`, `redis`, `build-migrate`; label `replication`.

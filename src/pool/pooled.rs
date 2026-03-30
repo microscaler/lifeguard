@@ -142,6 +142,16 @@ impl WorkerPool {
 
 /// Pool of `PostgreSQL` connections with **primary** workers for writes and optional **replica**
 /// workers for reads when lag allows.
+///
+/// # Which constructor?
+///
+/// | Entry point | Use when |
+/// |-------------|----------|
+/// | [`LifeguardPool::new`] | Tests and embedders that want **defaults** (30s acquire timeout, queue depth 8, 500ms WAL poll). |
+/// | [`LifeguardPool::new_with_settings`] | Full control without loading `DatabaseConfig` from disk/env. |
+/// | [`LifeguardPool::from_database_config`] | **`config/config.toml`** + optional **`LIFEGUARD__DATABASE__*`** env overrides (see [`DatabaseConfig::load`](crate::DatabaseConfig::load)). |
+///
+/// Default **acquire timeout** is **30 seconds**, aligned with [`DatabaseConfig::default`](crate::DatabaseConfig) **`pool_timeout_seconds`** and [`LifeguardPoolSettings::default`](crate::LifeguardPoolSettings).
 pub struct LifeguardPool {
     primary: WorkerPool,
     /// Present only when `replica_pool_size > 0` and `replica_urls` is non-empty.
@@ -257,6 +267,10 @@ impl LifeguardPool {
 
     /// Builds a pool from [`DatabaseConfig`] (URL, `max_connections` as primary pool width, timeouts,
     /// per-worker queue depth) plus explicit replica list and replica tier width.
+    ///
+    /// Prefer this over [`Self::new`] when configuration comes from [`DatabaseConfig::load`] (TOML
+    /// `[database]` + `LIFEGUARD__DATABASE__*` env). Replica URLs are **not** in [`DatabaseConfig`];
+    /// pass them explicitly for the same reason as [`Self::new_with_settings`].
     ///
     /// # Errors
     ///
