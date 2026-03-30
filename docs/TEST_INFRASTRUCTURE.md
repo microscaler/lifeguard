@@ -4,7 +4,7 @@ This document describes the test infrastructure setup for Lifeguard using Kind (
 
 ## Overview
 
-Lifeguard uses Kind (Kubernetes in Docker) for local development. The manifests under `config/k8s/test-infrastructure/` mirror **CI’s** [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml): **Bitnami legacy PostgreSQL 15** primary, **two streaming replicas**, and **Redis 7** (same images/env shape as Compose).
+Lifeguard uses Kind (Kubernetes in Docker) for local development. The manifests under `config/k8s/test-infrastructure/` mirror **CI’s** [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml): **Bitnami legacy PostgreSQL 15** primary, **streaming replicas**, and **Redis 7** (same images/env shape as Compose). **Host replica ports differ:** CI Compose exposes the standby through **Toxiproxy** on **6547**; Kind/Tilt exposes replicas on **6544** / **6546** directly.
 
 This provides:
 - Isolated test environments
@@ -14,14 +14,20 @@ This provides:
 
 ### Tilt port-forwards (localhost → Kind)
 
-| Host port | Service | Matches CI compose |
-|-----------|---------|-------------------|
-| **6543** | `postgresql-primary` | Primary Postgres |
-| **6544** | `postgresql-replica-0` | First replica (CI maps single replica here) |
+| Host port | Service | Notes |
+|-----------|---------|-------|
+| **6543** | `postgresql-primary` | Primary Postgres (CI Compose and Kind both use this host port). |
+| **6544** | `postgresql-replica-0` | First replica (**Kind/Tilt** direct to standby). |
 | **6545** | `redis` | Redis |
-| **6546** | `postgresql-replica-1` | Second replica (extra vs single-replica CI) |
+| **6546** | `postgresql-replica-1` | Second Kind replica (not in single-replica CI Compose). |
+| **6547** | Toxiproxy → `postgresql-replica` | **CI Compose only:** streaming replica through [Toxiproxy](https://github.com/Shopify/toxiproxy) (avoids clashing with Kind’s replica-0 on **6544**). |
+| **8474** | Toxiproxy HTTP API | **CI Compose:** `TOXIPROXY_API=http://127.0.0.1:8474` — disable proxy / toxics for `pooled_read_falls_back_to_primary_when_replica_lagging`. |
 
-Use `export TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:6543/postgres`, `TEST_REPLICA_URL=…:6544` (or `:6546`), and `TEST_REDIS_URL=redis://127.0.0.1:6545` when testing against the Kind stack from the host. Passwords match `config/k8s/test-infrastructure/postgresql-credentials-secret.yaml` (default `postgres` for local dev). The **`justfile`** defines the same values (`TEST_DATABASE_URL`, `TEST_REPLICA_URL`, `TEST_REDIS_URL`, optional `TEST_REPLICA_URL_SECOND`); run **`just kind-test-env`** to print `export …` lines, or use recipes like **`just nt-db-suite`** / **`just nt-workspace`** which set these automatically.
+For **Kind/Tilt**, use `TEST_REPLICA_URL` on **6544** (or **6546** for the second replica). For **CI Docker Compose** on your machine, use **`TEST_REPLICA_URL` on :6547** (replica via Toxiproxy) and set `TOXIPROXY_API` as in the table — not :6544, which would collide with Kind’s replica-0 when Tilt is running.
+
+**Important:** If **Tilt** is forwarding **6543** / **6544** / … on localhost **and** you start **Compose**, both may bind the same host ports; connections to `127.0.0.1:6543` can hit **Kind’s primary** while `127.0.0.1:6547` hits **Compose’s replica**, producing impossible replication waits. **Stop Tilt** (`tilt down`) or avoid overlapping port-forwards before running Compose-backed tests locally.
+
+Passwords match `config/k8s/test-infrastructure/postgresql-credentials-secret.yaml` (default `postgres` for local dev). The **`justfile`** defines Kind-style `TEST_*` values; run **`just kind-test-env`** to print `export …` lines, or use recipes like **`just nt-db-suite`** / **`just nt-workspace`** which set these automatically (Compose users should export `TOXIPROXY_API` and `TEST_REPLICA_URL` :6547 themselves when exercising the full `pool_read_replica` suite).
 
 ## Prerequisites
 
@@ -88,6 +94,60 @@ just dev-port-forward
 just dev-down
 ```
 
+### Kind Postgres & Redis validation (fresh `tilt up` / `just dev-up`)
+
+After the namespace is ready, use this to confirm **primary + two replicas + Redis** before relying on integration tests or PRD work.
+
+**1. Kubernetes**
+
+```bash
+kubectl config current-context   # expect kind-lifeguard-test
+kubectl get pods -n lifeguard-test
+kubectl wait --for=condition=available --timeout=300s \
+  deployment/postgresql-primary deployment/postgresql-replica-0 deployment/postgresql-replica-1 deployment/redis \
+  -n lifeguard-test
+```
+
+**2. Primary, standbys, Redis (host ports; default password `postgres`)**
+
+```bash
+export PGPASSWORD=postgres
+psql -h 127.0.0.1 -p 6543 -U postgres -d postgres -c "SELECT version(), current_setting('max_connections')::int;"
+psql -h 127.0.0.1 -p 6544 -U postgres -d postgres -c "SELECT pg_is_in_recovery();"
+psql -h 127.0.0.1 -p 6546 -U postgres -d postgres -c "SELECT pg_is_in_recovery();"
+redis-cli -p 6545 ping
+```
+
+**3. Streaming replication (two async standbys)**
+
+```bash
+psql -h 127.0.0.1 -p 6543 -U postgres -d postgres -c \
+  "SELECT application_name, client_addr::text, state, sync_state,
+          sent_lsn::text, replay_lsn::text
+   FROM pg_stat_replication ORDER BY application_name;"
+```
+
+Expect **two** rows with `state = streaming` and `sent_lsn` / `replay_lsn` matching `pg_current_wal_lsn()` on the primary after idle.
+
+**4. Automated tests (same URLs as `just kind-test-env`)**
+
+```bash
+just nt-db-suite
+# Full CI-parity: workspace (excludes db_integration_suite) + db suite:
+just nt-ci-parity
+```
+
+With `DATABASE_URL` / `TEST_*` exported as in the **`justfile`**, `db_integration_suite` should report **65** tests passed (nextest serial profile). Workspace nextest should pass **~800+** tests (a small number may be skipped by design).
+
+**Coverage gaps & edge cases (intentional)**
+
+| Area | Kind/Tilt today | Notes |
+|------|-----------------|-------|
+| `pooled_read_falls_back_to_primary_when_replica_lagging` | **No-op** unless `TOXIPROXY_API` is set | That path is **Toxiproxy**-driven; CI Compose sets `TOXIPROXY_API` + replica on **6547**. On Kind, `TOXIPROXY_API` is usually unset → test returns immediately. |
+| Second replica (**6546**) | Not used by default `TEST_REPLICA_URL` | Pool tests use replica-0 (**6544**). To smoke-test replica-1, run `pool_read_replica` with `TEST_REPLICA_URL=…:6546`. |
+| `pact` role | Provisioned on Kind primary | See overview; observability snippets expect this role. |
+| Compose vs Kind | Different replica ports | **6547** + Toxiproxy is **CI-only**; do not mix Compose and Tilt on the same host ports. |
+
 ### cargo-nextest
 
 Install a **pinned** binary if `cargo install cargo-nextest --locked` fails with “requires rustc 1.91 or newer” (newer nextest needs a newer compiler than this repo’s pinned nightly or your local toolchain):
@@ -106,7 +166,7 @@ The `examples/perf-idam` crate (standalone workspace) provides a `perf-orm` bina
 
 In `.github/workflows/ci.yaml`, **before** workspace tests and `db_integration_suite`, the **`test`** job:
 
-1. Starts **primary + replica Postgres and Redis** via [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Bitnami legacy images). **Host** ports are **`6543`** (primary), **`6544`** (replica), **`6545`** (Redis). Local **Kind/Tilt** uses the **same** host port scheme (**6543–6546**) for primary, two replicas, and Redis — see table above — so you can reuse the same `TEST_*` URLs when switching between CI Compose and Kind on one machine (do not run both stacks at once on overlapping ports).
+1. Starts **primary + replica Postgres, Toxiproxy, and Redis** via [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (Bitnami legacy images). **Host** ports are **`6543`** (primary), **`6547`** (replica through Toxiproxy to the standby), **`6545`** (Redis), **`8474`** (Toxiproxy API). Kind/Tilt still uses **6543–6546** for primary and replicas — **do not** run Compose and Tilt port-forwards on overlapping ports (see table above); **6547** is Compose-only for the proxied replica.
 2. Deletes `migrations/generated/` (so CI does not rely on committed SQL artifacts).
 3. Runs `cargo run --bin generate-migrations` from `examples/entities` (standalone crate; regenerates SQL from inventory entities).
 4. Applies SQL to the **primary** only (`psql -h 127.0.0.1 -p 6543`): paths come from `migrations/generated/apply_order.txt` when present (FK-safe order from `write_apply_order_file`), otherwise `find … | sort` over `*.sql`.
@@ -122,11 +182,12 @@ The `lifeguard` package runs database-backed tests from a **single** integration
 | Variable | Role |
 |----------|------|
 | `TEST_DATABASE_URL` | If set, **skips** starting Postgres via testcontainers; must point at a **dedicated test** Postgres (not `DATABASE_URL` — integration code can run destructive DDL). |
-| `TEST_REPLICA_URL` | Streaming standby URL for the same cluster as `TEST_DATABASE_URL`; enables `pool_read_replica` tests. **Unset** → those tests no-op (skip). CI sets this to `localhost:6544`. See [PRD_READ_REPLICA_TESTING.md](planning/PRD_READ_REPLICA_TESTING.md). |
+| `TEST_REPLICA_URL` | Streaming standby URL for the same cluster as `TEST_DATABASE_URL`; enables `pool_read_replica` tests. **Unset** → those tests no-op (skip). **CI** uses `localhost:6547` (replica via Toxiproxy). **Kind** uses **6544** (or **6546**). See [PRD_READ_REPLICA_TESTING.md](planning/PRD_READ_REPLICA_TESTING.md). |
+| `TOXIPROXY_API` | Base URL for the [Toxiproxy](https://github.com/Shopify/toxiproxy) HTTP API (CI: `http://127.0.0.1:8474`). Enables `pooled_read_falls_back_to_primary_when_replica_lagging` to disable the `postgres_replica` proxy. **Unset** → that test returns early (no-op). Not used on Kind unless you deploy Toxiproxy yourself. |
 | `LIFEGUARD_POOL_TEST_TIMING` | Optional; if non-empty and not `0`/`false`, `pool_read_replica` prints phase timings (setup, pool open, replay wait, reads, batch load) to **stderr**. |
 | `TEST_REDIS_URL` or `REDIS_URL` | Optional; defaults to `redis://127.0.0.1:6379` when Postgres comes from env. For **CI Compose** or **Kind/Tilt** on the host ports above, set **`TEST_REDIS_URL=redis://127.0.0.1:6545`**. |
 
-**CI Compose vs Kind/Tilt:** Both use **6543 / 6544 / 6545** on the host for primary, first replica, and Redis. Kind adds a **second** replica on **6546**. Do not run Compose and Kind/Tilt port-forwards on the same host ports at the same time.
+**CI Compose vs Kind/Tilt:** Compose publishes primary **6543**, proxied replica **6547**, Redis **6545**, Toxiproxy API **8474**. Kind/Tilt use **6543–6546** for primary and replicas. Do not run both on overlapping host ports; see the Tilt table and warning above.
 
 **Shared Postgres (e.g. Kind + `just dev-up`):** the `db_integration_suite` binary uses **fixed table names** (`test_users`, hook tables, etc.) on a single `TEST_DATABASE_URL`. Running many of its tests **in parallel** (nextest’s default `test-threads = num-cpus`) starts **one process per test**, all hitting the same tables — that produces **row-count flakes** (e.g. `active_model_crud` expecting 2 rows and seeing 5) and can also stress connections or DDL.
 
@@ -172,15 +233,16 @@ cd /path/to/lifeguard
 docker compose -f .github/docker/docker-compose.yml up -d --wait
 
 export TEST_DATABASE_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6543/postgres"
-export TEST_REPLICA_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6544/postgres"
+export TEST_REPLICA_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6547/postgres"
 export TEST_REDIS_URL="${TEST_REDIS_URL:-redis://127.0.0.1:6545}"
+export TOXIPROXY_API="http://127.0.0.1:8474"
 
 cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)' pool_read_replica:: --no-fail-fast
 
 docker compose -f .github/docker/docker-compose.yml down -v
 ```
 
-If **6543 / 6544 / 6545** are already in use, stop the conflicting service or override published ports in a local override file. **5432 / 5433 / 6379** are left free for Kind/Tilt by design.
+If **6543 / 6547 / 6545 / 8474** are already in use, stop the conflicting service or override published ports in a local override file. **5432 / 5433 / 6379** are left free for Kind/Tilt by design. If **Tilt** is using **6543**, stop it before pointing `TEST_DATABASE_URL` at Compose’s primary.
 
 Product requirements: [`docs/planning/PRD_READ_REPLICA_TESTING.md`](planning/PRD_READ_REPLICA_TESTING.md). Engineering design: [`docs/planning/DESIGN_READ_REPLICA_CI_AND_HARNESS.md`](planning/DESIGN_READ_REPLICA_CI_AND_HARNESS.md).
 

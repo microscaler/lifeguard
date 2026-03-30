@@ -1,6 +1,6 @@
 # Design: Read-replica CI topology and test harness
 
-**Status:** **Partially implemented** — Compose at [`.github/docker/docker-compose.yml`](../../.github/docker/docker-compose.yml) (Postgres primary + replica + Redis; CI `test` / `perf_orm` use this only, no GitHub `services:` for DB/Redis). `tests/context.rs` `replica_pg_url`, `tests/db_integration/replication_sync.rs`, `pool_read_replica`, `TEST_INFRASTRUCTURE.md` runbook. R3.3 lag fallback remains `#[ignore]` (fault injection follow-up). Images: `bitnamilegacy/postgresql:15` (public `bitnami/postgresql:15` tag unavailable on Docker Hub).  
+**Status:** **Partially implemented** — Compose at [`.github/docker/docker-compose.yml`](../../.github/docker/docker-compose.yml) (Postgres primary + replica + [Toxiproxy](https://github.com/Shopify/toxiproxy) in front of the replica + Redis; CI `test` / `perf_orm` use this only, no GitHub `services:` for DB/Redis). `tests/context.rs` `replica_pg_url`, `tests/db_integration/replication_sync.rs`, `pool_read_replica`, `TEST_INFRASTRUCTURE.md` runbook. R3.3 primary fallback is covered by `pooled_read_falls_back_to_primary_when_replica_lagging` when `TOXIPROXY_API` is set (disables the `postgres_replica` proxy). Images: `bitnamilegacy/postgresql:15` (public `bitnami/postgresql:15` tag unavailable on Docker Hub).  
 **Audience:** Lifeguard maintainers implementing CI and tests.  
 **References:** [PRD_READ_REPLICA_TESTING.md](./PRD_READ_REPLICA_TESTING.md); [TEST_INFRASTRUCTURE.md](../TEST_INFRASTRUCTURE.md); `.github/workflows/ci.yaml`; `tests/context.rs`; `tests/db_integration_suite.rs`; `src/pool/pooled.rs`; `src/pool/wal.rs`.
 
@@ -43,13 +43,15 @@ Expose Postgres and Redis on **high host ports** so **5432 / 5433 / 6379** stay 
 | Role | Host port | Container |
 |------|-----------|-----------|
 | Primary | `6543` | `postgresql-primary` → `5432` |
-| Replica | `6544` | `postgresql-replica` → `5432` |
+| Replica (via Toxiproxy) | `6547` | `toxiproxy` → `postgresql-replica:5432` (avoids clashing with Kind replica-0 on **6544**) |
+| Toxiproxy API | `8474` | HTTP control (`TOXIPROXY_API` in CI) |
 | Redis | `6545` | `redis` → `6379` |
 
 CI steps set:
 
 - `TEST_DATABASE_URL=postgres://…@127.0.0.1:6543/postgres`
-- `TEST_REPLICA_URL=postgres://…@127.0.0.1:6544/postgres`
+- `TEST_REPLICA_URL=postgres://…@127.0.0.1:6547/postgres`
+- `TOXIPROXY_API=http://127.0.0.1:8474`
 - `REDIS_URL` / `TEST_REDIS_URL` → `redis://127.0.0.1:6545` when using this Compose file
 
 Use the **same password** as today’s `PGPASSWORD` secret where possible so URLs stay consistent with `psql` migration steps (which must target the **primary** only).

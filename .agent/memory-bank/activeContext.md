@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Work
+- **Kind Postgres validation (2026-03-30):** Fresh `kind-lifeguard-test` + Tilt — `kubectl` all deployments Ready; `pg_stat_replication` shows 2× `streaming` async standbys; Redis PONG; `cargo nextest` `db_integration_suite` **65/65** pass; workspace **818** pass **2** skip (`lifeguard-integration-tests` migration tests). Replica-1 smoke (`TEST_REPLICA_URL` :6546) passes for `pooled_pool_construct_write_read_with_replica`. Documented checklist + coverage gaps (Toxiproxy fallback no-op on Kind, second replica optional) in `docs/TEST_INFRASTRUCTURE.md` § Kind Postgres & Redis validation.
 - **JSF-style safety audit — PRD P1–P4 landed in tree (2026-03-28):** Library + derive hygiene per `docs/planning/audits/PRD_JSF_PANIC_SAFETY.md`; remaining long-tail items (if any) are policy/architecture (e.g. metrics init) or out-of-scope binaries, not open Phase 4 tasks.
 - ModelTrait edge case coverage implementation completed
 - Comprehensive test suite added (Option<T> and JSON types)
@@ -9,6 +10,7 @@
 
 ## Recent Changes
 - **Tiltfile — replication test resources (2026-03-28):** Targeted nextest runs for read-replica PRD work (`test-replication-pool`, `test-db-integration-replica`, `test-replication-pool-smoke`) with Kind ports 6543/6544/6545. **`test-replication-pool` / `-smoke`:** added nextest `--status-level pass` so filtered runs do not print one SKIP line per non-matching test in `db_integration_suite` (filter is intentionally narrow; full replica env suite remains `test-db-integration-replica`).
+- **CI Compose + Toxiproxy (2026-03-30):** [Toxiproxy](https://github.com/Shopify/toxiproxy) fronts the streaming replica on host **6547** (API **8474**) so Kind/Tilt can keep **6544** for replica-0; `TOXIPROXY_API` + `PATCH` proxy `enabled` drives `pooled_read_falls_back_to_primary_when_replica_lagging`. **Local:** stop Tilt or avoid port collisions — `127.0.0.1:6543` may hit Kind vs Compose primary if both bind.
 - **Tiltfile — all workspace crates + deps (2026-03-28):** Build resources for `lifeguard-codegen`, `lifeguard-reflector`, `lifeguard-migrate` with `resource_deps` matching Cargo (`migrate` after `build-lifeguard`; derive/codegen/reflector parallel). Tests wired to those builds where appropriate.
 - **Read-replica CI/testing documentation (2026-03-28):** PRD + design doc under `docs/planning/`; `TEST_INFRASTRUCTURE.md` links. Implementation (Compose, harness, tests) deferred.
 - **`LifeguardPool::new` four-arg API + transparent routing (2026-03-28):** Single pool type holds primary workers and optional replica workers; `PooledLifeExecutor` dispatches writes to primary and reads to replica when lag allows. Call sites: primary-only is `replica_urls: vec![], replica_pool_size: 0`. `perf_orm` updated accordingly.

@@ -1,7 +1,7 @@
 # CI and local integration dependencies: Postgres primary + streaming replica + Redis.
 # GitHub Actions `services:` cannot set up replication; this file is the single source for `test` and `perf_orm` jobs.
 #
-# Host ports use the **6543 / 6544 / 6545** range so this stack does not bind **5432 / 5433 / 6379** on the
+# Host ports use **6543** (primary), **6547** (replica via Toxiproxy), **6545** (Redis) so this stack does not bind **5432 / 5433 / 6379** on the
 # host — those are typically used by Kind/Tilt Postgres and Redis while developing (Grafana dashboards, etc.).
 # For CI, job env vars point at these ports; for local Tilt, use your cluster connection strings instead.
 #
@@ -11,8 +11,12 @@
 #
 # JDBC-style URLs use the same value (percent-encode reserved characters in the secret):
 #   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6543/postgres
-#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6544/postgres
+#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6547/postgres  (Toxiproxy → streaming replica; avoids clashing with Kind/Tilt replica-0 on :6544)
 #   Redis:    redis://127.0.0.1:6545
+#   Toxiproxy API: http://127.0.0.1:8474 (optional; enables `pooled_read_falls_back_to_primary_when_replica_lagging` in db_integration_suite)
+#
+# Replica traffic from the host uses **Toxiproxy** on **6547** → `postgresql-replica:5432` (not :6544 — that port matches Kind/Tilt replica-0 and may be bound by Tilt). The replica service has
+# no host port; see `toxiproxy.json` and `TOXIPROXY_API` in `docs/TEST_INFRASTRUCTURE.md`.
 #
 # Postgres: Bitnami legacy PostgreSQL 15 (`bitnamilegacy/postgresql:15`).
 
@@ -41,8 +45,6 @@ services:
 
   postgresql-replica:
     image: docker.io/bitnamilegacy/postgresql:15
-    ports:
-      - "6544:5432"
     depends_on:
       postgresql-primary:
         condition: service_healthy
@@ -62,6 +64,26 @@ services:
       timeout: 5s
       retries: 20
       start_period: 90s
+
+  # TCP proxy in front of the streaming replica: host :6547 → replica :5432. HTTP API :8474 for toxics / enable.
+  # Image is scratch + static binaries; healthcheck uses `/toxiproxy-cli` (see Shopify toxiproxy Dockerfile).
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    volumes:
+      - ./toxiproxy.json:/config/toxiproxy.json:ro
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    ports:
+      - "6547:5432"
+      - "8474:8474"
+    depends_on:
+      postgresql-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list", "-h", "http://127.0.0.1:8474"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
 
   redis:
     image: redis:7-alpine

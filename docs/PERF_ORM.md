@@ -32,7 +32,7 @@ export PERF_WARMUP=200           # default 200
 export PERF_ITERATIONS=2000      # default 2000
 export PERF_OUTPUT=/tmp/perf-results.json   # default: print JSON to stdout
 # Optional read replica (same cluster as primary; CI uses .github/docker/docker-compose.yml):
-# export PERF_REPLICA_URL="postgres://USER:PASS@HOST:6544/postgres"
+# export PERF_REPLICA_URL="postgres://USER:PASS@HOST:6547/postgres"
 # export PERF_REPLICA_POOL_SIZE=8   # default: same as PERF_POOL_SIZE
 
 cargo run --release --bin perf-orm
@@ -46,7 +46,7 @@ The JSON report includes **`connections`** (primary pool width, from **`PERF_POO
 
 ## CI
 
-The **`perf_orm`** job in [`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml) runs **after** the main `test` job succeeds on `push` to `main` and on `pull_request`. It uploads `perf-results.json` as an artifact. The job starts the same [**Docker Compose**](../.github/docker/docker-compose.yml) stack as **`test`** (host **:6543** primary, **:6544** replica, **:6545** Redis — no GitHub `services:`). It sets **`PERF_DATABASE_URL`**, **`PERF_REPLICA_URL`**, **`PERF_RESET=1`**, **`REDIS_URL` / `TEST_REDIS_URL`**, and the repository secret **`PGPASSWORD`** for Compose and URLs. A final step tears down the stack (`down -v`, `if: always()`). GitHub-hosted runners are noisy; use artifacts for **trends** or compare to a baseline from `main`, not hard millisecond limits on PRs.
+The **`perf_orm`** job in [`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml) runs **after** the main `test` job succeeds on `push` to `main` and on `pull_request`. It uploads `perf-results.json` as an artifact. The job starts the same [**Docker Compose**](../.github/docker/docker-compose.yml) stack as **`test`** (host **:6543** primary, **:6547** replica via Toxiproxy, **:6545** Redis — no GitHub `services:`). It sets **`PERF_DATABASE_URL`**, **`PERF_REPLICA_URL`**, **`PERF_RESET=1`**, **`REDIS_URL` / `TEST_REDIS_URL`**, and the repository secret **`PGPASSWORD`** for Compose and URLs. A final step tears down the stack (`down -v`, `if: always()`). GitHub-hosted runners are noisy; use artifacts for **trends** or compare to a baseline from `main`, not hard millisecond limits on PRs.
 
 ## Baseline comparison (optional)
 

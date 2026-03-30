@@ -1,0 +1,8 @@
+[
+  {
+    "name": "postgres_replica",
+    "listen": "0.0.0.0:5432",
+    "upstream": "postgresql-replica:5432",
+    "enabled": true
+  }
+]

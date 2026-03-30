@@ -1,6 +1,6 @@
 # PRD: Read-replica testing and CI coverage
 
-**Status:** **In progress** — CI + Compose + `pool_read_replica` integration test landed; R3.3 / G2 deferred (`#[ignore]`).  
+**Status:** **In progress** — CI + Compose + Toxiproxy + `pool_read_replica`; R3.3 / G2 covered when `TOXIPROXY_API` is set (see `TEST_INFRASTRUCTURE.md`).  
 **Audience:** Lifeguard maintainers, CI owners, and integrators using `LifeguardPool`.  
 **References:** [DESIGN_READ_REPLICA_CI_AND_HARNESS.md](./DESIGN_READ_REPLICA_CI_AND_HARNESS.md) (topology, harness, workflow); [TEST_INFRASTRUCTURE.md](../TEST_INFRASTRUCTURE.md) (env conventions); `src/pool/pooled.rs`, `src/pool/wal.rs`.
 
@@ -22,7 +22,7 @@ Use this section for a quick rollup; detailed checkboxes appear under each major
 - [x] CI: compose up → `--wait` → migrations on primary → tests → `compose down -v` (`if: always()`)
 - [x] `tests/context.rs`: `TEST_REPLICA_URL` → `replica_pg_url: Option<String>`
 - [x] Replication sync helper: `tests/db_integration/replication_sync.rs` (LSN replay wait)
-- [x] Integration module `pool_read_replica` (R3.1–R3.2); R3.3 **ignored** pending fault injection
+- [x] Integration module `pool_read_replica` (R3.1–R3.3); R3.3 uses Toxiproxy to disable the replica proxy (`pooled_read_falls_back_to_primary_when_replica_lagging`) when `TOXIPROXY_API` is set
 - [ ] Optional: unit / injectable tests for `WalLagMonitor` / `read_tier` (follow-up to design §6)
 
 ---
@@ -58,7 +58,7 @@ This PRD defines **product-level requirements** for closing that gap: a **known 
 **Goal delivery (implementation)**
 
 - [x] **G1** — `pool_read_replica::pooled_pool_construct_write_read_with_replica` (CI + local when env set)
-- [ ] **G2** — Automated proof of read fallback to primary when replica unsafe / errors (`#[ignore]` placeholder)
+- [x] **G2** — `pooled_read_falls_back_to_primary_when_replica_lagging` (CI: `TOXIPROXY_API` + `TEST_REPLICA_URL` :6547)
 - [x] **G3** — `WalLagMonitor` polled in integration test on real standby (`is_replica_lagging` warmup)
 - [x] **G4** — `TEST_INFRASTRUCTURE.md` runbook + design doc Compose path
 
@@ -175,7 +175,7 @@ Track each requirement ID as work lands (mirror of §7.1–§7.4).
 
 - [x] **R3.1** — Pool construction with replica URLs + `replica_pool_size >= 1` in CI
 - [x] **R3.2** — Write path then read path after sync; row visible (strategy per design doc)
-- [ ] **R3.3** — Lag / error path: reads still succeed via primary; no panic
+- [x] **R3.3** — Toxiproxy disables replica proxy → monitor marks lagging → reads still succeed via primary (`pooled_read_falls_back_to_primary_when_replica_lagging` when `TOXIPROXY_API` set)
 
 **Local parity (§7.4)**
 
@@ -225,7 +225,7 @@ Track each requirement ID as work lands (mirror of §7.1–§7.4).
 
 **Tests**
 
-- [x] Integration module covers R3.1–R3.2; R3.3 **ignored** pending fault injection
+- [x] Integration module covers R3.1–R3.3 (R3.3 via Toxiproxy + `TOXIPROXY_API`)
 - [x] `cargo nextest` in CI runs replica test when topology + secrets available
 - [ ] Optional follow-up: unit or injectable tests for `WalLagMonitor` / routing (see design §6)
 

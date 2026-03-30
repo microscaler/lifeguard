@@ -85,6 +85,7 @@ rand = "0.8"
 redis = "0.26"
 
 [dev-dependencies]
+ureq = { version = "2.10", default-features = false }
 bytes = "1"
 # Required when tests expand `LifeModel` with graphql: nested `SimpleObject` resolves `async_graphql` in this crate.
 async-graphql.workspace = true

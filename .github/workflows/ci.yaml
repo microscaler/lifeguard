@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # All DB/Redis dependencies: `.github/docker/docker-compose.yml` (host primary :6543, replica :6544, Redis :6545 — avoids 5432/5433/6379 for Kind/Tilt).
+    # All DB/Redis dependencies: `.github/docker/docker-compose.yml` (host primary :6543, replica via Toxiproxy :6547, Redis :6545 — avoids 5432/5433/6379 and :6544 which Kind/Tilt use for replica-0).
     # Started via hoverkraft-tech/compose-action (up: `-d --wait`; post hook: `compose down -v`). See https://github.com/marketplace/actions/docker-compose-action
     # No `jobs.*.services` — avoids duplicating Postgres/Redis and conflicting ports with Compose.
     # `TEST_DATABASE_URL` / `TEST_REPLICA_URL` / Redis URLs for `tests/context.rs`; `DATABASE_URL` for `TestDatabase::get_connection_string`.
@@ -20,7 +20,8 @@ jobs:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
       DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
       TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
-      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6544/postgres
+      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6547/postgres
+      TOXIPROXY_API: http://127.0.0.1:8474
       REDIS_URL: redis://127.0.0.1:6545
       TEST_REDIS_URL: redis://127.0.0.1:6545
 
@@ -154,11 +155,11 @@ jobs:
           up-flags: -d --wait
           down-flags: -v
 
-      # perf-orm: Compose host ports :6543 / :6544 / :6545 (see `.github/docker/docker-compose.yml`).
+      # perf-orm: Compose host ports :6543 / :6547 (replica via Toxiproxy) / :6545 (see `.github/docker/docker-compose.yml`).
       - name: Run perf-orm
         env:
           PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6543/postgres
-          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6544/postgres
+          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6547/postgres
           REDIS_URL: redis://127.0.0.1:6545
           TEST_REDIS_URL: redis://127.0.0.1:6545
           PERF_RESET: "1" # destructive DDL on perf_* tables

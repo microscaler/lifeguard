@@ -18,6 +18,9 @@
 #![allow(clippy::struct_field_names)]
 mod context;
 
+#[path = "db_integration/toxiproxy_control.rs"]
+mod toxiproxy_control;
+
 #[path = "db_integration/replication_sync.rs"]
 mod replication_sync;
 

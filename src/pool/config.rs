@@ -131,6 +131,10 @@ impl LifeguardPoolSettings {
 
 #[cfg(test)]
 mod tests {
+    // `DatabaseConfig::load` and mutex tests use `.expect()` for clear failure messages; the crate
+    // denies `expect_used` in library code — allow here only.
+    #![allow(clippy::expect_used)]
+
     use super::*;
     use std::sync::Mutex;
 

@@ -133,7 +133,7 @@ fn pooled_pool_construct_write_read_with_replica() {
     assert_ne!(
         ep_p, ep_r,
         "TEST_REPLICA_URL must not target the same host:port as TEST_DATABASE_URL (both {ep_p}). \
-         CI sets primary :6543 and replica :6544 — see .github/workflows/ci.yaml and .github/docker/docker-compose.yml."
+         CI sets primary :6543 and replica via Toxiproxy :6547 — see .github/workflows/ci.yaml and .github/docker/docker-compose.yml."
     );
 
     let t0 = Instant::now();
@@ -294,12 +294,116 @@ mod pg_endpoint_key_tests {
     }
 }
 
-/// Lag fallback requires fault injection or a controllable slow replica; tracked for a follow-up.
+/// With [Toxiproxy](https://github.com/Shopify/toxiproxy) (`TOXIPROXY_API`, see `.github/docker/docker-compose.yml`),
+/// disables the `postgres_replica` proxy so replica I/O fails; the WAL lag monitor marks lagging and reads route to the primary tier.
 #[test]
-#[ignore = "R3.3: inject lag or error to assert primary fallback (future)"]
-fn pooled_read_falls_back_when_replica_lagging() {
+fn pooled_read_falls_back_to_primary_when_replica_lagging() {
     let Some(replica_url) = replica_url_or_skip() else {
         return;
     };
-    let _ = replica_url;
+    let Some(api) = crate::toxiproxy_control::api_base_from_env() else {
+        return;
+    };
+
+    struct ResetToxiproxy(String);
+    impl Drop for ResetToxiproxy {
+        fn drop(&mut self) {
+            let _ = crate::toxiproxy_control::reset_all(&self.0);
+        }
+    }
+
+    let _restore = ResetToxiproxy(api.clone());
+
+    crate::toxiproxy_control::reset_all(&api).expect("toxiproxy POST /reset");
+
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+
+    let ep_p = pg_tcp_endpoint_key(&primary_url).expect("parse primary URL host:port");
+    let ep_r = pg_tcp_endpoint_key(&replica_url).expect("parse replica URL host:port");
+    assert_ne!(
+        ep_p, ep_r,
+        "TEST_REPLICA_URL must not target the same host:port as TEST_DATABASE_URL (both {ep_p}). \
+         CI Compose uses Toxiproxy on :6547 to the streaming replica — see .github/docker/docker-compose.yml."
+    );
+
+    let mut db = TestDatabase::with_url(&primary_url);
+    let setup_exec = db.executor().expect("primary executor");
+    setup_schema_on_primary(&setup_exec);
+
+    const FALLBACK_ID: i32 = 42;
+    let pool_settings = integration_pool_settings();
+    let pool = Arc::new(
+        LifeguardPool::new_with_settings(
+            &primary_url,
+            1,
+            vec![replica_url.clone()],
+            1,
+            &pool_settings,
+        )
+        .expect("LifeguardPool::new_with_settings with replica"),
+    );
+    let exec = PooledLifeExecutor::new(pool.clone());
+
+    let insert_vals = Values(vec![
+        Value::Int(Some(FALLBACK_ID)),
+        Value::String(Some("primary-fallback".into())),
+    ]);
+    exec.execute_values(
+        "INSERT INTO pool_replica_test.t_pool_replica_smoke (id, note) VALUES ($1, $2)",
+        &insert_vals,
+    )
+    .expect("pooled insert");
+
+    let lsn = crate::replication_sync::primary_current_wal_lsn(&primary_url).expect("primary lsn");
+    crate::replication_sync::wait_replica_replayed_at_least(
+        &replica_url,
+        &lsn,
+        Duration::from_secs(45),
+        Duration::from_millis(5),
+    )
+    .expect("replica replay wait");
+
+    let mut replica_ok = false;
+    for _ in 0..400 {
+        if !pool.is_replica_lagging() {
+            replica_ok = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        replica_ok,
+        "expected replica not lagging before toxiproxy fault"
+    );
+
+    crate::toxiproxy_control::set_proxy_enabled(
+        &api,
+        crate::toxiproxy_control::POSTGRES_REPLICA_PROXY,
+        false,
+    )
+    .expect("disable postgres_replica proxy");
+
+    let mut lagging_seen = false;
+    for _ in 0..400 {
+        if pool.is_replica_lagging() {
+            lagging_seen = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    assert!(
+        lagging_seen,
+        "expected WalLagMonitor to mark replica lagging after replica proxy disabled"
+    );
+
+    let read_vals = Values(vec![Value::Int(Some(FALLBACK_ID))]);
+    let row = exec
+        .query_one_values(
+            "SELECT note FROM pool_replica_test.t_pool_replica_smoke WHERE id = $1",
+            &read_vals,
+        )
+        .expect("pooled read should succeed via primary when replica tier is unavailable");
+    let note: String = row.get(0);
+    assert_eq!(note, "primary-fallback");
 }
