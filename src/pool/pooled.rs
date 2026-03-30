@@ -67,11 +67,21 @@ impl WorkerPool {
 
             let (job_tx, job_rx) = crossbeam_channel::bounded::<WorkerJob>(qcap);
 
+            let max_lifetime = settings.max_connection_lifetime;
+            let lifetime_jitter = settings.max_connection_lifetime_jitter;
             let name = format!("lifeguard-pool-{role}-{slot}");
             let handle = thread::Builder::new()
                 .name(name)
                 .spawn(move || {
-                    run_worker(url, client, job_rx, idle);
+                    run_worker(
+                        url,
+                        client,
+                        job_rx,
+                        idle,
+                        max_lifetime,
+                        lifetime_jitter,
+                        slot,
+                    );
                 })
                 .map_err(|e| LifeError::Other(format!("{role} pool worker thread {slot}: {e}")))?;
             #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
@@ -112,6 +122,8 @@ impl WorkerPool {
         loop {
             let now = Instant::now();
             if now >= deadline {
+                #[cfg(feature = "metrics")]
+                METRICS.record_pool_acquire_timeout();
                 return Err(LifeError::PoolAcquireTimeout {
                     waited: wait_start.elapsed(),
                 });
@@ -249,6 +261,7 @@ impl LifeguardPool {
                 monitor_url,
                 settings.wal_lag_poll_interval,
                 wal_policy,
+                settings.wal_lag_monitor_max_connect_retries,
             );
             (Some(rp), Some(wal))
         } else {
@@ -333,6 +346,16 @@ impl LifeguardPool {
         self.wal_monitor.as_ref()
     }
 
+    /// `true` when the WAL lag monitor **gave up** connecting to the replica (PRD R7.3). Reads use the
+    /// primary tier until process restart.
+    #[must_use]
+    pub fn is_replica_routing_disabled(&self) -> bool {
+        self.wal_monitor
+            .as_ref()
+            .map(WalLagMonitor::is_replica_routing_disabled)
+            .unwrap_or(false)
+    }
+
     fn read_tier(&self) -> &WorkerPool {
         match &self.replicas {
             None => &self.primary,
@@ -381,9 +404,13 @@ fn exec_with_optional_heal<T>(
                 let can_heal = life_error_is_connectivity_heal_candidate(&e)
                     && attempt + 1 < POOL_HEAL_MAX_ATTEMPTS;
                 if can_heal {
+                    #[cfg(feature = "tracing")]
+                    let _heal_span = tracing_helpers::pool_slot_heal_span().entered();
                     match connect(connection_string) {
                         Ok(c) => {
                             *client = c;
+                            #[cfg(feature = "metrics")]
+                            METRICS.record_pool_slot_heal();
                             log::warn!(
                                 "lifeguard pool: replaced client after connectivity error (attempt {})",
                                 attempt + 1
@@ -426,25 +453,104 @@ fn run_worker(
     mut client: Client,
     job_rx: crossbeam_channel::Receiver<WorkerJob>,
     idle_liveness: Option<Duration>,
+    max_connection_lifetime: Option<Duration>,
+    max_connection_lifetime_jitter: Duration,
+    slot: usize,
 ) {
+    let mut opened_at = Instant::now();
     let idle = idle_liveness.map(|d| d.max(Duration::from_millis(1)));
 
     match idle {
         None => {
             for job in job_rx.iter() {
                 dispatch_worker_job(&connection_string, &mut client, job);
+                maybe_rotate_for_max_lifetime(
+                    &connection_string,
+                    &mut client,
+                    &mut opened_at,
+                    max_connection_lifetime,
+                    max_connection_lifetime_jitter,
+                    slot,
+                );
             }
         }
         Some(interval) => {
             loop {
                 match job_rx.recv_timeout(interval) {
-                    Ok(job) => dispatch_worker_job(&connection_string, &mut client, job),
+                    Ok(job) => {
+                        dispatch_worker_job(&connection_string, &mut client, job);
+                        maybe_rotate_for_max_lifetime(
+                            &connection_string,
+                            &mut client,
+                            &mut opened_at,
+                            max_connection_lifetime,
+                            max_connection_lifetime_jitter,
+                            slot,
+                        );
+                    }
                     Err(RecvTimeoutError::Timeout) => {
                         idle_liveness_probe(&connection_string, &mut client);
+                        maybe_rotate_for_max_lifetime(
+                            &connection_string,
+                            &mut client,
+                            &mut opened_at,
+                            max_connection_lifetime,
+                            max_connection_lifetime_jitter,
+                            slot,
+                        );
                     }
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
             }
+        }
+    }
+}
+
+/// Per-slot jitter on top of base max lifetime (PRD R3.1).
+fn connection_lifetime_effective_limit(
+    base: Duration,
+    jitter: Duration,
+    salt: usize,
+) -> Duration {
+    if jitter.is_zero() {
+        return base;
+    }
+    let j = (salt as u128).wrapping_mul(1_100_003) % (jitter.as_millis() + 1);
+    base + Duration::from_millis(u64::try_from(j).unwrap_or(0))
+}
+
+fn maybe_rotate_for_max_lifetime(
+    connection_string: &str,
+    client: &mut Client,
+    opened_at: &mut Instant,
+    max_lifetime: Option<Duration>,
+    jitter: Duration,
+    slot: usize,
+) {
+    let Some(base) = max_lifetime else {
+        return;
+    };
+    if base.is_zero() {
+        return;
+    }
+    let limit = connection_lifetime_effective_limit(base, jitter, slot ^ opened_at.elapsed().subsec_nanos() as usize);
+    if opened_at.elapsed() < limit {
+        return;
+    }
+    match connect(connection_string) {
+        Ok(c) => {
+            *client = c;
+            *opened_at = Instant::now();
+            log::debug!(
+                "lifeguard pool: rotated client after max_connection_lifetime (slot {slot})",
+            );
+            #[cfg(feature = "metrics")]
+            METRICS.record_pool_connection_rotated();
+        }
+        Err(e) => {
+            log::warn!(
+                "lifeguard pool: max_connection_lifetime rotation failed (slot {slot}): {e}",
+            );
         }
     }
 }

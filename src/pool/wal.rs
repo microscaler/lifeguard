@@ -75,47 +75,67 @@ impl WalLagPolicy {
 /// A background thread polls the replica periodically; while lag is above an internal
 /// threshold, callers should treat reads as unsafe on the replica tier. See
 /// [`WalLagMonitor::start_monitor`] and the connection pooling PRD for evolution of lag semantics.
+///
+/// If initial connection fails repeatedly beyond [`LifeguardPoolSettings::wal_lag_monitor_max_connect_retries`],
+/// the monitor **gives up** (PRD R7.3): [`Self::is_replica_routing_disabled`] becomes `true`, reads use
+/// the primary tier, and a warning is logged (and a metric set when the `metrics` feature is on).
 #[derive(Clone)]
 pub struct WalLagMonitor {
     is_lagging: Arc<AtomicBool>,
+    replica_routing_disabled: Arc<AtomicBool>,
 }
 
 impl WalLagMonitor {
-    /// Starts a background thread that polls the database for WAL lag every `poll_interval`
-    /// (minimum **10ms**), using [`WalLagPolicy::default`] (1 MiB byte threshold).
+    /// Starts a background thread that polls the database for WAL lag every **500ms**,
+    /// using [`WalLagPolicy::default`] and unlimited initial connect retries.
     #[must_use]
     pub fn start_monitor(replica_conn_string: String) -> Self {
         Self::start_monitor_with_poll_interval(
             replica_conn_string,
             Duration::from_millis(500),
             WalLagPolicy::default(),
+            0,
         )
     }
 
     /// Starts a background thread that polls the database for WAL lag every `poll_interval`
     /// (minimum **10ms**).
     ///
-    /// Production default poll interval is **500ms**; use [`Self::start_monitor`] for that.
+    /// `max_connect_retries`: **`0`** = retry forever (default). **`N > 0`** = give up after **N**
+    /// failed connect attempts; see [`Self::is_replica_routing_disabled`].
     #[must_use]
     pub fn start_monitor_with_poll_interval(
         replica_conn_string: String,
         poll_interval: Duration,
         policy: WalLagPolicy,
+        max_connect_retries: u32,
     ) -> Self {
         let poll_interval = poll_interval.max(Duration::from_millis(10));
         let is_lagging = Arc::new(AtomicBool::new(false));
+        let replica_routing_disabled = Arc::new(AtomicBool::new(false));
         let lag_ref = is_lagging.clone();
+        let disabled_ref = replica_routing_disabled.clone();
 
         let handle = thread::spawn(move || {
-            // Retry initial connect with backoff (PRD R7.1): transient replica/startup failures
-            // must not permanently disable read routing for the process lifetime.
+            // Retry initial connect with backoff (PRD R7.1); optional cap (PRD R7.3).
             let mut backoff = Duration::from_millis(200);
             let backoff_cap = Duration::from_secs(5);
+            let mut attempts: u32 = 0;
             let client = loop {
                 match may_postgres::connect(&replica_conn_string) {
                     Ok(c) => break c,
-                    Err(_) => {
+                    Err(e) => {
                         lag_ref.store(true, Ordering::Release);
+                        attempts = attempts.saturating_add(1);
+                        if max_connect_retries > 0 && attempts >= max_connect_retries {
+                            log::warn!(
+                                "lifeguard: WAL lag monitor stopped after {attempts} failed connect attempts to replica (last error: {e}); read queries use primary tier only until process restart",
+                            );
+                            disabled_ref.store(true, Ordering::Release);
+                            #[cfg(feature = "metrics")]
+                            crate::metrics::METRICS.set_wal_monitor_replica_routing_disabled(1);
+                            return;
+                        }
                         thread::sleep(backoff);
                         backoff = (backoff * 2).min(backoff_cap);
                     }
@@ -166,12 +186,24 @@ impl WalLagMonitor {
         #[allow(clippy::mem_forget)]
         std::mem::forget(handle);
 
-        Self { is_lagging }
+        Self {
+            is_lagging,
+            replica_routing_disabled,
+        }
     }
 
-    /// Check if the replica is currently lagging
+    /// `true` when the replica is behind policy or the monitor could not query lag.
+    #[must_use]
     pub fn is_replica_lagging(&self) -> bool {
         self.is_lagging.load(Ordering::Acquire)
+            || self.replica_routing_disabled.load(Ordering::Acquire)
+    }
+
+    /// `true` when the monitor **gave up** connecting to the replica (PRD R7.3). Read routing uses
+    /// the primary tier until restart.
+    #[must_use]
+    pub fn is_replica_routing_disabled(&self) -> bool {
+        self.replica_routing_disabled.load(Ordering::Acquire)
     }
 }
 

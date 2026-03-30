@@ -78,6 +78,10 @@ When the `metrics` feature is enabled, Lifeguard exposes the following Prometheu
 | `lifeguard_connection_wait_time_seconds` | Histogram | Time spent waiting for a connection |
 | `lifeguard_query_duration_seconds` | Histogram | Query execution time |
 | `lifeguard_query_errors_total` | Counter | Total number of query errors |
+| `lifeguard_wal_monitor_replica_routing_disabled` | Gauge | 1 if the WAL lag monitor gave up connecting to the replica (PRD R7.3) |
+| `lifeguard_pool_acquire_timeout_total` | Counter | Pool acquire timeouts (`LifeError::PoolAcquireTimeout`) |
+| `lifeguard_pool_slot_heal_total` | Counter | Slot heal reconnects after connectivity-class errors |
+| `lifeguard_pool_connection_rotated_total` | Counter | Connections rotated after `max_connection_lifetime` (PRD R3.1) |
 
 ### Accessing Metrics
 
@@ -145,6 +149,7 @@ When the `tracing` feature is enabled, Lifeguard creates OpenTelemetry spans for
 - **`lifeguard.acquire_connection`**: Created when establishing a new database connection
 - **`lifeguard.execute_query`**: Created for each query execution (includes the query string)
 - **`lifeguard.release_connection`**: Created when releasing a connection (future pool implementation)
+- **`lifeguard.pool_slot_heal`**: Created when a pool worker replaces a `Client` after a connectivity-class error (PRD R8.2)
 
 ### Setting Up Tracing
 

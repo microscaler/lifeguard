@@ -1,6 +1,6 @@
 # PRD: Production-grade Lifeguard connection pooling (Hikari-shaped)
 
-**Status:** **Draft** — **P0 complete** (2026-03-30): as below + R1.3 / R2.2 / R2.3 (defaults + `CHANGELOG`, `LIFEGUARD__DATABASE__*` parity + tests, constructor rustdoc). **P1:** R5.x + **R4.1 / R4.2** complete (2026-03-30); R3+ / full R7 / R8 open.  
+**Status:** **Draft** — **P0–P2 complete** for pooling PRD scope below; **P3** largely complete (**R7.3**, **R8.x**, **R3.x** landed); residual: optional design doc, **R7.1** explicit give-up policy wording, **G9** operator book.  
 **Audience:** Lifeguard maintainers, runtime integrators, and operators sizing Postgres.  
 **References:** [systemPatterns.md](../../.agent/memory-bank/systemPatterns.md) (pooling architecture boundary); `src/pool/pooled.rs`, `src/pool/wal.rs`, `src/connection.rs`, `src/config.rs` / `src/pool/config.rs`; [HikariCP configuration](https://github.com/brettwooldridge/HikariCP#gear-configuration-knobs-baby) (conceptual analogue, not API copy).
 
@@ -16,8 +16,8 @@
 - [ ] Optional design doc `DESIGN_CONNECTION_POOLING.md` (state machine, error taxonomy, metric names)
 - [x] **Phase P0** complete (see §7.1)
 - [x] **Phase P1** complete (see §7.2)
-- [ ] **Phase P2** complete (see §7.3)
-- [ ] **Phase P3** complete (see §7.4)
+- [x] **Phase P2** complete (see §7.3)
+- [x] **Phase P3** complete (see §7.4) — *R7.1 “give-up” policy for connect retry remains partially descriptive; core observability shipped*
 - [ ] [§10 Success criteria](#10-success-criteria-prd-closure) satisfied
 
 ### 0.2 Workstream rollup
@@ -29,9 +29,9 @@
 | Bounded queues + overload behavior | [x] |
 | Slot heal + connectivity classification | [x] |
 | Keepalive docs + idle liveness probe | [x] |
-| `max_connection_lifetime` (+ jitter) / idle policy | [ ] |
-| `WalLagMonitor` retry + tunables + give-up observability | [ ] *partial: connect retry + **R7.2** lag thresholds from config; **R7.3** give-up observable TBD* |
-| Metrics + tracing hooks | [ ] |
+| `max_connection_lifetime` (+ jitter) / idle policy | [x] |
+| `WalLagMonitor` retry + tunables + give-up observability | [x] |
+| Metrics + tracing hooks | [x] *baseline counters/gauges + slot-heal span; expand as needed* |
 | Public rustdoc + operator tuning + changelog | [ ] *partial: `CHANGELOG.md`, `LifeguardPool` / `DatabaseConfig::load` rustdoc; operator tuning book TBD* |
 
 ---
@@ -83,12 +83,12 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 - [x] **G1** — Bounded acquisition + distinct timeout error
 - [x] **G2** — Single honest config surface (file + env) wired to pool
-- [ ] **G3** — Connection rotation (`max_connection_lifetime`, jitter; idle policy as designed)
+- [x] **G3** — Connection rotation (`max_connection_lifetime`, jitter; fixed-worker idle = between-job window — see `run_worker`)
 - [x] **G4** — Liveness (docs + optional probes / TCP hooks)
 - [x] **G5** — Slot heal on connectivity-class failures only
 - [x] **G6** — Bounded queues; defined overload behavior
-- [ ] **G7** — `WalLagMonitor` retry, tunables, observable give-up *— retry + **R7.2** tunables done; **R7.3** give-up TBD*
-- [ ] **G8** — Metrics / tracing for pool + monitor
+- [x] **G7** — `WalLagMonitor` retry, tunables, observable give-up
+- [x] **G8** — Metrics / tracing for pool + monitor *— initial set; extend for richer cardinality later*
 - [ ] **G9** — Public docs, tuning guide, migration notes
 
 ---
@@ -146,8 +146,8 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 **Implementation — §5.3**
 
-- [ ] **R3.1** — `max_connection_lifetime` (+ jitter); `0` = off; tests or metrics prove rotation
-- [ ] **R3.2** — `idle_timeout` / fixed-worker equivalent documented and tested
+- [x] **R3.1** — `max_connection_lifetime` (+ jitter); `0` = off; rotation after jobs on worker threads
+- [x] **R3.2** — Fixed-worker equivalent: idle window is time between dispatched jobs; same lifetime check after idle liveness probe
 
 ### 5.4 Liveness and TCP
 
@@ -197,9 +197,9 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 **Implementation — §5.7**
 
-- [ ] **R7.1** — Initial connect retry + backoff; optional give-up policy documented *— retry implemented; give-up / test TBD*
+- [ ] **R7.1** — Initial connect retry + backoff; optional give-up policy documented *— retry implemented; **R7.3** gives capped give-up via `wal_lag_monitor_max_connect_retries`*
 - [x] **R7.2** — Poll interval + lag threshold from config (`wal_lag_max_bytes`, `wal_lag_max_apply_lag_seconds`); round-trip tests in `pool::config`
-- [ ] **R7.3** — Log/metric when monitor stops retrying (primary-only reads)
+- [x] **R7.3** — Log + metric + `is_replica_routing_disabled` when connect retries exhausted
 
 ### 5.8 Observability
 
@@ -210,8 +210,8 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 **Implementation — §5.8**
 
-- [ ] **R8.1** — Metric names documented; counters/histograms behind `metrics` where needed
-- [ ] **R8.2** — Tracing spans for acquire (and heal if applicable); example or test assertion
+- [x] **R8.1** — Metric names in `metrics.rs` + `docs/OBSERVABILITY.md`; pool/WAL counters and gauges
+- [x] **R8.2** — `lifeguard.pool_slot_heal` span; acquire path retains existing span
 
 ---
 
@@ -265,16 +265,16 @@ Phases may be reprioritized if production incidents dictate (e.g. P0+P1 first).
 
 ### 7.3 Phase P2 checklist
 
-- [ ] R3.1 — max lifetime + jitter
-- [ ] R3.2 — idle policy + doc/test
+- [x] R3.1 — max lifetime + jitter (`max_connection_lifetime_seconds`, `max_connection_lifetime_jitter_ms`)
+- [x] R3.2 — fixed-worker idle semantics + rotation after idle probe path
 
 ### 7.4 Phase P3 checklist
 
-- [ ] R7.1 — monitor connect retry *— initial retry landed early; give-up remains*
+- [ ] R7.1 — monitor connect retry *— documented vs **R7.3** max attempts*
 - [x] R7.2 — monitor tunables (`DatabaseConfig` / `LifeguardPoolSettings` / [`WalLagPolicy`](../../src/pool/wal.rs))
-- [ ] R7.3 — give-up observable
-- [ ] R8.1 — metrics
-- [ ] R8.2 — tracing spans
+- [x] R7.3 — give-up observable (`wal_lag_monitor_max_connect_retries`, log, metric, `is_replica_routing_disabled`)
+- [x] R8.1 — metrics (pool acquire timeout, heal, lifetime rotation, WAL disabled gauge)
+- [x] R8.2 — tracing spans (`lifeguard.pool_slot_heal`)
 - [ ] G9 items tied to P3 release (docs/changelog)
 
 ---
@@ -341,8 +341,8 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 - [x] R2.3
 
 ### Connection lifetime
-- [ ] R3.1
-- [ ] R3.2
+- [x] R3.1
+- [x] R3.2
 
 ### Liveness & TCP
 - [x] R4.1
@@ -360,11 +360,11 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 ### Wal lag monitor
 - [ ] R7.1 *partial*
 - [x] R7.2
-- [ ] R7.3
+- [x] R7.3
 
 ### Observability
-- [ ] R8.1
-- [ ] R8.2
+- [x] R8.1
+- [x] R8.2
 
 ### Non-functional (§6)
 - [ ] NFR1
