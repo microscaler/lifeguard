@@ -20,7 +20,7 @@ use crate::executor::{LifeError, LifeExecutor};
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
-use crate::pool::wal::WalLagMonitor;
+use crate::pool::wal::{WalLagMonitor, WalLagPolicy};
 use crossbeam_channel::{RecvTimeoutError, SendTimeoutError};
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Row};
@@ -244,9 +244,11 @@ impl LifeguardPool {
                 settings,
             )?;
             let monitor_url = replica_urls_trimmed[0].clone();
+            let wal_policy = WalLagPolicy::from_pool_settings(settings);
             let wal = WalLagMonitor::start_monitor_with_poll_interval(
                 monitor_url,
                 settings.wal_lag_poll_interval,
+                wal_policy,
             );
             (Some(rp), Some(wal))
         } else {

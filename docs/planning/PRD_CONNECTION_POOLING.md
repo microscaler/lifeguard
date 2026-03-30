@@ -30,7 +30,7 @@
 | Slot heal + connectivity classification | [x] |
 | Keepalive docs + idle liveness probe | [x] |
 | `max_connection_lifetime` (+ jitter) / idle policy | [ ] |
-| `WalLagMonitor` retry + tunables + give-up observability | [ ] *partial: initial connect retry only* |
+| `WalLagMonitor` retry + tunables + give-up observability | [ ] *partial: connect retry + **R7.2** lag thresholds from config; **R7.3** give-up observable TBD* |
 | Metrics + tracing hooks | [ ] |
 | Public rustdoc + operator tuning + changelog | [ ] *partial: `CHANGELOG.md`, `LifeguardPool` / `DatabaseConfig::load` rustdoc; operator tuning book TBD* |
 
@@ -87,7 +87,7 @@ Track at milestone reviews; each goal may span multiple PRs.
 - [x] **G4** — Liveness (docs + optional probes / TCP hooks)
 - [x] **G5** — Slot heal on connectivity-class failures only
 - [x] **G6** — Bounded queues; defined overload behavior
-- [ ] **G7** — `WalLagMonitor` retry, tunables, observable give-up *— retry done; tunables / give-up TBD*
+- [ ] **G7** — `WalLagMonitor` retry, tunables, observable give-up *— retry + **R7.2** tunables done; **R7.3** give-up TBD*
 - [ ] **G8** — Metrics / tracing for pool + monitor
 - [ ] **G9** — Public docs, tuning guide, migration notes
 
@@ -198,7 +198,7 @@ Track at milestone reviews; each goal may span multiple PRs.
 **Implementation — §5.7**
 
 - [ ] **R7.1** — Initial connect retry + backoff; optional give-up policy documented *— retry implemented; give-up / test TBD*
-- [ ] **R7.2** — Poll interval + lag threshold from config; round-trip test
+- [x] **R7.2** — Poll interval + lag threshold from config (`wal_lag_max_bytes`, `wal_lag_max_apply_lag_seconds`); round-trip tests in `pool::config`
 - [ ] **R7.3** — Log/metric when monitor stops retrying (primary-only reads)
 
 ### 5.8 Observability
@@ -270,8 +270,8 @@ Phases may be reprioritized if production incidents dictate (e.g. P0+P1 first).
 
 ### 7.4 Phase P3 checklist
 
-- [ ] R7.1 — monitor connect retry *— initial retry landed early; tunables / give-up remain*
-- [ ] R7.2 — monitor tunables
+- [ ] R7.1 — monitor connect retry *— initial retry landed early; give-up remains*
+- [x] R7.2 — monitor tunables (`DatabaseConfig` / `LifeguardPoolSettings` / [`WalLagPolicy`](../../src/pool/wal.rs))
 - [ ] R7.3 — give-up observable
 - [ ] R8.1 — metrics
 - [ ] R8.2 — tracing spans
@@ -359,7 +359,7 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 
 ### Wal lag monitor
 - [ ] R7.1 *partial*
-- [ ] R7.2
+- [x] R7.2
 - [ ] R7.3
 
 ### Observability

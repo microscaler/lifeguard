@@ -9,3 +9,6 @@ max_connections = 10
 pool_timeout_seconds = 5
 # Optional: idle worker liveness probe interval (ms). 0 = disabled (default). Clamped 1s–1h from file/env.
 # idle_liveness_interval_ms = 0
+# WAL lag routing (PRD R7.2): byte threshold (0 = off if apply-lag set); apply lag in seconds (0 = off).
+# wal_lag_max_bytes = 1000000
+# wal_lag_max_apply_lag_seconds = 0

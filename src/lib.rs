@@ -74,6 +74,7 @@ pub mod test_helpers;
 
 pub use pool::{
     DatabaseConfig, LifeguardPool, LifeguardPoolSettings, OwnedParam, PooledLifeExecutor,
+    WalLagPolicy,
 };
 
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.

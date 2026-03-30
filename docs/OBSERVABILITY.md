@@ -282,7 +282,7 @@ Ok(())
 
 ## PostgreSQL replication lag: time, bytes, and dashboards
 
-Lifeguard’s [`WalLagMonitor`](https://github.com/microscaler/lifeguard/blob/main/src/pool/wal.rs) (used by [`LifeguardPool`](https://github.com/microscaler/lifeguard/blob/main/src/pool/pooled.rs) for read routing) today reasons about **byte** lag between WAL positions. **PostgreSQL itself** also exposes **time-based** lag on the primary via `pg_stat_replication` (`write_lag`, `flush_lag`, `replay_lag` as `interval` values). For operations and SRE work, **chart both**: bytes explain *queue depth*; **replay lag** (time) is the closest single number to “how stale is this replica for reads?”
+Lifeguard’s [`WalLagMonitor`](https://github.com/microscaler/lifeguard/blob/main/src/pool/wal.rs) (used by [`LifeguardPool`](https://github.com/microscaler/lifeguard/blob/main/src/pool/pooled.rs) for read routing) evaluates **byte** lag on the standby (receive vs replay LSN) and can optionally treat **apply lag** in wall-clock time (`wal_lag_max_apply_lag_seconds` / [`WalLagPolicy`](https://github.com/microscaler/lifeguard/blob/main/src/pool/wal.rs)) as lagging. **PostgreSQL** also exposes **time-based** lag on the **primary** via `pg_stat_replication` (`write_lag`, `flush_lag`, `replay_lag` as `interval` values). For operations and SRE work, **chart both** infra metrics and Lifeguard’s policy: bytes explain *queue depth*; **replay lag** (time) on the primary is often the clearest “staleness” signal.
 
 ### Postgres views to know
 

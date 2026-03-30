@@ -23,6 +23,17 @@ pub struct DatabaseConfig {
     /// How often [`super::wal::WalLagMonitor`] polls the replica for receive/replay lag (milliseconds).
     #[serde(default = "default_wal_lag_poll_interval_ms")]
     pub wal_lag_poll_interval_ms: u64,
+    /// Receive/replay WAL byte lag above this marks the replica as lagging (PRD R7.2). **`0`** disables
+    /// the byte criterion (use time-only when [`Self::wal_lag_max_apply_lag_seconds`] is set). If **both**
+    /// this and [`Self::wal_lag_max_apply_lag_seconds`] are zero/disabled, the effective byte threshold is
+    /// **1_000_000** (same as historical hardcoded default).
+    #[serde(default = "default_wal_lag_max_bytes")]
+    pub wal_lag_max_bytes: u64,
+    /// When **> 0**, standby apply lag (`clock_timestamp() - pg_last_xact_replay_timestamp()`) above this
+    /// many seconds also marks lagging. **`0`** disables (default). Combined with [`Self::wal_lag_max_bytes`]
+    /// using **OR** semantics when both are active.
+    #[serde(default)]
+    pub wal_lag_max_apply_lag_seconds: u64,
     /// When **> 0**, each idle pool worker runs a cheap `SELECT 1` at this interval to detect dead
     /// TCP sessions before the next real query (PRD R4.2). **`0`** disables idle probes (default).
     /// Values are clamped to **1s–1h** when loaded from file/env; use [`LifeguardPoolSettings`] directly
@@ -51,6 +62,10 @@ fn default_wal_lag_poll_interval_ms() -> u64 {
     500
 }
 
+fn default_wal_lag_max_bytes() -> u64 {
+    1_000_000
+}
+
 fn default_idle_liveness_interval_ms() -> u64 {
     0
 }
@@ -70,6 +85,8 @@ impl Default for DatabaseConfig {
             pool_timeout_seconds: default_pool_timeout_seconds(),
             pool_job_queue_depth_per_worker: default_pool_job_queue_depth_per_worker(),
             wal_lag_poll_interval_ms: default_wal_lag_poll_interval_ms(),
+            wal_lag_max_bytes: default_wal_lag_max_bytes(),
+            wal_lag_max_apply_lag_seconds: 0,
             idle_liveness_interval_ms: default_idle_liveness_interval_ms(),
         }
     }
@@ -94,6 +111,8 @@ impl DatabaseConfig {
     /// | `pool_timeout_seconds` | `LIFEGUARD__DATABASE__POOL_TIMEOUT_SECONDS` |
     /// | `pool_job_queue_depth_per_worker` | `LIFEGUARD__DATABASE__POOL_JOB_QUEUE_DEPTH_PER_WORKER` |
     /// | `wal_lag_poll_interval_ms` | `LIFEGUARD__DATABASE__WAL_LAG_POLL_INTERVAL_MS` |
+    /// | `wal_lag_max_bytes` | `LIFEGUARD__DATABASE__WAL_LAG_MAX_BYTES` |
+    /// | `wal_lag_max_apply_lag_seconds` | `LIFEGUARD__DATABASE__WAL_LAG_MAX_APPLY_LAG_SECONDS` |
     /// | `idle_liveness_interval_ms` | `LIFEGUARD__DATABASE__IDLE_LIVENESS_INTERVAL_MS` |
     ///
     /// The environment layer is merged **after** the file and overrides matching keys (PRD R2.2).
@@ -116,6 +135,12 @@ pub struct LifeguardPoolSettings {
     pub job_queue_capacity_per_worker: usize,
     /// Interval between [`super::wal::WalLagMonitor`] lag polls on the replica connection.
     pub wal_lag_poll_interval: Duration,
+    /// Byte lag threshold for [`super::wal::WalLagMonitor`] (receive vs replay LSN on the standby). **`0`**
+    /// disables the byte check when [`Self::wal_lag_max_apply_lag`] is **Some**; if both byte and time
+    /// limits are “off”, [`super::wal::WalLagPolicy::from_pool_settings`] restores **1 MiB** bytes.
+    pub wal_lag_max_bytes: u64,
+    /// Optional maximum standby **apply** lag in wall-clock time (from `pg_last_xact_replay_timestamp()`).
+    pub wal_lag_max_apply_lag: Option<Duration>,
     /// When **Some**, workers that are **idle** (no queued work) run `SELECT 1` on this interval
     /// so half-open TCP sessions are detected and healed (PRD R4.2). **`None`** disables probes.
     pub idle_liveness_interval: Option<Duration>,
@@ -127,6 +152,8 @@ impl Default for LifeguardPoolSettings {
             acquire_timeout: Duration::from_secs(30),
             job_queue_capacity_per_worker: default_pool_job_queue_depth_per_worker(),
             wal_lag_poll_interval: Duration::from_millis(default_wal_lag_poll_interval_ms()),
+            wal_lag_max_bytes: default_wal_lag_max_bytes(),
+            wal_lag_max_apply_lag: None,
             idle_liveness_interval: None,
         }
     }
@@ -143,10 +170,19 @@ impl LifeguardPoolSettings {
             let ms = cfg.idle_liveness_interval_ms.clamp(1_000, 3_600_000);
             Some(Duration::from_millis(ms))
         };
+        let wal_lag_max_apply_lag = if cfg.wal_lag_max_apply_lag_seconds == 0 {
+            None
+        } else {
+            let secs = cfg.wal_lag_max_apply_lag_seconds.clamp(1, 86_400);
+            Some(Duration::from_secs(secs))
+        };
+        let wal_lag_max_bytes = cfg.wal_lag_max_bytes.min(1 << 40);
         Self {
             acquire_timeout: Duration::from_secs(cfg.pool_timeout_seconds.max(1)),
             job_queue_capacity_per_worker: cfg.pool_job_queue_depth_per_worker.max(1),
             wal_lag_poll_interval: Duration::from_millis(poll_ms),
+            wal_lag_max_bytes,
+            wal_lag_max_apply_lag,
             idle_liveness_interval,
         }
     }
@@ -212,13 +248,27 @@ mod tests {
             pool_timeout_seconds: 42,
             pool_job_queue_depth_per_worker: 3,
             wal_lag_poll_interval_ms: 250,
+            wal_lag_max_bytes: 2_000_000,
+            wal_lag_max_apply_lag_seconds: 30,
             ..Default::default()
         };
         let s = LifeguardPoolSettings::from_database_config(&db);
         assert_eq!(s.acquire_timeout, Duration::from_secs(42));
         assert_eq!(s.job_queue_capacity_per_worker, 3);
         assert_eq!(s.wal_lag_poll_interval, Duration::from_millis(250));
+        assert_eq!(s.wal_lag_max_bytes, 2_000_000);
+        assert_eq!(s.wal_lag_max_apply_lag, Some(Duration::from_secs(30)));
         assert!(s.idle_liveness_interval.is_none());
+    }
+
+    #[test]
+    fn lifeguard_pool_settings_wal_apply_lag_none_when_zero() {
+        let db = DatabaseConfig {
+            wal_lag_max_apply_lag_seconds: 0,
+            ..Default::default()
+        };
+        let s = LifeguardPoolSettings::from_database_config(&db);
+        assert!(s.wal_lag_max_apply_lag.is_none());
     }
 
     #[test]
