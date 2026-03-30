@@ -11,6 +11,9 @@ use std::time::Duration;
 
 /// Session-level guardrails so a dead TCP session cannot block the monitor loop indefinitely
 /// (e.g. Toxiproxy disabled: half-open reads may otherwise never return).
+///
+/// TODO: `pooled_read_falls_back_to_primary_when_replica_lagging` in `tests/db_integration` is
+/// `#[ignore]` until fault injection reliably flips [`WalLagMonitor::is_replica_lagging`] in CI.
 fn apply_wal_monitor_session(client: &may_postgres::Client) {
     let _ = client.execute("SET statement_timeout = '3s'", &[]);
 }
