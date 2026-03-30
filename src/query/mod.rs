@@ -9,10 +9,11 @@
 //! The query module follows `Sea-ORM`'s organizational patterns:
 //! - **Traits**: Core entity and model traits (`LifeModelTrait`, `LifeEntityName`)
 //! - **Select**: SELECT query builder (`SelectQuery`)
+//! - **Scopes**: Named composable predicates (`scope` module, `SelectQuery::scope`, `IntoScope`)
 //! - **Execution**: Query execution methods (`all`, `one`, `first`)
 //! - **Value Conversion**: `SeaQuery` `Value` to `ToSql` (`converted_params` + `value_conversion`)
 //! - **Error Handling**: Error detection and classification utilities
-//! - **Column**: Type-safe column operations
+//! - **Column**: Type-safe column operations (including **F-style** `f_add` / `f_sub` / `f_mul` / `f_div` on [`ColumnTrait`](column::column_trait::ColumnTrait) for `UPDATE SET`)
 //! - **Primary Key**: Primary key operations and traits
 //!
 //! # Examples
@@ -72,6 +73,11 @@ pub use stream::SelectQueryStreamEx;
 pub mod select;
 #[doc(inline)]
 pub use select::{SelectModel, SelectQuery};
+
+// Named scopes (composable predicates; see `scope` module)
+pub mod scope;
+#[doc(inline)]
+pub use scope::IntoScope;
 
 // Dataloader N+1 resolution
 pub mod loader;

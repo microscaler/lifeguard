@@ -860,6 +860,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Call before_insert hook
                 let mut record_for_hooks = self.clone();
                 record_for_hooks.before_insert()?;
+                lifeguard::active_model::validation::run_validators(
+                    &record_for_hooks,
+                    lifeguard::active_model::validate_op::ValidateOp::Insert,
+                )?;
 
                 // Build INSERT statement
                 let mut query = Query::insert();
@@ -978,6 +982,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Call before_update hook
                 let mut record_for_hooks = self.clone();
                 record_for_hooks.before_update()?;
+                lifeguard::active_model::validation::run_validators(
+                    &record_for_hooks,
+                    lifeguard::active_model::validate_op::ValidateOp::Update,
+                )?;
 
                 // Build UPDATE statement
                 let mut query = Query::update();

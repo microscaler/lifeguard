@@ -31,6 +31,15 @@ just lint-fix      # Auto-fix clippy errors
 just validate      # Run all checks (format, lint, check, tests)
 ```
 
+### Rustdoc and test coverage (feature work)
+
+For each PRD-driven or user-facing change, follow **`docs/planning/DEV_RUSTDOC_AND_COVERAGE.md`**: update **`///` rustdoc** for public API, add **unit/integration tests** as appropriate, and optionally run **`cargo llvm-cov`** (see `just test-coverage`) before merge.
+
+### `lifeguard-migrate` and schema inference
+
+- **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url …` (or set `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). See **`lifeguard-migrate/README.md`** (`infer-schema` section) and **`docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md`**.
+- **Emitter goldens:** changing `lifeguard-migrate/src/schema_infer.rs` output may require updating files under **`lifeguard-migrate/tests/golden/`**. Run **`cargo test -p lifeguard-migrate schema_infer`** before merge.
+
 ### Development Workflow
 
 **Before writing code:**

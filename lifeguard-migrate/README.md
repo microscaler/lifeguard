@@ -14,6 +14,7 @@ Migration CLI tool for Lifeguard ORM - manage database schema changes with versi
 - ✅ **Up/Down Migrations** - Full support for forward and rollback migrations
 - ✅ **Status Tracking** - View applied vs pending migrations
 - ✅ **Entity-Driven Generation** - Generate SQL migrations from Lifeguard entity definitions
+- ✅ **Schema inference (`infer-schema`)** - Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout); see below
 - ✅ **CI/CD Integration** - Designed for automated deployment pipelines
 - ✅ **Dry Run Mode** - Preview migrations without executing them
 
@@ -159,6 +160,39 @@ lifeguard-migrate generate-from-entities \
 ```
 
 This scans entity definitions and generates SQL migration files for tables, columns, indexes, and constraints.
+
+### `infer-schema`
+
+Introspect a live **PostgreSQL** database (`information_schema`) and print conservative Rust entity sketches to **stdout**. Output is **review-first**: paste into your crate, adjust types, and fix composite PKs (`TODO` comments) as needed.
+
+**Requirements:** `--database-url` or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL` (same as other DB commands).
+
+```bash
+lifeguard-migrate infer-schema \
+  --database-url "$DATABASE_URL" \
+  --schema public
+```
+
+Restrict to specific tables (repeat `--table`):
+
+```bash
+lifeguard-migrate infer-schema \
+  --database-url "$DATABASE_URL" \
+  --schema public \
+  --table users \
+  --table orders
+```
+
+**References:**
+
+- Product requirements: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md §5](../docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)
+- CLI vs derive boundary: [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](../docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md)
+
+**Maintainers — deterministic output:** the Rust emitter is `lifeguard_migrate::schema_infer::emit_inferred_rust`. Regression tests compare against golden files in `lifeguard-migrate/tests/golden/*.expected.rs` (no database required). Run:
+
+```bash
+cargo test -p lifeguard-migrate schema_infer
+```
 
 ### `info`
 

@@ -37,3 +37,8 @@ Generated: 2026-01-22
 ## Active design docs (pooling)
 
 - [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md) — in-process pool behavior, metrics, PRD §9 decisions (companion to [`PRD_CONNECTION_POOLING.md`](./PRD_CONNECTION_POOLING.md)).
+
+## Active PRDs (ORM parity)
+
+- [`PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) — schema inference, validators, scopes, F() expressions, session/UoW (**slug:** `schema_validators_session_and_scopes`).
+- [`DEV_RUSTDOC_AND_COVERAGE.md`](./DEV_RUSTDOC_AND_COVERAGE.md) — checklist for rustdoc and tests while building features.

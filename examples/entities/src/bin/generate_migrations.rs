@@ -1,19 +1,24 @@
 //! Generate SQL migrations from example entities
 //!
-//! This binary generates SQL CREATE TABLE statements from all Lifeguard entities
-//! in the example entities library.
+//! Emits SQL under `migrations/generated/<service>/`. When a prior
+//! `*_generated_from_entities.sql` exists in that folder, new runs emit **deltas**
+//! (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, new `CREATE INDEX IF NOT EXISTS`) instead
+//! of duplicating full `CREATE TABLE` bodies for unchanged tables.
 
 // Import modules, not structs, so we can access Entity nested structs
 use example_entities::inventory::{category, inventory_item, product};
 
 use lifeguard::LifeEntityName;
+use lifeguard_migrate::generated_migration_diff;
 use lifeguard_migrate::sql_dependency_order;
 use lifeguard_migrate::sql_generator;
 use std::fs;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output_dir = PathBuf::from("../../migrations/generated");
+    // Anchor to this crate so runs work regardless of process cwd (e.g. `cargo run` from repo root).
+    let output_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../migrations/generated");
 
     // Create output directory if it doesn't exist
     if !output_dir.exists() {
@@ -92,6 +97,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::create_dir_all(&service_dir)?;
         }
 
+        let body =
+            generated_migration_diff::build_service_migration_body_from_service_dir(&service_dir, &tables);
+
+        if generated_migration_diff::service_migration_is_empty(&body) {
+            println!(
+                "   ◆ No schema changes for service `{}` — skipped new migration file (baseline matches entities).",
+                service
+            );
+            continue;
+        }
+
         let output_file = service_dir.join(format!("{}_generated_from_entities.sql", timestamp));
 
         let mut sql_content = String::new();
@@ -105,12 +121,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sql_content
             .push_str("-- This migration was automatically generated from entity definitions.\n");
         sql_content.push_str("-- DO NOT EDIT MANUALLY - regenerate from entities instead.\n\n");
-
-        for (table_name, sql) in tables {
-            sql_content.push_str(&format!("-- Table: {}\n", table_name));
-            sql_content.push_str(&sql);
-            sql_content.push_str("\n\n");
+        if generated_migration_diff::service_dir_has_generated_migrations(&service_dir) {
+            sql_content.push_str(
+                "-- Delta migration: ALTER / new tables vs merged *_generated_from_entities.sql history in this directory.\n\n",
+            );
         }
+        sql_content.push_str(&body);
 
         fs::write(&output_file, sql_content)?;
         println!(

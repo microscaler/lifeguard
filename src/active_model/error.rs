@@ -3,6 +3,8 @@
 //! This module provides the `ActiveModelError` enum for handling errors
 //! that occur during `ActiveModel` operations.
 
+use super::validate_op::ValidationError;
+
 /// Error type for `ActiveModel` operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActiveModelError {
@@ -24,6 +26,8 @@ pub enum ActiveModelError {
     DatabaseError(String),
     /// Other error
     Other(String),
+    /// Validation failed (field-level and/or model-level rules)
+    Validation(Vec<ValidationError>),
 }
 
 impl std::fmt::Display for ActiveModelError {
@@ -53,6 +57,22 @@ impl std::fmt::Display for ActiveModelError {
                 write!(f, "Database error: {msg}")
             }
             ActiveModelError::Other(msg) => write!(f, "ActiveModel error: {msg}"),
+            ActiveModelError::Validation(errors) => {
+                if errors.is_empty() {
+                    return write!(f, "Validation failed");
+                }
+                write!(f, "Validation failed: ")?;
+                for (i, err) in errors.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "; ")?;
+                    }
+                    match &err.field {
+                        Some(field) => write!(f, "{field}: {}", err.message)?,
+                        None => write!(f, "{}", err.message)?,
+                    }
+                }
+                Ok(())
+            }
         }
     }
 }

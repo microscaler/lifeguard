@@ -4,6 +4,18 @@
 
 This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to their Lifeguard equivalents, identifying what exists, what's missing, and future state.
 
+### PRD parity snapshot (schema, validators, scopes, F(), session)
+
+Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md). These rows summarize **v0** shipped behavior vs SeaORM-style **vision**; the README competitive matrix tracks the same features.
+
+| Capability | Primary API / location | Status | Notes |
+|------------|------------------------|--------|-------|
+| **Schema inference (DB → Rust)** | `lifeguard-migrate infer-schema`, `schema_infer::emit_inferred_rust`, `tests/golden/*.expected.rs` | 🟡 **Partial** | PRD §5.7; deterministic emitter golden tests; conservative type mapping; composite PK gaps possible |
+| **Validators** | `run_validators`, `ActiveModelBehavior::validate_fields` / `validate_model`, `ActiveModelError::Validation` | 🟡 **Partial** | PRD §6.7; derive optional sugar TBD |
+| **Scopes** | `SelectQuery::scope`, `IntoScope`, `src/query/scope.rs` | 🟡 **Partial** | PRD §7.7; AND composition; soft-delete interaction documented |
+| **F() expressions** | `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div` | 🟡 **Partial** | PRD §8.7; `UPDATE SET` RHS; `WHERE`/`ORDER BY` / LifeRecord path TBD |
+| **Session / UoW** | `ModelIdentityMap`, `fingerprint_pk_values`, `mark_dirty` / `flush_dirty`, `src/session/` | 🟡 **Partial** | PRD §9.7; identity + closure-based dirty flush — **no** auto-dirty on `LifeRecord::set`, **no** pool-bound `Session` type yet |
+
 ## Core Features
 
 **JSON Support:** JSON is a **core feature** in Lifeguard and is always enabled. All JSON-related functionality is implemented as standard functionality, not as optional features. This includes:
@@ -880,7 +892,7 @@ SQL Views are **virtual tables** based on the result of a SQL query. They:
 | **Materialized View** | **Cached Query Model** | 🟡 **Future** | Model backed by materialized view table, refresh support |
 | **View with JOINs** | **Query-based Model** | ✅ **Partial** | Use query builder with joins, map to struct |
 | **View with Aggregations** | **Projection/Partial Model** | ✅ **Implemented** | `DerivePartialModel` for selected columns |
-| **View as Security Layer** | **Scoped Queries** | 🟡 **Future** | Scopes (promised but not implemented) |
+| **View as Security Layer** | **Scoped Queries** | 🟡 **Partial** | `SelectQuery::scope` / `IntoScope` + entity helpers returning `IntoCondition` (`src/query/scope.rs`); derive sugar TBD |
 
 #### Implementation Patterns
 
