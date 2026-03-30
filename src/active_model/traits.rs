@@ -4,6 +4,7 @@
 //! model operations including field access, `CRUD` operations, and lifecycle hooks.
 
 use super::error::ActiveModelError;
+use super::validate_op::ValidateOp;
 use super::value::ActiveValue;
 use crate::model::ModelTrait;
 use crate::query::LifeModelTrait;
@@ -692,6 +693,19 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
     ///
     /// Returns `ActiveModelError` if post-processing fails.
     fn after_delete(&mut self) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Field-level validation (PRD Phase B). Default: no-op.
+    ///
+    /// Runs after [`before_insert`](Self::before_insert) / [`before_update`](Self::before_update)
+    /// so hook-applied defaults are visible; before SQL is built.
+    fn validate_fields(&self, _op: ValidateOp) -> Result<(), ActiveModelError> {
+        Ok(())
+    }
+
+    /// Model-level validation after [`validate_fields`](Self::validate_fields). Default: no-op.
+    fn validate_model(&self, _op: ValidateOp) -> Result<(), ActiveModelError> {
         Ok(())
     }
 }

@@ -1,19 +1,24 @@
 //! Generate SQL migrations from example entities
 //!
-//! This binary generates SQL CREATE TABLE statements from all Lifeguard entities
-//! in the example entities library.
+//! Emits SQL under `migrations/generated/<service>/`. When a prior
+//! `*_generated_from_entities.sql` exists in that folder, new runs emit **deltas**
+//! (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, new `CREATE INDEX IF NOT EXISTS`) instead
+//! of duplicating full `CREATE TABLE` bodies for unchanged tables.
 
 // Import modules, not structs, so we can access Entity nested structs
 use example_entities::inventory::{category, inventory_item, product};
 
 use lifeguard::LifeEntityName;
+use lifeguard_migrate::generated_migration_diff;
 use lifeguard_migrate::sql_dependency_order;
 use lifeguard_migrate::sql_generator;
 use std::fs;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let output_dir = PathBuf::from("../../migrations/generated");
+    // Anchor to this crate so runs work regardless of process cwd (e.g. `cargo run` from repo root).
+    let output_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../migrations/generated");
 
     // Create output directory if it doesn't exist
     if !output_dir.exists() {
@@ -92,6 +97,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::create_dir_all(&service_dir)?;
         }
 
+        let prev_path = generated_migration_diff::find_latest_generated_migration(&service_dir);
+        let prev_text = match prev_path
+            .as_ref()
+            .map(|p| fs::read_to_string(p))
+            .transpose()
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!(
+                    "⚠️  Could not read previous migration in {}: {}",
+                    service_dir.display(),
+                    e
+                );
+                None
+            }
+        };
+
+        let body = generated_migration_diff::build_service_migration_body(prev_text.as_deref(), &tables);
+
+        // Ignore `-- Version` / `-- Generated` churn: if each table's SQL matches the latest file
+        // sections, do not emit another timestamped copy.
+        if let Some(prev) = prev_text.as_deref() {
+            if generated_migration_diff::generated_tables_match_baseline(prev, &tables) {
+                if !generated_migration_diff::service_migration_is_empty(&body) {
+                    eprintln!(
+                        "⚠️  Service `{}`: baseline table SQL matches entities but diff was non-empty; skipping new file (sanity).",
+                        service
+                    );
+                }
+                println!(
+                    "   ◆ No schema changes for service `{}` — skipped new migration file (baseline matches entities).",
+                    service
+                );
+                continue;
+            }
+        }
+
+        if generated_migration_diff::service_migration_is_empty(&body) {
+            println!(
+                "   ◆ No schema changes for service `{}` — skipped new migration file (baseline matches entities).",
+                service
+            );
+            continue;
+        }
+
         let output_file = service_dir.join(format!("{}_generated_from_entities.sql", timestamp));
 
         let mut sql_content = String::new();
@@ -105,12 +155,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sql_content
             .push_str("-- This migration was automatically generated from entity definitions.\n");
         sql_content.push_str("-- DO NOT EDIT MANUALLY - regenerate from entities instead.\n\n");
-
-        for (table_name, sql) in tables {
-            sql_content.push_str(&format!("-- Table: {}\n", table_name));
-            sql_content.push_str(&sql);
-            sql_content.push_str("\n\n");
+        if prev_text.is_some() {
+            sql_content.push_str(
+                "-- Delta migration: ALTER / new tables vs latest *_generated_from_entities.sql in this directory.\n\n",
+            );
         }
+        sql_content.push_str(&body);
 
         fs::write(&output_file, sql_content)?;
         println!(

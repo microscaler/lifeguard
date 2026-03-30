@@ -234,6 +234,13 @@ mod tests {
     use super::*;
     use crate::migration::{Migration, SchemaManager};
     use crate::LifeError;
+    use std::sync::Mutex;
+
+    /// Serializes unit tests that mutate the process-global [`MIGRATION_REGISTRY`].
+    ///
+    /// Without this, `cargo test` runs tests in parallel and another test can call
+    /// [`clear_registry`] between assertions, causing flaky failures.
+    static REGISTRY_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     /// Simple test migration implementation
     struct TestMigration {
@@ -271,6 +278,9 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_register_migration_success() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         clear_registry().expect("Failed to clear registry");
 
         // Use unique version to avoid conflicts with parallel tests
@@ -294,6 +304,9 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_register_migration_duplicate_returns_already_registered() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Use unique version to avoid conflicts with parallel tests
         let version = 20_240_120_120_002;
         let name = "test_migration";
@@ -344,6 +357,9 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_register_migration_duplicate_different_name_still_fails() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         clear_registry().expect("Failed to clear registry");
 
         // Use unique version to avoid conflicts with parallel tests
@@ -414,6 +430,9 @@ mod tests {
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_register_multiple_different_versions() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Use unique versions to avoid conflicts with parallel tests
         let version1 = 20_240_120_120_004;
         let version2 = 20_240_120_120_005;
@@ -516,6 +535,9 @@ mod tests {
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_register_after_unregister() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         clear_registry().expect("Failed to clear registry");
 
         // Use unique version to avoid conflicts with parallel tests
@@ -580,6 +602,9 @@ mod tests {
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_already_registered_error_message() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         clear_registry().expect("Failed to clear registry");
 
         // Use unique version to avoid conflicts with parallel tests
@@ -638,6 +663,9 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used, clippy::panic)] // Test code - expect/panic are acceptable
     fn test_already_registered_vs_already_applied_semantic_distinction() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Use unique version to avoid conflicts with parallel tests
         // This test verifies that AlreadyRegistered is used for registry state,
         // not database state. AlreadyApplied would be used elsewhere for database state.
@@ -724,6 +752,9 @@ mod tests {
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_clear_registry_removes_all() {
+        let _guard = REGISTRY_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Use unique versions to avoid conflicts with parallel tests
         let version1 = 20_240_120_120_010;
         let version2 = 20_240_120_120_011;

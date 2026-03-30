@@ -35,6 +35,11 @@
 //! let model = record.insert(executor)?;
 //! ```
 
+// Validation types (PRD Phase B; no dependency on traits)
+pub mod validate_op;
+#[doc(inline)]
+pub use validate_op::{ValidateOp, ValidationError};
+
 // Core traits
 pub mod traits;
 #[doc(inline)]
@@ -49,6 +54,11 @@ pub use value::ActiveValue;
 pub mod error;
 #[doc(inline)]
 pub use error::ActiveModelError;
+
+// Validation orchestration (`run_validators` after lifecycle hooks)
+pub mod validation;
+#[doc(inline)]
+pub use validation::run_validators;
 
 // Graph sorting and nesting mechanics
 pub mod graph;

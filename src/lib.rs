@@ -101,9 +101,8 @@ pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor};
 pub mod query;
 pub use query::{
     from_row_unsigned_try_from_failed, ColumnDefinition, ColumnTrait, FromRow, IndexDefinition,
-    LifeEntityName, LifeModelTrait, ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait,
-    PrimaryKeyToColumn, PrimaryKeyTrait, SelectModel, SelectQuery, StoredProcedure,
-    TableDefinition,
+    IntoScope, LifeEntityName, LifeModelTrait, ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait,
+    PrimaryKeyToColumn, PrimaryKeyTrait, SelectModel, SelectQuery, StoredProcedure, TableDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules
@@ -111,12 +110,17 @@ pub use query::{
 // ActiveModel operations - Epic 02 Story 07
 pub mod active_model;
 pub use active_model::{
-    with_converted_params, ActiveModelBehavior, ActiveModelError, ActiveModelTrait, ActiveValue,
+    run_validators, with_converted_params, ActiveModelBehavior, ActiveModelError, ActiveModelTrait,
+    ActiveValue, ValidateOp, ValidationError,
 };
 
 // Model trait - Core Traits & Types
 pub mod model;
 pub use model::{ModelError, ModelTrait, TryIntoModel};
+
+// Session / identity map (PRD Phase E v0)
+pub mod session;
+pub use session::{fingerprint_pk_values, ModelIdentityMap};
 
 // Relation trait - Epic 02 Story 08
 pub mod relation;

@@ -102,6 +102,37 @@ pub trait ColumnTrait: IntoColumnRef {
         Expr::col(self).between(start, end)
     }
 
+    /// Database-side **add** for this column: `column + rhs` ([`sea_query::SimpleExpr`]).
+    ///
+    /// Use with `UPDATE ... SET col = col + $1` by passing the result to
+    /// [`sea_query::UpdateStatement::value`](https://docs.rs/sea-query/*/sea_query/query/struct.UpdateStatement.html#method.value)
+    /// together with the same column as the assignment target, e.g. `query.value(Col::N, Col::N.f_add(1))`.
+    ///
+    /// This is the primary **F-style** helper for column-on-both-sides updates (see project PRD: F expressions / database-level expressions).
+    ///
+    /// # Limitations
+    ///
+    /// For nested aggregates, subqueries, or vendor-only functions, use [`Expr::cust`](sea_query::Expr::cust)
+    /// or SeaQuery’s expression API directly.
+    fn f_add<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
+        Expr::col(self).add(rhs)
+    }
+
+    /// Database-side **subtract**: `column - rhs`.
+    fn f_sub<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
+        Expr::col(self).sub(rhs)
+    }
+
+    /// Database-side **multiply**: `column * rhs`.
+    fn f_mul<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
+        Expr::col(self).mul(rhs)
+    }
+
+    /// Database-side **divide**: `column / rhs`.
+    fn f_div<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
+        Expr::col(self).div(rhs)
+    }
+
     /// Get column definition metadata
     ///
     /// Returns metadata about the column including type, nullability, default value, etc.
@@ -403,5 +434,28 @@ mod tests {
     fn test_column_trait_save_as_default() {
         let save_expr = TestColumn::Email.save_as();
         assert_eq!(save_expr, None);
+    }
+
+    #[test]
+    fn test_f_add_sub_mul_div_produce_simple_expr() {
+        let _ = TestColumn::Age.f_add(1i32);
+        let _ = TestColumn::Age.f_sub(1i32);
+        let _ = TestColumn::Age.f_mul(2i32);
+        let _ = TestColumn::Age.f_div(2i32);
+    }
+
+    #[test]
+    fn test_f_add_update_sql_contains_arithmetic() {
+        use sea_query::{PostgresQueryBuilder, Query};
+
+        let mut q = Query::update();
+        q.table("counters");
+        q.value(TestColumn::Age, TestColumn::Age.f_add(1i32));
+        let (sql, _) = q.build(PostgresQueryBuilder);
+        let upper = sql.to_uppercase();
+        assert!(
+            upper.contains("AGE") && upper.contains('+'),
+            "expected SET age = age + …, got {sql}"
+        );
     }
 }

@@ -89,6 +89,19 @@ enum Commands {
         entities_dir: PathBuf,
     },
 
+    /// Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout).
+    ///
+    /// Phase A — see `docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`.
+    InferSchema {
+        /// PostgreSQL schema (namespace) to introspect
+        #[arg(long, default_value = "public")]
+        schema: String,
+
+        /// Only include these tables (repeatable). If empty, all tables in the schema are emitted.
+        #[arg(long = "table", value_name = "TABLE")]
+        tables: Vec<String>,
+    },
+
     /// Show detailed migration information
     Info {
         /// Show information for a specific migration version
@@ -114,7 +127,6 @@ fn main() {
         cli.command,
         Commands::GenerateFromEntities { .. } | Commands::Generate { .. }
     );
-
     // Validate database URL early for commands that need it
     let database_url = if needs_db {
         Some(cli.database_url
@@ -142,6 +154,12 @@ fn main() {
             }
         }
         Commands::Generate { name } => handle_generate(&cli.migrations_dir, &name),
+        Commands::InferSchema { schema, tables } => {
+            let db_url = database_url
+                .as_ref()
+                .expect("database URL validated when command requires DB");
+            handle_infer_schema(db_url, schema, tables)
+        }
         _ => {
             // All other commands need database connection
             let db_url = database_url.expect("Database URL should be validated above");
@@ -183,6 +201,25 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+fn handle_infer_schema(
+    database_url: &str,
+    schema: String,
+    tables: Vec<String>,
+) -> Result<(), MigrationError> {
+    use lifeguard_migrate::schema_infer::{infer_schema_rust, InferOptions};
+
+    let client = connect(database_url).map_err(|e| {
+        MigrationError::InvalidFormat(format!("infer-schema: database connect failed: {e}"))
+    })?;
+    let executor = MayPostgresExecutor::new(client);
+    let opts = InferOptions { schema, tables };
+    let out = infer_schema_rust(&executor, &opts).map_err(|e| {
+        MigrationError::InvalidFormat(format!("infer-schema: {e}"))
+    })?;
+    print!("{out}");
+    Ok(())
 }
 
 fn handle_status(migrator: &Migrator, executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
