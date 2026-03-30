@@ -50,6 +50,10 @@ spec:
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-providers
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards-json
+              mountPath: /etc/grafana/dashboards/lifeguard
           livenessProbe:
             httpGet:
               path: /api/health
@@ -72,3 +76,9 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-providers
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards-json
+          configMap:
+            name: grafana-dashboard-lifeguard

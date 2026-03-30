@@ -7,6 +7,8 @@ resources:
   - otel-collector.yaml
   - prometheus.yaml
   - loki.yaml
+  - postgres-exporter.yaml
+  - redis-exporter.yaml
   - grafana.yaml
 
 configMapGenerator:
@@ -28,5 +30,15 @@ configMapGenerator:
   - name: grafana-datasources
     files:
       - datasources.yaml=grafana-datasources.yml
+    options:
+      disableNameSuffixHash: true
+  - name: grafana-dashboard-provider
+    files:
+      - lifeguard.yaml=grafana-dashboard-provider.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: grafana-dashboard-lifeguard
+    files:
+      - lifeguard-kind-infra.json=grafana-dashboard-lifeguard-kind.json
     options:
       disableNameSuffixHash: true

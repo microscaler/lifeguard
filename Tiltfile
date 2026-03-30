@@ -11,6 +11,7 @@
 # - 'infrastructure' label: PostgreSQL test database
 # - 'migration' label: migration tooling + inventory generated SQL checks + lifeguard-integration-tests
 # - 'replication' label: read-replica / pool tests (needs primary + replica-0 + Redis; see PRD read-replica)
+# - 'perf' label: examples/perf-idam — unit tests (`idam-perf`) and ORM harness run (`idam-perf-run`; destructive DDL when PERF_RESET=1)
 # - One label per component (no multi-label to avoid Tilt UI clutter).
 # - 'inventory_entities' label: entities example crate build only
 
@@ -577,6 +578,54 @@ local_resource(
 #     labels=['tests'],
 #     allow_parallel=False,
 # )
+
+# ====================
+# IDAM perf (standalone `examples/perf-idam` workspace)
+# ====================
+# See docs/PERF_ORM.md. Kind/Tilt host ports: primary 6543, replica-0 6544, Redis 6545 (CI Compose uses Toxiproxy :6547 for replica).
+
+local_resource(
+    'idam-perf',
+    cmd='cd examples/perf-idam && cargo test --locked --no-fail-fast',
+    deps=[
+        'examples/perf-idam',
+    ],
+    ignore=[
+        'examples/perf-idam/target/**',
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=['build-lifeguard'],
+    labels=['perf'],
+    allow_parallel=False,
+)
+
+local_resource(
+    'idam-perf-run',
+    cmd=(
+        'export PERF_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:6543/postgres && '
+        + 'export PERF_REPLICA_URL=postgres://postgres:postgres@127.0.0.1:6544/postgres && '
+        + 'export REDIS_URL=redis://127.0.0.1:6545 && export TEST_REDIS_URL=redis://127.0.0.1:6545 && '
+        + 'export PERF_RESET=1 && export PERF_POOL_SIZE=8 && export PERF_TENANT_COUNT=10 && '
+        + 'export PERF_USER_ROWS=2000 && export PERF_SESSION_ROWS=2000 && '
+        + 'export PERF_WARMUP=100 && export PERF_ITERATIONS=500 && export PERF_OUTPUT=perf-results.json && '
+        + 'cd examples/perf-idam && cargo run --release --locked --bin perf-orm'
+    ),
+    deps=[
+        'examples/perf-idam',
+        'src',
+        'lifeguard-derive',
+        'Cargo.toml',
+    ],
+    ignore=[
+        'examples/perf-idam/target/**',
+        'target/**',
+        '**/target/**',
+    ],
+    resource_deps=['postgresql-primary', 'postgresql-replica-0', 'redis', 'build-lifeguard'],
+    labels=['perf'],
+    allow_parallel=False,
+)
 
 # ====================
 # Examples

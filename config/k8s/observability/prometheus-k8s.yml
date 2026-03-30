@@ -8,3 +8,16 @@ scrape_configs:
   - job_name: otel-collector
     static_configs:
       - targets: ["otel-collector:9464"]
+
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          cluster: lifeguard-kind
+          role: primary
+
+  - job_name: redis-exporter
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          cluster: lifeguard-kind
