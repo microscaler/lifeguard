@@ -44,3 +44,6 @@ mod json_value_from_row;
 
 #[path = "db_integration/pool_read_replica.rs"]
 mod pool_read_replica;
+
+#[path = "db_integration/pool_idle_liveness.rs"]
+mod pool_idle_liveness;

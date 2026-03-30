@@ -88,6 +88,20 @@ impl From<PostgresError> for ConnectionError {
 /// is established synchronously and returns immediately with a `Client`
 /// that can be used for queries.
 ///
+/// ## TCP keepalive (operator / libpq)
+///
+/// Lifeguard does not set OS TCP keepalive for you; pass **libpq** parameters on the URL so the
+/// driver enables keepalive on the socket (PostgreSQL docs: *libpq* connection parameters).
+/// Examples for URI query strings:
+///
+/// - `keepalives=1` — enable TCP keepalives
+/// - `keepalives_idle` — seconds before the first keepalive probe
+/// - `keepalives_interval` — seconds between probes
+/// - `keepalives_count` — probes before the connection is dropped
+///
+/// See the repository file `docs/POOL_TCP_KEEPALIVE.md` (or the same path on GitHub) for a short
+/// operator-oriented table (PRD R4.1).
+///
 /// # Errors
 ///
 /// Returns `ConnectionError` if:

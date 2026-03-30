@@ -1,6 +1,6 @@
 # PRD: Production-grade Lifeguard connection pooling (Hikari-shaped)
 
-**Status:** **Draft** — **P0 complete** (2026-03-30): as below + R1.3 / R2.2 / R2.3 (defaults + `CHANGELOG`, `LIFEGUARD__DATABASE__*` parity + tests, constructor rustdoc). **P1+** (slot heal, liveness, lifetime, monitor tunables, metrics) open.  
+**Status:** **Draft** — **P0 complete** (2026-03-30): as below + R1.3 / R2.2 / R2.3 (defaults + `CHANGELOG`, `LIFEGUARD__DATABASE__*` parity + tests, constructor rustdoc). **P1:** R5.x + **R4.1 / R4.2** complete (2026-03-30); R3+ / full R7 / R8 open.  
 **Audience:** Lifeguard maintainers, runtime integrators, and operators sizing Postgres.  
 **References:** [systemPatterns.md](../../.agent/memory-bank/systemPatterns.md) (pooling architecture boundary); `src/pool/pooled.rs`, `src/pool/wal.rs`, `src/connection.rs`, `src/config.rs` / `src/pool/config.rs`; [HikariCP configuration](https://github.com/brettwooldridge/HikariCP#gear-configuration-knobs-baby) (conceptual analogue, not API copy).
 
@@ -15,7 +15,7 @@
 - [x] PRD published (`PRD_CONNECTION_POOLING.md`)
 - [ ] Optional design doc `DESIGN_CONNECTION_POOLING.md` (state machine, error taxonomy, metric names)
 - [x] **Phase P0** complete (see §7.1)
-- [ ] **Phase P1** complete (see §7.2) — *R5.x done; R4.x open*
+- [x] **Phase P1** complete (see §7.2)
 - [ ] **Phase P2** complete (see §7.3)
 - [ ] **Phase P3** complete (see §7.4)
 - [ ] [§10 Success criteria](#10-success-criteria-prd-closure) satisfied
@@ -28,7 +28,7 @@
 | Config merged / wired; no dead `DatabaseConfig` fields | [x] |
 | Bounded queues + overload behavior | [x] |
 | Slot heal + connectivity classification | [x] |
-| Keepalive docs + idle liveness probe | [ ] |
+| Keepalive docs + idle liveness probe | [x] |
 | `max_connection_lifetime` (+ jitter) / idle policy | [ ] |
 | `WalLagMonitor` retry + tunables + give-up observability | [ ] *partial: initial connect retry only* |
 | Metrics + tracing hooks | [ ] |
@@ -84,7 +84,7 @@ Track at milestone reviews; each goal may span multiple PRs.
 - [x] **G1** — Bounded acquisition + distinct timeout error
 - [x] **G2** — Single honest config surface (file + env) wired to pool
 - [ ] **G3** — Connection rotation (`max_connection_lifetime`, jitter; idle policy as designed)
-- [ ] **G4** — Liveness (docs + optional probes / TCP hooks)
+- [x] **G4** — Liveness (docs + optional probes / TCP hooks)
 - [x] **G5** — Slot heal on connectivity-class failures only
 - [x] **G6** — Bounded queues; defined overload behavior
 - [ ] **G7** — `WalLagMonitor` retry, tunables, observable give-up *— retry done; tunables / give-up TBD*
@@ -158,8 +158,8 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 **Implementation — §5.4**
 
-- [ ] **R4.1** — Operator doc: TCP keepalive / libpq URL params; code hooks if supported
-- [ ] **R4.2** — Idle probe interval configurable; integration test or harness for dead TCP
+- [x] **R4.1** — Operator doc: TCP keepalive / libpq URL params; code hooks if supported
+- [x] **R4.2** — Idle probe interval configurable; integration test or harness for dead TCP
 
 ### 5.5 Dead connection and slot heal
 
@@ -260,8 +260,8 @@ Phases may be reprioritized if production incidents dictate (e.g. P0+P1 first).
 - [x] R5.1 — error taxonomy (`src/pool/connectivity.rs` rustdoc table)
 - [x] R5.2 — slot heal (one reconnect attempt per job; `exec_with_optional_heal` in `pooled.rs`) + unit tests for classifier
 - [x] R5.3 — review gate (only `LifeError::PostgresError` + connectivity heuristic; no heal on `QueryError`/`Other`)
-- [ ] R4.1 — keepalive / connection doc
-- [ ] R4.2 — idle liveness probe + test
+- [x] R4.1 — keepalive / connection doc (`docs/POOL_TCP_KEEPALIVE.md`, `connect` rustdoc)
+- [x] R4.2 — idle liveness probe + test (`idle_liveness_interval_ms`, `tests/db_integration/pool_idle_liveness.rs`)
 
 ### 7.3 Phase P2 checklist
 
@@ -345,8 +345,8 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 - [ ] R3.2
 
 ### Liveness & TCP
-- [ ] R4.1
-- [ ] R4.2
+- [x] R4.1
+- [x] R4.2
 
 ### Slot heal
 - [x] R5.1

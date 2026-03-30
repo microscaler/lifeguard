@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Idle liveness probes (PRD R4.2):** Optional `DatabaseConfig::idle_liveness_interval_ms` / `LifeguardPoolSettings::idle_liveness_interval` — idle workers run `SELECT 1` on an interval so half-open TCP sessions are detected and healed via the existing slot-heal path. **`0`** / **`None`** disables probes (default). File/env values are clamped to **1s–1h**; use `LifeguardPoolSettings` directly for sub-second intervals in tests.
+- **TCP keepalive operator doc (PRD R4.1):** `docs/POOL_TCP_KEEPALIVE.md` and `connection::connect` rustdoc describe libpq URI parameters (`keepalives`, `keepalives_idle`, etc.).
 - **Pool slot heal (PRD §5.5):** Worker threads replace the `may_postgres::Client` after connectivity-class `Postgres` errors (SQLSTATE 08\*, shutdown codes, closed connection, transport `io` kinds). One reconnect attempt per job; application SQL errors do not trigger heal. See `src/pool/connectivity.rs`.
 
 ### Fixed

@@ -2,6 +2,28 @@
 
 Lifeguard provides comprehensive observability through Prometheus metrics and OpenTelemetry tracing. These features are optional and can be enabled via feature flags.
 
+## Kubernetes (Kind / Tilt): apply and refresh dashboards
+
+The repo ships a **Grafana + Prometheus + Loki + OTEL** stack under [`config/k8s/observability/`](https://github.com/microscaler/lifeguard/tree/main/config/k8s/observability) (Kustomize, namespace **`lifeguard-test`**). Use this to **re-apply** manifests after you change dashboard JSON, datasources, or scrape configs.
+
+From the **repository root**, with your Kind (or other) cluster selected in `kubectl`:
+
+```bash
+kubectl apply -k config/k8s/observability
+```
+
+Dashboards are provisioned from a **ConfigMap** (see `kustomization.yaml` → `grafana-dashboard-lifeguard-kind.json`). After you edit that JSON, `kubectl apply` updates the ConfigMap, but Grafana only sees the new files after the pod **reloads the mount**. Restart Grafana:
+
+```bash
+kubectl rollout restart deployment/grafana -n lifeguard-test
+```
+
+Then open Grafana (e.g. port **3000** if Tilt forwards it) and **hard-refresh** the browser so the UI does not show a stale panel.
+
+**Tilt:** [`Tiltfile`](https://github.com/microscaler/lifeguard/blob/main/Tiltfile) runs the same `kustomize` path on `tilt up`. If the UI does not pick up dashboard edits automatically, run the two commands above.
+
+**Shortcut:** `kubectl delete pod -n lifeguard-test -l app=grafana` also forces a new pod with fresh mounts (same effect as `rollout restart` for a single replica).
+
 ## Feature Flags
 
 ### Default Behavior
@@ -258,8 +280,71 @@ let count: i64 = row.get(0);
 Ok(())
 ```
 
+## PostgreSQL replication lag: time, bytes, and dashboards
+
+Lifeguard’s [`WalLagMonitor`](https://github.com/microscaler/lifeguard/blob/main/src/pool/wal.rs) (used by [`LifeguardPool`](https://github.com/microscaler/lifeguard/blob/main/src/pool/pooled.rs) for read routing) today reasons about **byte** lag between WAL positions. **PostgreSQL itself** also exposes **time-based** lag on the primary via `pg_stat_replication` (`write_lag`, `flush_lag`, `replay_lag` as `interval` values). For operations and SRE work, **chart both**: bytes explain *queue depth*; **replay lag** (time) is the closest single number to “how stale is this replica for reads?”
+
+### Postgres views to know
+
+| Where | What to use |
+|-------|-------------|
+| **Primary** | `pg_stat_replication` — per standby: `application_name`, `state`, `sync_state`, **`write_lag`**, **`flush_lag`**, **`replay_lag`** (time), plus LSNs (`sent_lsn`, `write_lsn`, `flush_lsn`, `replay_lsn`) for byte/LSN math. |
+| **Standby** | `pg_last_wal_replay_lsn()`, recovery state; `pg_stat_wal_receiver` for receiver health. |
+
+`replay_lag` can be **NULL** if the standby has not reported recent activity; dashboards and alerts should treat NULL explicitly.
+
+### Dashboard stacks (pick what matches your platform)
+
+These are common ways teams get **time-based** replica lag without writing SQL by hand every incident:
+
+| Stack / product | Notes |
+|-----------------|--------|
+| **Grafana + Prometheus + [postgres_exporter](https://github.com/prometheus-community/postgres_exporter)** | Open-source default: scrape `pg_stat_replication` (or query mappings). Build one panel per replica: `replay_lag` seconds, optional `flush_lag` / `write_lag` to see *where* delay accumulates. |
+| **Grafana + [pgwatch2](https://github.com/cybertec-postgresql/pgwatch2)** | Postgres-focused collector + Grafana dashboards; good when you want opinionated Postgres DBA views out of the box. |
+| **Percona Monitoring and Management (PMM)** | Postgres + OS + query analytics; replication dashboards are a first-class use case. |
+| **Datadog** (Postgres integration / Database Monitoring) | Hosted: replica lag, connections, slow queries in one product; good for teams already on Datadog. |
+| **New Relic**, **Dynatrace**, **Splunk Observability** | Similar pattern: agent or remote integration + prebuilt DB dashboards; verify **replay** / **lag seconds** panels exist for your Postgres flavor. |
+| **AWS RDS / Aurora** | **CloudWatch** `ReplicaLag` (seconds for Aurora replicas) and **RDS Performance Insights** for wait/load; still correlate with application routing if you use `LifeguardPool` with a replica URL. |
+| **Google Cloud SQL** | **Query insights** + monitoring metrics for replication lag (metric names vary by edition; use the console dashboards). |
+| **Azure Database for PostgreSQL** | Azure Monitor metrics for replication / lag (flexible server vs single server differ—use the product’s “replication” blade). |
+| **CockroachDB / AlloyDB / other forks** | If you are not on stock Postgres, use **that** vendor’s replication metrics; the concepts (apply lag vs send lag) still apply. |
+| **[pganalyze](https://pganalyze.com/)** | Postgres-specific SaaS: replication, query stats, explain plans—low friction for “why is replay lag spiking?” without building Grafana from scratch. |
+| **Grafana Cloud** (with Postgres data source or remote Prometheus) | Same Grafana UX as self-hosted; useful when you want managed Grafana + alerts without running the stack. |
+| **VictoriaMetrics / Mimir** | Drop-in Prometheus long-term storage; keep **one** Grafana—replication panels stay identical, retention gets cheaper. |
+| **Zabbix / Icinga / Sensu** (Postgres plugins) | Still common in enterprises: ensure plugins expose **time** lag, not only “behind by X bytes,” or add custom `pg_stat_replication` checks. |
+
+Nothing in this list replaces **your** runbook: one **golden** dashboard per environment beats ten overlapping tools.
+
+### Panels that reduce SRE cognitive load
+
+Design the **primary + replicas** row so a tired on-call can answer in one glance:
+
+1. **Per replica (primary perspective):** `replay_lag` as **seconds** (or the same as a heatmap) — primary “read your writes” vs this replica.
+2. **Same row:** WAL **bytes** behind (LSN diff) — ties to queue depth and disk/network.
+3. **Breakdown:** `write_lag` vs `flush_lag` vs `replay_lag` — distinguishes network/send issues from apply bottlenecks on the standby.
+4. **Health:** `state = streaming`, `sync_state` if you use sync replicas, replication **slot** lag if you use slots (logical or physical).
+5. **Saturation:** primary WAL generation rate, standby I/O, disk space — lag often follows load, not the other way around.
+6. **Application:** Lifeguard pool metrics (`lifeguard_*`) on the same board or linked — so you can see “replica lag high” next to “queries routed to primary”.
+
+**Alerts:** Prefer **replay lag seconds** (and/or SLO-based thresholds) alongside byte thresholds; bytes alone mislead when WAL volume is low or bursty.
+
+### Incident-friendly habits (lower cognitive load)
+
+- **One URL** for “database health” pinned in the incident channel; avoid hunting across three vendors mid-outage.
+- **Same layout** in staging and prod (fewer surprises); only thresholds differ.
+- **Annotations:** mark deploys, failover drills, and maintenance on the lag chart so correlation is obvious.
+- **Runbook links** in Grafana panel descriptions (e.g. “if `replay_lag` ↑ and `write_lag` flat → check network path to standby”).
+- **Logs next to metrics:** ship Postgres logs (or `log_min_duration_statement` samples) to the same observability stack so “apply slow” has context without SSH.
+- **NULL-safe alerts:** do not page on `replay_lag IS NULL` alone—combine with `state <> 'streaming'` or missing scrapes.
+
+### Relationship to Lifeguard
+
+- **Lifeguard** uses its own WAL poll for **routing** when you configure a replica URL; see [PRD_CONNECTION_POOLING.md](../planning/PRD_CONNECTION_POOLING.md) and `WalLagMonitor` for behavior and roadmap (e.g. time-based policy in requirements).
+- **Postgres dashboards** above are **infrastructure** truth; keep them even if the app exposes metrics — they catch issues before the app notices.
+
 ## See Also
 
 - [Prometheus Documentation](https://prometheus.io/docs/)
 - [OpenTelemetry Rust](https://opentelemetry.io/docs/instrumentation/rust/)
 - [Tracing Documentation](https://docs.rs/tracing/)
+- [PostgreSQL: Monitoring replication](https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-STATS-VIEWS) (`pg_stat_replication`)

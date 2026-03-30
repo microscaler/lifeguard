@@ -28,10 +28,12 @@
 //! - **`LifeModel`/`LifeRecord`**: ORM layer (Epic 03)
 //! - **`LifeExecutor`**: Database execution abstraction (Epic 04)
 //! - **`LifeguardPool`**: Persistent connection pool with bounded worker queues, configurable
-//!   acquire timeout ([`LifeError::PoolAcquireTimeout`]), and optional [`LifeguardPool::from_database_config`].
+//!   acquire timeout ([`LifeError::PoolAcquireTimeout`]), optional idle `SELECT 1` liveness probes
+//!   ([`LifeguardPoolSettings::idle_liveness_interval`]), and optional [`LifeguardPool::from_database_config`].
 //!
 //!   See the [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md)
-//!   for the full pooling roadmap (also available in the repository checkout; this link works on **docs.rs**).
+//!   and [TCP keepalive / idle tuning](https://github.com/microscaler/lifeguard/blob/main/docs/POOL_TCP_KEEPALIVE.md)
+//!   for the full pooling roadmap (also available in the repository checkout; PRD link works on **docs.rs**).
 
 pub mod config;
 

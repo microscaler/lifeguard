@@ -21,7 +21,7 @@ use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
 use crate::pool::wal::WalLagMonitor;
-use crossbeam_channel::SendTimeoutError;
+use crossbeam_channel::{RecvTimeoutError, SendTimeoutError};
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Row};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -58,6 +58,7 @@ impl WorkerPool {
         let mut txs = Vec::with_capacity(pool_size);
         let qcap = settings.job_queue_capacity_per_worker;
 
+        let idle = settings.idle_liveness_interval;
         for slot in 0..pool_size {
             let url = url_for_slot(slot);
             let client = connect(&url).map_err(|e| {
@@ -70,7 +71,7 @@ impl WorkerPool {
             let handle = thread::Builder::new()
                 .name(name)
                 .spawn(move || {
-                    run_worker(url, client, job_rx);
+                    run_worker(url, client, job_rx, idle);
                 })
                 .map_err(|e| LifeError::Other(format!("{role} pool worker thread {slot}: {e}")))?;
             #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
@@ -422,45 +423,78 @@ fn run_worker(
     connection_string: String,
     mut client: Client,
     job_rx: crossbeam_channel::Receiver<WorkerJob>,
+    idle_liveness: Option<Duration>,
 ) {
-    for job in job_rx.iter() {
-        match job {
-            WorkerJob::Execute {
-                query,
-                params,
-                reply,
-            } => {
-                let result = exec_with_optional_heal(&connection_string, &mut client, |c| {
-                    exec_on_client(c, &query, &params, |c, q, r| {
-                        c.execute(q, r).map_err(LifeError::from)
-                    })
-                });
-                let _ = reply.send(result);
+    let idle = idle_liveness.map(|d| d.max(Duration::from_millis(1)));
+
+    match idle {
+        None => {
+            for job in job_rx.iter() {
+                dispatch_worker_job(&connection_string, &mut client, job);
             }
-            WorkerJob::QueryOne {
-                query,
-                params,
-                reply,
-            } => {
-                let result = exec_with_optional_heal(&connection_string, &mut client, |c| {
-                    exec_on_client(c, &query, &params, |c, q, r| {
-                        c.query_one(q, r).map_err(LifeError::from)
-                    })
-                });
-                let _ = reply.send(result);
+        }
+        Some(interval) => {
+            loop {
+                match job_rx.recv_timeout(interval) {
+                    Ok(job) => dispatch_worker_job(&connection_string, &mut client, job),
+                    Err(RecvTimeoutError::Timeout) => {
+                        idle_liveness_probe(&connection_string, &mut client);
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
             }
-            WorkerJob::QueryAll {
-                query,
-                params,
-                reply,
-            } => {
-                let result = exec_with_optional_heal(&connection_string, &mut client, |c| {
-                    exec_on_client(c, &query, &params, |c, q, r| {
-                        c.query(q, r).map_err(LifeError::from)
-                    })
-                });
-                let _ = reply.send(result);
-            }
+        }
+    }
+}
+
+/// Cheap `SELECT 1` on idle slots (PRD R4.2); connectivity failures use the same heal path as queries.
+fn idle_liveness_probe(connection_string: &str, client: &mut Client) {
+    let _ = exec_with_optional_heal(connection_string, client, |c| {
+        c.query_one("SELECT 1", &[]).map_err(LifeError::from)
+    });
+}
+
+fn dispatch_worker_job(
+    connection_string: &str,
+    client: &mut Client,
+    job: WorkerJob,
+) {
+    match job {
+        WorkerJob::Execute {
+            query,
+            params,
+            reply,
+        } => {
+            let result = exec_with_optional_heal(connection_string, client, |c| {
+                exec_on_client(c, &query, &params, |c, q, r| {
+                    c.execute(q, r).map_err(LifeError::from)
+                })
+            });
+            let _ = reply.send(result);
+        }
+        WorkerJob::QueryOne {
+            query,
+            params,
+            reply,
+        } => {
+            let result = exec_with_optional_heal(connection_string, client, |c| {
+                exec_on_client(c, &query, &params, |c, q, r| {
+                    c.query_one(q, r).map_err(LifeError::from)
+                })
+            });
+            let _ = reply.send(result);
+        }
+        WorkerJob::QueryAll {
+            query,
+            params,
+            reply,
+        } => {
+            let result = exec_with_optional_heal(connection_string, client, |c| {
+                exec_on_client(c, &query, &params, |c, q, r| {
+                    c.query(q, r).map_err(LifeError::from)
+                })
+            });
+            let _ = reply.send(result);
         }
     }
 }

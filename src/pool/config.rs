@@ -23,6 +23,12 @@ pub struct DatabaseConfig {
     /// How often [`super::wal::WalLagMonitor`] polls the replica for receive/replay lag (milliseconds).
     #[serde(default = "default_wal_lag_poll_interval_ms")]
     pub wal_lag_poll_interval_ms: u64,
+    /// When **> 0**, each idle pool worker runs a cheap `SELECT 1` at this interval to detect dead
+    /// TCP sessions before the next real query (PRD R4.2). **`0`** disables idle probes (default).
+    /// Values are clamped to **1s–1h** when loaded from file/env; use [`LifeguardPoolSettings`] directly
+    /// for sub-second intervals in tests.
+    #[serde(default = "default_idle_liveness_interval_ms")]
+    pub idle_liveness_interval_ms: u64,
 }
 
 fn default_db_url() -> String {
@@ -45,6 +51,10 @@ fn default_wal_lag_poll_interval_ms() -> u64 {
     500
 }
 
+fn default_idle_liveness_interval_ms() -> u64 {
+    0
+}
+
 /// Matches `config/config.toml` `[database]` table (single source for file + env merge).
 #[derive(Debug, Deserialize)]
 struct ConfigRoot {
@@ -60,6 +70,7 @@ impl Default for DatabaseConfig {
             pool_timeout_seconds: default_pool_timeout_seconds(),
             pool_job_queue_depth_per_worker: default_pool_job_queue_depth_per_worker(),
             wal_lag_poll_interval_ms: default_wal_lag_poll_interval_ms(),
+            idle_liveness_interval_ms: default_idle_liveness_interval_ms(),
         }
     }
 }
@@ -83,6 +94,7 @@ impl DatabaseConfig {
     /// | `pool_timeout_seconds` | `LIFEGUARD__DATABASE__POOL_TIMEOUT_SECONDS` |
     /// | `pool_job_queue_depth_per_worker` | `LIFEGUARD__DATABASE__POOL_JOB_QUEUE_DEPTH_PER_WORKER` |
     /// | `wal_lag_poll_interval_ms` | `LIFEGUARD__DATABASE__WAL_LAG_POLL_INTERVAL_MS` |
+    /// | `idle_liveness_interval_ms` | `LIFEGUARD__DATABASE__IDLE_LIVENESS_INTERVAL_MS` |
     ///
     /// The environment layer is merged **after** the file and overrides matching keys (PRD R2.2).
     pub fn load() -> Result<Self, ConfigError> {
@@ -104,6 +116,9 @@ pub struct LifeguardPoolSettings {
     pub job_queue_capacity_per_worker: usize,
     /// Interval between [`super::wal::WalLagMonitor`] lag polls on the replica connection.
     pub wal_lag_poll_interval: Duration,
+    /// When **Some**, workers that are **idle** (no queued work) run `SELECT 1` on this interval
+    /// so half-open TCP sessions are detected and healed (PRD R4.2). **`None`** disables probes.
+    pub idle_liveness_interval: Option<Duration>,
 }
 
 impl Default for LifeguardPoolSettings {
@@ -112,6 +127,7 @@ impl Default for LifeguardPoolSettings {
             acquire_timeout: Duration::from_secs(30),
             job_queue_capacity_per_worker: default_pool_job_queue_depth_per_worker(),
             wal_lag_poll_interval: Duration::from_millis(default_wal_lag_poll_interval_ms()),
+            idle_liveness_interval: None,
         }
     }
 }
@@ -121,10 +137,17 @@ impl LifeguardPoolSettings {
     #[must_use]
     pub fn from_database_config(cfg: &DatabaseConfig) -> Self {
         let poll_ms = cfg.wal_lag_poll_interval_ms.clamp(10, 60_000);
+        let idle_liveness_interval = if cfg.idle_liveness_interval_ms == 0 {
+            None
+        } else {
+            let ms = cfg.idle_liveness_interval_ms.clamp(1_000, 3_600_000);
+            Some(Duration::from_millis(ms))
+        };
         Self {
             acquire_timeout: Duration::from_secs(cfg.pool_timeout_seconds.max(1)),
             job_queue_capacity_per_worker: cfg.pool_job_queue_depth_per_worker.max(1),
             wal_lag_poll_interval: Duration::from_millis(poll_ms),
+            idle_liveness_interval,
         }
     }
 }
@@ -195,6 +218,34 @@ mod tests {
         assert_eq!(s.acquire_timeout, Duration::from_secs(42));
         assert_eq!(s.job_queue_capacity_per_worker, 3);
         assert_eq!(s.wal_lag_poll_interval, Duration::from_millis(250));
+        assert!(s.idle_liveness_interval.is_none());
+    }
+
+    #[test]
+    fn lifeguard_pool_settings_idle_liveness_none_when_zero() {
+        let db = DatabaseConfig {
+            idle_liveness_interval_ms: 0,
+            ..Default::default()
+        };
+        let s = LifeguardPoolSettings::from_database_config(&db);
+        assert!(s.idle_liveness_interval.is_none());
+    }
+
+    #[test]
+    fn lifeguard_pool_settings_idle_liveness_clamped_from_file_config() {
+        let db = DatabaseConfig {
+            idle_liveness_interval_ms: 500,
+            ..Default::default()
+        };
+        let s = LifeguardPoolSettings::from_database_config(&db);
+        assert_eq!(s.idle_liveness_interval, Some(Duration::from_secs(1)));
+
+        let db2 = DatabaseConfig {
+            idle_liveness_interval_ms: 90_000,
+            ..Default::default()
+        };
+        let s2 = LifeguardPoolSettings::from_database_config(&db2);
+        assert_eq!(s2.idle_liveness_interval, Some(Duration::from_secs(90)));
     }
 
     #[test]
