@@ -30,6 +30,9 @@ mod active_model_crud;
 #[path = "db_integration/column_f_update.rs"]
 mod column_f_update;
 
+#[path = "db_integration/column_f_where.rs"]
+mod column_f_where;
+
 #[path = "db_integration/active_model_graph.rs"]
 mod active_model_graph;
 

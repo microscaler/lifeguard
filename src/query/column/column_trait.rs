@@ -110,6 +110,9 @@ pub trait ColumnTrait: IntoColumnRef {
     ///
     /// This is the primary **F-style** helper for column-on-both-sides updates (see project PRD: F expressions / database-level expressions).
     ///
+    /// For **`WHERE`** / **`ORDER BY`**, wrap the [`sea_query::SimpleExpr`] in [`sea_query::Expr::expr`]
+    /// and use [`sea_query::ExprTrait`] (e.g. `.gt(…)`), or pass to [`sea_query::SelectStatement::order_by_expr`].
+    ///
     /// # Limitations
     ///
     /// For nested aggregates, subqueries, or vendor-only functions, use [`Expr::cust`](sea_query::Expr::cust)

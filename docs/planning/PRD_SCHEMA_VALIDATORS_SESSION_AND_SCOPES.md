@@ -295,7 +295,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Tests:** `src/query/column/column_trait.rs` — `test_f_add_update_sql_contains_arithmetic`, basic compile tests for `f_*`.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase D:** wire **`LifeRecord::update`** / derive to accept expression RHS without hand-built `Query::update` (F-1 on ORM path). **Done in this iteration:** Postgres integration test `tests/db_integration/column_f_update.rs` (`db_integration_suite`) exercises `Query::update().value(Col, Col.f_add(1))` with `execute_values`. **`WHERE`/`ORDER BY` examples**, README matrix (G6) ongoing.
+**Still to do for fuller Phase D:** wire **`LifeRecord::update`** / derive to accept expression RHS without hand-built `Query::update` (F-1 on ORM path). **Done in-tree:** Postgres integration tests `tests/db_integration/column_f_update.rs` (`UPDATE … SET` + `f_add`) and `tests/db_integration/column_f_where.rs` (`WHERE` / `ORDER BY` via `Expr::expr(Col.f_add(…))` + `ExprTrait`, `order_by_expr`); `ColumnTrait::f_add` rustdoc notes `WHERE`/`ORDER BY`. README matrix (G6) ongoing.
 
 ### 8.8 Dependency note
 
