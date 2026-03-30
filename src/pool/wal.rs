@@ -9,6 +9,12 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+/// Session-level guardrails so a dead TCP session cannot block the monitor loop indefinitely
+/// (e.g. Toxiproxy disabled: half-open reads may otherwise never return).
+fn apply_wal_monitor_session(client: &may_postgres::Client) {
+    let _ = client.execute("SET statement_timeout = '3s'", &[]);
+}
+
 /// Policy for when [`WalLagMonitor`] treats a standby as **lagging** (PRD R7.2).
 ///
 /// Byte lag uses `pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())` on the
@@ -121,9 +127,12 @@ impl WalLagMonitor {
             let mut backoff = Duration::from_millis(200);
             let backoff_cap = Duration::from_secs(5);
             let mut attempts: u32 = 0;
-            let client = loop {
+            let mut client = loop {
                 match may_postgres::connect(&replica_conn_string) {
-                    Ok(c) => break c,
+                    Ok(c) => {
+                        apply_wal_monitor_session(&c);
+                        break c;
+                    }
                     Err(e) => {
                         lag_ref.store(true, Ordering::Release);
                         attempts = attempts.saturating_add(1);
@@ -178,6 +187,13 @@ impl WalLagMonitor {
                     }
                     Err(_) => {
                         lag_ref.store(true, Ordering::Release);
+                        // Drop dead sessions and try a fresh connect so the next poll does not spin on
+                        // a closed socket; when the path is still down (e.g. proxy fault), connect fails
+                        // and we keep reporting lagging until the replica is reachable again.
+                        if let Ok(c) = may_postgres::connect(&replica_conn_string) {
+                            apply_wal_monitor_session(&c);
+                            client = c;
+                        }
                     }
                 }
             }

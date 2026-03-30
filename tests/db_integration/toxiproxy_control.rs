@@ -47,6 +47,6 @@ pub fn set_proxy_enabled(api_base: &str, proxy_name: &str, enabled: bool) -> Res
     if (200..300).contains(&resp.status()) {
         Ok(())
     } else {
-        Err(format!("POST {url} -> HTTP {}", resp.status()))
+        Err(format!("PATCH {url} -> HTTP {}", resp.status()))
     }
 }

@@ -12,7 +12,7 @@
 //! - `lifeguard_pool_size` (gauge): Total pool slots (primary + replica)
 //! - `lifeguard_pool_workers` (gauge, `pool_tier`): Slots per tier (`primary` | `replica`)
 //! - `lifeguard_active_connections` (gauge): Active connections (total)
-//! - `lifeguard_connection_wait_time_seconds` (histogram, optional `pool_tier`): Time waiting for a slot
+//! - `lifeguard_connection_wait_time_seconds` (histogram, optional `pool_tier`): Pool queue dwell (enqueue → worker start); direct `connect` handshake
 //! - `lifeguard_query_duration_seconds` (histogram, optional `pool_tier`): Query execution time
 //! - `lifeguard_query_errors_total` (counter, optional `pool_tier`): Query errors
 //! - `lifeguard_wal_monitor_replica_routing_disabled` (gauge): 1 if WAL lag monitor gave up on replica connect
@@ -110,7 +110,9 @@ impl LifeguardMetrics {
 
         let connection_wait_time = meter
             .f64_histogram("lifeguard_connection_wait_time_seconds")
-            .with_description("Time waiting for connection")
+            .with_description(
+                "Pool: time from successful job enqueue to worker start (queue dwell); direct connect: handshake wait",
+            )
             .build();
 
         let query_duration = meter

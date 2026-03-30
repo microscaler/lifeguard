@@ -6,6 +6,8 @@ Lifeguard provides comprehensive observability through Prometheus metrics and Op
 
 The repo ships a **Grafana + Prometheus + Loki + OTEL** stack under [`config/k8s/observability/`](https://github.com/microscaler/lifeguard/tree/main/config/k8s/observability) (Kustomize, namespace **`lifeguard-test`**). Use this to **re-apply** manifests after you change dashboard JSON, datasources, or scrape configs.
 
+**Source of truth:** edit Grafana datasource and OTEL collector snippets in **`config/k8s/observability/`** (`grafana-datasources.yml`, `otel-collector-config.yml`). For convenience, **`config/grafana-datasources.yml`** and **`config/otel-collector-config.yml`** are symlinks to those files (same content; no manual mirroring).
+
 From the **repository root**, with your Kind (or other) cluster selected in `kubectl`:
 
 ```bash
@@ -76,7 +78,7 @@ When the `metrics` feature is enabled, Lifeguard exposes the following Prometheu
 | `lifeguard_pool_size` | Gauge | — | Total pool worker slots (primary + replica) |
 | `lifeguard_pool_workers` | Gauge | `pool_tier` (`primary` \| `replica`) | Worker slots per tier |
 | `lifeguard_active_connections` | Gauge | — | Number of active connections (total) |
-| `lifeguard_connection_wait_time_seconds` | Histogram | optional `pool_tier` | Time waiting for a pool slot; unlabeled for direct `connect` |
+| `lifeguard_connection_wait_time_seconds` | Histogram | optional `pool_tier` | **Pool:** time from successful enqueue to worker start (queue dwell behind prior jobs). **Direct `connect`:** handshake wait. Unlabeled when not pooled. |
 | `lifeguard_query_duration_seconds` | Histogram | optional `pool_tier` | Query time; pooled paths use `primary` / `replica` |
 | `lifeguard_query_errors_total` | Counter | optional `pool_tier` | Query errors; pooled paths use `primary` / `replica` |
 | `lifeguard_wal_monitor_replica_routing_disabled` | Gauge | — | 1 if the WAL lag monitor gave up connecting to the replica (PRD R7.3) |

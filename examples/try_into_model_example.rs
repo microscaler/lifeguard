@@ -2,6 +2,8 @@
 //!
 //! This example demonstrates how to use the `TryIntoModel` trait and `DeriveTryIntoModel`
 //! macro to convert custom types (DTOs, request structs, etc.) into Model instances.
+//!
+//! Success paths print only the model **`id`** so sample name/email values are not written to stdout.
 
 #![allow(clippy::needless_update)]
 
@@ -180,11 +182,8 @@ fn main() {
     let model: Result<UserModel, lifeguard::LifeError> = request.try_into_model();
     match model {
         Ok(user) => {
-            println!(
-                "Created user: id={}, name={}, email={}",
-                user.id, user.name, user.email
-            );
-            // Output: Created user: id=0, name=John Doe, email=john@example.com
+            println!("Created user model (id={})", user.id);
+            // Avoid logging PII (name/email) in examples; conversion success is shown by id.
         }
         Err(e) => {
             eprintln!("Failed to convert request to model: {e}");
@@ -201,11 +200,7 @@ fn main() {
     let model: Result<UserModel, _> = update_request.try_into_model();
     match model {
         Ok(user) => {
-            println!(
-                "Updated user: id={}, name={}, email={}",
-                user.id, user.name, user.email
-            );
-            // Output: Updated user: id=42, name=Jane Smith, email=jane@example.com
+            println!("Updated user model (id={})", user.id);
         }
         Err(e) => {
             eprintln!("Failed to convert update request to model: {e}");
@@ -221,11 +216,7 @@ fn main() {
     let model: Result<UserModel, _> = external_data.try_into_model();
     match model {
         Ok(user) => {
-            println!(
-                "Converted external data: id={}, name={}, email={}",
-                user.id, user.name, user.email
-            );
-            // Output: Converted external data: id=0, name=Bob Johnson, email=bob@example.com
+            println!("Converted external data to user model (id={})", user.id);
         }
         Err(e) => {
             eprintln!("Failed to convert external data to model: {e}");
@@ -242,11 +233,7 @@ fn main() {
     let converted: Result<UserModel, _> = user.try_into_model();
     match converted {
         Ok(model) => {
-            println!(
-                "Self-converted user: id={}, name={}, email={}",
-                model.id, model.name, model.email
-            );
-            // Output: Self-converted user: id=100, name=Self, email=self@example.com
+            println!("Self-converted user model (id={})", model.id);
         }
         Err(_) => {
             // This should never happen for self-conversion (uses Infallible error type)

@@ -2,6 +2,9 @@
 //!
 //! Skips when `TEST_REPLICA_URL` is unset (e.g. local testcontainers-only runs).
 //!
+//! **Routing proof:** after the lag monitor reports a healthy replica, tests run `SELECT pg_is_in_recovery()`
+//! on the **pooled** executor so a silent fallback to primary cannot pass while data still matches on both nodes.
+//!
 //! ## Timing (`LIFEGUARD_POOL_TEST_TIMING=1`)
 //!
 //! Set this env var to print phase timings to **stderr** (setup, pool open, insert, replay wait,
@@ -93,6 +96,19 @@ fn pg_tcp_endpoint_key(url: &str) -> Option<String> {
         h => h.to_string(),
     };
     Some(format!("{host_norm}:{port}"))
+}
+
+/// Proves which server handled a **pooled** read: standby (`true`) vs primary (`false`).
+fn assert_pooled_pg_is_in_recovery(exec: &PooledLifeExecutor, expect_standby: bool, context: &str) {
+    let row = exec
+        .query_one_values("SELECT pg_is_in_recovery() AS ir", &Values(vec![]))
+        .unwrap_or_else(|e| panic!("{context}: pooled pg_is_in_recovery probe: {e}"));
+    let ir: bool = row.get(0);
+    assert_eq!(
+        ir, expect_standby,
+        "{context}: pg_is_in_recovery()={ir}, expected {expect_standby} \
+         (false = primary tier, true = replica tier)",
+    );
 }
 
 fn setup_schema_on_primary(executor: &lifeguard::MayPostgresExecutor) {
@@ -202,6 +218,12 @@ fn pooled_pool_construct_write_read_with_replica() {
     );
     log_timing("wait_until !is_replica_lagging (poll 5ms)", t4.elapsed());
 
+    assert_pooled_pg_is_in_recovery(
+        &exec,
+        true,
+        "after lag monitor reports healthy replica, pooled reads must use replica tier",
+    );
+
     let t5 = Instant::now();
     let read_vals = Values(vec![Value::Int(Some(7))]);
     let row = exec
@@ -258,6 +280,12 @@ fn pooled_pool_construct_write_read_with_replica() {
     )
     .expect("replica replay wait after batch");
     log_timing("wait_replica_replayed_at_least (after batch)", t8.elapsed());
+
+    assert_pooled_pg_is_in_recovery(
+        &exec,
+        true,
+        "before batch COUNT, pooled reads should still hit replica tier when healthy",
+    );
 
     let t9 = Instant::now();
     let cnt_row = exec
@@ -395,6 +423,12 @@ fn pooled_read_falls_back_to_primary_when_replica_lagging() {
     assert!(
         lagging_seen,
         "expected WalLagMonitor to mark replica lagging after replica proxy disabled"
+    );
+
+    assert_pooled_pg_is_in_recovery(
+        &exec,
+        false,
+        "when replica tier is unavailable, pooled reads must fall back to primary",
     );
 
     let read_vals = Values(vec![Value::Int(Some(FALLBACK_ID))]);

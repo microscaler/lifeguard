@@ -1,9 +1,9 @@
 //! Owned query parameters for crossing pool job channels.
 //!
 //! [`crate::executor::LifeExecutor`] uses `&[&dyn ToSql]`, which cannot be sent across channels.
-//! [`OwnedParam`] mirrors the `sea_query::Value` variants supported by
-//! [`crate::query::converted_params::with_converted_value_slice`] so workers can rebuild `ToSql`
-//! references on their stack.
+//! [`OwnedParam`] mirrors `sea_query::Value` variants used for pool dispatch (including
+//! **`Value::Decimal`** when the `with-rust_decimal` feature is enabled on `sea-query`) so workers
+//! can rebuild `ToSql` references on their stack.
 
 use crate::executor::LifeError;
 use may_postgres::types::ToSql;
@@ -25,8 +25,10 @@ pub enum OwnedParam {
     ChronoDateTimeUtc(Option<chrono::DateTime<chrono::Utc>>),
     ChronoDateTimeLocal(Option<chrono::DateTime<chrono::Local>>),
     Uuid(Option<uuid::Uuid>),
-    /// JSON text for JSON/JSONB parameters (from `Value::Json(Some(..))`).
-    JsonText(Option<String>),
+    /// `NUMERIC` / `rust_decimal::Decimal` (from `Value::Decimal`).
+    Decimal(Option<rust_decimal::Decimal>),
+    /// JSON / JSONB (`serde_json::Value`); binds as PostgreSQL JSON types (not plain text).
+    Json(serde_json::Value),
     /// `sea_query::Value` nulls that bind as `Option<i32>::None` (see `converted_params`).
     GenericNull,
 }
@@ -48,7 +50,8 @@ impl OwnedParam {
             OwnedParam::ChronoDateTimeUtc(dt) => dt as &dyn ToSql,
             OwnedParam::ChronoDateTimeLocal(dt) => dt as &dyn ToSql,
             OwnedParam::Uuid(u) => u as &dyn ToSql,
-            OwnedParam::JsonText(s) => s as &dyn ToSql,
+            OwnedParam::Decimal(d) => d as &dyn ToSql,
+            OwnedParam::Json(v) => v as &dyn ToSql,
             OwnedParam::GenericNull => {
                 static C: Option<i32> = None;
                 &C as &dyn ToSql
@@ -117,10 +120,10 @@ impl TryFrom<&Value> for OwnedParam {
             Value::Uuid(Some(u)) => Ok(OwnedParam::Uuid(Some(*u))),
             Value::Uuid(None) => Ok(OwnedParam::Uuid(None)),
 
-            Value::Json(Some(j)) => Ok(OwnedParam::JsonText(Some(
-                serde_json::to_string(&**j)
-                    .map_err(|e| LifeError::Other(format!("Failed to serialize JSON: {e}")))?,
-            ))),
+            Value::Decimal(Some(d)) => Ok(OwnedParam::Decimal(Some(*d))),
+            Value::Decimal(None) => Ok(OwnedParam::Decimal(None)),
+
+            Value::Json(Some(j)) => Ok(OwnedParam::Json((**j).clone())),
             Value::Json(None) => Ok(OwnedParam::GenericNull),
 
             _ => Err(LifeError::Other(format!(
@@ -132,8 +135,25 @@ impl TryFrom<&Value> for OwnedParam {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)] // test-only unwraps
+
     use super::*;
+    use rust_decimal::Decimal;
     use sea_query::Value;
+
+    #[test]
+    fn try_from_decimal_and_null() {
+        let d = Decimal::new(12345, 2);
+        let p = OwnedParam::try_from(&Value::Decimal(Some(d))).expect("try_from decimal");
+        assert!(
+            matches!(p, OwnedParam::Decimal(Some(x)) if x == d),
+            "expected Decimal(Some({d:?})), got {p:?}"
+        );
+        assert!(matches!(
+            OwnedParam::try_from(&Value::Decimal(None)),
+            Ok(OwnedParam::Decimal(None))
+        ));
+    }
 
     #[test]
     fn try_from_int_and_null() {
@@ -156,5 +176,25 @@ mod tests {
         let mut buf = BytesMut::new();
         let got = p.as_sql_ref().to_sql_checked(&Type::UUID, &mut buf);
         assert!(matches!(got, Ok(IsNull::Yes)));
+    }
+
+    #[test]
+    fn try_from_json_encodes_for_json_and_jsonb() {
+        use bytes::BytesMut;
+        use postgres_types::{IsNull, Type};
+        use sea_query::Value;
+
+        let v = serde_json::json!({"k": 1});
+        let p = OwnedParam::try_from(&Value::Json(Some(Box::new(v.clone())))).expect("json param");
+
+        let mut buf = BytesMut::new();
+        let got = p.as_sql_ref().to_sql_checked(&Type::JSON, &mut buf);
+        assert!(matches!(got, Ok(IsNull::No)));
+        assert!(!buf.is_empty());
+
+        let mut buf2 = BytesMut::new();
+        let got2 = p.as_sql_ref().to_sql_checked(&Type::JSONB, &mut buf2);
+        assert!(matches!(got2, Ok(IsNull::No)));
+        assert!(buf2.len() > 1);
     }
 }

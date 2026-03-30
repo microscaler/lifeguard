@@ -2037,6 +2037,8 @@ dependencies = [
  "chrono",
  "fallible-iterator",
  "postgres-protocol",
+ "serde_core",
+ "serde_json",
  "uuid",
 ]
 
@@ -2342,6 +2344,7 @@ dependencies = [
  "borsh",
  "bytes",
  "num-traits",
+ "postgres-types",
  "rand 0.8.5",
  "rkyv",
  "serde",
@@ -2388,6 +2391,7 @@ dependencies = [
  "chrono",
  "inherent",
  "itoa",
+ "rust_decimal",
  "sea-query-derive",
  "serde_json",
  "uuid",

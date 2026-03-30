@@ -78,16 +78,16 @@ impl WorkerPool {
             let handle = thread::Builder::new()
                 .name(name)
                 .spawn(move || {
-                    run_worker(
-                        url,
+                    run_worker(WorkerThreadStart {
+                        connection_string: url,
                         client,
                         job_rx,
-                        idle,
-                        max_lifetime,
-                        lifetime_jitter,
+                        idle_liveness: idle,
+                        max_connection_lifetime: max_lifetime,
+                        max_connection_lifetime_jitter: lifetime_jitter,
                         slot,
                         tier,
-                    );
+                    });
                 })
                 .map_err(|e| LifeError::Other(format!("{tier} pool worker thread {slot}: {e}")))?;
             #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
@@ -136,6 +136,10 @@ impl WorkerPool {
                 });
             }
             let slice = deadline.saturating_duration_since(now);
+            // Stamp when we *attempt* enqueue; successful send leaves the job in the queue with this
+            // instant so the worker can measure queue wait (time behind prior jobs), not just
+            // `send_timeout` blocking on a full queue.
+            current_job = current_job.with_enqueued_at(Instant::now());
             match tx.send_timeout(current_job, slice) {
                 Ok(()) => break,
                 Err(SendTimeoutError::Timeout(j)) => {
@@ -148,9 +152,6 @@ impl WorkerPool {
                 }
             }
         }
-
-        #[cfg(feature = "metrics")]
-        METRICS.record_connection_wait(wait_start.elapsed(), Some(self.metrics_tier));
 
         match reply_rx.recv() {
             Ok(r) => r,
@@ -441,32 +442,90 @@ fn exec_with_optional_heal<T>(
 
 enum WorkerJob {
     Execute {
+        /// When this job was last stamped for enqueue (`dispatch`); used for queue-wait metrics.
+        enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
         reply: std::sync::mpsc::SyncSender<Result<u64, LifeError>>,
     },
     QueryOne {
+        enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
         reply: std::sync::mpsc::SyncSender<Result<Row, LifeError>>,
     },
     QueryAll {
+        enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
         reply: std::sync::mpsc::SyncSender<Result<Vec<Row>, LifeError>>,
     },
 }
 
-fn run_worker(
+impl WorkerJob {
+    fn with_enqueued_at(self, at: Instant) -> Self {
+        match self {
+            WorkerJob::Execute {
+                query,
+                params,
+                reply,
+                ..
+            } => WorkerJob::Execute {
+                enqueued_at: at,
+                query,
+                params,
+                reply,
+            },
+            WorkerJob::QueryOne {
+                query,
+                params,
+                reply,
+                ..
+            } => WorkerJob::QueryOne {
+                enqueued_at: at,
+                query,
+                params,
+                reply,
+            },
+            WorkerJob::QueryAll {
+                query,
+                params,
+                reply,
+                ..
+            } => WorkerJob::QueryAll {
+                enqueued_at: at,
+                query,
+                params,
+                reply,
+            },
+        }
+    }
+}
+
+/// Arguments for [`run_worker`], grouped so the worker entry point stays within Clippy argument limits.
+struct WorkerThreadStart {
     connection_string: String,
-    mut client: Client,
+    client: Client,
     job_rx: crossbeam_channel::Receiver<WorkerJob>,
     idle_liveness: Option<Duration>,
     max_connection_lifetime: Option<Duration>,
     max_connection_lifetime_jitter: Duration,
     slot: usize,
     tier: &'static str,
-) {
+}
+
+fn run_worker(w: WorkerThreadStart) {
+    let WorkerThreadStart {
+        connection_string,
+        mut client,
+        job_rx,
+        idle_liveness,
+        max_connection_lifetime,
+        max_connection_lifetime_jitter,
+        slot,
+        tier,
+    } = w;
+
     let mut opened_at = Instant::now();
     let idle = idle_liveness.map(|d| d.max(Duration::from_millis(1)));
 
@@ -520,6 +579,10 @@ fn run_worker(
 }
 
 /// Per-slot jitter on top of base max lifetime (PRD R3.1).
+///
+/// `salt` must be **stable** for the lifetime of a connection (we use the worker `slot` index).
+/// Do not mix in time-varying values: the limit is compared on every job/idle tick, and an unstable
+/// salt would change the threshold each call and break rotation timing.
 fn connection_lifetime_effective_limit(
     base: Duration,
     jitter: Duration,
@@ -547,7 +610,7 @@ fn maybe_rotate_for_max_lifetime(
     if base.is_zero() {
         return;
     }
-    let limit = connection_lifetime_effective_limit(base, jitter, slot ^ opened_at.elapsed().subsec_nanos() as usize);
+    let limit = connection_lifetime_effective_limit(base, jitter, slot);
     if opened_at.elapsed() < limit {
         return;
     }
@@ -582,11 +645,22 @@ fn dispatch_worker_job(
     client: &mut Client,
     job: WorkerJob,
 ) {
+    #[cfg(feature = "metrics")]
+    {
+        let enqueued_at = match &job {
+            WorkerJob::Execute { enqueued_at, .. }
+            | WorkerJob::QueryOne { enqueued_at, .. }
+            | WorkerJob::QueryAll { enqueued_at, .. } => *enqueued_at,
+        };
+        METRICS.record_connection_wait(enqueued_at.elapsed(), Some(tier));
+    }
+
     match job {
         WorkerJob::Execute {
             query,
             params,
             reply,
+            ..
         } => {
             let result = exec_with_optional_heal(connection_string, client, tier, |c| {
                 exec_on_client(tier, c, &query, &params, |c, q, r| {
@@ -599,6 +673,7 @@ fn dispatch_worker_job(
             query,
             params,
             reply,
+            ..
         } => {
             let result = exec_with_optional_heal(connection_string, client, tier, |c| {
                 exec_on_client(tier, c, &query, &params, |c, q, r| {
@@ -611,6 +686,7 @@ fn dispatch_worker_job(
             query,
             params,
             reply,
+            ..
         } => {
             let result = exec_with_optional_heal(connection_string, client, tier, |c| {
                 exec_on_client(tier, c, &query, &params, |c, q, r| {
@@ -708,6 +784,7 @@ impl LifeExecutor for PooledLifeExecutor {
         let params = values_to_owned(values)?;
         let query = query.to_string();
         self.pool.dispatch_write(|reply| WorkerJob::Execute {
+            enqueued_at: Instant::now(),
             query,
             params,
             reply,
@@ -718,6 +795,7 @@ impl LifeExecutor for PooledLifeExecutor {
         let params = values_to_owned(values)?;
         let query = query.to_string();
         self.pool.dispatch_read(|reply| WorkerJob::QueryOne {
+            enqueued_at: Instant::now(),
             query,
             params,
             reply,
@@ -732,9 +810,34 @@ impl LifeExecutor for PooledLifeExecutor {
         let params = values_to_owned(values)?;
         let query = query.to_string();
         self.pool.dispatch_read(|reply| WorkerJob::QueryAll {
+            enqueued_at: Instant::now(),
             query,
             params,
             reply,
         })
+    }
+}
+
+#[cfg(test)]
+mod lifetime_effective_limit_tests {
+    use super::connection_lifetime_effective_limit;
+    use std::time::Duration;
+
+    #[test]
+    fn same_slot_same_limit_across_calls() {
+        let base = Duration::from_secs(60);
+        let jitter = Duration::from_millis(500);
+        let a = connection_lifetime_effective_limit(base, jitter, 2);
+        let b = connection_lifetime_effective_limit(base, jitter, 2);
+        assert_eq!(a, b, "salt must not depend on time; limit must be stable per slot");
+    }
+
+    #[test]
+    fn zero_jitter_returns_base() {
+        let base = Duration::from_secs(30);
+        assert_eq!(
+            connection_lifetime_effective_limit(base, Duration::ZERO, 99),
+            base
+        );
     }
 }
