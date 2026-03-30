@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **Git: feat/lifeguard-pool pushed (2026-03-28):** `0b098c9` — `feat(pool): LifeguardPool read replicas, Kind test stack, Tilt replication targets` (farm git commit/push; no Cursor co-author).
 - **Tiltfile replication targets (2026-03-28):** `test-replication-pool` (nextest filter `pool_read_replica`), `test-db-integration-replica` (full `db_integration_suite` + `TEST_REPLICA_URL` / `TEST_REDIS_URL`, `db-serial`), `test-replication-pool-smoke` (single `pooled_pool_construct_write_read_with_replica`); `resource_deps` include `postgresql-primary`, `postgresql-replica-0`, `redis`, `build-migrate`; label `replication`.
 - **Tiltfile workspace builds (2026-03-28):** `build-codegen` / `build-reflector` / `build-migrate` as `local_resource`s; Cargo order: derive ∥ codegen ∥ reflector → `build-lifeguard` → `build-migrate` (migrate depends on `lifeguard` + `lifeguard-derive`). `test-nextest` / `test-unit` / `test-migration` depend on `build-migrate` or codegen+reflector+migrate; `test-codegen` uses `cargo test -p lifeguard-codegen` from workspace root.
 - **justfile Kind TEST_* env (2026-03-30):** `TEST_DATABASE_URL` / `TEST_REPLICA_URL` / `TEST_REDIS_URL` / `TEST_REPLICA_URL_SECOND` + `DATABASE_URL := TEST_DATABASE_URL`; wired into test/nextest recipes; `just kind-test-env` prints exports.
