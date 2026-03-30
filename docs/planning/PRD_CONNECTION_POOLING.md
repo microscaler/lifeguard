@@ -15,7 +15,7 @@
 - [x] PRD published (`PRD_CONNECTION_POOLING.md`)
 - [ ] Optional design doc `DESIGN_CONNECTION_POOLING.md` (state machine, error taxonomy, metric names)
 - [x] **Phase P0** complete (see §7.1)
-- [ ] **Phase P1** complete (see §7.2)
+- [ ] **Phase P1** complete (see §7.2) — *R5.x done; R4.x open*
 - [ ] **Phase P2** complete (see §7.3)
 - [ ] **Phase P3** complete (see §7.4)
 - [ ] [§10 Success criteria](#10-success-criteria-prd-closure) satisfied
@@ -27,7 +27,7 @@
 | Acquire timeout + typed overload error | [x] |
 | Config merged / wired; no dead `DatabaseConfig` fields | [x] |
 | Bounded queues + overload behavior | [x] |
-| Slot heal + connectivity classification | [ ] |
+| Slot heal + connectivity classification | [x] |
 | Keepalive docs + idle liveness probe | [ ] |
 | `max_connection_lifetime` (+ jitter) / idle policy | [ ] |
 | `WalLagMonitor` retry + tunables + give-up observability | [ ] *partial: initial connect retry only* |
@@ -85,7 +85,7 @@ Track at milestone reviews; each goal may span multiple PRs.
 - [x] **G2** — Single honest config surface (file + env) wired to pool
 - [ ] **G3** — Connection rotation (`max_connection_lifetime`, jitter; idle policy as designed)
 - [ ] **G4** — Liveness (docs + optional probes / TCP hooks)
-- [ ] **G5** — Slot heal on connectivity-class failures only
+- [x] **G5** — Slot heal on connectivity-class failures only
 - [x] **G6** — Bounded queues; defined overload behavior
 - [ ] **G7** — `WalLagMonitor` retry, tunables, observable give-up *— retry done; tunables / give-up TBD*
 - [ ] **G8** — Metrics / tracing for pool + monitor
@@ -171,9 +171,9 @@ Track at milestone reviews; each goal may span multiple PRs.
 
 **Implementation — §5.5**
 
-- [ ] **R5.1** — Connectivity vs SQL error taxonomy documented (design doc or rustdoc table)
-- [ ] **R5.2** — Worker replaces `Client` on connectivity errors; backoff / caps; test
-- [ ] **R5.3** — PR review criterion: no heal on generic statement failure
+- [x] **R5.1** — Connectivity vs SQL error taxonomy documented (`src/pool/connectivity.rs`)
+- [x] **R5.2** — Worker replaces `Client` on connectivity errors; capped attempt (`POOL_HEAL_MAX_ATTEMPTS`); unit tests for classifier
+- [x] **R5.3** — Heal only on `PostgresError` path matching connectivity heuristic (not `QueryError` / `Other`)
 
 ### 5.6 Queue and back-pressure
 
@@ -257,9 +257,9 @@ Phases may be reprioritized if production incidents dictate (e.g. P0+P1 first).
 
 ### 7.2 Phase P1 checklist
 
-- [ ] R5.1 — error taxonomy
-- [ ] R5.2 — slot heal + test
-- [ ] R5.3 — review gate (no heal on SQL alone)
+- [x] R5.1 — error taxonomy (`src/pool/connectivity.rs` rustdoc table)
+- [x] R5.2 — slot heal (one reconnect attempt per job; `exec_with_optional_heal` in `pooled.rs`) + unit tests for classifier
+- [x] R5.3 — review gate (only `LifeError::PostgresError` + connectivity heuristic; no heal on `QueryError`/`Other`)
 - [ ] R4.1 — keepalive / connection doc
 - [ ] R4.2 — idle liveness probe + test
 
@@ -349,9 +349,9 @@ Single list for copy-paste into issues or sprint boards. Sub-bullets are optiona
 - [ ] R4.2
 
 ### Slot heal
-- [ ] R5.1
-- [ ] R5.2
-- [ ] R5.3
+- [x] R5.1
+- [x] R5.2
+- [x] R5.3
 
 ### Queues
 - [x] R6.1

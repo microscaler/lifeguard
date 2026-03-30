@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **PRD P1 slot heal R5.x (2026-03-30):** `src/pool/connectivity.rs` taxonomy + `exec_with_optional_heal` in `pooled.rs`; `CHANGELOG`; PRD checkboxes. Tilt `test-nextest` logs: 879 passed (prior run).
 - **PRD P0 pool config (2026-03-30):** `DatabaseConfig::load` deserializes `[database]` via `ConfigRoot`; env overrides `LIFEGUARD__DATABASE__*`; unit tests; `CHANGELOG.md`; `LifeguardPool` constructor rustdoc; PRD R1.3/R2.2/R2.3 checked.
 - **Flaky `db_integration_suite` root cause + fix (2026-03-28):** Parallel nextest processes against one `TEST_DATABASE_URL` and fixed table names caused row-count races in `active_model_crud`. Added nextest `[test-groups] lifeguard-shared-postgres` (`max-threads = 1`) + `[[profile.*.overrides]]` for `binary(db_integration_suite)`; removed invalid `profile.db-serial.overrides` `test-threads` key. Tilt `test-nextest` uses `--profile ci`, `.config/nextest.toml`, replica/Redis env, deps on replica+redis; docs `TEST_INFRASTRUCTURE.md` and `justfile` comment updated.
 - **Git: feat/lifeguard-pool pushed (2026-03-28):** `0b098c9` — `feat(pool): LifeguardPool read replicas, Kind test stack, Tilt replication targets` (farm git commit/push; no Cursor co-author).

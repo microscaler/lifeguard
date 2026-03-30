@@ -21,7 +21,13 @@
 //!
 //! Planning documents and ADRs live only in the Git repository. For pooling design and roadmap,
 //! use the [connection pooling PRD](https://github.com/microscaler/lifeguard/blob/main/docs/planning/PRD_CONNECTION_POOLING.md).
+//!
+//! ## Slot heal (PRD §5.5)
+//!
+//! Worker threads may replace a dead [`may_postgres::Client`] when errors match the connectivity
+//! heuristic in `connectivity.rs` — not on ordinary SQL failures.
 
+mod connectivity;
 pub mod config;
 pub mod owned_param;
 pub mod pooled;

@@ -18,6 +18,7 @@
 use crate::connection::connect;
 use crate::executor::{LifeError, LifeExecutor};
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
+use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
 use crate::pool::wal::WalLagMonitor;
 use crossbeam_channel::SendTimeoutError;
@@ -69,7 +70,7 @@ impl WorkerPool {
             let handle = thread::Builder::new()
                 .name(name)
                 .spawn(move || {
-                    run_worker(client, job_rx);
+                    run_worker(url, client, job_rx);
                 })
                 .map_err(|e| LifeError::Other(format!("{role} pool worker thread {slot}: {e}")))?;
             #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
@@ -362,6 +363,43 @@ impl LifeguardPool {
     }
 }
 
+/// One reconnect attempt after a connectivity-class failure (PRD R5.2).
+const POOL_HEAL_MAX_ATTEMPTS: usize = 2;
+
+fn exec_with_optional_heal<T>(
+    connection_string: &str,
+    client: &mut Client,
+    op: impl Fn(&Client) -> Result<T, LifeError>,
+) -> Result<T, LifeError> {
+    for attempt in 0..POOL_HEAL_MAX_ATTEMPTS {
+        match op(client) {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                let can_heal = life_error_is_connectivity_heal_candidate(&e)
+                    && attempt + 1 < POOL_HEAL_MAX_ATTEMPTS;
+                if can_heal {
+                    match connect(connection_string) {
+                        Ok(c) => {
+                            *client = c;
+                            log::warn!(
+                                "lifeguard pool: replaced client after connectivity error (attempt {})",
+                                attempt + 1
+                            );
+                            continue;
+                        }
+                        Err(_) => return Err(e),
+                    }
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    Err(LifeError::Pool(
+        "lifeguard pool: internal heal loop exhausted".into(),
+    ))
+}
+
 enum WorkerJob {
     Execute {
         query: String,
@@ -380,7 +418,11 @@ enum WorkerJob {
     },
 }
 
-fn run_worker(client: Client, job_rx: crossbeam_channel::Receiver<WorkerJob>) {
+fn run_worker(
+    connection_string: String,
+    mut client: Client,
+    job_rx: crossbeam_channel::Receiver<WorkerJob>,
+) {
     for job in job_rx.iter() {
         match job {
             WorkerJob::Execute {
@@ -388,8 +430,10 @@ fn run_worker(client: Client, job_rx: crossbeam_channel::Receiver<WorkerJob>) {
                 params,
                 reply,
             } => {
-                let result = exec_on_client(&client, &query, &params, |c, q, r| {
-                    c.execute(q, r).map_err(LifeError::from)
+                let result = exec_with_optional_heal(&connection_string, &mut client, |c| {
+                    exec_on_client(c, &query, &params, |c, q, r| {
+                        c.execute(q, r).map_err(LifeError::from)
+                    })
                 });
                 let _ = reply.send(result);
             }
@@ -398,8 +442,10 @@ fn run_worker(client: Client, job_rx: crossbeam_channel::Receiver<WorkerJob>) {
                 params,
                 reply,
             } => {
-                let result = exec_on_client(&client, &query, &params, |c, q, r| {
-                    c.query_one(q, r).map_err(LifeError::from)
+                let result = exec_with_optional_heal(&connection_string, &mut client, |c| {
+                    exec_on_client(c, &query, &params, |c, q, r| {
+                        c.query_one(q, r).map_err(LifeError::from)
+                    })
                 });
                 let _ = reply.send(result);
             }
@@ -408,8 +454,10 @@ fn run_worker(client: Client, job_rx: crossbeam_channel::Receiver<WorkerJob>) {
                 params,
                 reply,
             } => {
-                let result = exec_on_client(&client, &query, &params, |c, q, r| {
-                    c.query(q, r).map_err(LifeError::from)
+                let result = exec_with_optional_heal(&connection_string, &mut client, |c| {
+                    exec_on_client(c, &query, &params, |c, q, r| {
+                        c.query(q, r).map_err(LifeError::from)
+                    })
                 });
                 let _ = reply.send(result);
             }
