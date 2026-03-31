@@ -2,6 +2,8 @@
 
 ## Rustdoc API surface — audit snapshot (2026-03-31)
 
+- **Git:** `docs(rustdoc): expand SelectQuery and pool docs…` on `feat/schema_validators_session_and_scopes_2` — pushed to `origin` (upstream set).
+
 - **Strong:** crate root, `query` (especially `select` + execution), `pool`/`pooled`, `executor`.
 - **Needs link + doctest pass:** `active_model` (private `converted_params` link, bad `super::` links, broken module example), `migration` (examples vs current API; many doctest compile failures), `session` (broken intra-doc links), `relation` (redundant links + `LazyLoader` link), `logging` (`lifeguard_log!` link), `model`/`value` (invalid_html_tags in doc text).
 - **Mechanical:** `cargo doc -p lifeguard --no-deps` reports **~30** rustdoc warnings; `cargo test -p lifeguard --doc` is **not** all-green. **`lifeguard-derive`** and **`lifeguard-migrate`** are separate consumer surfaces for a full “everything the user touches” pass.
