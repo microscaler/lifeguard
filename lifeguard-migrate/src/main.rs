@@ -102,6 +102,19 @@ enum Commands {
         tables: Vec<String>,
     },
 
+    /// Compare live database **base table** names to merged **`*_generated_from_entities.sql`** baselines (`-- Table:` sections).
+    ///
+    /// Exits with an error when sets differ (DBA / CI confidence). Does not compare column types—only table name presence.
+    CompareSchema {
+        /// PostgreSQL schema (namespace) for `information_schema.tables`
+        #[arg(long, default_value = "public")]
+        schema: String,
+
+        /// Directory containing `*_generated_from_entities.sql` (e.g. `migrations/generated/inventory`)
+        #[arg(long)]
+        generated_dir: PathBuf,
+    },
+
     /// Show detailed migration information
     Info {
         /// Show information for a specific migration version
@@ -160,6 +173,15 @@ fn main() {
                 .expect("database URL validated when command requires DB");
             handle_infer_schema(db_url, schema, tables)
         }
+        Commands::CompareSchema {
+            schema,
+            generated_dir,
+        } => {
+            let db_url = database_url
+                .as_ref()
+                .expect("database URL validated when command requires DB");
+            handle_compare_schema(db_url, schema, &generated_dir)
+        }
         _ => {
             // All other commands need database connection
             let db_url = database_url.expect("Database URL should be validated above");
@@ -201,6 +223,37 @@ fn main() {
             process::exit(1);
         }
     }
+}
+
+fn handle_compare_schema(
+    database_url: &str,
+    schema: String,
+    generated_dir: &std::path::Path,
+) -> Result<(), MigrationError> {
+    use lifeguard_migrate::schema_migration_compare::compare_generated_dir_to_live_db;
+
+    if !generated_dir.is_dir() {
+        return Err(MigrationError::InvalidFormat(format!(
+            "compare-schema: not a directory: {}",
+            generated_dir.display()
+        )));
+    }
+
+    let client = connect(database_url).map_err(|e| {
+        MigrationError::InvalidFormat(format!("compare-schema: database connect failed: {e}"))
+    })?;
+    let executor = MayPostgresExecutor::new(client);
+    let report = compare_generated_dir_to_live_db(&executor, &schema, generated_dir).map_err(
+        |e| MigrationError::InvalidFormat(format!("compare-schema: {e}")),
+    )?;
+    print!("{report}");
+    if report.has_drift() {
+        return Err(MigrationError::InvalidFormat(
+            "compare-schema: live database table set does not match merged generated migration baseline (see above)."
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn handle_infer_schema(

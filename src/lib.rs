@@ -124,7 +124,10 @@ pub use model::{ModelError, ModelTrait, TryIntoModel};
 
 // Session / identity map (PRD Phase E v0)
 pub mod session;
-pub use session::{fingerprint_pk_values, ModelIdentityMap, Session, SessionDirtyNotifier};
+pub use session::{
+    fingerprint_pk_values, is_pending_insert_key, ModelIdentityMap, PENDING_INSERT_KEY_PREFIX,
+    Session, SessionDirtyNotifier,
+};
 
 // Relation trait - Epic 02 Story 08
 pub mod relation;

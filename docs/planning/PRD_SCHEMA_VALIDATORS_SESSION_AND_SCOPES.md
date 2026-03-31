@@ -14,11 +14,11 @@
 
 - [x] PRD published (`PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`)
 - [x] Design note(s): schema inference CLI / codegen boundary — [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md)
-- [x] **Phase A — Schema inference** ([§5](#5-schema-inference-from-db--diesel-style)) — *can ship independently* — **v0 landed:** `lifeguard-migrate infer-schema` + `lifeguard_migrate::schema_infer` (see §5.7)
+- [x] **Phase A — Schema inference** ([§5](#5-schema-inference-from-db--diesel-style)) — *can ship independently* — **v0 landed:** `lifeguard-migrate infer-schema` + `compare-schema` + `lifeguard_migrate::schema_infer` / `schema_migration_compare` (see §5.7)
 - [x] **Phase B — Validators** ([§6](#6-validators-field--model-level)) — **v0 landed:** trait hooks + `run_validators` + `ActiveModelError::Validation`; see [§6.7](#67-implementation-status-v0)
 - [x] **Phase C — Scopes** ([§7](#7-scopes-named-query-scopes)) — **v0 landed:** `SelectQuery::scope`, `IntoScope`, **`#[scope]`** attribute (`lifeguard::scope`); see [§7.7](#77-implementation-status-v0)
 - [x] **Phase D — F() expressions** ([§8](#8-f-expressions-database-level-expressions)) — **v0 landed:** `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div`; see [§8.7](#87-implementation-status-v0)
-- [x] **Phase E — Session / Unit of Work (v0 — identity map + session handle)** ([§9](#9-session--unit-of-work-identity-map-dirty-tracking)) — **v0:** `ModelIdentityMap`, `Session`, `SessionDirtyNotifier`, `attach_session` / record auto-dirty enqueue, **`LifeguardPool::exclusive_primary_write_executor`** / **`Session::flush_dirty_in_transaction_pooled`** (U-4 pin-slot); **deferred:** insert-only flush; see [§9.7](#97-implementation-status-v0--u-2-partial)
+- [x] **Phase E — Session / Unit of Work (v0 — identity map + session handle)** ([§9](#9-session--unit-of-work-identity-map-dirty-tracking)) — **v0:** `ModelIdentityMap`, `Session`, `SessionDirtyNotifier`, `attach_session` / record auto-dirty enqueue, **`LifeguardPool::exclusive_primary_write_executor`** / **`Session::flush_dirty_in_transaction_pooled`** (U-4 pin-slot); **insert-only flush:** `register_pending_insert`, `flush_dirty_with_map_key`, `promote_pending_to_loaded`, `is_pending_insert_key`; see [§9.7](#97-implementation-status-v0--u-2-partial)
 - [x] [§10 Success criteria](#10-success-criteria) satisfied for **PRD v0** (partial parity per phase; follow-on work remains in §5–§9 “still to do” bullets)
 
 ### 0.2 Workstream rollup
@@ -138,9 +138,9 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 **SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK TODO, table filter, SQL keyword field).
 
-**Still to do for Phase A closure:** optional **`infer-schema` CLI** subprocess e2e. **Library / CI hooks:** `lifeguard-migrate/tests/infer_schema_postgres_smoke.rs` (connect + introspect `public`); `lifeguard-migrate/tests/infer_schema_table_filter_si3.rs` (SI-3 table filter — creates two scratch tables, infers one). Both skip when no DB URL. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`), `DEVELOPMENT.md` (migrate / goldens / infer smoke).
+**Phase A closure (documentation + tests):** **`infer-schema` CLI subprocess e2e** — `lifeguard-migrate/tests/infer_schema_cli_subprocess.rs` (spawns `CARGO_BIN_EXE_lifeguard-migrate infer-schema`, asserts banner; skips without DB URL). **Library / CI:** `infer_schema_postgres_smoke.rs`, `infer_schema_table_filter_si3.rs` (unchanged). **DBA confidence — live DB vs on-disk generated migrations:** `lifeguard_migrate::schema_migration_compare` + CLI **`compare-schema`** — compares `information_schema` base table names to merged `*_generated_from_entities.sql` `-- Table:` baselines; `tests/migration_db_compare_smoke.rs`. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`, `compare-schema`), `DEVELOPMENT.md` (migrate section).
 
-**Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary).
+**Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary; compare-schema table-name reconciliation).
 
 ---
 
@@ -201,7 +201,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **V-5 (derive sugar):** `#[validate(custom = path)]` on model fields — `path` is `fn(&sea_query::Value) -> Result<(), String>`; `LifeRecord` implements `validate_fields` to run each custom validator when `ActiveModelTrait::get` is `Some` for that column. Unsupported on `#[ignore]`/`#[skip]` fields. Tests: `lifeguard-derive/tests/test_minimal.rs` (`validate_attr_tests`).
 - **Built-in predicates:** `lifeguard::predicates` (`src/active_model/predicates.rs`) — `string_utf8_chars_max`, `string_utf8_chars_in_range`, `blob_or_string_byte_len_max`, `i64_in_range`, `f64_in_range` on `sea_query::Value`; unit tests in-module.
 
-**Still to do for fuller Phase B:** README / mapping matrix polish (G6).
+**G6 (documentation):** README competitive/feature bullets and [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) parity row list shipped validator APIs, predicate names, and the intentional gap vs SeaORM’s broader built-in attribute set.
 
 ---
 
@@ -298,7 +298,9 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 **F-3 (limitations vs raw SQL):** `ColumnTrait::f_add` rustdoc (aggregates/subqueries → `Expr::cust`); README competitive section + feature bullets (§10 / G6).
 
-**Still to do for fuller Phase D:** deeper numeric casting docs if needed. **Done in-tree:** `LifeRecord` `set_<field>_expr` / `__update_exprs` / derived `update()`; `identity_map_key` for session bridge; `insert()` rejects non-empty `__update_exprs`; Postgres `column_f_update.rs` + `column_f_where.rs`; README G6.
+**PostgreSQL numeric typing (F-style ops):** SeaQuery emits `SimpleExpr` arithmetic; PostgreSQL applies **binary promotion** (e.g. `integer` + `numeric` → `numeric`). Lifeguard does **not** inject implicit casts—align operand types in the query builder, or use `Expr::cust` / explicit SQL for `::bigint`, `::numeric`, etc. README + [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) F() row; rustdoc on `ColumnTrait::f_add` (`src/query/column/column_trait.rs`).
+
+**Done in-tree:** `LifeRecord` `set_<field>_expr` / `__update_exprs` / derived `update()`; `identity_map_key` for session bridge; `insert()` rejects non-empty `__update_exprs`; Postgres `column_f_update.rs` + `column_f_where.rs`; README + mapping G6 for F().
 
 ### 8.8 Dependency note
 
@@ -354,13 +356,13 @@ Success means developers can (where applicable) **generate or refresh** models f
 **Shipped in-tree:**
 
 - **API:** `lifeguard::ModelIdentityMap` and `lifeguard::fingerprint_pk_values` in `src/session/` — identity map keyed by stable PK fingerprints (`src/session/pk.rs`); same primary key → same `Rc<RefCell<Model>>` (first registration wins; duplicate model dropped).
-- **U-2 (partial):** `mark_dirty`, **`mark_dirty_key`** (fingerprint string), `unmark_dirty`, `is_marked_dirty`, `dirty_len`, `clear_dirty`, `flush_dirty` on **`ModelIdentityMap`** — dirty keys flushed in **lexicographic order of PK fingerprint** via a closure `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>` (callers wire `LifeRecord::update` / `save`). Derived **`LifeRecord::identity_map_key()`** returns `Some(fingerprint)` when all PK columns are set. **`Session`** (`src/session/uow.rs`) shares an identity map and merges a **`Send`/`Sync` pending-dirty queue** at **`Session::flush_dirty`**; **`Session::flush_dirty_in_transaction`** (`MayPostgresExecutor` + **`Transaction`**). **`Session::flush_dirty_in_transaction_pooled`** + **`LifeguardPool::exclusive_primary_write_executor`** (U-4: per-slot mutex, one primary connection for `BEGIN`/`COMMIT`/`ROLLBACK` around flush). **`LifeRecord::attach_session` / `detach_session`** (PK entities): `set_*`, **`ActiveModelTrait::set` / `take` / `set_col`**, and **`set_*_expr`** enqueue dirty via **`SessionDirtyNotifier`** when the PK is set on the record. **Not** shipped: insert-only flush for unregistered rows.
+- **U-2 (partial):** `mark_dirty`, **`mark_dirty_key`** (fingerprint string), `unmark_dirty`, `is_marked_dirty`, `dirty_len`, `clear_dirty`, `flush_dirty` / **`flush_dirty_with_map_key`** on **`ModelIdentityMap`** — dirty keys flushed in **lexicographic order of internal map key** (pending-insert keys first, then PK fingerprints) via a closure; callers wire `LifeRecord::update` / `save` / **`insert`**. **`register_pending_insert`**, **`promote_pending_to_loaded`**, **`is_pending_insert_key`** / **`PENDING_INSERT_KEY_PREFIX`** support **insert-only** rows until a real PK exists after `insert`. Derived **`LifeRecord::identity_map_key()`** returns `Some(fingerprint)` when all PK columns are set. **`Session`** (`src/session/uow.rs`) shares an identity map and merges a **`Send`/`Sync` pending-dirty queue** at **`Session::flush_dirty`**; **`Session::flush_dirty_in_transaction`** (`MayPostgresExecutor` + **`Transaction`**). **`Session::flush_dirty_in_transaction_pooled`** + **`LifeguardPool::exclusive_primary_write_executor`** (U-4: per-slot mutex, one primary connection for `BEGIN`/`COMMIT`/`ROLLBACK` around flush); **`flush_dirty_*_with_map_key`** variants for transactional insert vs update. **`LifeRecord::attach_session` / `detach_session`** (PK entities): `set_*`, **`ActiveModelTrait::set` / `take` / `set_col`**, and **`set_*_expr`** enqueue dirty via **`SessionDirtyNotifier`** when the PK is set on the record.
 - **Design:** `docs/planning/DESIGN_SESSION_UOW.md` — pool pinning, flush, and `may`/threading notes (U-4, U-5).
 - **Rustdoc:** `session` module documents identity, dirty flush, threading (`Send`/`Sync`).
-- **Tests:** `src/session/mod.rs`, `src/session/pk.rs`, `src/session/uow.rs` — identity map, fingerprint, dirty order, flush error retention, `Session` pending merge, `SessionDirtyNotifier` `Send`. **`db_integration_suite`:** `tests/db_integration/session_identity_flush.rs` — raw map flush, `mark_dirty_key` + `identity_map_key`, **`Session` + `attach_session` + record `set_*`**, **`Session::flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** → `LifeRecord::update` on Postgres.
+- **Tests:** `src/session/mod.rs`, `src/session/pk.rs`, `src/session/uow.rs` — identity map, fingerprint, dirty order, flush error retention, pending insert flush + promote (unit), `Session` pending merge, `SessionDirtyNotifier` `Send`. **`db_integration_suite`:** `tests/db_integration/session_identity_flush.rs` — raw map flush, `mark_dirty_key` + `identity_map_key`, **`Session` + `attach_session` + record `set_*`**, **`Session::flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** → `LifeRecord::update`, **`register_pending_insert`** + **`flush_dirty_with_map_key`** + **`promote_pending_to_loaded`** → `LifeRecord::insert`, same path inside **`flush_dirty_in_transaction_with_map_key`** / **`flush_dirty_in_transaction_pooled_with_map_key`** on Postgres.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase E:** insert-only flush for new rows, auto-sync **Model** from **LifeRecord** (vs app-maintained consistency), mapping matrix row tweaks as APIs grow.
+**Still to do for fuller Phase E:** auto-sync **Model** from **LifeRecord** (vs app-maintained consistency), mapping matrix row tweaks as APIs grow.
 
 ---
 

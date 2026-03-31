@@ -120,10 +120,11 @@ pub trait ColumnTrait: IntoColumnRef {
     /// For nested aggregates, subqueries, or vendor-only functions, use [`Expr::cust`](sea_query::Expr::cust)
     /// or SeaQuery’s expression API directly.
     ///
-    /// **PostgreSQL numeric typing:** mixed operand types (e.g. `integer` + `numeric`) follow PostgreSQL’s
-    /// usual promotion rules. If you need a specific result type (e.g. `bigint`), match column and RHS types
-    /// or add an explicit cast in SQL via [`Expr::cust`](sea_query::Expr::cust) / SeaQuery—Lifeguard does not
-    /// inject casts. See PRD §8 / README (F() / competitive matrix) for shipped vs raw-SQL fallbacks.
+    /// **PostgreSQL numeric typing:** mixed operand types (e.g. `integer` + `numeric`) follow the server’s
+    /// **binary promotion** rules (see PostgreSQL docs: *value expressions*, *type conversion*). If you need a
+    /// specific result type (e.g. `bigint`), match column and RHS types or add an explicit cast in SQL via
+    /// [`Expr::cust`](sea_query::Expr::cust) / SeaQuery—Lifeguard does not inject casts. PRD §8.7 and the
+    /// README competitive matrix (F() row) summarize this alongside raw-SQL fallbacks.
     fn f_add<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
         Expr::col(self).add(rhs)
     }

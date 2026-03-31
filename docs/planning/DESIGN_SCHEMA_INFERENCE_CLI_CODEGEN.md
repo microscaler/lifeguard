@@ -13,7 +13,8 @@
 | Layer | Crate / binary | Responsibility |
 |--------|----------------|----------------|
 | Introspection | `lifeguard_migrate::schema_infer` | Query PostgreSQL `information_schema` (and related catalogs), map types conservatively, emit Rust source **as text** via `infer_schema_rust` → `emit_inferred_rust`. **Golden tests** lock emitter output under `lifeguard-migrate/tests/golden/` (no live DB required). |
-| CLI | `lifeguard-migrate` subcommand **`infer-schema`** | Parse `--database-url` / env (`DATABASE_URL`, `LIFEGUARD_DATABASE_URL`), `--schema`, repeatable `--table`; connect via `may_postgres`, call `infer_schema_rust`, print or write output. |
+| Reconciliation (table names) | `lifeguard_migrate::schema_migration_compare` | Compare live `information_schema.tables` (`BASE TABLE`) to table names from merged `*_generated_from_entities.sql` (`-- Table:` sections via `generated_migration_diff::accumulate_table_baselines_from_dir`). **Not** column-level diff — DBA confidence that the database’s table inventory matches the entity-generated migration baseline on disk. |
+| CLI | `lifeguard-migrate` subcommands **`infer-schema`**, **`compare-schema`** | **`infer-schema`:** `--database-url` / env, `--schema`, repeatable `--table`; call `infer_schema_rust`, print Rust. **`compare-schema`:** `--generated-dir` (directory of `*_generated_from_entities.sql`), same schema flag; exit non-zero on drift. |
 | Consumption | Application / examples | Teams **copy, review, and commit** emitted `LifeModel` / `LifeRecord` modules into their crate (e.g. `examples/entities`). No automatic merge into `lifeguard-codegen` today. |
 
 **Codegen boundary:** Inference outputs **Rust source strings** that are **compatible** with `#[derive(LifeModel, LifeRecord)]` and existing column attributes. It does **not** invoke `lifeguard-derive` or `lifeguard-codegen` at runtime. The derive macros run later, when the pasted source is compiled.
@@ -44,4 +45,4 @@
 ## References
 
 - [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md §5](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)
-- Implementation: `lifeguard-migrate/src/schema_infer.rs`, `lifeguard-migrate/src/main.rs` (`infer-schema`).
+- Implementation: `lifeguard-migrate/src/schema_infer.rs`, `lifeguard-migrate/src/schema_migration_compare.rs`, `lifeguard-migrate/src/main.rs` (`infer-schema`, `compare-schema`).

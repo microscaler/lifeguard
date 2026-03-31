@@ -13,6 +13,7 @@ pub mod entity_loader;
 pub mod generated_migration_diff;
 pub mod registry_loader;
 pub mod schema_infer;
+pub mod schema_migration_compare;
 pub mod sql_dependency_order;
 pub mod sql_generator;
 

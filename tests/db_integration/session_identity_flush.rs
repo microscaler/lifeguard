@@ -195,3 +195,130 @@ fn session_flush_dirty_in_transaction_pooled_persists_via_update() {
     let n: i32 = row.get(0);
     assert_eq!(n, 77);
 }
+
+/// Pending-insert keys (`register_pending_insert`) + `flush_dirty_with_map_key` + `promote_pending_to_loaded`
+/// (PRD Phase E insert-only flush path).
+#[test]
+fn identity_map_pending_insert_flush_and_promote_persists_on_postgres() {
+    let _guard = LOCK.lock().expect("session_identity_flush lock");
+
+    let ctx = get_test_context();
+    let mut db = TestDatabase::with_url(&ctx.pg_url);
+    let executor = db.executor().expect("executor");
+
+    setup(&executor).expect("setup");
+
+    let mut map = ModelIdentityMap::<Entity>::new();
+    let (pending_key, rc) = map.register_pending_insert(CounterModel {
+        id: 0,
+        n: 33,
+    });
+
+    map.flush_dirty_with_map_key(&executor, |ex, mrc, key| {
+        assert!(lifeguard::is_pending_insert_key(key));
+        let mut m = mrc.borrow().clone();
+        m.id = 2;
+        *mrc.borrow_mut() = m.clone();
+        let rec = CounterRecord::from_model(&m);
+        let inserted = rec.insert(ex)?;
+        *mrc.borrow_mut() = inserted;
+        Ok(())
+    })
+    .expect("flush_dirty_with_map_key");
+
+    map.promote_pending_to_loaded(&pending_key, rc.borrow().clone())
+        .expect("promote_pending_to_loaded");
+
+    let row = executor
+        .query_one("SELECT n FROM lg_sess_flush_counter WHERE id = 2", &[])
+        .expect("select");
+    let n: i32 = row.get(0);
+    assert_eq!(n, 33);
+
+    assert_eq!(map.dirty_len(), 0);
+    assert!(map
+        .get_existing(&CounterModel { id: 2, n: 0 })
+        .is_some());
+}
+
+#[test]
+fn session_pending_insert_flush_in_transaction_with_map_key_persists_on_postgres() {
+    let _guard = LOCK.lock().expect("session_identity_flush lock");
+
+    let ctx = get_test_context();
+    let mut db = TestDatabase::with_url(&ctx.pg_url);
+    let executor = db.executor().expect("executor");
+
+    setup(&executor).expect("setup");
+
+    let session = Session::<Entity>::new();
+    let (pending_key, rc) = session.register_pending_insert(CounterModel {
+        id: 0,
+        n: 44,
+    });
+
+    session
+        .flush_dirty_in_transaction_with_map_key(&executor, |ex, mrc, key| {
+            assert!(lifeguard::is_pending_insert_key(key));
+            let mut m = mrc.borrow().clone();
+            m.id = 2;
+            *mrc.borrow_mut() = m.clone();
+            let rec = CounterRecord::from_model(&m);
+            let inserted = rec.insert(ex)?;
+            *mrc.borrow_mut() = inserted;
+            Ok(())
+        })
+        .expect("flush_dirty_in_transaction_with_map_key");
+
+    session
+        .promote_pending_to_loaded(&pending_key, rc.borrow().clone())
+        .expect("promote_pending_to_loaded");
+
+    let row = executor
+        .query_one("SELECT n FROM lg_sess_flush_counter WHERE id = 2", &[])
+        .expect("select");
+    let n: i32 = row.get(0);
+    assert_eq!(n, 44);
+}
+
+#[test]
+fn session_pending_insert_flush_in_transaction_pooled_with_map_key_persists_on_postgres() {
+    let _guard = LOCK.lock().expect("session_identity_flush lock");
+
+    let ctx = get_test_context();
+    let pool = Arc::new(
+        LifeguardPool::new(&ctx.pg_url, 1, vec![], 0).expect("LifeguardPool primary-only"),
+    );
+    let setup_ex = PooledLifeExecutor::new(pool.clone());
+    setup(&setup_ex).expect("setup");
+
+    let session = Session::<Entity>::new();
+    let (pending_key, rc) = session.register_pending_insert(CounterModel {
+        id: 0,
+        n: 55,
+    });
+
+    session
+        .flush_dirty_in_transaction_pooled_with_map_key(&pool, |ex, mrc, key| {
+            assert!(lifeguard::is_pending_insert_key(key));
+            let mut m = mrc.borrow().clone();
+            m.id = 2;
+            *mrc.borrow_mut() = m.clone();
+            let rec = CounterRecord::from_model(&m);
+            let inserted = rec.insert(ex)?;
+            *mrc.borrow_mut() = inserted;
+            Ok(())
+        })
+        .expect("flush_dirty_in_transaction_pooled_with_map_key");
+
+    session
+        .promote_pending_to_loaded(&pending_key, rc.borrow().clone())
+        .expect("promote_pending_to_loaded");
+
+    let verify = PooledLifeExecutor::new(pool);
+    let row = verify
+        .query_one("SELECT n FROM lg_sess_flush_counter WHERE id = 2", &[])
+        .expect("select");
+    let n: i32 = row.get(0);
+    assert_eq!(n, 55);
+}
