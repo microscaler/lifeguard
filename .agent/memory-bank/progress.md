@@ -1,5 +1,18 @@
 # Progress Tracking
 
+## ARCHITECTURE.md split from README (2026-03-28)
+
+- **ARCHITECTURE.md** (repo root): holds full architecture content — numbered target flowchart, multi-service deployment, connection pool “300 Spartans”, LifeReflector sequence diagram, links back to README.
+- **README.md**: replaced long § with **summarized** `flowchart LR` (request path vs optional/async) + pointer **[ARCHITECTURE.md](./ARCHITECTURE.md)**. Current status bullet for LifeReflector now references ARCHITECTURE.md.
+
+## README architecture diagrams (2026-03-28)
+
+- **README.md** § Architecture overview: replaced flat “App → Redis” graph with **numbered** `flowchart` (ORM → pool → **primary** vs **replica**; optional Redis **5–6**; LifeReflector **7–10** background). Microservices diagram split **PostgreSQL** into **Primary** / **Replicas**, numbered **1–5** on request path, dotted optional Redis, NOTIFY/reflector as **bg**. Connection pool subsection: sentence on primary vs replica **slots**. Legend explains solid vs dotted vs async.
+
+## README status refresh (2026-03-28)
+
+- **README.md** “Current status” and competitive matrix aligned with latest shipped behavior: **`ReadPreference`** / **`with_read_preference`**; **`lifeguard-migrate`** **`infer-schema`** (composite PK `#[primary_key]`) + **`compare-schema`** column-name drift; **`find_related`** vs parent **`scope`** (chain on returned `SelectQuery`). Fixed stale rows that claimed CTEs / windows / subqueries were “not yet implemented” (now **partial** with links to `SelectQuery` APIs). Roadmap row and **Read Preferences** / **Schema Inference** / **Scopes** table cells updated.
+
 ## Rustdoc API surface — audit snapshot (2026-03-31)
 
 - **Git:** `docs(rustdoc): expand SelectQuery and pool docs…` on `feat/schema_validators_session_and_scopes_2` — pushed to `origin` (upstream set).

@@ -14,7 +14,7 @@
 //! The closure typically builds a `LifeRecord` and calls [`crate::active_model::ActiveModelTrait::update`]
 //! or `save` — the map does not generate SQL itself.
 //! [`ModelIdentityMap::flush_dirty_with_map_key`] walks dirty rows in **lexicographic map-key order**
-//! (pending-insert keys first; see [`register_pending_insert`]) and passes the key so the closure can
+//! (pending-insert keys first; see [`ModelIdentityMap::register_pending_insert`]) and passes the key so the closure can
 //! call `insert` vs `update`.
 //!
 //! Flush is **not** implicitly transactional; wrap the executor in [`crate::Transaction`] if you
@@ -30,7 +30,7 @@
 //! See `docs/planning/DESIGN_SESSION_UOW.md` for pooling (U-4). [`Session`] bundles the map and a
 //! sendable [`SessionDirtyNotifier`] for `LifeRecord::attach_session`, `attach_session_with_model`, and `detach_session` (entities with a PK).
 //!
-//! Flush with [`LifeguardPool`](crate::LifeguardPool) via [`Session::flush_dirty`] and a [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor) (or any [`LifeExecutor`](crate::executor::LifeExecutor)). For one DB transaction around the flush on a **direct** client, use [`Session::flush_dirty_in_transaction`](crate::session::Session::flush_dirty_in_transaction). For the same on a pool, use [`Session::flush_dirty_in_transaction_pooled`](crate::session::Session::flush_dirty_in_transaction_pooled).
+//! Flush with [`LifeguardPool`](crate::LifeguardPool) via [`Session::flush_dirty`] and a [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor) (or any [`LifeExecutor`]). For one DB transaction around the flush on a **direct** client, use [`Session::flush_dirty_in_transaction`](crate::session::Session::flush_dirty_in_transaction). For the same on a pool, use [`Session::flush_dirty_in_transaction_pooled`](crate::session::Session::flush_dirty_in_transaction_pooled).
 //!
 //! # See also
 //!
@@ -105,7 +105,7 @@ where
     ///
     /// Returns `(map_key, rc)` — keep `map_key` for [`Self::promote_pending_to_loaded`] after a
     /// successful insert, and use [`Self::flush_dirty_with_map_key`] in the flush closure to call
-    /// `insert` when [`is_pending_insert_key`](crate::session::is_pending_insert_key)(`map_key`).
+    /// `insert` when [`is_pending_insert_key`](`map_key`).
     pub fn register_pending_insert(&mut self, model: E::Model) -> (String, Rc<RefCell<E::Model>>) {
         let id = self.next_pending_id;
         self.next_pending_id = self.next_pending_id.wrapping_add(1);
@@ -179,7 +179,7 @@ where
         }
     }
 
-    /// Mark dirty using a fingerprint string (e.g. from [`lifeguard::session::fingerprint_pk_values`]
+    /// Mark dirty using a fingerprint string (e.g. from [`crate::session::fingerprint_pk_values`]
     /// or a derived [`LifeRecord`](crate::active_model::ActiveModelTrait)’s `identity_map_key()`).
     /// No-op if the key is not registered.
     pub fn mark_dirty_key(&mut self, key: &str) {

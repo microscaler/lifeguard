@@ -1,9 +1,9 @@
-//! Built-in validation helpers for use in [`super::traits::ActiveModelBehavior::validate_fields`]
+//! Built-in validation helpers for use in [`ActiveModelBehavior::validate_fields`](crate::active_model::ActiveModelBehavior::validate_fields)
 //! and `#[validate(custom = path)]` (PRD Phase B — `range`, `len`-style predicates).
 //!
 //! Each function takes a [`sea_query::Value`] and returns `Result<(), String>` — the same shape as
-//! `#[validate(custom = path)]` — so you can map to [`super::validate_op::ValidationError`] in
-//! [`super::traits::ActiveModelBehavior::validate_fields`].
+//! `#[validate(custom = path)]` — so you can map to [`ValidationError`](crate::active_model::ValidationError) in
+//! [`ActiveModelBehavior::validate_fields`](crate::active_model::ActiveModelBehavior::validate_fields).
 //!
 //! **Unset fields:** `None` / null scalar variants are treated as “nothing to validate” and return `Ok(())`.
 
