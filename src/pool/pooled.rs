@@ -14,6 +14,9 @@
 //!   **replica** pool when replica URLs and a non-zero replica pool size are configured **and**
 //!   [`crate::pool::wal::WalLagMonitor`] reports the replica is not lagging; otherwise reads use
 //!   the primary pool.
+//! - Callers can override routing per [`PooledLifeExecutor`] with [`ReadPreference`]:
+//!   [`ReadPreference::Primary`] forces reads onto the primary tier (read-your-writes); the default
+//!   is [`ReadPreference::Default`] (WAL-based routing above).
 //!
 //! With the **`metrics`** feature, pool-scoped series use the OpenTelemetry attribute **`pool_tier`**
 //! (`primary` \| `replica`); see [`crate::metrics::METRICS`].
@@ -37,6 +40,20 @@ use std::time::{Duration, Instant};
 use crate::metrics::tracing_helpers;
 #[cfg(feature = "metrics")]
 use crate::metrics::METRICS;
+
+/// Where [`PooledLifeExecutor`] should send **read** queries (`query_one_values` / `query_all_values`).
+///
+/// Writes always use the primary tier regardless of this value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ReadPreference {
+    /// Route reads using [`LifeguardPool`]'s built-in policy: replica tier when configured and WAL
+    /// lag allows, otherwise primary.
+    #[default]
+    Default,
+    /// Always read from the **primary** tier (strong consistency, read-your-writes after a write
+    /// on the same pool).
+    Primary,
+}
 
 /// One tier of workers (primary or replica) with round-robin dispatch.
 struct WorkerPool {
@@ -417,6 +434,13 @@ impl LifeguardPool {
         }
     }
 
+    fn read_pool_for(&self, preference: ReadPreference) -> &WorkerPool {
+        match preference {
+            ReadPreference::Primary => &self.primary,
+            ReadPreference::Default => self.read_tier(),
+        }
+    }
+
     fn dispatch_write<T: Send + 'static>(
         &self,
         build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
@@ -424,11 +448,12 @@ impl LifeguardPool {
         self.primary.dispatch(build)
     }
 
-    fn dispatch_read<T: Send + 'static>(
+    fn dispatch_read_with_preference<T: Send + 'static>(
         &self,
+        preference: ReadPreference,
         build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
-        self.read_tier().dispatch(build)
+        self.read_pool_for(preference).dispatch(build)
     }
 
     /// Pin one primary worker slot for a multi-statement unit of work (for example `BEGIN` → ORM
@@ -881,17 +906,44 @@ fn values_to_owned(values: &sea_query::Values) -> Result<Vec<OwnedParam>, LifeEr
 #[derive(Clone)]
 pub struct PooledLifeExecutor {
     pool: Arc<LifeguardPool>,
+    read_preference: ReadPreference,
 }
 
 impl PooledLifeExecutor {
     #[must_use]
     pub fn new(pool: Arc<LifeguardPool>) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            read_preference: ReadPreference::default(),
+        }
+    }
+
+    fn dispatch_read<T: Send + 'static>(
+        &self,
+        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+    ) -> Result<T, LifeError> {
+        self.pool
+            .dispatch_read_with_preference(self.read_preference, build)
     }
 
     #[must_use]
     pub fn pool(&self) -> &Arc<LifeguardPool> {
         &self.pool
+    }
+
+    /// Returns this executor with [`ReadPreference::Primary`] so **`query_*_values`** use the
+    /// primary tier even when replica routing would otherwise send reads to a standby.
+    #[must_use]
+    pub fn with_read_preference(self, read_preference: ReadPreference) -> Self {
+        Self {
+            read_preference,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub fn read_preference(&self) -> ReadPreference {
+        self.read_preference
     }
 }
 
@@ -937,7 +989,7 @@ impl LifeExecutor for PooledLifeExecutor {
     fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
         let params = values_to_owned(values)?;
         let query = query.to_string();
-        self.pool.dispatch_read(|reply| WorkerJob::QueryOne {
+        self.dispatch_read(|reply| WorkerJob::QueryOne {
             enqueued_at: Instant::now(),
             query,
             params,
@@ -952,7 +1004,7 @@ impl LifeExecutor for PooledLifeExecutor {
     ) -> Result<Vec<Row>, LifeError> {
         let params = values_to_owned(values)?;
         let query = query.to_string();
-        self.pool.dispatch_read(|reply| WorkerJob::QueryAll {
+        self.dispatch_read(|reply| WorkerJob::QueryAll {
             enqueued_at: Instant::now(),
             query,
             params,
@@ -964,7 +1016,13 @@ impl LifeExecutor for PooledLifeExecutor {
 #[cfg(test)]
 mod lifetime_effective_limit_tests {
     use super::connection_lifetime_effective_limit;
+    use super::ReadPreference;
     use std::time::Duration;
+
+    #[test]
+    fn read_preference_default_matches_variant() {
+        assert_eq!(ReadPreference::default(), ReadPreference::Default);
+    }
 
     #[test]
     fn same_slot_same_limit_across_calls() {

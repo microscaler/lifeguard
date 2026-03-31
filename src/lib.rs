@@ -78,7 +78,7 @@ pub mod test_helpers;
 
 pub use pool::{
     DatabaseConfig, ExclusivePrimaryLifeExecutor, LifeguardPool, LifeguardPoolSettings, OwnedParam,
-    PooledLifeExecutor, WalLagPolicy,
+    PooledLifeExecutor, ReadPreference, WalLagPolicy,
 };
 
 #[doc(inline)]

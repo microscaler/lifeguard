@@ -532,7 +532,7 @@ Story-level detail: [docs/planning/epics-stories/](./docs/planning/epics-stories
 
 **Partial (PRD v0 shipped; see [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)):** schema inference CLI/module; validators (pipeline + aggregate mode + derive `custom` + **`lifeguard::predicates`** — README + mapping doc spell out shipped vs SeaORM gaps); `SelectQuery::scope` + **`scope_or` / `scope_any`** + **`#[scope]`**; F() on **`UPDATE`** (derived `set_*_expr`) and **`WHERE`/`ORDER BY`** via SeaQuery (**PostgreSQL numeric promotion** documented in PRD §8 / `ColumnTrait::f_add`); **`Session`** / **`ModelIdentityMap`** with **`mark_dirty_key`**, **`attach_session`** (dirty enqueue when PK set), **`flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** ( **`LifeguardPool::exclusive_primary_write_executor`** ), **`register_pending_insert`** / **`flush_dirty_with_map_key`** / **`promote_pending_to_loaded`**.
 
-**Partial or roadmap:** some SQL builder extras (subqueries/CTEs/windows), explicit read-preference API surface (pool routing is already shipped), migration derive niceties (e.g. `DeriveMigrationName` per mapping), and any remaining pooling parity called out in [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md) and [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md). **Session:** `LifeRecord::attach_session_with_model` auto-syncs literals into the identity-map `Rc` via `to_model()` when mutations notify the session ([PRD §9](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)); F-style `set_*_expr` remains record-only until `update()`.
+**Partial or roadmap:** some SQL builder extras (subqueries/CTEs/windows), migration derive niceties (e.g. `DeriveMigrationName` per mapping), and any remaining pooling parity called out in [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md) and [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md). **Pool reads:** [`ReadPreference`](./src/pool/pooled.rs) + [`PooledLifeExecutor::with_read_preference`](./src/pool/pooled.rs) force primary-tier reads when you need read-your-writes; default routing still follows WAL lag. **Session:** `LifeRecord::attach_session_with_model` auto-syncs literals into the identity-map `Rc` via `to_model()` when mutations notify the session ([PRD §9](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)); F-style `set_*_expr` remains record-only until `update()`.
 
 **Roadmap / vision:** productized “transparent Redis on every read”; LifeReflector and cache coherence in [`lifeguard-reflector`](./lifeguard-reflector/).
 
@@ -560,7 +560,7 @@ For percentages and row-by-row status, use the mapping document linked in the se
 - ❌ PostgreSQL-only (by design - enables advanced features)
 - ❌ Requires `may` coroutine runtime (not Tokio)
 - ❌ Smaller ecosystem (newer project)
-- ⚠️ Some roadmap items remain (explicit read-preference API, SQL builder extras, migration derives, etc.); see [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md), mapping doc, and pooling docs
+- ⚠️ Some roadmap items remain (SQL builder extras, migration derives, etc.); see [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md), mapping doc, and pooling docs
 
 ### Performance Comparison (Estimated)
 

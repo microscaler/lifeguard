@@ -21,6 +21,7 @@ When loading related rows (e.g. `post.find_related(Comment)`), should **parent s
 
 ## Next implementation steps (optional)
 
+- After a write on the primary, **read-your-writes** on pooled executors: use `PooledLifeExecutor::with_read_preference(ReadPreference::Primary)` (see `src/pool/pooled.rs`) so `SELECT` paths do not hit a possibly stale replica (same applies to pooled reads right after `INSERT`/`UPDATE`).
 - Add examples under `examples/` showing `find_related` + manual `filter` on the returned query type if the API allows chaining.
 - If product wants **inherited scope**, add a dedicated method (name TBD) on the relation builder so call sites opt in.
 - Cross-link this doc from [`SEAORM_LIFEGUARD_MAPPING.md`](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) when a behavior ships.

@@ -24,7 +24,9 @@
 //! latency, and CI runner load. Cross‑AZ or WAN replicas are **outside** this crate’s control.
 
 use lifeguard::test_helpers::TestDatabase;
-use lifeguard::{LifeExecutor, LifeguardPool, LifeguardPoolSettings, PooledLifeExecutor};
+use lifeguard::{
+    LifeExecutor, LifeguardPool, LifeguardPoolSettings, PooledLifeExecutor, ReadPreference,
+};
 use sea_query::{Value, Values};
 use std::sync::Arc;
 use std::thread;
@@ -299,6 +301,93 @@ fn pooled_pool_construct_write_read_with_replica() {
     log_timing("COUNT(*) pooled read (replica tier)", t9.elapsed());
 
     log_timing("TOTAL (smoke + batch)", t_total.elapsed());
+}
+
+/// [`ReadPreference::Primary`] must hit the primary tier even when default routing uses the replica.
+#[test]
+fn pooled_read_preference_primary_forces_primary_tier() {
+    let Some(replica_url) = replica_url_or_skip() else {
+        return;
+    };
+
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+
+    let ep_p = pg_tcp_endpoint_key(&primary_url).expect("parse primary URL host:port");
+    let ep_r = pg_tcp_endpoint_key(&replica_url).expect("parse replica URL host:port");
+    assert_ne!(
+        ep_p, ep_r,
+        "TEST_REPLICA_URL must not target the same host:port as TEST_DATABASE_URL"
+    );
+
+    let mut db = TestDatabase::with_url(&primary_url);
+    let setup_exec = db.executor().expect("primary executor");
+    setup_schema_on_primary(&setup_exec);
+
+    let pool = Arc::new(
+        LifeguardPool::new_with_settings(
+            &primary_url,
+            1,
+            vec![replica_url.clone()],
+            1,
+            &integration_pool_settings(),
+        )
+        .expect("LifeguardPool::new_with_settings with replica"),
+    );
+    let exec = PooledLifeExecutor::new(pool.clone());
+
+    let lsn = crate::replication_sync::primary_current_wal_lsn(&primary_url).expect("primary lsn");
+    crate::replication_sync::wait_replica_replayed_at_least(
+        &replica_url,
+        &lsn,
+        Duration::from_secs(45),
+        Duration::from_millis(5),
+    )
+    .expect("replica replay wait");
+
+    assert!(
+        crate::replication_sync::postgres_is_in_recovery(&replica_url)
+            .expect("is_in_recovery query"),
+        "TEST_REPLICA_URL must be a standby (pg_is_in_recovery)"
+    );
+
+    let mut lag_ok = false;
+    for _ in 0..400 {
+        if !pool.is_replica_lagging() {
+            lag_ok = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        lag_ok,
+        "expected replica not lagging for pool read routing after warmup"
+    );
+
+    assert_pooled_pg_is_in_recovery(
+        &exec,
+        true,
+        "default ReadPreference routes to replica tier when healthy",
+    );
+
+    let exec_primary = exec
+        .clone()
+        .with_read_preference(ReadPreference::Primary);
+    assert_eq!(
+        exec_primary.read_preference(),
+        ReadPreference::Primary
+    );
+    assert_pooled_pg_is_in_recovery(
+        &exec_primary,
+        false,
+        "ReadPreference::Primary must use primary tier",
+    );
+
+    assert_pooled_pg_is_in_recovery(
+        &exec,
+        true,
+        "original executor should still use default (replica) routing",
+    );
 }
 
 #[cfg(test)]
