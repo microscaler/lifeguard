@@ -37,7 +37,7 @@ For each PRD-driven or user-facing change, follow **`docs/planning/DEV_RUSTDOC_A
 
 ### `lifeguard-migrate` and schema inference
 
-**CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url …` (or set `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). **`compare-schema`** compares live base tables to merged `*_generated_from_entities.sql` under `--generated-dir` (DBA / CI table-name reconciliation). See **`lifeguard-migrate/README.md`** (`infer-schema` and `compare-schema`) and **`docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md`**.
+**CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url …` (or set `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`); optional **`--watch`** / **`--watch-interval-secs`** re-poll and re-print when emitted Rust changes (PRD §5.7a). **`compare-schema`** compares live base tables to merged `*_generated_from_entities.sql` under `--generated-dir` (DBA / CI table-name reconciliation). See **`lifeguard-migrate/README.md`** (`infer-schema` and `compare-schema`) and **`docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md`**.
 
 - **Emitter goldens:** changing `lifeguard-migrate/src/schema_infer.rs` output may require updating files under **`lifeguard-migrate/tests/golden/`**. Run **`cargo test -p lifeguard-migrate schema_infer`** before merge.
 

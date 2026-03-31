@@ -14,7 +14,7 @@ Migration CLI tool for Lifeguard ORM - manage database schema changes with versi
 - ✅ **Up/Down Migrations** - Full support for forward and rollback migrations
 - ✅ **Status Tracking** - View applied vs pending migrations
 - ✅ **Entity-Driven Generation** - Generate SQL migrations from Lifeguard entity definitions
-- ✅ **Schema inference (`infer-schema`)** - Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout); see below
+- ✅ **Schema inference (`infer-schema`)** - Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout); optional **`--watch`** polling (see below)
 - ✅ **DB vs generated migration baseline (`compare-schema`)** - Reconcile live `information_schema` tables and (for tables in both baselines) **column names** vs merged `*_generated_from_entities.sql` (`CREATE` + `ADD COLUMN`); see below
 - ✅ **CI/CD Integration** - Designed for automated deployment pipelines
 - ✅ **Dry Run Mode** - Preview migrations without executing them
@@ -182,6 +182,15 @@ lifeguard-migrate infer-schema \
   --schema public \
   --table users \
   --table orders
+```
+
+**Watch mode (PRD §5.7a):** poll the database on an interval and **print again only when the emitted Rust changes** (stderr notes the first change after startup). Uses a fresh connection each poll. Stop with Ctrl+C.
+
+```bash
+lifeguard-migrate infer-schema \
+  --database-url "$DATABASE_URL" \
+  --watch \
+  --watch-interval-secs 10
 ```
 
 **References:**

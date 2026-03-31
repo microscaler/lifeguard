@@ -143,7 +143,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 **Shipped in-tree:**
 
-- **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url <URL>` (or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). Flags: `--schema` (default `public`), `--table TABLE` (repeatable) to restrict tables.
+- **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url <URL>` (or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). Flags: `--schema` (default `public`), `--table TABLE` (repeatable) to restrict tables; **`--watch`** + **`--watch-interval-secs`** (default 5, minimum 1) to poll and re-print when emitted Rust changes (§5.7a).
 - **Library:** `lifeguard_migrate::schema_infer::{infer_schema_rust, InferOptions}` — introspects `information_schema`, maps common PostgreSQL types to Rust types conservatively, emits `#[derive(LifeModel, LifeRecord)]` structs with `#[primary_key]` on **each** primary-key column (including **composite** PKs — multiple `#[primary_key]` attributes, matching `lifeguard-derive`); unsupported types are **omitted** with `// OMITTED:` lines (SI-2).
 
 **SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK, table filter, SQL keyword field).
@@ -156,7 +156,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 Tackle after core PRD follow-through items:
 
-- **Watch mode** for `infer-schema`
+- **~~Watch mode~~** for `infer-schema` — **shipped:** CLI `--watch` + `--watch-interval-secs` (default 5s, min 1); re-introspects on an interval and prints when output changes; `lifeguard-migrate/README.md`
 - **Richer CI golden workflows** (snapshot automation beyond current unit goldens)
 - **Index reconciliation (stretch):** extend `lifeguard_migrate::schema_migration_compare` and the **`compare-schema`** CLI to fetch index definitions (e.g. `pg_indexes` / `information_schema.statistics`), parse each index’s column list, and verify indexed columns exist in both `column_map_from_merged_baseline` and the live DB; surface mismatches as failures or warnings; align generated migrations so **`CREATE INDEX`** is represented and validated. Follow-up: optional **lifeguard-derive** / migration-time checks that struct fields map to indexed columns where the schema expects them. (See §5.7 shipped scope: table + column **names** only today.)
 
