@@ -112,9 +112,8 @@ fn session_flush_dirty_after_attach_session_and_set_n_on_record() {
     let rc = session.register_loaded(CounterModel { id: 1, n: 0 });
 
     let mut rec = CounterRecord::from_model(&rc.borrow());
-    rec.attach_session(&session);
+    rec.attach_session_with_model(&session, &rc);
     rec.set_n(42);
-    *rc.borrow_mut() = rec.to_model().expect("to_model");
 
     session
         .flush_dirty(&executor, |ex, mrc| {

@@ -362,7 +362,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Tests:** `src/session/mod.rs`, `src/session/pk.rs`, `src/session/uow.rs` — identity map, fingerprint, dirty order, flush error retention, pending insert flush + promote (unit), `Session` pending merge, `SessionDirtyNotifier` `Send`. **`db_integration_suite`:** `tests/db_integration/session_identity_flush.rs` — raw map flush, `mark_dirty_key` + `identity_map_key`, **`Session` + `attach_session` + record `set_*`**, **`Session::flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** → `LifeRecord::update`, **`register_pending_insert`** + **`flush_dirty_with_map_key`** + **`promote_pending_to_loaded`** → `LifeRecord::insert`, same path inside **`flush_dirty_in_transaction_with_map_key`** / **`flush_dirty_in_transaction_pooled_with_map_key`** on Postgres.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase E:** auto-sync **Model** from **LifeRecord** (vs app-maintained consistency), mapping matrix row tweaks as APIs grow.
+**Still to do for fuller Phase E:** mapping matrix row tweaks as APIs grow. **Done in-tree:** **`LifeRecord::attach_session_with_model`** — linked `Rc<RefCell<Model>>` updated via **`to_model()`** on each session-notifying mutation when conversion succeeds (PRD §9 / `DESIGN_SESSION_UOW.md`).
 
 ---
 

@@ -855,13 +855,19 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             #[doc(hidden)]
             pub __lg_session_notifier: Option<lifeguard::session::SessionDirtyNotifier>,
+            /// When [`Self::attach_session_with_model`] is used, mutations sync into this handle via [`Self::to_model`].
+            #[doc(hidden)]
+            pub __lg_session_model: Option<lifeguard::session::SessionIdentityModelCell<#model_name>>,
         }
     } else {
         quote! {}
     };
 
     let session_new_init = if has_primary_keys {
-        quote! { __lg_session_notifier: None, }
+        quote! {
+            __lg_session_notifier: None,
+            __lg_session_model: None,
+        }
     } else {
         quote! {}
     };
@@ -869,13 +875,29 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let session_helpers = if has_primary_keys {
         quote! {
             /// Wire this record to `session` so `set_*`, [`ActiveModelTrait::set`](lifeguard::ActiveModelTrait::set), and F-style `set_*_expr` enqueue dirty keys (merged at [`Session::flush_dirty`](lifeguard::session::Session::flush_dirty)) when the primary key is set (PRD §9).
+            ///
+            /// Does **not** link the identity map [`Rc`]; use [`Self::attach_session_with_model`] to keep the registered model in sync when you mutate this record (see PRD §9).
             pub fn attach_session(&mut self, session: &lifeguard::session::Session<#entity_name>) {
                 self.__lg_session_notifier = Some(session.dirty_notifier());
+                self.__lg_session_model = None;
             }
 
-            /// Stop forwarding mutations to the session dirty queue.
+            /// Like [`Self::attach_session`], but also keeps `model_rc` (typically from [`Session::register_loaded`](lifeguard::session::Session::register_loaded)) updated on each notifying mutation by calling [`Self::to_model`] when it succeeds—so [`Session::flush_dirty`](lifeguard::session::Session::flush_dirty) closures see current literals without a manual `*rc.borrow_mut() = rec.to_model()?`.
+            ///
+            /// If [`Self::to_model`] returns `Err` (e.g. required field unset), the model is left unchanged for that mutation. F-style `set_*_expr` values are not represented on the [`Model`](lifeguard::ModelTrait) type; they remain on the record only.
+            pub fn attach_session_with_model(
+                &mut self,
+                session: &lifeguard::session::Session<#entity_name>,
+                model_rc: &std::rc::Rc<std::cell::RefCell<#model_name>>,
+            ) {
+                self.__lg_session_notifier = Some(session.dirty_notifier());
+                self.__lg_session_model = Some(lifeguard::session::SessionIdentityModelCell::new(model_rc));
+            }
+
+            /// Stop forwarding mutations to the session dirty queue and clear any linked identity-map handle.
             pub fn detach_session(&mut self) {
                 self.__lg_session_notifier = None;
+                self.__lg_session_model = None;
             }
 
             #[doc(hidden)]
@@ -883,6 +905,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             fn __lg_session_notify_dirty(&self) {
                 if let Some(ref n) = self.__lg_session_notifier {
                     n.notify_identity_map_dirty(self.identity_map_key());
+                }
+                if let Some(ref cell) = self.__lg_session_model {
+                    if let Ok(m) = self.to_model() {
+                        cell.replace_with(m);
+                    }
                 }
             }
         }

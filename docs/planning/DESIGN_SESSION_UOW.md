@@ -17,7 +17,8 @@
 ## Flush (current + future)
 
 - **Shipped:** `ModelIdentityMap::flush_dirty` walks dirty entries in **lexicographic map-key order** (pending-insert keys under `PENDING_INSERT_KEY_PREFIX` sort before normal PK fingerprints) and invokes `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>`. **`ModelIdentityMap::register_pending_insert`** / **`flush_dirty_with_map_key`** / **`promote_pending_to_loaded`** plus **`is_pending_insert_key`** support rows **without** a stable PK fingerprint until after `LifeRecord::insert` (callers branch on the map key in the flush closure, then promote). **`Session::flush_dirty`** merges **`SessionDirtyNotifier`** keys into the map first, then calls that logic. **`Session::flush_dirty_in_transaction(&MayPostgresExecutor, …)`** runs the flush inside **`Transaction`** on a **direct** client. **`Session::flush_dirty_in_transaction_pooled(&LifeguardPool, …)`** pins one primary slot (**`ExclusivePrimaryLifeExecutor`**) and uses raw `BEGIN` / `COMMIT` / `ROLLBACK` so the whole flush is one connection; map-key variants exist for insert vs update in one transaction. Per-slot mutexes also serialize unrelated jobs that target the same worker index.
-- **Future:** optional executor-holding session type; auto-sync **Model** from **LifeRecord** (vs app-maintained consistency before flush).
+- **LifeRecord → model auto-sync (PRD §9):** derived **`attach_session_with_model(&session, &Rc<RefCell<Model>>)`** — after each mutation that notifies the session, **`to_model()`** runs when it succeeds and writes into the linked `Rc` so flush closures read current literals without `*rc.borrow_mut() = rec.to_model()?`. **`attach_session`** without the `Rc` leaves prior manual sync behavior. F-style **`set_*_expr`** is not stored on the `Model` type; those edits stay on the record until `update()`.
+- **Future:** optional executor-holding session type.
 
 ## References
 

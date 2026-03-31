@@ -28,7 +28,7 @@
 //! # Pooling (U-4)
 //!
 //! See `docs/planning/DESIGN_SESSION_UOW.md` for pooling (U-4). [`Session`] bundles the map and a
-//! sendable [`SessionDirtyNotifier`] for `LifeRecord::attach_session` / `detach_session` (entities with a PK).
+//! sendable [`SessionDirtyNotifier`] for `LifeRecord::attach_session`, `attach_session_with_model`, and `detach_session` (entities with a PK).
 //!
 //! Flush with [`LifeguardPool`](crate::LifeguardPool) via [`Session::flush_dirty`] and a [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor) (or any [`LifeExecutor`](crate::executor::LifeExecutor)). For one DB transaction around the flush on a **direct** client, use [`Session::flush_dirty_in_transaction`](crate::session::Session::flush_dirty_in_transaction). For the same on a pool, use [`Session::flush_dirty_in_transaction_pooled`](crate::session::Session::flush_dirty_in_transaction_pooled).
 //!
@@ -36,9 +36,11 @@
 //!
 //! - Project PRD §9 (session / UoW).
 
+mod identity_model_cell;
 mod pk;
 mod uow;
 
+pub use identity_model_cell::SessionIdentityModelCell;
 pub use pk::fingerprint_pk_values;
 pub use uow::{Session, SessionDirtyNotifier};
 
@@ -274,6 +276,7 @@ mod tests {
     use may_postgres::Row;
     use sea_query::{Iden, IdenStatic, Value};
     use std::cell::RefCell;
+    use std::rc::Rc;
 
     struct NopExecutor;
 
@@ -555,5 +558,20 @@ mod tests {
                 label: "probe",
             })
             .is_some_and(|r| Rc::ptr_eq(&r, &r2)));
+    }
+
+    #[test]
+    fn session_identity_model_cell_replace_with_updates_rc() {
+        let mut map = ModelIdentityMap::<SessEntity>::new();
+        let rc = map.register_loaded(SessModel {
+            id: 1,
+            label: "a",
+        });
+        let cell = SessionIdentityModelCell::new(&rc);
+        cell.replace_with(SessModel {
+            id: 1,
+            label: "b",
+        });
+        assert_eq!(rc.borrow().label, "b");
     }
 }
