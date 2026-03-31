@@ -304,7 +304,11 @@ mod tests {
         n.notify_identity_map_dirty(Some(key));
         let ex = NopExecutor;
         let ex_ref: &dyn LifeExecutor = &ex;
-        s.flush_dirty(ex_ref, |_, _| Ok(())).expect("flush");
+        assert_eq!(
+            s.flush_dirty(ex_ref, |_, _| Ok(())),
+            Ok(()),
+            "flush_dirty should succeed"
+        );
         assert_eq!(s.dirty_len(), 0);
     }
 
