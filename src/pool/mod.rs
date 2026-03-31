@@ -39,4 +39,4 @@ pub mod wal;
 pub use config::{DatabaseConfig, LifeguardPoolSettings};
 pub use wal::WalLagPolicy;
 pub use owned_param::OwnedParam;
-pub use pooled::{LifeguardPool, PooledLifeExecutor};
+pub use pooled::{ExclusivePrimaryLifeExecutor, LifeguardPool, PooledLifeExecutor};

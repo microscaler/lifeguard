@@ -1,12 +1,13 @@
 //! PRD §9: `ModelIdentityMap` / `Session` + `flush_dirty` / `flush_dirty_in_transaction` with derived `LifeRecord::update`.
 
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::context::get_test_context;
 use lifeguard::executor::LifeError;
 use lifeguard::session::{ModelIdentityMap, Session};
 use lifeguard::test_helpers::TestDatabase;
-use lifeguard::{ActiveModelTrait, LifeExecutor, LifeModelTrait};
+use lifeguard::{ActiveModelTrait, LifeExecutor, LifeguardPool, LifeModelTrait, PooledLifeExecutor};
 use lifeguard_derive::{LifeModel, LifeRecord};
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -160,4 +161,37 @@ fn session_flush_dirty_in_transaction_persists_via_update() {
         .expect("select");
     let n: i32 = row.get(0);
     assert_eq!(n, 99);
+}
+
+#[test]
+fn session_flush_dirty_in_transaction_pooled_persists_via_update() {
+    let _guard = LOCK.lock().expect("session_identity_flush lock");
+
+    let ctx = get_test_context();
+    let pool = Arc::new(
+        LifeguardPool::new(&ctx.pg_url, 1, vec![], 0).expect("LifeguardPool primary-only"),
+    );
+    let setup_ex = PooledLifeExecutor::new(pool.clone());
+    setup(&setup_ex).expect("setup");
+
+    let session = Session::<Entity>::new();
+    let rc = session.register_loaded(CounterModel { id: 1, n: 0 });
+    rc.borrow_mut().n = 77;
+    session.mark_dirty(&CounterModel { id: 1, n: 0 });
+
+    session
+        .flush_dirty_in_transaction_pooled(&pool, |ex, mrc| {
+            let model = mrc.borrow().clone();
+            let rec = CounterRecord::from_model(&model);
+            let _ = rec.update(ex)?;
+            Ok(())
+        })
+        .expect("flush_dirty_in_transaction_pooled");
+
+    let verify = PooledLifeExecutor::new(pool);
+    let row = verify
+        .query_one("SELECT n FROM lg_sess_flush_counter WHERE id = 1", &[])
+        .expect("select");
+    let n: i32 = row.get(0);
+    assert_eq!(n, 77);
 }

@@ -10,9 +10,9 @@
 //!
 //! Flush with any [`LifeExecutor`](crate::executor::LifeExecutor), including [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor).
 //! For a single transaction across dirty rows on a **direct** [`MayPostgresExecutor`](crate::MayPostgresExecutor),
-//! use [`Session::flush_dirty_in_transaction`]. [`crate::pool::PooledLifeExecutor`] cannot pin one
-//! connection for `BEGIN`/`COMMIT` around multiple ORM calls — use a direct executor for that pattern
-//! or flush without a wrapping transaction. See `docs/planning/DESIGN_SESSION_UOW.md`.
+//! use [`Session::flush_dirty_in_transaction`]. For a [`crate::pool::LifeguardPool`], use
+//! [`Session::flush_dirty_in_transaction_pooled`] (pins one primary worker slot and runs `BEGIN` /
+//! flush / `COMMIT` on that connection). See `docs/planning/DESIGN_SESSION_UOW.md`.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use crate::active_model::ActiveModelError;
 use crate::executor::{LifeExecutor, MayPostgresExecutor};
 use crate::model::ModelTrait;
+use crate::pool::LifeguardPool;
 use crate::query::LifeModelTrait;
 
 use super::ModelIdentityMap;
@@ -191,9 +192,9 @@ where
     /// Like [`Self::flush_dirty`], but runs all persistence callbacks inside **one** PostgreSQL
     /// transaction (`BEGIN` → flush → `COMMIT`, or `ROLLBACK` on first error).
     ///
-    /// Only available for [`MayPostgresExecutor`] (a single `may_postgres::Client`). For
-    /// [`crate::pool::PooledLifeExecutor`], each statement may use a different worker; use a direct
-    /// connection or flush without this helper.
+    /// Uses [`MayPostgresExecutor::begin`](MayPostgresExecutor::begin) (isolation level and
+    /// `BEGIN` semantics match [`crate::transaction::Transaction`]). For [`LifeguardPool`], prefer
+    /// [`Self::flush_dirty_in_transaction_pooled`].
     pub fn flush_dirty_in_transaction<F>(
         &self,
         executor: &MayPostgresExecutor,
@@ -212,6 +213,55 @@ where
             }),
             Err(e) => {
                 if let Err(rb_err) = tx.rollback() {
+                    return Err(ActiveModelError::DatabaseError(format!(
+                        "flush failed: {e}; rollback failed: {rb_err}"
+                    )));
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Like [`Self::flush_dirty_in_transaction`], but uses [`LifeguardPool::exclusive_primary_write_executor`]
+    /// so every ORM statement runs on **one** pinned primary connection (`BEGIN` / flush / `COMMIT`
+    /// with default `READ COMMITTED` via raw `BEGIN`/`COMMIT`/`ROLLBACK` SQL).
+    ///
+    /// Does **not** use [`crate::pool::PooledLifeExecutor`] round-robin dispatch (which can split
+    /// statements across workers).
+    pub fn flush_dirty_in_transaction_pooled<F>(
+        &self,
+        pool: &LifeguardPool,
+        mut f: F,
+    ) -> Result<(), ActiveModelError>
+    where
+        F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
+    {
+        let exec = pool.exclusive_primary_write_executor().map_err(|e| {
+            ActiveModelError::DatabaseError(format!("exclusive primary executor: {e}"))
+        })?;
+        Self::flush_dirty_with_begin_commit_sql(self, &exec, &mut f)
+    }
+
+    fn flush_dirty_with_begin_commit_sql<F>(
+        session: &Self,
+        executor: &dyn LifeExecutor,
+        f: &mut F,
+    ) -> Result<(), ActiveModelError>
+    where
+        F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
+    {
+        executor.execute("BEGIN", &[]).map_err(|e| {
+            ActiveModelError::DatabaseError(format!("begin transaction: {e}"))
+        })?;
+        match session.flush_dirty(executor, |e, m| f(e, m)) {
+            Ok(()) => {
+                executor.execute("COMMIT", &[]).map_err(|e| {
+                    ActiveModelError::DatabaseError(format!("commit: {e}"))
+                })?;
+                Ok(())
+            }
+            Err(e) => {
+                if let Err(rb_err) = executor.execute("ROLLBACK", &[]) {
                     return Err(ActiveModelError::DatabaseError(format!(
                         "flush failed: {e}; rollback failed: {rb_err}"
                     )));

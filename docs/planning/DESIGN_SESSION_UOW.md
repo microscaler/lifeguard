@@ -7,7 +7,7 @@
 - **U-1:** Identity map — same PK → same in-memory handle (implemented).
 - **U-2:** Dirty tracking + **flush** — **`mark_dirty`**, **`mark_dirty_key`**, **`flush_dirty`** on **`ModelIdentityMap`**; **`Session::flush_dirty`** drains a mutex-backed pending set into the map then flushes. Callers wire `LifeRecord::update` / `save` inside the flush closure. **`LifeRecord::attach_session(&session)`** (PK entities only): mutating the record enqueues the PK fingerprint for flush when `identity_map_key()` is `Some`. Keep the registered **`Model`** in sync with record edits before flush if the closure reads from `Rc<RefCell<Model>>` (see integration test in `session_identity_flush.rs`).
 - **U-3:** Explicit session — no thread-local global; maps are constructed by the app (satisfied).
-- **U-4:** **LifeguardPool** — **`Session`** does not hold an executor; pass **`&dyn LifeExecutor`** (e.g. **`PooledLifeExecutor`**) into **`Session::flush_dirty`** per operation, or wrap in **`Transaction`** for one DB transaction across rows. Same “per-operation checkout” story as **`ModelIdentityMap::flush_dirty`**. A future “pin slot for this UoW” API would live on [`LifeguardPool`](./PRD_CONNECTION_POOLING.md) if needed.
+- **U-4:** **LifeguardPool** — **`Session`** does not hold an executor; pass **`&dyn LifeExecutor`** (e.g. **`PooledLifeExecutor`**) into **`Session::flush_dirty`**. For one DB transaction across a flush on the pool, use **`Session::flush_dirty_in_transaction_pooled`**, which pins one primary worker via **`LifeguardPool::exclusive_primary_write_executor`** (per-slot mutex + all statements on that slot). Plain **`PooledLifeExecutor`** still round-robins workers per call.
 - **U-5:** **`may` coroutines** — `ModelIdentityMap` uses `Rc`/`RefCell` and is **not** `Send`/`Sync`; treat it like other single-threaded cell state: one map per coroutine/thread, or external `Mutex` if shared.
 
 ## Fingerprint keys
@@ -16,8 +16,8 @@
 
 ## Flush (current + future)
 
-- **Shipped:** `ModelIdentityMap::flush_dirty` walks dirty entries in **lexicographic PK fingerprint order** and invokes `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>`. **`Session::flush_dirty`** merges **`SessionDirtyNotifier`** keys into the map first, then calls that logic. **`Session::flush_dirty_in_transaction(&MayPostgresExecutor, …)`** runs the same flush closure inside `BEGIN` / `COMMIT` (or `ROLLBACK` on error) on a **direct** client — **not** for `PooledLifeExecutor` (no single pinned connection for the whole flush).
-- **Future:** insert-only flush / new entities in the map; optional pool API to pin one worker for a multi-statement transaction; optional executor-holding session type.
+- **Shipped:** `ModelIdentityMap::flush_dirty` walks dirty entries in **lexicographic PK fingerprint order** and invokes `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>`. **`Session::flush_dirty`** merges **`SessionDirtyNotifier`** keys into the map first, then calls that logic. **`Session::flush_dirty_in_transaction(&MayPostgresExecutor, …)`** runs the flush inside **`Transaction`** on a **direct** client. **`Session::flush_dirty_in_transaction_pooled(&LifeguardPool, …)`** pins one primary slot (**`ExclusivePrimaryLifeExecutor`**) and uses raw `BEGIN` / `COMMIT` / `ROLLBACK` so the whole flush is one connection. Per-slot mutexes also serialize unrelated jobs that target the same worker index.
+- **Future:** insert-only flush / new entities in the map; optional executor-holding session type.
 
 ## References
 

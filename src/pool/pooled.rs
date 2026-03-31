@@ -27,8 +27,9 @@ use crate::pool::wal::{WalLagMonitor, WalLagPolicy};
 use crossbeam_channel::{RecvTimeoutError, SendTimeoutError};
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Row};
+use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -40,6 +41,9 @@ use crate::metrics::METRICS;
 /// One tier of workers (primary or replica) with round-robin dispatch.
 struct WorkerPool {
     worker_txs: Arc<[crossbeam_channel::Sender<WorkerJob>]>,
+    /// One mutex per slot: held for the duration of each dispatched job, or for the whole lifetime
+    /// of [`ExclusivePrimaryLifeExecutor`] (U-4 pin-slot) so other dispatchers block on that slot.
+    slot_locks: Arc<[Mutex<()>]>,
     next_worker: AtomicUsize,
     pool_size: usize,
     acquire_timeout: Duration,
@@ -98,8 +102,12 @@ impl WorkerPool {
 
         let worker_txs: Arc<[crossbeam_channel::Sender<WorkerJob>]> = txs.into();
 
+        let slot_locks: Vec<Mutex<()>> = (0..pool_size).map(|_| Mutex::new(())).collect();
+        let slot_locks: Arc<[Mutex<()>]> = slot_locks.into_boxed_slice().into();
+
         Ok(Self {
             worker_txs,
+            slot_locks,
             next_worker: AtomicUsize::new(0),
             pool_size,
             acquire_timeout: settings.acquire_timeout,
@@ -107,13 +115,40 @@ impl WorkerPool {
         })
     }
 
-    fn pick_worker(&self) -> &crossbeam_channel::Sender<WorkerJob> {
-        let i = self.next_worker.fetch_add(1, Ordering::Relaxed) % self.pool_size;
-        &self.worker_txs[i]
+    fn pick_worker_index(&self) -> usize {
+        self.next_worker.fetch_add(1, Ordering::Relaxed) % self.pool_size
     }
 
     fn dispatch<T: Send + 'static>(
         &self,
+        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+    ) -> Result<T, LifeError> {
+        let slot = self.pick_worker_index();
+        let _slot_guard = self.slot_locks[slot]
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.dispatch_locked(slot, build)
+    }
+
+    /// Dispatch to `slot` without acquiring [`Self::slot_locks`]. Caller must already hold the
+    /// mutex for `slot` (see [`ExclusivePrimaryLifeExecutor`]).
+    fn dispatch_locked<T: Send + 'static>(
+        &self,
+        slot: usize,
+        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+    ) -> Result<T, LifeError> {
+        if slot >= self.pool_size {
+            return Err(LifeError::Pool(format!(
+                "internal pool error: slot {slot} out of range (pool_size {})",
+                self.pool_size
+            )));
+        }
+        self.dispatch_on_sender(&self.worker_txs[slot], build)
+    }
+
+    fn dispatch_on_sender<T: Send + 'static>(
+        &self,
+        tx: &crossbeam_channel::Sender<WorkerJob>,
         build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         #[cfg(feature = "tracing")]
@@ -123,7 +158,6 @@ impl WorkerPool {
         let deadline = wait_start + self.acquire_timeout;
         let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
         let job = build(reply_tx);
-        let tx = self.pick_worker();
 
         let mut current_job = job;
         loop {
@@ -395,6 +429,115 @@ impl LifeguardPool {
         build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         self.read_tier().dispatch(build)
+    }
+
+    /// Pin one primary worker slot for a multi-statement unit of work (for example `BEGIN` → ORM
+    /// work → `COMMIT`). While the returned [`ExclusivePrimaryLifeExecutor`] is alive, other
+    /// dispatchers that target the same slot block on the per-slot mutex, so work on this handle is
+    /// not interleaved with unrelated jobs on that connection.
+    pub fn exclusive_primary_write_executor(
+        &self,
+    ) -> Result<ExclusivePrimaryLifeExecutor<'_>, LifeError> {
+        let slot = self.primary.pick_worker_index();
+        let _guard = self.primary.slot_locks[slot]
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Ok(ExclusivePrimaryLifeExecutor {
+            pool: self,
+            slot,
+            _guard,
+        })
+    }
+}
+
+/// Pins one primary [`LifeguardPool`] worker slot: every [`LifeExecutor`] call uses the same
+/// underlying client until this value is dropped (PRD U-4).
+///
+/// Both reads and writes go through the **primary** tier (no replica routing), which matches
+/// PostgreSQL transaction semantics for `BEGIN`/`COMMIT` on a single connection.
+pub struct ExclusivePrimaryLifeExecutor<'a> {
+    pool: &'a LifeguardPool,
+    slot: usize,
+    _guard: MutexGuard<'a, ()>,
+}
+
+impl fmt::Debug for ExclusivePrimaryLifeExecutor<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExclusivePrimaryLifeExecutor")
+            .field("slot", &self.slot)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
+    fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
+        if params.is_empty() {
+            return self.execute_values(query, &sea_query::Values(Vec::new()));
+        }
+        Err(LifeError::Pool(
+            "ExclusivePrimaryLifeExecutor: use execute_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+        ))
+    }
+
+    fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
+        if params.is_empty() {
+            return self.query_one_values(query, &sea_query::Values(Vec::new()));
+        }
+        Err(LifeError::Pool(
+            "ExclusivePrimaryLifeExecutor: use query_one_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+        ))
+    }
+
+    fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
+        if params.is_empty() {
+            return self.query_all_values(query, &sea_query::Values(Vec::new()));
+        }
+        Err(LifeError::Pool(
+            "ExclusivePrimaryLifeExecutor: use query_all_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+        ))
+    }
+
+    fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
+        let params = values_to_owned(values)?;
+        let query = query.to_string();
+        self.pool
+            .primary
+            .dispatch_locked(self.slot, |reply| WorkerJob::Execute {
+                enqueued_at: Instant::now(),
+                query,
+                params,
+                reply,
+            })
+    }
+
+    fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
+        let params = values_to_owned(values)?;
+        let query = query.to_string();
+        self.pool
+            .primary
+            .dispatch_locked(self.slot, |reply| WorkerJob::QueryOne {
+                enqueued_at: Instant::now(),
+                query,
+                params,
+                reply,
+            })
+    }
+
+    fn query_all_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Vec<Row>, LifeError> {
+        let params = values_to_owned(values)?;
+        let query = query.to_string();
+        self.pool
+            .primary
+            .dispatch_locked(self.slot, |reply| WorkerJob::QueryAll {
+                enqueued_at: Instant::now(),
+                query,
+                params,
+                reply,
+            })
     }
 }
 
