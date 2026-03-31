@@ -1,4 +1,4 @@
-//! PRD §9: `ModelIdentityMap` + `flush_dirty` persists changes via derived `LifeRecord::update`.
+//! PRD §9: `ModelIdentityMap` / `Session` + `flush_dirty` / `flush_dirty_in_transaction` with derived `LifeRecord::update`.
 
 use std::sync::Mutex;
 
@@ -129,4 +129,35 @@ fn session_flush_dirty_after_attach_session_and_set_n_on_record() {
         .expect("select");
     let n: i32 = row.get(0);
     assert_eq!(n, 42);
+}
+
+#[test]
+fn session_flush_dirty_in_transaction_persists_via_update() {
+    let _guard = LOCK.lock().expect("session_identity_flush lock");
+
+    let ctx = get_test_context();
+    let mut db = TestDatabase::with_url(&ctx.pg_url);
+    let executor = db.executor().expect("executor");
+
+    setup(&executor).expect("setup");
+
+    let session = Session::<Entity>::new();
+    let rc = session.register_loaded(CounterModel { id: 1, n: 0 });
+    rc.borrow_mut().n = 99;
+    session.mark_dirty(&CounterModel { id: 1, n: 0 });
+
+    session
+        .flush_dirty_in_transaction(&executor, |ex, mrc| {
+            let model = mrc.borrow().clone();
+            let rec = CounterRecord::from_model(&model);
+            let _ = rec.update(ex)?;
+            Ok(())
+        })
+        .expect("flush_dirty_in_transaction");
+
+    let row = executor
+        .query_one("SELECT n FROM lg_sess_flush_counter WHERE id = 1", &[])
+        .expect("select");
+    let n: i32 = row.get(0);
+    assert_eq!(n, 99);
 }

@@ -16,8 +16,8 @@
 
 ## Flush (current + future)
 
-- **Shipped:** `ModelIdentityMap::flush_dirty` walks dirty entries in **lexicographic PK fingerprint order** and invokes `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>`. **`Session::flush_dirty`** merges **`SessionDirtyNotifier`** keys into the map first, then calls that logic. Wrap the executor in `lifeguard::Transaction` if you need a single DB transaction across rows.
-- **Future:** insert-only flush / new entities in the map; optional executor-holding session type; transactional batching **inside** the map (vs caller-wrapped `Transaction`).
+- **Shipped:** `ModelIdentityMap::flush_dirty` walks dirty entries in **lexicographic PK fingerprint order** and invokes `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>`. **`Session::flush_dirty`** merges **`SessionDirtyNotifier`** keys into the map first, then calls that logic. **`Session::flush_dirty_in_transaction(&MayPostgresExecutor, …)`** runs the same flush closure inside `BEGIN` / `COMMIT` (or `ROLLBACK` on error) on a **direct** client — **not** for `PooledLifeExecutor` (no single pinned connection for the whole flush).
+- **Future:** insert-only flush / new entities in the map; optional pool API to pin one worker for a multi-statement transaction; optional executor-holding session type.
 
 ## References
 

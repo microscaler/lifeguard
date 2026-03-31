@@ -27,7 +27,7 @@
 //! See `docs/planning/DESIGN_SESSION_UOW.md` for pooling (U-4). [`Session`] bundles the map and a
 //! sendable [`SessionDirtyNotifier`] for `LifeRecord::attach_session` / `detach_session` (entities with a PK).
 //!
-//! Flush with [`LifeguardPool`](crate::LifeguardPool) via [`Session::flush_dirty`] and a [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor) (or any [`LifeExecutor`](crate::executor::LifeExecutor)).
+//! Flush with [`LifeguardPool`](crate::LifeguardPool) via [`Session::flush_dirty`] and a [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor) (or any [`LifeExecutor`](crate::executor::LifeExecutor)). For one DB transaction around the flush on a **direct** client, use [`Session::flush_dirty_in_transaction`](crate::session::Session::flush_dirty_in_transaction).
 //!
 //! # See also
 //!

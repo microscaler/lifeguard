@@ -9,8 +9,10 @@
 //! # Pooling (U-4)
 //!
 //! Flush with any [`LifeExecutor`](crate::executor::LifeExecutor), including [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor).
-//! For a single transaction across rows, wrap the executor in [`crate::Transaction`]. See
-//! `docs/planning/DESIGN_SESSION_UOW.md`.
+//! For a single transaction across dirty rows on a **direct** [`MayPostgresExecutor`](crate::MayPostgresExecutor),
+//! use [`Session::flush_dirty_in_transaction`]. [`crate::pool::PooledLifeExecutor`] cannot pin one
+//! connection for `BEGIN`/`COMMIT` around multiple ORM calls — use a direct executor for that pattern
+//! or flush without a wrapping transaction. See `docs/planning/DESIGN_SESSION_UOW.md`.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -19,7 +21,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use crate::active_model::ActiveModelError;
-use crate::executor::LifeExecutor;
+use crate::executor::{LifeExecutor, MayPostgresExecutor};
 use crate::model::ModelTrait;
 use crate::query::LifeModelTrait;
 
@@ -132,6 +134,9 @@ where
         }
     }
 
+    /// Register a row already materialized in memory (e.g. from a loader) or returned from
+    /// [`ActiveModelTrait::insert`](crate::active_model::ActiveModelTrait::insert) / `save` — same
+    /// as [`ModelIdentityMap::register_loaded`](super::ModelIdentityMap::register_loaded).
     pub fn register_loaded(&self, model: E::Model) -> Rc<RefCell<E::Model>> {
         self.inner.borrow_mut().register_loaded(model)
     }
@@ -181,6 +186,39 @@ where
     {
         self.drain_pending_into_map();
         self.inner.borrow_mut().flush_dirty(executor, f)
+    }
+
+    /// Like [`Self::flush_dirty`], but runs all persistence callbacks inside **one** PostgreSQL
+    /// transaction (`BEGIN` → flush → `COMMIT`, or `ROLLBACK` on first error).
+    ///
+    /// Only available for [`MayPostgresExecutor`] (a single `may_postgres::Client`). For
+    /// [`crate::pool::PooledLifeExecutor`], each statement may use a different worker; use a direct
+    /// connection or flush without this helper.
+    pub fn flush_dirty_in_transaction<F>(
+        &self,
+        executor: &MayPostgresExecutor,
+        mut f: F,
+    ) -> Result<(), ActiveModelError>
+    where
+        F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
+    {
+        let tx = executor.begin().map_err(|e| {
+            ActiveModelError::DatabaseError(format!("begin transaction: {e}"))
+        })?;
+        let ex: &dyn LifeExecutor = &tx;
+        match self.flush_dirty(ex, |e, m| f(e, m)) {
+            Ok(()) => tx.commit().map_err(|e| {
+                ActiveModelError::DatabaseError(format!("commit: {e}"))
+            }),
+            Err(e) => {
+                if let Err(rb_err) = tx.rollback() {
+                    return Err(ActiveModelError::DatabaseError(format!(
+                        "flush failed: {e}; rollback failed: {rb_err}"
+                    )));
+                }
+                Err(e)
+            }
+        }
     }
 }
 
