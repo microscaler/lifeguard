@@ -7,10 +7,15 @@
 //! # Dirty keys and flush (U-2)
 //!
 //! After you mutate a model through [`Rc`]`<`[`RefCell`]`<…>`>``, call [`ModelIdentityMap::mark_dirty`]
-//! with that model’s primary key. [`ModelIdentityMap::flush_dirty`] visits **dirty** entries in
+//! with that model’s primary key. If you edit a **`#[derive(LifeRecord)]`** value instead, call
+//! [`ModelIdentityMap::mark_dirty_key`] with `record.identity_map_key()?` (all PK columns must be set).
+//! [`ModelIdentityMap::flush_dirty`] visits **dirty** entries in
 //! **lexicographic order of PK fingerprint** (stable, deterministic) and invokes your closure.
 //! The closure typically builds a `LifeRecord` and calls [`crate::active_model::ActiveModelTrait::update`]
 //! or `save` — the map does not generate SQL itself.
+//! [`ModelIdentityMap::flush_dirty_with_map_key`] walks dirty rows in **lexicographic map-key order**
+//! (pending-insert keys first; see [`ModelIdentityMap::register_pending_insert`]) and passes the key so the closure can
+//! call `insert` vs `update`.
 //!
 //! Flush is **not** implicitly transactional; wrap the executor in [`crate::Transaction`] if you
 //! need all writes in one database transaction.
@@ -22,16 +27,32 @@
 //!
 //! # Pooling (U-4)
 //!
-//! See `docs/planning/DESIGN_SESSION_UOW.md` for how a future pool-bound session relates to
-//! [`LifeguardPool`](crate::LifeguardPool).
+//! See `docs/planning/DESIGN_SESSION_UOW.md` for pooling (U-4). [`Session`] bundles the map and a
+//! sendable [`SessionDirtyNotifier`] for `LifeRecord::attach_session`, `attach_session_with_model`, and `detach_session` (entities with a PK).
+//!
+//! Flush with [`LifeguardPool`](crate::LifeguardPool) via [`Session::flush_dirty`] and a [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor) (or any [`LifeExecutor`]). For one DB transaction around the flush on a **direct** client, use [`Session::flush_dirty_in_transaction`](crate::session::Session::flush_dirty_in_transaction). For the same on a pool, use [`Session::flush_dirty_in_transaction_pooled`](crate::session::Session::flush_dirty_in_transaction_pooled).
 //!
 //! # See also
 //!
 //! - Project PRD §9 (session / UoW).
 
+mod identity_model_cell;
 mod pk;
+mod uow;
 
+pub use identity_model_cell::SessionIdentityModelCell;
 pub use pk::fingerprint_pk_values;
+pub use uow::{Session, SessionDirtyNotifier};
+
+/// Prefix for [`ModelIdentityMap::register_pending_insert`] keys (not a primary-key fingerprint).
+pub const PENDING_INSERT_KEY_PREFIX: &str = "__lg_insert__\x1f";
+
+/// `true` when `key` was returned from [`ModelIdentityMap::register_pending_insert`].
+#[inline]
+#[must_use]
+pub fn is_pending_insert_key(key: &str) -> bool {
+    key.starts_with(PENDING_INSERT_KEY_PREFIX)
+}
 
 use crate::active_model::ActiveModelError;
 use crate::executor::LifeExecutor;
@@ -50,8 +71,10 @@ use std::rc::Rc;
 /// are application-defined).
 ///
 /// [`mark_dirty`](Self::mark_dirty) only records keys that already exist in the map (registered
-/// rows). Inserts pending only in memory are out of scope — use your normal `insert` path, then
-/// [`register_loaded`] after the database assigns keys if you want them in the map.
+/// rows). For **insert-only** rows (no stable PK fingerprint yet), use
+/// [`register_pending_insert`](Self::register_pending_insert) and flush with
+/// [`flush_dirty_with_map_key`](Self::flush_dirty_with_map_key) so the closure can branch on
+/// [`is_pending_insert_key`].
 pub struct ModelIdentityMap<E>
 where
     E: LifeModelTrait,
@@ -59,6 +82,8 @@ where
 {
     map: HashMap<String, Rc<RefCell<E::Model>>>,
     dirty: HashSet<String>,
+    /// Monotonic id for [`Self::register_pending_insert`] keys (`PENDING_INSERT_KEY_PREFIX` + id).
+    next_pending_id: u64,
 }
 
 impl<E> ModelIdentityMap<E>
@@ -72,7 +97,53 @@ where
         Self {
             map: HashMap::new(),
             dirty: HashSet::new(),
+            next_pending_id: 0,
         }
+    }
+
+    /// Register a new row that will be **inserted** (no stable PK fingerprint in the map yet).
+    ///
+    /// Returns `(map_key, rc)` — keep `map_key` for [`Self::promote_pending_to_loaded`] after a
+    /// successful insert, and use [`Self::flush_dirty_with_map_key`] in the flush closure to call
+    /// `insert` when [`is_pending_insert_key`](`map_key`).
+    ///
+    /// Synthetic keys are [`PENDING_INSERT_KEY_PREFIX`] plus a decimal id from the map’s internal
+    /// `next_pending_id` field, advanced with `wrapping_add(1)` each time this method runs. After
+    /// \(2^{64}\) such calls, ids could theoretically wrap and collide; in practice unreachable.
+    /// Promote or remove pending entries so `next_pending_id` does not grow without bound in an
+    /// extremely long-lived, high-throughput process.
+    pub fn register_pending_insert(&mut self, model: E::Model) -> (String, Rc<RefCell<E::Model>>) {
+        let id = self.next_pending_id;
+        self.next_pending_id = self.next_pending_id.wrapping_add(1);
+        let key = format!("{PENDING_INSERT_KEY_PREFIX}{id}");
+        let rc = Rc::new(RefCell::new(model));
+        self.map.insert(key.clone(), rc.clone());
+        self.dirty.insert(key.clone());
+        (key, rc)
+    }
+
+    /// After a successful insert, replace the pending entry with the loaded row (real PK).
+    ///
+    /// Removes the synthetic pending key, then [`register_loaded`](Self::register_loaded) with
+    /// `model` (typically with generated PK from the database).
+    pub fn promote_pending_to_loaded(
+        &mut self,
+        pending_key: &str,
+        model: E::Model,
+    ) -> Result<Rc<RefCell<E::Model>>, ActiveModelError> {
+        if !is_pending_insert_key(pending_key) {
+            return Err(ActiveModelError::Other(
+                "promote_pending_to_loaded: key is not a pending insert key".to_string(),
+            ));
+        }
+        if !self.map.contains_key(pending_key) {
+            return Err(ActiveModelError::Other(
+                "promote_pending_to_loaded: key not in identity map".to_string(),
+            ));
+        }
+        self.map.remove(pending_key);
+        self.dirty.remove(pending_key);
+        Ok(self.register_loaded(model))
     }
 
     /// Register a model instance. Same PK → same [`Rc`]; duplicate model is dropped.
@@ -114,6 +185,15 @@ where
         }
     }
 
+    /// Mark dirty using a fingerprint string (e.g. from [`crate::session::fingerprint_pk_values`]
+    /// or a derived [`LifeRecord`](crate::active_model::ActiveModelTrait)’s `identity_map_key()`).
+    /// No-op if the key is not registered.
+    pub fn mark_dirty_key(&mut self, key: &str) {
+        if self.map.contains_key(key) {
+            self.dirty.insert(key.to_string());
+        }
+    }
+
     /// Remove the dirty flag without persisting.
     pub fn unmark_dirty(&mut self, model: &E::Model) {
         let key = fingerprint_pk_values(&model.get_primary_key_values());
@@ -138,12 +218,17 @@ where
         self.dirty.clear();
     }
 
-    /// Flush every dirty row in **lexicographic order of PK fingerprint** by calling `f` with the
-    /// executor and the shared [`Rc`]. On success for a row, its dirty flag is cleared. On the
-    /// first error, remaining dirty keys are left unchanged (including the failing key).
-    pub fn flush_dirty<F>(&mut self, executor: &dyn LifeExecutor, mut f: F) -> Result<(), ActiveModelError>
+    /// Flush every dirty row in **lexicographic order of map key** (pending-insert keys sort under
+    /// [`PENDING_INSERT_KEY_PREFIX`], then normal PK fingerprints) by calling `f` with the executor,
+    /// the shared [`Rc`], and the internal map key string (use [`is_pending_insert_key`] to branch
+    /// insert vs update).
+    pub fn flush_dirty_with_map_key<F>(
+        &mut self,
+        executor: &dyn LifeExecutor,
+        mut f: F,
+    ) -> Result<(), ActiveModelError>
     where
-        F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
+        F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>, &str) -> Result<(), ActiveModelError>,
     {
         let mut keys: Vec<String> = self.dirty.iter().cloned().collect();
         keys.sort();
@@ -155,7 +240,7 @@ where
                 self.dirty.remove(&key);
                 continue;
             };
-            match f(executor, rc) {
+            match f(executor, rc, key.as_str()) {
                 Ok(()) => {
                     self.dirty.remove(&key);
                 }
@@ -163,6 +248,16 @@ where
             }
         }
         Ok(())
+    }
+
+    /// Flush every dirty row in **lexicographic order of map key** by calling `f` with the executor
+    /// and the shared [`Rc`]. On success for a row, its dirty flag is cleared. On the first error,
+    /// remaining dirty keys are left unchanged (including the failing key).
+    pub fn flush_dirty<F>(&mut self, executor: &dyn LifeExecutor, mut f: F) -> Result<(), ActiveModelError>
+    where
+        F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
+    {
+        self.flush_dirty_with_map_key(executor, |ex, rc, _key| f(ex, rc))
     }
 }
 
@@ -187,6 +282,7 @@ mod tests {
     use may_postgres::Row;
     use sea_query::{Iden, IdenStatic, Value};
     use std::cell::RefCell;
+    use std::rc::Rc;
 
     struct NopExecutor;
 
@@ -346,6 +442,22 @@ mod tests {
     }
 
     #[test]
+    fn mark_dirty_key_matches_fingerprint() {
+        let mut map = ModelIdentityMap::<SessEntity>::new();
+        let _ = map.register_loaded(SessModel {
+            id: 5,
+            label: "a",
+        });
+        let key = fingerprint_pk_values(&[Value::Int(Some(5))]);
+        map.mark_dirty_key(&key);
+        assert_eq!(map.dirty_len(), 1);
+        assert!(map.is_marked_dirty(&SessModel {
+            id: 5,
+            label: "x",
+        }));
+    }
+
+    #[test]
     fn flush_dirty_lexicographic_order() {
         let mut map = ModelIdentityMap::<SessEntity>::new();
         let _ = map.register_loaded(SessModel {
@@ -417,5 +529,59 @@ mod tests {
             id: 2,
             label: "x",
         }));
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)] // Test code - expect is acceptable
+    fn register_pending_insert_flush_with_map_key_and_promote() {
+        let mut map = ModelIdentityMap::<SessEntity>::new();
+        let (k, _rc) = map.register_pending_insert(SessModel {
+            id: 0,
+            label: "new",
+        });
+        assert!(is_pending_insert_key(&k));
+        assert_eq!(map.dirty_len(), 1);
+        let ex = NopExecutor;
+        let ex_ref: &dyn LifeExecutor = &ex;
+        map.flush_dirty_with_map_key(ex_ref, |_, _, key| {
+            assert!(is_pending_insert_key(key));
+            Ok(())
+        })
+        .expect("flush");
+        assert_eq!(map.dirty_len(), 0);
+        assert_eq!(map.len(), 1);
+        let r2 = map
+            .promote_pending_to_loaded(&k, SessModel {
+                id: 42,
+                label: "saved",
+            })
+            .expect("promote");
+        assert_eq!(r2.borrow().id, 42);
+        assert_eq!(map.len(), 1);
+        assert!(map
+            .get_existing(&SessModel {
+                id: 42,
+                label: "probe",
+            })
+            .is_some_and(|r| Rc::ptr_eq(&r, &r2)));
+    }
+
+    #[test]
+    fn session_identity_model_cell_replace_with_updates_rc() {
+        let mut map = ModelIdentityMap::<SessEntity>::new();
+        let rc = map.register_loaded(SessModel {
+            id: 1,
+            label: "a",
+        });
+        let cell = SessionIdentityModelCell::new(&rc);
+        assert!(
+            cell
+                .replace_with(SessModel {
+                    id: 1,
+                    label: "b",
+                })
+                .is_ok()
+        );
+        assert_eq!(rc.borrow().label, "b");
     }
 }

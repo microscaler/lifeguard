@@ -4,7 +4,7 @@
 //! model operations including field access, `CRUD` operations, and lifecycle hooks.
 
 use super::error::ActiveModelError;
-use super::validate_op::ValidateOp;
+use super::validate_op::{ValidateOp, ValidationStrategy};
 use super::value::ActiveValue;
 use crate::model::ModelTrait;
 use crate::query::LifeModelTrait;
@@ -696,10 +696,17 @@ pub trait ActiveModelBehavior: ActiveModelTrait {
         Ok(())
     }
 
+    /// How to combine validation errors from [`validate_fields`](Self::validate_fields) and
+    /// [`validate_model`](Self::validate_model). Default: [`ValidationStrategy::FailFast`].
+    fn validation_strategy(&self, _op: ValidateOp) -> ValidationStrategy {
+        ValidationStrategy::FailFast
+    }
+
     /// Field-level validation (PRD Phase B). Default: no-op.
     ///
     /// Runs after [`before_insert`](Self::before_insert) / [`before_update`](Self::before_update)
-    /// so hook-applied defaults are visible; before SQL is built.
+    /// so hook-applied defaults are visible; before SQL is built. For deletes, runs after
+    /// [`before_delete`](Self::before_delete) with [`ValidateOp::Delete`].
     fn validate_fields(&self, _op: ValidateOp) -> Result<(), ActiveModelError> {
         Ok(())
     }

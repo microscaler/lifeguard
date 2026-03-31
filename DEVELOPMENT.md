@@ -37,8 +37,28 @@ For each PRD-driven or user-facing change, follow **`docs/planning/DEV_RUSTDOC_A
 
 ### `lifeguard-migrate` and schema inference
 
-- **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url …` (or set `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). See **`lifeguard-migrate/README.md`** (`infer-schema` section) and **`docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md`**.
+**CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url …` (or set `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). **`compare-schema`** compares live base tables to merged `*_generated_from_entities.sql` under `--generated-dir` (DBA / CI table-name reconciliation). See **`lifeguard-migrate/README.md`** (`infer-schema` and `compare-schema`) and **`docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md`**.
+
 - **Emitter goldens:** changing `lifeguard-migrate/src/schema_infer.rs` output may require updating files under **`lifeguard-migrate/tests/golden/`**. Run **`cargo test -p lifeguard-migrate schema_infer`** before merge.
+
+#### Live Postgres tests (optional)
+
+These integration tests need a reachable Postgres URL; otherwise they skip.
+
+- **`infer_schema_postgres_smoke.rs`** — `infer_schema_rust` on `public`.
+- **`infer_schema_table_filter_si3.rs`** — SI-3 table filter.
+- **`infer_schema_cli_subprocess.rs`** — full **`infer-schema`** binary via **`CARGO_BIN_EXE_lifeguard-migrate`** (subprocess; requires the Cargo-built `lifeguard-migrate` test binary).
+- **`migration_db_compare_smoke.rs`** — `compare_generated_dir_to_live_db` and **`compare-schema`** CLI.
+
+**Env (any one):** **`TEST_DATABASE_URL`**, **`DATABASE_URL`**, or **`LIFEGUARD_DATABASE_URL`**.
+
+#### `db_integration_suite`
+
+Integration tests under **`tests/db_integration/`** (run as the **`db_integration_suite`** target), including:
+
+- **`column_f_update`** — F-style `UPDATE SET`, derived **`set_*_expr`** / **`update()`**, insert guard for **`__update_exprs`**.
+- **`column_f_where`** — `WHERE` / `ORDER BY` with **`Expr::expr`** and **`ColumnTrait::f_*`**.
+- **`session_identity_flush`** — **`ModelIdentityMap`** / **`Session`**, **`attach_session`**, **`flush_dirty`** / **`flush_dirty_in_transaction`**, **`register_pending_insert`**, **`flush_dirty_with_map_key`**, **`flush_dirty_in_transaction_with_map_key`**, **`flush_dirty_in_transaction_pooled_with_map_key`**, **`promote_pending_to_loaded`**, **`LifeRecord::update`** / **`insert`** (PRD §9).
 
 ### Development Workflow
 

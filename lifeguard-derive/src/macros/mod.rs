@@ -1,5 +1,6 @@
 //! Macro implementations
 
+pub mod migration_name_derive;
 pub mod entity;
 pub mod from_row;
 pub mod life_model;
@@ -7,8 +8,10 @@ pub mod life_record;
 pub mod linked;
 pub mod partial_model;
 pub mod relation;
+pub mod scope_attr;
 pub mod try_into_model;
 
+pub use migration_name_derive::derive_migration_name;
 pub use entity::derive_entity;
 pub use from_row::derive_from_row;
 pub use life_model::derive_life_model;

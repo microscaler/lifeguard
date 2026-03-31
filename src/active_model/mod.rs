@@ -10,7 +10,7 @@
 //! - **Traits**: Core `ActiveModel` traits (`ActiveModelTrait`, `ActiveModelBehavior`)
 //! - **Value**: `ActiveValue` enum for field value metadata
 //! - **Error**: `ActiveModelError` for operation errors
-//! - **Conversion**: `SeaQuery` → `ToSql` via shared [`crate::query::converted_params`] (`ActiveModelError`)
+//! - **Conversion**: `SeaQuery` → `ToSql` via [`crate::active_model::with_converted_params`] (`ActiveModelError`)
 //!
 //! # Examples
 //!
@@ -38,7 +38,7 @@
 // Validation types (PRD Phase B; no dependency on traits)
 pub mod validate_op;
 #[doc(inline)]
-pub use validate_op::{ValidateOp, ValidationError};
+pub use validate_op::{ValidateOp, ValidationError, ValidationStrategy};
 
 // Core traits
 pub mod traits;
@@ -58,7 +58,10 @@ pub use error::ActiveModelError;
 // Validation orchestration (`run_validators` after lifecycle hooks)
 pub mod validation;
 #[doc(inline)]
-pub use validation::run_validators;
+pub use validation::{run_validators, run_validators_with_strategy};
+
+/// Built-in `len` / `range`-style validators on [`sea_query::Value`] (PRD Phase B follow-on).
+pub mod predicates;
 
 // Graph sorting and nesting mechanics
 pub mod graph;

@@ -6,15 +6,15 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 
 ### PRD parity snapshot (schema, validators, scopes, F(), session)
 
-Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md). These rows summarize **v0** shipped behavior vs SeaORM-style **vision**; the README competitive matrix tracks the same features.
+Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md). These rows summarize **v0** shipped behavior vs SeaORM-style **vision**; [COMPARISON.md](../../../COMPARISON.md) tracks the same features in table form.
 
 | Capability | Primary API / location | Status | Notes |
 |------------|------------------------|--------|-------|
-| **Schema inference (DB → Rust)** | `lifeguard-migrate infer-schema`, `schema_infer::emit_inferred_rust`, `tests/golden/*.expected.rs` | 🟡 **Partial** | PRD §5.7; deterministic emitter golden tests; conservative type mapping; composite PK gaps possible |
-| **Validators** | `run_validators`, `ActiveModelBehavior::validate_fields` / `validate_model`, `ActiveModelError::Validation` | 🟡 **Partial** | PRD §6.7; derive optional sugar TBD |
-| **Scopes** | `SelectQuery::scope`, `IntoScope`, `src/query/scope.rs` | 🟡 **Partial** | PRD §7.7; AND composition; soft-delete interaction documented |
-| **F() expressions** | `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div` | 🟡 **Partial** | PRD §8.7; `UPDATE SET` RHS; `WHERE`/`ORDER BY` / LifeRecord path TBD |
-| **Session / UoW** | `ModelIdentityMap`, `fingerprint_pk_values`, `mark_dirty` / `flush_dirty`, `src/session/` | 🟡 **Partial** | PRD §9.7; identity + closure-based dirty flush — **no** auto-dirty on `LifeRecord::set`, **no** pool-bound `Session` type yet |
+| **Schema inference (DB → Rust)** | `lifeguard-migrate infer-schema`, `compare-schema` (tables + column names for shared tables vs merged SQL), `schema_infer::emit_inferred_rust`, `schema_migration_compare`, `generated_migration_diff::column_map_from_merged_baseline`, `tests/golden/*.expected.rs` | 🟡 **Partial** | PRD §5.7; deterministic emitter golden tests; conservative type mapping; composite PKs emit multiple `#[primary_key]`; `compare-schema` reconciles column **names** (not SQL type/column-def equality); **Deferred:** watch mode / richer CI golden workflows (PRD §5.7a) |
+| **Validators** | `run_validators`, `run_validators_with_strategy`, `ValidationStrategy` (FailFast / Aggregate), `ActiveModelBehavior::validate_fields` / `validate_model` / `validation_strategy`, `ActiveModelError::Validation`, `ValidateOp` (Insert / Update / Delete), `#[validate(custom = path)]` on fields, `lifeguard::predicates` | 🟡 **Partial** | PRD §6.7. **Shipped:** field → model order; fail-fast default; aggregate collects field+model errors; delete path runs validators; derive `custom` (`fn(&Value) -> Result<(), String>`). **Predicates:** `string_utf8_chars_max`, `string_utf8_chars_in_range`, `blob_or_string_byte_len_max`, `i64_in_range`, `f64_in_range` on `Value`. **Gap vs SeaORM:** no full built-in attribute matrix (length/range as derive attrs on every type); compose via `validate_fields` + predicates or custom fns. |
+| **Scopes** | `SelectQuery::scope`, `scope_or`, `scope_any`, `IntoScope`, `#[scope]` on `impl Entity` (`lifeguard::scope`), `src/query/scope.rs` | 🟡 **Partial** | PRD §7.7; AND + OR composition; soft-delete interaction; **`find_related` does not inherit parent `scope` predicates** — chain `.scope`/`.filter` on the query `find_related` returns; see [DESIGN_FIND_RELATED_SCOPES.md](../DESIGN_FIND_RELATED_SCOPES.md) and rustdoc on `query::scope` / `FindRelated` |
+| **F() expressions** | `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div`; `LifeRecord::set_*_expr` + `__update_exprs` on derived `update()`; `Expr::expr` + `ExprTrait` / `order_by_expr` for `WHERE` / `ORDER BY` | 🟡 **Partial** | PRD §8.7; Postgres integration tests in `column_f_update.rs` / `column_f_where.rs`. **PostgreSQL numeric typing:** expressions use SeaQuery `SimpleExpr` arithmetic; the server applies **binary promotion** (e.g. `integer` ± `numeric` → `numeric`). Lifeguard does **not** auto-cast operands—if you need a specific result or storage type (e.g. force `bigint`), align column and RHS types in the query builder or use `Expr::cust` / raw SQL for explicit `::type` casts. See `ColumnTrait::f_add` rustdoc and PRD §8.7. |
+| **Session / UoW** | `ModelIdentityMap`, `fingerprint_pk_values`, `mark_dirty` / `mark_dirty_key` / `flush_dirty` / `flush_dirty_with_map_key`, `register_pending_insert` / `promote_pending_to_loaded` / `is_pending_insert_key`, `Session`, `LifeRecord::identity_map_key`, `src/session/` | 🟡 **Partial** | PRD §9.7; identity + dirty flush + insert-only pending keys; `attach_session` auto-dirty when PK set — not full SeaORM session semantics |
 
 ## Core Features
 
@@ -69,7 +69,7 @@ Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VAL
 | `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel - **Not needed for migrations** |
 | `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel - **Not needed for migrations** |
-| `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation - **Nice-to-have, not a blocker for migrations** |
+| `DeriveMigrationName` | ✅ `lifeguard::migration::DeriveMigrationName` + `MigrationName` | ✅ **Implemented** | Unit struct → snake_case `MIGRATION_NAME` + `MigrationName`; pair with manual `Migration` |
 | `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
 | `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types - **Not needed for migrations** |
 | `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum - **Not needed for migrations** |
@@ -392,7 +392,7 @@ This design simplifies the API while maintaining the same functionality.
 **Note:** The missing derive macros listed above are **NOT prerequisites** for migrations. See `MIGRATION_PREREQUISITES_DISCOVERY.md` for detailed analysis.
 
 **Future State:**
-- `DeriveMigrationName` - Generate migration names (nice-to-have, not a blocker)
+- `DeriveMigrationName` — **shipped:** `lifeguard::migration::DeriveMigrationName` + `MigrationName` trait (`MIGRATION_NAME` constant)
 - Migration CLI tool - Integration with migration tools
 
 #### JSON Support
@@ -892,7 +892,7 @@ SQL Views are **virtual tables** based on the result of a SQL query. They:
 | **Materialized View** | **Cached Query Model** | 🟡 **Future** | Model backed by materialized view table, refresh support |
 | **View with JOINs** | **Query-based Model** | ✅ **Partial** | Use query builder with joins, map to struct |
 | **View with Aggregations** | **Projection/Partial Model** | ✅ **Implemented** | `DerivePartialModel` for selected columns |
-| **View as Security Layer** | **Scoped Queries** | 🟡 **Partial** | `SelectQuery::scope` / `IntoScope` + entity helpers returning `IntoCondition` (`src/query/scope.rs`); derive sugar TBD |
+| **View as Security Layer** | **Scoped Queries** | 🟡 **Partial** | `SelectQuery::scope` / `IntoScope` + `#[scope]` (`lifeguard::scope`) + entity helpers returning `IntoCondition` (`src/query/scope.rs`) |
 
 #### Implementation Patterns
 

@@ -4,16 +4,24 @@
 //! against database entities. It includes traits for entity definitions, query builders
 //! for SELECT/INSERT/UPDATE/DELETE operations, and execution methods.
 //!
+//! # Default path vs advanced SQL
+//!
+//! The usual flow is [`LifeModelTrait::find`] → filters / order / limit → [`SelectQuery::all`] /
+//! [`SelectQuery::one`] (see [`crate::query::execution`]). CTEs, joins to subqueries, window clauses,
+//! and similar features are **opt-in** on [`SelectQuery`]; see [crate::query::select] for the full
+//! list and `sea_query` types to import.
+//!
 //! # Architecture
 //!
 //! The query module follows `Sea-ORM`'s organizational patterns:
 //! - **Traits**: Core entity and model traits (`LifeModelTrait`, `LifeEntityName`)
 //! - **Select**: SELECT query builder (`SelectQuery`)
 //! - **Scopes**: Named composable predicates (`scope` module, `SelectQuery::scope`, `IntoScope`)
+//! - **SQL extras on `SelectQuery`**: [`SelectQuery::with_cte`](select::SelectQuery::with_cte) (CTE + lifeguard `all`/`one`), [`join_subquery`](select::SelectQuery::join_subquery), typed [`window`](select::SelectQuery::window) / [`expr_window_as`](select::SelectQuery::expr_window_as) (see also [`subquery_column`](select::SelectQuery::subquery_column), [`window_function_cust`](select::SelectQuery::window_function_cust))
 //! - **Execution**: Query execution methods (`all`, `one`, `first`)
 //! - **Value Conversion**: `SeaQuery` `Value` to `ToSql` (`converted_params` + `value_conversion`)
 //! - **Error Handling**: Error detection and classification utilities
-//! - **Column**: Type-safe column operations (including **F-style** `f_add` / `f_sub` / `f_mul` / `f_div` on [`ColumnTrait`](column::column_trait::ColumnTrait) for `UPDATE SET`)
+//! - **Column**: Type-safe column operations (including **F-style** `f_add` / `f_sub` / `f_mul` / `f_div` on [`ColumnTrait`] for `UPDATE SET`)
 //! - **Primary Key**: Primary key operations and traits
 //!
 //! # Examples

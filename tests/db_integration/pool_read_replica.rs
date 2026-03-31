@@ -24,11 +24,25 @@
 //! latency, and CI runner load. Cross‑AZ or WAN replicas are **outside** this crate’s control.
 
 use lifeguard::test_helpers::TestDatabase;
-use lifeguard::{LifeExecutor, LifeguardPool, LifeguardPoolSettings, PooledLifeExecutor};
+use lifeguard::{
+    LifeExecutor, LifeguardPool, LifeguardPoolSettings, PooledLifeExecutor, ReadPreference,
+};
 use sea_query::{Value, Values};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+
+/// Unique schema + table per test so parallel `db_integration` runs do not `DROP` each other's objects.
+static POOL_REPLICA_SCHEMA_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn unique_pool_replica_schema_names() -> (String, String) {
+    let n = POOL_REPLICA_SCHEMA_SEQ.fetch_add(1, Ordering::Relaxed);
+    (
+        format!("pool_replica_test_{n}"),
+        format!("t_pool_replica_smoke_{n}"),
+    )
+}
 
 const BATCH_LOAD_ROWS: i32 = 64;
 const BATCH_LOAD_BASE_ID: i32 = 10_000;
@@ -111,24 +125,33 @@ fn assert_pooled_pg_is_in_recovery(exec: &PooledLifeExecutor, expect_standby: bo
     );
 }
 
-fn setup_schema_on_primary(executor: &lifeguard::MayPostgresExecutor) {
+fn setup_schema_on_primary(
+    executor: &lifeguard::MayPostgresExecutor,
+    schema: &str,
+    table: &str,
+) {
     executor
-        .execute("CREATE SCHEMA IF NOT EXISTS pool_replica_test", &[])
+        .execute(
+            &format!("CREATE SCHEMA IF NOT EXISTS {schema}"),
+            &[],
+        )
         .expect("create schema");
     executor
         .execute(
-            "DROP TABLE IF EXISTS pool_replica_test.t_pool_replica_smoke CASCADE",
+            &format!("DROP TABLE IF EXISTS {schema}.{table} CASCADE"),
             &[],
         )
         .expect("drop table");
     executor
         .execute(
-            r#"
-            CREATE TABLE pool_replica_test.t_pool_replica_smoke (
+            &format!(
+                r#"
+            CREATE TABLE {schema}.{table} (
                 id INTEGER PRIMARY KEY,
                 note TEXT NOT NULL
             )
-            "#,
+            "#
+            ),
             &[],
         )
         .expect("create table");
@@ -143,6 +166,7 @@ fn pooled_pool_construct_write_read_with_replica() {
     let t_total = Instant::now();
     let ctx = crate::context::get_test_context();
     let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_pool_replica_schema_names();
 
     let ep_p = pg_tcp_endpoint_key(&primary_url).expect("parse primary URL host:port");
     let ep_r = pg_tcp_endpoint_key(&replica_url).expect("parse replica URL host:port");
@@ -155,7 +179,7 @@ fn pooled_pool_construct_write_read_with_replica() {
     let t0 = Instant::now();
     let mut db = TestDatabase::with_url(&primary_url);
     let setup_exec = db.executor().expect("primary executor");
-    setup_schema_on_primary(&setup_exec);
+    setup_schema_on_primary(&setup_exec, &schema, &table);
     log_timing("setup_schema (primary)", t0.elapsed());
 
     let pool_settings = integration_pool_settings();
@@ -180,7 +204,7 @@ fn pooled_pool_construct_write_read_with_replica() {
         Value::String(Some("via-pool".into())),
     ]);
     exec.execute_values(
-        "INSERT INTO pool_replica_test.t_pool_replica_smoke (id, note) VALUES ($1, $2)",
+        &format!("INSERT INTO {schema}.{table} (id, note) VALUES ($1, $2)"),
         &insert_vals,
     )
     .expect("pooled insert");
@@ -228,7 +252,7 @@ fn pooled_pool_construct_write_read_with_replica() {
     let read_vals = Values(vec![Value::Int(Some(7))]);
     let row = exec
         .query_one_values(
-            "SELECT note FROM pool_replica_test.t_pool_replica_smoke WHERE id = $1",
+            &format!("SELECT note FROM {schema}.{table} WHERE id = $1"),
             &read_vals,
         )
         .expect("pooled read");
@@ -245,11 +269,9 @@ fn pooled_pool_construct_write_read_with_replica() {
 
     let t6 = Instant::now();
     let rep = may_postgres::connect(&replica_url).expect("replica direct connect");
+    let direct_note_sql = format!("SELECT note FROM {schema}.{table} WHERE id = 7");
     let r2 = rep
-        .query_one(
-            "SELECT note FROM pool_replica_test.t_pool_replica_smoke WHERE id = 7",
-            &[],
-        )
+        .query_one(direct_note_sql.as_str(), &[])
         .expect("direct replica read");
     let note2: String = r2.get(0);
     assert_eq!(note2, "via-pool");
@@ -259,7 +281,7 @@ fn pooled_pool_construct_write_read_with_replica() {
     let t7 = Instant::now();
     let batch_hi = BATCH_LOAD_BASE_ID + BATCH_LOAD_ROWS - 1;
     let batch_sql = format!(
-        "INSERT INTO pool_replica_test.t_pool_replica_smoke (id, note) \
+        "INSERT INTO {schema}.{table} (id, note) \
          SELECT g, 'batch-load' FROM generate_series({BATCH_LOAD_BASE_ID}, {batch_hi}) AS g"
     );
     exec.execute_values(&batch_sql, &Values(vec![]))
@@ -290,7 +312,7 @@ fn pooled_pool_construct_write_read_with_replica() {
     let t9 = Instant::now();
     let cnt_row = exec
         .query_one_values(
-            "SELECT COUNT(*)::bigint AS c FROM pool_replica_test.t_pool_replica_smoke WHERE id >= $1",
+            &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table} WHERE id >= $1"),
             &Values(vec![Value::Int(Some(BATCH_LOAD_BASE_ID))]),
         )
         .expect("count on replica tier");
@@ -299,6 +321,94 @@ fn pooled_pool_construct_write_read_with_replica() {
     log_timing("COUNT(*) pooled read (replica tier)", t9.elapsed());
 
     log_timing("TOTAL (smoke + batch)", t_total.elapsed());
+}
+
+/// [`ReadPreference::Primary`] must hit the primary tier even when default routing uses the replica.
+#[test]
+fn pooled_read_preference_primary_forces_primary_tier() {
+    let Some(replica_url) = replica_url_or_skip() else {
+        return;
+    };
+
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_pool_replica_schema_names();
+
+    let ep_p = pg_tcp_endpoint_key(&primary_url).expect("parse primary URL host:port");
+    let ep_r = pg_tcp_endpoint_key(&replica_url).expect("parse replica URL host:port");
+    assert_ne!(
+        ep_p, ep_r,
+        "TEST_REPLICA_URL must not target the same host:port as TEST_DATABASE_URL"
+    );
+
+    let mut db = TestDatabase::with_url(&primary_url);
+    let setup_exec = db.executor().expect("primary executor");
+    setup_schema_on_primary(&setup_exec, &schema, &table);
+
+    let pool = Arc::new(
+        LifeguardPool::new_with_settings(
+            &primary_url,
+            1,
+            vec![replica_url.clone()],
+            1,
+            &integration_pool_settings(),
+        )
+        .expect("LifeguardPool::new_with_settings with replica"),
+    );
+    let exec = PooledLifeExecutor::new(pool.clone());
+
+    let lsn = crate::replication_sync::primary_current_wal_lsn(&primary_url).expect("primary lsn");
+    crate::replication_sync::wait_replica_replayed_at_least(
+        &replica_url,
+        &lsn,
+        Duration::from_secs(45),
+        Duration::from_millis(5),
+    )
+    .expect("replica replay wait");
+
+    assert!(
+        crate::replication_sync::postgres_is_in_recovery(&replica_url)
+            .expect("is_in_recovery query"),
+        "TEST_REPLICA_URL must be a standby (pg_is_in_recovery)"
+    );
+
+    let mut lag_ok = false;
+    for _ in 0..400 {
+        if !pool.is_replica_lagging() {
+            lag_ok = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        lag_ok,
+        "expected replica not lagging for pool read routing after warmup"
+    );
+
+    assert_pooled_pg_is_in_recovery(
+        &exec,
+        true,
+        "default ReadPreference routes to replica tier when healthy",
+    );
+
+    let exec_primary = exec
+        .clone()
+        .with_read_preference(ReadPreference::Primary);
+    assert_eq!(
+        exec_primary.read_preference(),
+        ReadPreference::Primary
+    );
+    assert_pooled_pg_is_in_recovery(
+        &exec_primary,
+        false,
+        "ReadPreference::Primary must use primary tier",
+    );
+
+    assert_pooled_pg_is_in_recovery(
+        &exec,
+        true,
+        "original executor should still use default (replica) routing",
+    );
 }
 
 #[cfg(test)]
@@ -351,6 +461,7 @@ fn pooled_read_falls_back_to_primary_when_replica_lagging() {
 
     let ctx = crate::context::get_test_context();
     let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_pool_replica_schema_names();
 
     let ep_p = pg_tcp_endpoint_key(&primary_url).expect("parse primary URL host:port");
     let ep_r = pg_tcp_endpoint_key(&replica_url).expect("parse replica URL host:port");
@@ -362,7 +473,7 @@ fn pooled_read_falls_back_to_primary_when_replica_lagging() {
 
     let mut db = TestDatabase::with_url(&primary_url);
     let setup_exec = db.executor().expect("primary executor");
-    setup_schema_on_primary(&setup_exec);
+    setup_schema_on_primary(&setup_exec, &schema, &table);
 
     const FALLBACK_ID: i32 = 42;
     let pool_settings = integration_pool_settings();
@@ -383,7 +494,7 @@ fn pooled_read_falls_back_to_primary_when_replica_lagging() {
         Value::String(Some("primary-fallback".into())),
     ]);
     exec.execute_values(
-        "INSERT INTO pool_replica_test.t_pool_replica_smoke (id, note) VALUES ($1, $2)",
+        &format!("INSERT INTO {schema}.{table} (id, note) VALUES ($1, $2)"),
         &insert_vals,
     )
     .expect("pooled insert");
@@ -439,7 +550,7 @@ fn pooled_read_falls_back_to_primary_when_replica_lagging() {
     let read_vals = Values(vec![Value::Int(Some(FALLBACK_ID))]);
     let row = exec
         .query_one_values(
-            "SELECT note FROM pool_replica_test.t_pool_replica_smoke WHERE id = $1",
+            &format!("SELECT note FROM {schema}.{table} WHERE id = $1"),
             &read_vals,
         )
         .expect("pooled read should succeed via primary when replica tier is unavailable");

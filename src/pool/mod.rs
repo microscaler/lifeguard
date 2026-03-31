@@ -7,6 +7,8 @@
 //!   [`LifeguardPoolSettings`] and [`crate::LifeError::PoolAcquireTimeout`]).
 //! - **[`PooledLifeExecutor`]**: [`crate::executor::LifeExecutor`] over the pool via
 //!   [`crate::executor::LifeExecutor::execute_values`] / `query_*_values` (and ORM paths).
+//!   Use [`ReadPreference`] with [`PooledLifeExecutor::with_read_preference`] to force primary
+//!   reads when you need read-your-writes consistency.
 //! - **[`OwnedParam`]**: owned bind parameters for jobs crossing channels (cannot send `&dyn ToSql`
 //!   across threads/coroutine boundaries).
 //! - **[`wal::WalLagMonitor`]** + **[`WalLagPolicy`]**: optional background polling used when routing
@@ -39,4 +41,4 @@ pub mod wal;
 pub use config::{DatabaseConfig, LifeguardPoolSettings};
 pub use wal::WalLagPolicy;
 pub use owned_param::OwnedParam;
-pub use pooled::{LifeguardPool, PooledLifeExecutor};
+pub use pooled::{ExclusivePrimaryLifeExecutor, LifeguardPool, PooledLifeExecutor, ReadPreference};

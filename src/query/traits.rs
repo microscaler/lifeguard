@@ -6,7 +6,7 @@
 //!
 //! Generic methods take `executor: &E` where `E: LifeExecutor`. If you hold a trait object as
 //! `let ex: &dyn LifeExecutor`, pass **`&ex`** (so `E` is `&dyn LifeExecutor`, which implements
-//! [`LifeExecutor`](crate::executor::LifeExecutor) via a blanket impl), not `ex` alone.
+//! [`LifeExecutor`] via a blanket impl), not `ex` alone.
 //!
 //! # Examples
 //!

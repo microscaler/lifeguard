@@ -53,6 +53,181 @@ pub mod column_name_tests {
     }
 }
 
+/// `#[scope]` attribute on `impl Entity` (PRD Phase C derive sugar).
+pub mod scope_attr_tests {
+    use lifeguard::ColumnTrait;
+    use lifeguard::LifeModelTrait;
+    use lifeguard::scope;
+    use lifeguard_derive::{LifeModel, LifeRecord};
+    use sea_query::IntoCondition;
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "scope_macro_users"]
+    pub struct ScopeMacroUser {
+        #[primary_key]
+        pub id: i32,
+        pub active: bool,
+    }
+
+    impl Entity {
+        #[scope]
+        fn active() -> impl IntoCondition {
+            Column::Active.eq(true)
+        }
+    }
+
+    #[test]
+    fn scope_attr_renames_to_scope_active_and_chains() {
+        let _q = Entity::find().scope(Entity::scope_active());
+    }
+}
+
+/// `#[validate(custom = ...)]` on `LifeRecord` fields (PRD V-5).
+pub mod validate_attr_tests {
+    use lifeguard::{run_validators, ValidateOp};
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    pub fn email_non_empty(v: &sea_query::Value) -> Result<(), String> {
+        match v {
+            sea_query::Value::String(Some(s)) if !s.is_empty() => Ok(()),
+            sea_query::Value::String(Some(_)) => Err("email must be non-empty".to_string()),
+            _ => Err("email must be a non-empty string".to_string()),
+        }
+    }
+
+    pub fn name_non_empty(v: &sea_query::Value) -> Result<(), String> {
+        match v {
+            sea_query::Value::String(Some(s)) if !s.is_empty() => Ok(()),
+            _ => Err("name must be non-empty".to_string()),
+        }
+    }
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "validated_users"]
+    pub struct ValidatedUser {
+        #[primary_key]
+        pub id: i32,
+        #[validate(custom = email_non_empty)]
+        pub email: String,
+    }
+
+    #[test]
+    fn validate_custom_rejects_empty_email() {
+        let mut r = ValidatedUserRecord::new();
+        r.set_email(String::new());
+        let err = run_validators(&r, ValidateOp::Insert).expect_err("validation should fail");
+        match err {
+            lifeguard::ActiveModelError::Validation(v) => {
+                assert_eq!(v.len(), 1);
+                assert_eq!(v[0].field.as_deref(), Some("email"));
+                assert!(v[0].message.contains("non-empty"));
+            }
+            e => panic!("expected Validation error, got {:?}", e),
+        }
+    }
+
+    #[test]
+    fn validate_custom_accepts_non_empty_email() {
+        let mut r = ValidatedUserRecord::new();
+        r.set_email("a@b.c".to_string());
+        run_validators(&r, ValidateOp::Insert).expect("validation should pass");
+    }
+
+    #[test]
+    fn validate_custom_skips_when_field_unset() {
+        let r = ValidatedUserRecord::new();
+        run_validators(&r, ValidateOp::Insert).expect("no field set => custom validator not run");
+    }
+}
+
+/// Two `#[validate(custom)]` fields — FailFast (default): first failing field only.
+mod validate_multi_fail_fast {
+    use super::validate_attr_tests::email_non_empty;
+    use lifeguard::{run_validators, ValidateOp};
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "validated_users_multi_ff"]
+    pub struct ValidatedUserMulti {
+        #[primary_key]
+        pub id: i32,
+        #[validate(custom = email_non_empty)]
+        pub email: String,
+        #[validate(custom = super::validate_attr_tests::name_non_empty)]
+        pub name: String,
+    }
+
+    #[test]
+    fn validate_fail_fast_stops_after_first_invalid_field() {
+        let mut r = ValidatedUserMultiRecord::new();
+        r.set_id(1);
+        r.set_email(String::new());
+        r.set_name(String::new());
+        let err = run_validators(&r, ValidateOp::Insert).expect_err("first field fails");
+        match err {
+            lifeguard::ActiveModelError::Validation(v) => {
+                assert_eq!(v.len(), 1, "FailFast should stop after first failing field validator");
+                assert_eq!(v[0].field.as_deref(), Some("email"));
+            }
+            e => panic!("expected Validation error, got {:?}", e),
+        }
+    }
+}
+
+/// Two `#[validate(custom)]` fields — `ValidationStrategy::Aggregate`: all field errors.
+mod validate_multi_aggregate {
+    use super::validate_attr_tests::{email_non_empty, name_non_empty};
+    use lifeguard::{run_validators, ValidateOp};
+    use lifeguard_derive::{LifeModel, LifeRecord};
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "validated_users_multi_agg"]
+    #[validation_strategy = "aggregate"]
+    pub struct ValidatedUserMultiAgg {
+        #[primary_key]
+        pub id: i32,
+        #[validate(custom = email_non_empty)]
+        pub email: String,
+        #[validate(custom = name_non_empty)]
+        pub name: String,
+    }
+
+    #[test]
+    fn validate_aggregate_collects_all_field_errors() {
+        let mut r = ValidatedUserMultiAggRecord::new();
+        r.set_id(1);
+        r.set_email(String::new());
+        r.set_name(String::new());
+        let err = run_validators(&r, ValidateOp::Insert).expect_err("both fields invalid");
+        match err {
+            lifeguard::ActiveModelError::Validation(v) => {
+                assert_eq!(v.len(), 2, "Aggregate should run every field validator");
+                let fields: Vec<Option<&str>> = v.iter().map(|e| e.field.as_deref()).collect();
+                assert!(fields.contains(&Some("email")));
+                assert!(fields.contains(&Some("name")));
+            }
+            e => panic!("expected Validation error, got {:?}", e),
+        }
+    }
+}
+
+#[test]
+fn user_record_identity_map_key_matches_pk_fingerprint() {
+    use lifeguard::session::fingerprint_pk_values;
+    use sea_query::Value;
+
+    let m = UserModel {
+        id: 42,
+        name: "n".into(),
+        email: "e@x".into(),
+    };
+    let r = UserRecord::from_model(&m);
+    assert_eq!(
+        r.identity_map_key(),
+        Some(fingerprint_pk_values(&[Value::Int(Some(42))]))
+    );
+}
+
 // Entity with numeric fields for testing all numeric types
 // Using a module to avoid name conflicts
 // NOTE: may_postgres doesn't support u8, u16, u64 in FromSql, so we manually implement ModelTrait
@@ -2709,6 +2884,202 @@ mod active_model_trait_tests {
         assert!(
             error.to_string().contains("Invalid value type"),
             "Error should indicate invalid type"
+        );
+    }
+
+    #[test]
+    fn test_set_invalid_type_preserves_update_expr() {
+        use lifeguard::ColumnTrait;
+        use sea_query::Expr;
+
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("a".to_string());
+        record.set_email("e@example.com".to_string());
+        // Non-PK column: F-style expr is only generated for non-primary-key fields.
+        record.set_name_expr(Expr::cust("1"));
+        assert!(record
+            .__update_exprs
+            .contains_key(&<Entity as LifeModelTrait>::Column::Name));
+
+        let err = record
+            .set(
+                <Entity as LifeModelTrait>::Column::Name,
+                sea_query::Value::Int(Some(42)),
+            )
+            .expect_err("wrong type for name column");
+        assert!(matches!(
+            err,
+            lifeguard::ActiveModelError::InvalidValueType { .. }
+        ));
+
+        assert!(
+            record
+                .__update_exprs
+                .contains_key(&<Entity as LifeModelTrait>::Column::Name),
+            "failed set() must not clear scheduled F-style expression"
+        );
+    }
+
+    #[test]
+    fn test_set_col_invalid_type_preserves_update_expr() {
+        use lifeguard::ColumnTrait;
+        use sea_query::Expr;
+
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_name("a".to_string());
+        record.set_email("e@example.com".to_string());
+        record.set_name_expr(Expr::cust("1"));
+        assert!(record
+            .__update_exprs
+            .contains_key(&<Entity as LifeModelTrait>::Column::Name));
+
+        let err = record
+            .set_col("name", sea_query::Value::Int(Some(42)))
+            .expect_err("wrong type for name column");
+        assert!(matches!(
+            err,
+            lifeguard::ActiveModelError::InvalidValueType { .. }
+        ));
+
+        assert!(
+            record
+                .__update_exprs
+                .contains_key(&<Entity as LifeModelTrait>::Column::Name),
+            "failed set_col() must not clear scheduled F-style expression"
+        );
+    }
+
+    // Session: flush closure runs once per dirty row — `take()` on an already-unset column must not
+    // enqueue dirty (parity with `set()` only notifying on success).
+    #[test]
+    fn test_take_noop_when_unset_skips_session_dirty() {
+        use lifeguard::executor::{LifeError, LifeExecutor};
+        use lifeguard::session::Session;
+        use may_postgres::Row;
+
+        struct NopExecutor;
+
+        impl LifeExecutor for NopExecutor {
+            fn execute(
+                &self,
+                _query: &str,
+                _params: &[&dyn may_postgres::types::ToSql],
+            ) -> Result<u64, LifeError> {
+                Ok(0)
+            }
+
+            fn query_one(
+                &self,
+                _query: &str,
+                _params: &[&dyn may_postgres::types::ToSql],
+            ) -> Result<Row, LifeError> {
+                Err(LifeError::QueryError("nop".into()))
+            }
+
+            fn query_all(
+                &self,
+                _query: &str,
+                _params: &[&dyn may_postgres::types::ToSql],
+            ) -> Result<Vec<Row>, LifeError> {
+                Ok(vec![])
+            }
+        }
+
+        let session = Session::<Entity>::new();
+        session.register_loaded(UserModel {
+            id: 1,
+            name: "n".to_string(),
+            email: "e@e.com".to_string(),
+        });
+        session.clear_dirty();
+
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.attach_session(&session);
+
+        let _ = record.take(<Entity as LifeModelTrait>::Column::Name);
+
+        let mut flush_count = 0;
+        let ex = NopExecutor;
+        session
+            .flush_dirty(&ex as &dyn LifeExecutor, |_, _| {
+                flush_count += 1;
+                Ok(())
+            })
+            .expect("flush");
+
+        assert_eq!(
+            flush_count, 0,
+            "take on unset column should not enqueue session dirty"
+        );
+    }
+
+    #[test]
+    fn test_take_with_value_or_expr_notifies_session_dirty() {
+        use lifeguard::executor::{LifeError, LifeExecutor};
+        use lifeguard::session::Session;
+        use lifeguard::ColumnTrait;
+        use may_postgres::Row;
+        use sea_query::Expr;
+
+        struct NopExecutor;
+
+        impl LifeExecutor for NopExecutor {
+            fn execute(
+                &self,
+                _query: &str,
+                _params: &[&dyn may_postgres::types::ToSql],
+            ) -> Result<u64, LifeError> {
+                Ok(0)
+            }
+
+            fn query_one(
+                &self,
+                _query: &str,
+                _params: &[&dyn may_postgres::types::ToSql],
+            ) -> Result<Row, LifeError> {
+                Err(LifeError::QueryError("nop".into()))
+            }
+
+            fn query_all(
+                &self,
+                _query: &str,
+                _params: &[&dyn may_postgres::types::ToSql],
+            ) -> Result<Vec<Row>, LifeError> {
+                Ok(vec![])
+            }
+        }
+
+        let session = Session::<Entity>::new();
+        session.register_loaded(UserModel {
+            id: 1,
+            name: "n".to_string(),
+            email: "e@e.com".to_string(),
+        });
+        session.clear_dirty();
+
+        let mut record = UserRecord::new();
+        record.set_id(1);
+        record.set_email("e@e.com".to_string());
+        record.set_name_expr(Expr::cust("1"));
+        record.attach_session(&session);
+
+        let _ = record.take(<Entity as LifeModelTrait>::Column::Name);
+
+        let mut flush_count = 0;
+        let ex = NopExecutor;
+        session
+            .flush_dirty(&ex as &dyn LifeExecutor, |_, _| {
+                flush_count += 1;
+                Ok(())
+            })
+            .expect("flush");
+
+        assert_eq!(
+            flush_count, 1,
+            "take that clears a literal or F-style expr should enqueue session dirty"
         );
     }
 

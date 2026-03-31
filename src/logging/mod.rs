@@ -1,8 +1,8 @@
 //! Global logging through a single [`may::sync::mpsc`] queue.
 //!
-//! Producers call [`enqueue`] (or the [`lifeguard_log!`] macro). One coroutine drains the
+//! Producers call [`enqueue`] (or the [`lifeguard_log!`](macro@crate::logging::lifeguard_log) macro). One coroutine drains the
 //! channel and writes lines to stderr so formatting stays sequential without locking on the
-//! send path. [`flush_log_channel`] and [`ChannelLogger`](log_bridge::ChannelLogger)'s
+//! send path. [`flush_log_channel`] and [`ChannelLogger`]'s
 //! [`log::Log::flush`] block until prior enqueued records have been written (see reentrancy note
 //! there).
 //!

@@ -118,6 +118,32 @@ pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
         .any(|attr| attr.path().is_ident(attr_name))
 }
 
+/// Parse `#[validate(custom = path)]` on a model field (PRD V-5).
+///
+/// Multiple attributes or `custom = a, custom = b` in one `#[validate(...)]` are supported.
+/// The generated code calls each path as `path(&sea_query::Value) -> Result<(), String>`.
+pub fn parse_field_validate_custom_paths(field: &Field) -> syn::Result<Vec<syn::Path>> {
+    let mut paths = Vec::new();
+    for attr in &field.attrs {
+        if !attr.path().is_ident("validate") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("custom") {
+                let value = meta.value()?;
+                let path: syn::Path = value.parse()?;
+                paths.push(path);
+                Ok(())
+            } else {
+                Err(meta.error(
+                    "unknown `validate` item; expected `custom = path` (function `fn(&sea_query::Value) -> Result<(), String>`)",
+                ))
+            }
+        })?;
+    }
+    Ok(paths)
+}
+
 /// Holds the configuration extracted from `#[has_many]`, `#[belongs_to]`, etc.
 #[derive(Debug, Clone, Default)]
 pub struct RelationAttribute {
@@ -373,6 +399,16 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
     Ok(attrs)
 }
 
+/// How derived `LifeRecord::validate_fields` combines per-field `#[validate(custom = ...)]` errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableValidationStrategy {
+    /// First failing field validator stops; remaining field validators are skipped.
+    #[default]
+    FailFast,
+    /// Run every field validator and collect all errors.
+    Aggregate,
+}
+
 /// Table-level attributes for entity definitions
 #[derive(Debug, Clone, Default)]
 pub struct TableAttributes {
@@ -404,6 +440,9 @@ pub struct TableAttributes {
     pub auto_timestamp: bool,
     /// Soft delete flag intercepts DELETE operations and updates `deleted_at` instead
     pub soft_delete: bool,
+    /// When set, the derived `LifeRecord` implements `ActiveModelBehavior::validation_strategy`
+    /// so `validate_fields` matches `run_validators` for that strategy.
+    pub validation_strategy: Option<TableValidationStrategy>,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -584,6 +623,25 @@ pub fn parse_table_attributes(
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
                 table_attrs.after_delete = Some(meta.tokens.to_string());
+            }
+        } else if attr.path().is_ident("validation_strategy") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
+                    let v = s.value().to_ascii_lowercase();
+                    table_attrs.validation_strategy = Some(match v.as_str() {
+                        "aggregate" => TableValidationStrategy::Aggregate,
+                        "fail_fast" | "failfast" => TableValidationStrategy::FailFast,
+                        _ => {
+                            return Err(syn::Error::new_spanned(
+                                attr,
+                                "validation_strategy must be \"aggregate\" or \"fail_fast\"",
+                            ));
+                        }
+                    });
+                }
             }
         }
     }

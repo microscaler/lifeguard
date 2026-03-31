@@ -3,7 +3,8 @@
 **Slug:** `schema_validators_session_and_scopes`  
 **Status:** **Draft** — Requirements and acceptance criteria; design splits into follow-on `DESIGN_*.md` per workstream as implementation starts.  
 **Audience:** Lifeguard maintainers, `lifeguard-derive` authors, and application teams targeting SeaORM-like ergonomics on `may`.  
-**References:** [README.md](../../README.md) competitive matrix (“Not Implemented” rows); [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md); `src/query/`, `lifeguard-derive/`, `lifeguard::LifeRecord` / `LifeModel` patterns.
+**Iteration 2 (PRD follow-on):** default git branch for the next tranche of work — `feat/schema_validators_session_and_scopes_2` (v0 landed via PR #56 on `main`; this branch continues §5–§9 “still to do” items).  
+**References:** [COMPARISON.md](../../COMPARISON.md) competitive matrix (“Not Implemented” rows); [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md); `src/query/`, `lifeguard-derive/`, `lifeguard::LifeRecord` / `LifeModel` patterns.
 
 ---
 
@@ -13,11 +14,11 @@
 
 - [x] PRD published (`PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`)
 - [x] Design note(s): schema inference CLI / codegen boundary — [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md)
-- [x] **Phase A — Schema inference** ([§5](#5-schema-inference-from-db--diesel-style)) — *can ship independently* — **v0 landed:** `lifeguard-migrate infer-schema` + `lifeguard_migrate::schema_infer` (see §5.7)
+- [x] **Phase A — Schema inference** ([§5](#5-schema-inference-from-db--diesel-style)) — *can ship independently* — **v0 landed:** `lifeguard-migrate infer-schema` + `compare-schema` + `lifeguard_migrate::schema_infer` / `schema_migration_compare` (see §5.7)
 - [x] **Phase B — Validators** ([§6](#6-validators-field--model-level)) — **v0 landed:** trait hooks + `run_validators` + `ActiveModelError::Validation`; see [§6.7](#67-implementation-status-v0)
-- [x] **Phase C — Scopes** ([§7](#7-scopes-named-query-scopes)) — **v0 landed:** `SelectQuery::scope`, `IntoScope`; see [§7.7](#77-implementation-status-v0)
+- [x] **Phase C — Scopes** ([§7](#7-scopes-named-query-scopes)) — **v0 landed:** `SelectQuery::scope`, `IntoScope`, **`#[scope]`** attribute (`lifeguard::scope`); see [§7.7](#77-implementation-status-v0)
 - [x] **Phase D — F() expressions** ([§8](#8-f-expressions-database-level-expressions)) — **v0 landed:** `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div`; see [§8.7](#87-implementation-status-v0)
-- [x] **Phase E — Session / Unit of Work (v0 — identity map)** ([§9](#9-session--unit-of-work-identity-map-dirty-tracking)) — **v0:** `ModelIdentityMap`, `fingerprint_pk_values`; **deferred:** dirty flush (U-2), pool-bound session (U-4); see [§9.7](#97-implementation-status-v0)
+- [x] **Phase E — Session / Unit of Work (v0 — identity map + session handle)** ([§9](#9-session--unit-of-work-identity-map-dirty-tracking)) — **v0:** `ModelIdentityMap`, `Session`, `SessionDirtyNotifier`, `attach_session` / record auto-dirty enqueue, **`LifeguardPool::exclusive_primary_write_executor`** / **`Session::flush_dirty_in_transaction_pooled`** (U-4 pin-slot); **insert-only flush:** `register_pending_insert`, `flush_dirty_with_map_key`, `promote_pending_to_loaded`, `is_pending_insert_key`; see [§9.7](#97-implementation-status-v0--u-2-partial)
 - [x] [§10 Success criteria](#10-success-criteria) satisfied for **PRD v0** (partial parity per phase; follow-on work remains in §5–§9 “still to do” bullets)
 
 ### 0.2 Workstream rollup
@@ -126,20 +127,27 @@ Success means developers can (where applicable) **generate or refresh** models f
 **Still product-open:**
 
 - Emit `LifeModel` only vs also `LifeRecord` stubs vs `PartialModel` hints (v0 emits both derives where applicable).
-- Watch mode / CI golden snapshots (PRD stretch).
 
 ### 5.7 Implementation status (v0)
 
 **Shipped in-tree:**
 
 - **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url <URL>` (or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). Flags: `--schema` (default `public`), `--table TABLE` (repeatable) to restrict tables.
-- **Library:** `lifeguard_migrate::schema_infer::{infer_schema_rust, InferOptions}` — introspects `information_schema`, maps common PostgreSQL types to Rust types conservatively, emits `#[derive(LifeModel, LifeRecord)]` structs with `#[primary_key]` when the PK is a **single** column; **composite** PKs get a `TODO` comment; unsupported types are **omitted** with `// OMITTED:` lines (SI-2).
+- **Library:** `lifeguard_migrate::schema_infer::{infer_schema_rust, InferOptions}` — introspects `information_schema`, maps common PostgreSQL types to Rust types conservatively, emits `#[derive(LifeModel, LifeRecord)]` structs with `#[primary_key]` on **each** primary-key column (including **composite** PKs — multiple `#[primary_key]` attributes, matching `lifeguard-derive`); unsupported types are **omitted** with `// OMITTED:` lines (SI-2).
 
-**SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK TODO, table filter, SQL keyword field).
+**SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK, table filter, SQL keyword field).
 
-**Still to do for Phase A closure:** optional live-Postgres smoke for the **`infer-schema` CLI** end-to-end; CI doc hook. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`), `DEVELOPMENT.md` (migrate / goldens).
+**Phase A closure (documentation + tests):** **`infer-schema` CLI subprocess e2e** — `lifeguard-migrate/tests/infer_schema_cli_subprocess.rs` (spawns `CARGO_BIN_EXE_lifeguard-migrate infer-schema`, asserts banner; skips without DB URL). **Library / CI:** `infer_schema_postgres_smoke.rs`, `infer_schema_table_filter_si3.rs` (unchanged). **DBA confidence — live DB vs on-disk generated migrations:** `lifeguard_migrate::schema_migration_compare` + CLI **`compare-schema`** — reconciles **`information_schema` base table names** and, for tables present in both baselines, **column names** (`information_schema.columns` vs columns parsed from merged `CREATE TABLE` + `ADD COLUMN` fragments via `column_map_from_merged_baseline`); **does not** compare SQL type text, constraints, or **indexes** in depth (`pg_indexes` / `CREATE INDEX` reconciliation is a **stretch** — see §5.7a). `tests/migration_db_compare_smoke.rs`. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`, `compare-schema`), `DEVELOPMENT.md` (migrate section).
 
-**Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary).
+**Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary; `compare-schema` column reconciliation is name-level only).
+
+### 5.7a Deferred (Phase A stretch — end of backlog)
+
+Tackle after core PRD follow-through items:
+
+- **Watch mode** for `infer-schema`
+- **Richer CI golden workflows** (snapshot automation beyond current unit goldens)
+- **Index reconciliation (stretch):** extend `lifeguard_migrate::schema_migration_compare` and the **`compare-schema`** CLI to fetch index definitions (e.g. `pg_indexes` / `information_schema.statistics`), parse each index’s column list, and verify indexed columns exist in both `column_map_from_merged_baseline` and the live DB; surface mismatches as failures or warnings; align generated migrations so **`CREATE INDEX`** is represented and validated. Follow-up: optional **lifeguard-derive** / migration-time checks that struct fields map to indexed columns where the schema expects them. (See §5.7 shipped scope: table + column **names** only today.)
 
 ---
 
@@ -159,14 +167,14 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 ### 6.3 What (scope)
 
-- **Field validators:** Run on values present or changed on `LifeRecord` for insert/update/save paths (exact operations TBD in design).
+- **Field validators:** Run on values present or changed on `LifeRecord` for insert/update/delete/save paths (exact operations TBD in design).
 - **Model validators:** Access multiple fields; run after field validators.
 - **API surface:** Minimum = **traits** + manual registration or inherent impls; **stretch** = derive attributes (`#[validate(...)]`) where macro hygiene allows.
 - **Errors:** Typed error type or `LifeError` variant that carries **field paths** and **messages**; optional aggregation mode.
 
 ### 6.4 How (approach)
 
-- **Integration point:** Call validator pipeline from **`ActiveModelTrait` save/insert/update** (or a single internal choke point) **before** building SQL.
+- **Integration point:** Call validator pipeline from **`ActiveModelTrait` save/insert/update/delete** (or a single internal choke point) **before** building SQL.
 - **Sync only:** Validators are synchronous closures or trait methods; **no** async/`await` (matches `may` stack).
 - **Composition:** Small building blocks (`validate_len`, custom `Fn`) composed into a **validator list** per model; optional derive generates lists.
 - **Testing:** Pure unit tests on validator functions without Postgres; integration tests optional for end-to-end rejection.
@@ -175,7 +183,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 | Req ID | Requirement | Acceptance criteria |
 |--------|-------------|---------------------|
-| V-1 | **Field validators** run for present/changed fields on `LifeRecord` save paths (insert/update as applicable). | Unit tests: failing field validator blocks persistence and returns typed error. |
+| V-1 | **Field validators** run for present/changed fields on `LifeRecord` save paths (insert/update/delete as applicable). | Unit tests: failing field validator blocks persistence and returns typed error. |
 | V-2 | **Model validators** run after field validators and may inspect multiple fields. | Unit test: cross-field rule works. |
 | V-3 | Errors are **aggregated** or **fail-fast** per explicit policy (default documented). | Tests cover both modes if both are exposed. |
 | V-4 | Opt-out / skip for specific operations if needed (e.g. `save` vs `insert`) — **if** we expose hooks; otherwise document use of hooks. | Documented in rustdoc. |
@@ -190,13 +198,17 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 **Shipped in-tree:**
 
-- **Types:** `lifeguard::ValidateOp` (`Insert` | `Update`), `lifeguard::ValidationError` (`field: Option<String>`, `message: String`, with `field` / `model` constructors).
+- **Types:** `lifeguard::ValidateOp` (`Insert` | `Update` | `Delete`), `lifeguard::ValidationError` (`field: Option<String>`, `message: String`, with `field` / `model` constructors).
 - **Errors:** `ActiveModelError::Validation(Vec<ValidationError>)` with `Display` listing field-scoped and model-scoped messages (fail-fast; no multi-error aggregation yet).
-- **Traits:** `ActiveModelBehavior::validate_fields` / `validate_model` (default no-op), invoked via `lifeguard::run_validators` in order **field → model**.
-- **Integration:** `lifeguard-derive` generated `insert` / `update` call `run_validators` **after** `before_insert` / `before_update` (so hook defaults are visible to validation) and **before** SQL build.
-- **Tests:** Unit tests on `run_validators` ordering and short-circuit; `cargo clippy` / `lifeguard-derive` tests pass.
+- **Traits:** `ActiveModelBehavior::validate_fields` / `validate_model` (default no-op), `validation_strategy` (default [`ValidationStrategy::FailFast`]), invoked via `lifeguard::run_validators` in order **field → model**.
+- **V-3:** `ValidationStrategy::Aggregate` collects all `Validation` errors from `validate_fields` then `validate_model`; override `validation_strategy` on the record or call `run_validators_with_strategy` directly.
+- **Delete:** `ValidateOp::Delete` after `before_delete`, before SQL; same validator hooks as insert/update.
+- **Integration:** `lifeguard-derive` generated `insert` / `update` / `delete` call `run_validators` **after** the corresponding `before_*` hook and **before** SQL build.
+- **Tests:** Unit tests on `run_validators` ordering, fail-fast, aggregate collection, and `Delete` op; `cargo clippy` / `lifeguard-derive` tests pass.
+- **V-5 (derive sugar):** `#[validate(custom = path)]` on model fields — `path` is `fn(&sea_query::Value) -> Result<(), String>`; `LifeRecord` implements `validate_fields` to run each custom validator when `ActiveModelTrait::get` is `Some` for that column. Unsupported on `#[ignore]`/`#[skip]` fields. Tests: `lifeguard-derive/tests/test_minimal.rs` (`validate_attr_tests`).
+- **Built-in predicates:** `lifeguard::predicates` (`src/active_model/predicates.rs`) — `string_utf8_chars_max`, `string_utf8_chars_in_range`, `blob_or_string_byte_len_max`, `i64_in_range`, `f64_in_range` on `sea_query::Value`; unit tests in-module.
 
-**Still to do for fuller Phase B:** optional `#[validate(...)]` derive (V-5), explicit aggregate-errors mode if required (V-3), `DELETE` path validation if product wants it, README / mapping matrix updates (G6).
+**G6 (documentation):** [COMPARISON.md](../../COMPARISON.md) competitive/feature bullets and [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) parity row list shipped validator APIs, predicate names, and the intentional gap vs SeaORM’s broader built-in attribute set.
 
 ---
 
@@ -242,9 +254,9 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **API:** `lifeguard::SelectQuery::scope` and `lifeguard::IntoScope` in `src/query/scope.rs`. Any `sea_query::IntoCondition` (column expressions, `Condition`, etc.) applies as a scope; implementation delegates to `SelectQuery::filter` so predicates **AND** together.
 - **Pattern:** Entity-associated functions (e.g. `UserEntity::scope_active() -> impl IntoCondition`) are composed with `User::find().scope(UserEntity::scope_active())`.
 - **Soft delete:** `query::scope` module documents that `LifeModelTrait::soft_delete_column` is applied at execution time and **AND**ed with scoped predicates unless `with_trashed` is set; unit test `scope_and_soft_delete_both_anded_at_execution`.
-- **Tests:** `src/query/scope.rs` — composition + soft-delete interaction.
+- **Tests:** `src/query/scope.rs` — composition + soft-delete interaction + `scope_or` / `scope_any`.
 
-**Still to do for fuller Phase C:** derive sugar (`#[scope]` / codegen), OR-composition helpers, `find_related`/loader interaction notes in a design doc, README matrix row (G6).
+**Still to do for fuller Phase C:** optional codegen beyond `#[scope]` (e.g. scope lists on the struct). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** attribute macro (`lifeguard::scope` / `lifeguard_derive::scope`) on `impl Entity` renames `fn foo` → `scope_foo`. **`find_related` vs scopes:** default behavior documented in crate rustdoc (`query::scope`, `FindRelated`) and [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) (parent scopes are not merged into `find_related` SQL; chain on the returned query). Opt-in `related_scope` / inherited parent scopes remain future work. README matrix (G6) updated for scopes.
 
 ---
 
@@ -291,11 +303,15 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Tests:** `src/query/column/column_trait.rs` — `test_f_add_update_sql_contains_arithmetic`, basic compile tests for `f_*`.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase D:** wire **`LifeRecord::update`** / derive to accept expression RHS without hand-built `Query::update` (F-1 end-to-end on ORM path), `WHERE`/`ORDER BY` examples, README matrix row (G6), integration test on Postgres.
+**F-3 (limitations vs raw SQL):** `ColumnTrait::f_add` rustdoc (aggregates/subqueries → `Expr::cust`); [COMPARISON.md](../../COMPARISON.md) competitive section + feature bullets (§10 / G6).
+
+**PostgreSQL numeric typing (F-style ops):** SeaQuery emits `SimpleExpr` arithmetic; PostgreSQL applies **binary promotion** (e.g. `integer` + `numeric` → `numeric`). Lifeguard does **not** inject implicit casts—align operand types in the query builder, or use `Expr::cust` / explicit SQL for `::bigint`, `::numeric`, etc. [COMPARISON.md](../../COMPARISON.md) + [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) F() row; rustdoc on `ColumnTrait::f_add` (`src/query/column/column_trait.rs`).
+
+**Done in-tree:** `LifeRecord` `set_<field>_expr` / `__update_exprs` / derived `update()`; `identity_map_key` for session bridge; `insert()` rejects non-empty `__update_exprs`; Postgres `column_f_update.rs` + `column_f_where.rs`; [COMPARISON.md](../../COMPARISON.md) + mapping G6 for F().
 
 ### 8.8 Dependency note
 
-Coordinate with **`SelectQuery`** and **`ActiveModelTrait`** update paths; likely **SeaQuery extensions** or thin lifeguard wrappers (see §8.4). **LifeRecord** integration remains the main follow-on.
+**LifeRecord** `update()` / `set_*_expr` path coordinates with SeaQuery `UpdateStatement::value`. **`SelectQuery`** F-style filters use `Expr::expr` + SeaQuery’s `ExprTrait` at the call site.
 
 ---
 
@@ -347,13 +363,13 @@ Coordinate with **`SelectQuery`** and **`ActiveModelTrait`** update paths; likel
 **Shipped in-tree:**
 
 - **API:** `lifeguard::ModelIdentityMap` and `lifeguard::fingerprint_pk_values` in `src/session/` — identity map keyed by stable PK fingerprints (`src/session/pk.rs`); same primary key → same `Rc<RefCell<Model>>` (first registration wins; duplicate model dropped).
-- **U-2 (partial):** `mark_dirty`, `unmark_dirty`, `is_marked_dirty`, `dirty_len`, `clear_dirty`, `flush_dirty` — dirty keys flushed in **lexicographic order of PK fingerprint** via a closure `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>` (callers wire `LifeRecord::update` / `save`). **Not** shipped: auto-mark dirty on `LifeRecord::set`, insert-only flush, transactional batching inside the map.
+- **U-2 (partial):** `mark_dirty`, **`mark_dirty_key`** (fingerprint string), `unmark_dirty`, `is_marked_dirty`, `dirty_len`, `clear_dirty`, `flush_dirty` / **`flush_dirty_with_map_key`** on **`ModelIdentityMap`** — dirty keys flushed in **lexicographic order of internal map key** (pending-insert keys first, then PK fingerprints) via a closure; callers wire `LifeRecord::update` / `save` / **`insert`**. **`register_pending_insert`**, **`promote_pending_to_loaded`**, **`is_pending_insert_key`** / **`PENDING_INSERT_KEY_PREFIX`** support **insert-only** rows until a real PK exists after `insert`. Derived **`LifeRecord::identity_map_key()`** returns `Some(fingerprint)` when all PK columns are set. **`Session`** (`src/session/uow.rs`) shares an identity map and merges a **`Send`/`Sync` pending-dirty queue** at **`Session::flush_dirty`**; **`Session::flush_dirty_in_transaction`** (`MayPostgresExecutor` + **`Transaction`**). **`Session::flush_dirty_in_transaction_pooled`** + **`LifeguardPool::exclusive_primary_write_executor`** (U-4: per-slot mutex, one primary connection for `BEGIN`/`COMMIT`/`ROLLBACK` around flush); **`flush_dirty_*_with_map_key`** variants for transactional insert vs update. **`LifeRecord::attach_session` / `detach_session`** (PK entities): `set_*`, **`ActiveModelTrait::set` / `take` / `set_col`**, and **`set_*_expr`** enqueue dirty via **`SessionDirtyNotifier`** when the PK is set on the record.
 - **Design:** `docs/planning/DESIGN_SESSION_UOW.md` — pool pinning, flush, and `may`/threading notes (U-4, U-5).
 - **Rustdoc:** `session` module documents identity, dirty flush, threading (`Send`/`Sync`).
-- **Tests:** `src/session/mod.rs`, `src/session/pk.rs` — identity map, fingerprint, dirty order, flush error retention.
+- **Tests:** `src/session/mod.rs`, `src/session/pk.rs`, `src/session/uow.rs` — identity map, fingerprint, dirty order, flush error retention, pending insert flush + promote (unit), `Session` pending merge, `SessionDirtyNotifier` `Send`. **`db_integration_suite`:** `tests/db_integration/session_identity_flush.rs` — raw map flush, `mark_dirty_key` + `identity_map_key`, **`Session` + `attach_session` + record `set_*`**, **`Session::flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** → `LifeRecord::update`, **`register_pending_insert`** + **`flush_dirty_with_map_key`** + **`promote_pending_to_loaded`** → `LifeRecord::insert`, same path inside **`flush_dirty_in_transaction_with_map_key`** / **`flush_dirty_in_transaction_pooled_with_map_key`** on Postgres.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase E:** auto-dirty / derive integration, optional `Session` type holding executor/pool policy (U-4 integration), README / mapping matrix row if needed beyond §10 snapshot, Postgres integration tests as the API stabilizes.
+**Still to do for fuller Phase E:** mapping matrix row tweaks as APIs grow. **Done in-tree:** **`LifeRecord::attach_session_with_model`** — linked `Rc<RefCell<Model>>` updated via **`to_model()`** on each session-notifying mutation when conversion succeeds (PRD §9 / `DESIGN_SESSION_UOW.md`).
 
 ---
 
@@ -361,7 +377,7 @@ Coordinate with **`SelectQuery`** and **`ActiveModelTrait`** update paths; likel
 
 - [x] Each **phase** (A–E) has **passing tests** (unit and, where needed, integration with `TEST_DATABASE_URL`) — **v0:** phases ship unit tests; integration coverage varies by workstream (see §5.7–§9.7).
 - [x] **Public rustdoc** describes the supported API surface and sharp edges — **v0:** each phase documents limitations in-module (ongoing: expand examples as APIs stabilize).
-- [x] [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) and [README.md](../../README.md) competitive table updated: **Partial** / **Implemented** labels for schema inference, validators, scopes, F(), session/UoW; mapping doc **PRD parity snapshot** table.
+- [x] [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) and [COMPARISON.md](../../COMPARISON.md) competitive table updated: **Partial** / **Implemented** labels for schema inference, validators, scopes, F(), session/UoW; mapping doc **PRD parity snapshot** table.
 - [x] No new **unwrap** in library paths without JSF policy compliance; clippy `-D warnings` on touched crates — **policy:** `#![deny(clippy::unwrap_used)]` / `expect_used` on `lifeguard` crate; run clippy on touched crates before merge.
 
 ---
@@ -389,6 +405,6 @@ Coordinate with **`SelectQuery`** and **`ActiveModelTrait`** update paths; likel
 
 ## 13. References
 
-- [README.md](../../README.md) — “Competitive metrics” table (Not Implemented rows).
+- [COMPARISON.md](../../COMPARISON.md) — competitive metrics table (Not Implemented rows).
 - [PRD_CONNECTION_POOLING.md](./PRD_CONNECTION_POOLING.md) — pool semantics that Session must align with.
 - PostgreSQL information schema — introspection source of truth for Phase A.

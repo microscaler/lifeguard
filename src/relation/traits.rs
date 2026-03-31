@@ -355,13 +355,13 @@ where
 
 /// Trait for finding related entities from a model instance
 ///
-/// Implementations return static [`RelationDef`](crate::RelationDef) metadata for the edge from
+/// Implementations return static [`RelationDef`] metadata for the edge from
 /// **`Self` (entity)** to **`R` (related entity)**. See that type’s **“Orientation for `Related`”**
 /// section for how `from_tbl`, `to_tbl`, `from_col`, and `to_col` must be filled for
 /// `BelongsTo` vs `HasMany`.
 ///
-/// [`FindRelated::find_related`](FindRelated::find_related) and [`LazyLoader::load`](crate::LazyLoader::load)
-/// both use [`build_where_condition`](crate::build_where_condition) so the lazy and eager paths stay consistent.
+/// [`FindRelated::find_related`] and [`LazyLoader`](crate::relation::lazy::LazyLoader) both use
+/// [`build_where_condition`] so the lazy and eager paths stay consistent.
 pub trait Related<R>
 where
     Self: LifeModelTrait,
@@ -399,7 +399,16 @@ where
 /// allowing you to find related entities based on the current model's
 /// primary key value.
 ///
-/// # Example
+/// ## Named scopes
+///
+/// [`crate::SelectQuery::scope`] applies only to queries you build on a given root entity.
+/// `find_related` returns a [`SelectQuery`] for the **related** table with a `WHERE` from the
+/// relation metadata only—it does **not** inherit scopes from a separate `Parent::find().scope(…)`
+/// query. Chain [`.scope`](crate::SelectQuery::scope) or [`.filter`](crate::SelectQuery::filter) on
+/// the returned query to narrow related rows. See `docs/planning/DESIGN_FIND_RELATED_SCOPES.md` in
+/// the repository.
+///
+/// ## Example
 ///
 /// ```no_run
 /// use lifeguard::{FindRelated, Related, LifeModelTrait, ModelTrait, LifeExecutor};

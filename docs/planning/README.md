@@ -37,6 +37,7 @@ Generated: 2026-01-22
 ## Active design docs (pooling)
 
 - [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md) — in-process pool behavior, metrics, PRD §9 decisions (companion to [`PRD_CONNECTION_POOLING.md`](./PRD_CONNECTION_POOLING.md)).
+- [`DESIGN_FIND_RELATED_SCOPES.md`](./DESIGN_FIND_RELATED_SCOPES.md) — how named scopes interact with `find_related` / loaders (PRD Phase C follow-on).
 
 ## Active PRDs (ORM parity)
 

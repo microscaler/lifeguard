@@ -38,6 +38,13 @@
 //!   [operator tuning / non-goals](https://github.com/microscaler/lifeguard/blob/main/docs/POOLING_OPERATIONS.md),
 //!   and [TCP keepalive / idle tuning](https://github.com/microscaler/lifeguard/blob/main/docs/POOL_TCP_KEEPALIVE.md)
 //!   (PRD and ops links work on **docs.rs** via GitHub URLs; clone has the same paths under `docs/`).
+//!
+//! ## Explicit opt-in APIs
+//!
+//! Advanced `SELECT` features (CTEs, subquery joins, windows, raw `WITH` escape hatches) are **not**
+//! implied by normal [`SelectQuery`] usage — you chain the methods documented in
+//! [`crate::query::select`]. For connection pools, [`ReadPreference`] overrides where **reads** go
+//! ([`PooledLifeExecutor::with_read_preference`]); writes stay on the primary tier.
 
 pub mod config;
 
@@ -77,9 +84,12 @@ pub mod test_helpers;
 // mod tests_cfg;
 
 pub use pool::{
-    DatabaseConfig, LifeguardPool, LifeguardPoolSettings, OwnedParam, PooledLifeExecutor,
-    WalLagPolicy,
+    DatabaseConfig, ExclusivePrimaryLifeExecutor, LifeguardPool, LifeguardPoolSettings, OwnedParam,
+    PooledLifeExecutor, ReadPreference, WalLagPolicy,
 };
+
+#[doc(inline)]
+pub use lifeguard_derive::scope;
 
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
 // Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
@@ -110,8 +120,9 @@ pub use query::{
 // ActiveModel operations - Epic 02 Story 07
 pub mod active_model;
 pub use active_model::{
-    run_validators, with_converted_params, ActiveModelBehavior, ActiveModelError, ActiveModelTrait,
-    ActiveValue, ValidateOp, ValidationError,
+    predicates, run_validators, run_validators_with_strategy, with_converted_params,
+    ActiveModelBehavior, ActiveModelError, ActiveModelTrait, ActiveValue, ValidateOp,
+    ValidationError, ValidationStrategy,
 };
 
 // Model trait - Core Traits & Types
@@ -120,7 +131,10 @@ pub use model::{ModelError, ModelTrait, TryIntoModel};
 
 // Session / identity map (PRD Phase E v0)
 pub mod session;
-pub use session::{fingerprint_pk_values, ModelIdentityMap};
+pub use session::{
+    fingerprint_pk_values, is_pending_insert_key, ModelIdentityMap, PENDING_INSERT_KEY_PREFIX,
+    Session, SessionDirtyNotifier, SessionIdentityModelCell,
+};
 
 // Relation trait - Epic 02 Story 08
 pub mod relation;

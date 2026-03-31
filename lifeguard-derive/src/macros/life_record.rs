@@ -79,6 +79,16 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
     }
 
+    let has_primary_keys = fields.iter().any(|field| {
+        if attributes::has_attribute(field, "skip") || attributes::has_attribute(field, "ignore") {
+            return false;
+        }
+        match attributes::parse_column_attributes(field) {
+            Ok(attrs) => attrs.is_primary_key,
+            Err(_) => false,
+        }
+    });
+
     // Parse table-level attributes to get hook metadata
     let table_attrs = match attributes::parse_table_attributes(&input.attrs, &valid_columns) {
         Ok(attrs) => attrs,
@@ -120,6 +130,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
     let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
     let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
+    let mut field_validate_fail_fast_fragments: Vec<proc_macro2::TokenStream> = Vec::new(); // #[validate(custom = ...)] — FailFast (`?`)
+    let mut field_validate_aggregate_fragments: Vec<proc_macro2::TokenStream> = Vec::new(); // same — Aggregate (collect into `errs`)
+    let mut update_expr_setters: Vec<proc_macro2::TokenStream> = Vec::new(); // set_<field>_expr for UPDATE SET expr RHS (F-style)
 
     for field in fields.iter() {
         let field_name = match utils::field_ident(field) {
@@ -171,6 +184,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Skip ignored fields - they're not included in database operations
         // But we still need to add them to the Record struct and conversion methods
         if is_ignored {
+            if attributes::has_attribute(field, "validate") {
+                return syn::Error::new_spanned(
+                    field,
+                    "`#[validate]` is not supported on `#[ignore]` / `#[skip]` fields",
+                )
+                .to_compile_error()
+                .into();
+            }
             // Still include in Record struct with original type (not Option<T>)
             record_fields.push(quote! {
                 pub #field_name: #field_type,
@@ -204,6 +225,44 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
         let column_variant_name = utils::pascal_case(&field_name.to_string());
         let column_variant = Ident::new(&column_variant_name, field_name.span());
+
+        let validate_custom_paths = match attributes::parse_field_validate_custom_paths(field) {
+            Ok(p) => p,
+            Err(e) => return e.to_compile_error().into(),
+        };
+        if !validate_custom_paths.is_empty() {
+            let col_name_lit = LitStr::new(&db_column_name, field_name.span());
+            let validator_calls_fail_fast = validate_custom_paths.iter().map(|path| {
+                quote! {
+                    #path(&val).map_err(|msg| lifeguard::ActiveModelError::Validation(
+                        vec![lifeguard::active_model::validate_op::ValidationError::field(#col_name_lit, msg)],
+                    ))?;
+                }
+            });
+            let validator_calls_aggregate = validate_custom_paths.iter().map(|path| {
+                quote! {
+                    if let Err(msg) = #path(&val) {
+                        errs.push(lifeguard::active_model::validate_op::ValidationError::field(#col_name_lit, msg));
+                    }
+                }
+            });
+            field_validate_fail_fast_fragments.push(quote! {
+                if let Some(val) = lifeguard::ActiveModelTrait::get(
+                    self,
+                    <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant,
+                ) {
+                    #(#validator_calls_fail_fast)*
+                }
+            });
+            field_validate_aggregate_fragments.push(quote! {
+                if let Some(val) = lifeguard::ActiveModelTrait::get(
+                    self,
+                    <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant,
+                ) {
+                    #(#validator_calls_aggregate)*
+                }
+            });
+        }
 
         // Track primary key information
         if is_primary_key {
@@ -264,23 +323,39 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             to_model_struct_fields.push(quote! { #field_name, });
         }
 
-        // Generate dirty field check
-        // For Option<T> fields (both cases), check if Some
-        dirty_fields_check.push(quote! {
-            if self.#field_name.is_some() {
-                dirty.push(stringify!(#field_name).to_string());
-            }
-        });
+        // Generate dirty field check: literal set, or F-style expression scheduled for UPDATE
+        if is_primary_key {
+            dirty_fields_check.push(quote! {
+                if self.#field_name.is_some() {
+                    dirty.push(stringify!(#field_name).to_string());
+                }
+            });
+        } else {
+            dirty_fields_check.push(quote! {
+                if self.#field_name.is_some()
+                    || self.__update_exprs.contains_key(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)
+                {
+                    dirty.push(stringify!(#field_name).to_string());
+                }
+            });
+        }
 
         // Generate setter method
         // If field is already Option<T>, setter accepts Option<T> directly
         // Otherwise, setter accepts T and wraps in Some()
         let setter_name = Ident::new(&format!("set_{field_name}"), field_name.span());
+        let session_notify = if has_primary_keys {
+            quote! { self.__lg_session_notify_dirty(); }
+        } else {
+            quote! {}
+        };
         if is_already_option {
             setter_methods.push(quote! {
                 /// Set the #field_name field
                 pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     self.#field_name = value;
+                    #session_notify
                     self
                 }
             });
@@ -288,7 +363,29 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             setter_methods.push(quote! {
                 /// Set the #field_name field
                 pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
                     self.#field_name = Some(value);
+                    #session_notify
+                    self
+                }
+            });
+        }
+
+        if !is_primary_key {
+            let expr_setter_name =
+                Ident::new(&format!("{setter_name}_expr"), field_name.span());
+            let expr_session_notify = if has_primary_keys {
+                quote! { self.__lg_session_notify_dirty(); }
+            } else {
+                quote! {}
+            };
+            update_expr_setters.push(quote! {
+                /// Schedule a database expression for this column on [`ActiveModelTrait::update`](lifeguard::ActiveModelTrait::update) (e.g. [`ColumnTrait::f_add`](lifeguard::ColumnTrait::f_add)).
+                /// Clears any literal value previously set for this field.
+                pub fn #expr_setter_name(&mut self, expr: sea_query::SimpleExpr) -> &mut Self {
+                    self.#field_name = None;
+                    self.__update_exprs.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr);
+                    #expr_session_notify
                     self
                 }
             });
@@ -320,13 +417,21 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         );
         active_model_set_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                #value_to_field_conversion
+                let __lg_set_column_result = #value_to_field_conversion;
+                if __lg_set_column_result.is_ok() {
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                }
+                __lg_set_column_result
             }
         });
 
         active_model_set_col_match_arms.push(quote! {
             #db_column_name => {
-                #value_to_field_conversion
+                let __lg_set_column_result = #value_to_field_conversion;
+                if __lg_set_column_result.is_ok() {
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                }
+                __lg_set_column_result
             }
         });
 
@@ -334,13 +439,30 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Use inner_type for type conversion (e.g., String from Option<String>)
         let field_to_value_conversion =
             type_conversion::generate_option_field_to_value(field_name, inner_type);
-        active_model_take_match_arms.push(quote! {
-            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                let value = #field_to_value_conversion;
-                self.#field_name = None;
-                value
-            }
-        });
+        if has_primary_keys {
+            active_model_take_match_arms.push(quote! {
+                <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                    let __lg_take_notify = self.#field_name.is_some()
+                        || self.__update_exprs.contains_key(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    let value = #field_to_value_conversion;
+                    self.#field_name = None;
+                    if __lg_take_notify {
+                        self.__lg_session_notify_dirty();
+                    }
+                    value
+                }
+            });
+        } else {
+            active_model_take_match_arms.push(quote! {
+                <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    let value = #field_to_value_conversion;
+                    self.#field_name = None;
+                    value
+                }
+            });
+        }
 
         active_model_reset_fields.push(quote! {
             self.#field_name = None;
@@ -426,7 +548,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             let has_save_as = col_attrs.save_as.is_some();
             if has_save_as {
                 update_set_clauses.push(quote! {
-                    if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
+                    if let Some(expr_entry) = self.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
                         use lifeguard::query::column::definition::get_static_expr;
                         if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
                             let static_str = get_static_expr(&save_expr);
@@ -436,7 +560,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 });
             } else {
                 update_set_clauses.push(quote! {
-                    if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    if let Some(expr_entry) = self.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                         query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
                     }
                 });
@@ -446,7 +572,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // This is the one actually used in update() method
             if has_save_as {
                 update_set_clauses_from_hooks.push(quote! {
-                    if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
+                    if let Some(expr_entry) = record_for_hooks.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
                         use lifeguard::query::column::definition::get_static_expr;
                         if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
                             let static_str = get_static_expr(&save_expr);
@@ -456,7 +584,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 });
             } else {
                 update_set_clauses_from_hooks.push(quote! {
-                    if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                    if let Some(expr_entry) = record_for_hooks.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
+                    } else if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                         query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
                     }
                 });
@@ -554,9 +684,26 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         });
     }
 
-    // Generate primary key check code for save()
-    // If there are no primary keys, save() should always do insert
-    let has_primary_keys = !primary_key_field_names.is_empty();
+    let identity_map_key_method = if has_primary_keys {
+        let pk_cap = primary_key_column_variants.len();
+        quote! {
+            /// Stable fingerprint for [`lifeguard::ModelIdentityMap::mark_dirty_key`](lifeguard::ModelIdentityMap::mark_dirty_key) when **all** PK columns are set on this record.
+            #[must_use]
+            pub fn identity_map_key(&self) -> Option<String> {
+                let mut __pk_vals = Vec::with_capacity(#pk_cap);
+                #(
+                    __pk_vals.push(lifeguard::ActiveModelTrait::get(
+                        self,
+                        <#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants,
+                    )?);
+                )*
+                Some(lifeguard::session::fingerprint_pk_values(&__pk_vals))
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let mut save_pk_checks = Vec::new();
     for field_name in primary_key_field_names.iter() {
         save_pk_checks.push(quote! {
@@ -697,6 +844,53 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! { Ok(()) }
     };
 
+    let validate_fields_impl = if field_validate_fail_fast_fragments.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            fn validate_fields(
+                &self,
+                op: lifeguard::active_model::validate_op::ValidateOp,
+            ) -> Result<(), lifeguard::ActiveModelError> {
+                match self.validation_strategy(op) {
+                    lifeguard::active_model::validate_op::ValidationStrategy::FailFast => {
+                        #(#field_validate_fail_fast_fragments)*
+                        Ok(())
+                    }
+                    lifeguard::active_model::validate_op::ValidationStrategy::Aggregate => {
+                        let mut errs: Vec<lifeguard::active_model::validate_op::ValidationError> = Vec::new();
+                        #(#field_validate_aggregate_fragments)*
+                        if errs.is_empty() {
+                            Ok(())
+                        } else {
+                            Err(lifeguard::ActiveModelError::Validation(errs))
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    let validation_strategy_impl = match table_attrs.validation_strategy {
+        None => quote! {},
+        Some(attributes::TableValidationStrategy::FailFast) => quote! {
+            fn validation_strategy(
+                &self,
+                _op: lifeguard::active_model::validate_op::ValidateOp,
+            ) -> lifeguard::active_model::validate_op::ValidationStrategy {
+                lifeguard::active_model::validate_op::ValidationStrategy::FailFast
+            }
+        },
+        Some(attributes::TableValidationStrategy::Aggregate) => quote! {
+            fn validation_strategy(
+                &self,
+                _op: lifeguard::active_model::validate_op::ValidateOp,
+            ) -> lifeguard::active_model::validate_op::ValidationStrategy {
+                lifeguard::active_model::validate_op::ValidationStrategy::Aggregate
+            }
+        },
+    };
+
     let build_delete_query_ts = if table_attrs.soft_delete {
         let set_updated_at = if table_attrs.auto_timestamp {
             quote! {
@@ -727,12 +921,148 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
     };
 
+    let session_link_struct_field = if has_primary_keys {
+        quote! {
+            #[doc(hidden)]
+            pub __lg_session_notifier: Option<lifeguard::session::SessionDirtyNotifier>,
+            /// When [`Self::attach_session_with_model`] is used, mutations sync into this handle via [`Self::to_model`].
+            #[doc(hidden)]
+            pub __lg_session_model: Option<lifeguard::session::SessionIdentityModelCell<#model_name>>,
+        }
+    } else {
+        quote! {}
+    };
+
+    let session_new_init = if has_primary_keys {
+        quote! {
+            __lg_session_notifier: None,
+            __lg_session_model: None,
+        }
+    } else {
+        quote! {}
+    };
+
+    // TODO(lifeguard-session): Defer/batch `to_model()` + identity-map `replace_with` until flush
+    // (e.g. dirty bit + single sync before `Session::flush_dirty`) to avoid O(n fields) per
+    // mutation when `attach_session_with_model` is used. Non-trivial: keep parity with F-style
+    // `set_*_expr` (not on `Model`) and `to_model()` / `FieldRequired` semantics.
+    let session_helpers = if has_primary_keys {
+        quote! {
+            /// Wire this record to `session` so `set_*`, [`ActiveModelTrait::set`](lifeguard::ActiveModelTrait::set), and F-style `set_*_expr` enqueue dirty keys (merged at [`Session::flush_dirty`](lifeguard::session::Session::flush_dirty)) when the primary key is set (PRD §9).
+            ///
+            /// Does **not** link the identity map [`Rc`]; use [`Self::attach_session_with_model`] to keep the registered model in sync when you mutate this record (see PRD §9).
+            pub fn attach_session(&mut self, session: &lifeguard::session::Session<#entity_name>) {
+                self.__lg_session_notifier = Some(session.dirty_notifier());
+                self.__lg_session_model = None;
+            }
+
+            /// Like [`Self::attach_session`], but also keeps `model_rc` (typically from [`Session::register_loaded`](lifeguard::session::Session::register_loaded)) updated on each notifying mutation by calling [`Self::to_model`] when it succeeds—so [`Session::flush_dirty`](lifeguard::session::Session::flush_dirty) closures see current literals without a manual `*rc.borrow_mut() = rec.to_model()?`.
+            ///
+            /// If [`Self::to_model`] returns `Err` (e.g. required field unset), the model is left unchanged for that mutation. F-style `set_*_expr` values are not represented on the [`Model`](lifeguard::ModelTrait) type; they remain on the record only.
+            ///
+            /// # Thread safety
+            ///
+            /// This links the record to the same [`Rc`](std::rc::Rc) as the identity map. The session is single-threaded; **do not** use this record from another OS thread while [`Session`](lifeguard::session::Session) on the original thread can still access that `Rc`. Call [`Self::detach_session`] before moving the record across threads, or keep session and record on one thread. See [`SessionIdentityModelCell`](lifeguard::session::SessionIdentityModelCell).
+            ///
+            /// # Performance
+            ///
+            /// On each notifying mutation (`set_*`, [`ActiveModelTrait::set`](lifeguard::ActiveModelTrait::set), etc.), the derive calls [`Self::to_model`] and writes the result into the linked `Rc`. That **rebuilds the full [`Model`](lifeguard::ModelTrait) from the record** (typically **O(n fields)** in clones and allocations) so [`Session::flush_dirty`](lifeguard::session::Session::flush_dirty) closures always see current literals without a separate sync step. This is intentional (see `DESIGN_SESSION_UOW.md`); for **many** field updates in a row on wide entities, consider [`Self::attach_session`] only and sync the map once before flush, or batch work and accept the trade-off.
+            pub fn attach_session_with_model(
+                &mut self,
+                session: &lifeguard::session::Session<#entity_name>,
+                model_rc: &std::rc::Rc<std::cell::RefCell<#model_name>>,
+            ) {
+                self.__lg_session_notifier = Some(session.dirty_notifier());
+                self.__lg_session_model = Some(lifeguard::session::SessionIdentityModelCell::new(model_rc));
+            }
+
+            /// Stop forwarding mutations to the session dirty queue and clear any linked identity-map handle.
+            pub fn detach_session(&mut self) {
+                self.__lg_session_notifier = None;
+                self.__lg_session_model = None;
+            }
+
+            #[doc(hidden)]
+            #[inline]
+            fn __lg_session_notify_dirty(&self) {
+                if let Some(ref n) = self.__lg_session_notifier {
+                    n.notify_identity_map_dirty(self.identity_map_key());
+                }
+                if let Some(ref cell) = self.__lg_session_model {
+                    // `Self::to_model()` clones every field into `Model` (see `attach_session_with_model`); hot-path cost if notification behavior changes.
+                    if let Ok(m) = self.to_model() {
+                        let _ = cell.replace_with(m);
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let active_model_set_impl = if has_primary_keys {
+        quote! {
+            fn set(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                let __lg_set_out = match column {
+                    #(#active_model_set_match_arms)*
+                };
+                if __lg_set_out.is_ok() {
+                    self.__lg_session_notify_dirty();
+                }
+                __lg_set_out
+            }
+        }
+    } else {
+        quote! {
+            fn set(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                match column {
+                    #(#active_model_set_match_arms)*
+                }
+            }
+        }
+    };
+
+    let active_model_take_impl = quote! {
+        fn take(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
+            match column {
+                #(#active_model_take_match_arms)*
+            }
+        }
+    };
+
+    let active_model_set_col_impl = if has_primary_keys {
+        quote! {
+            fn set_col(&mut self, col_name: &str, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                let __lg_set_col_out = match col_name {
+                    #(#active_model_set_col_match_arms)*
+                    _ => Err(lifeguard::ActiveModelError::Other(format!("Column string not found on record: {}", col_name)))
+                };
+                if __lg_set_col_out.is_ok() {
+                    self.__lg_session_notify_dirty();
+                }
+                __lg_set_col_out
+            }
+        }
+    } else {
+        quote! {
+            fn set_col(&mut self, col_name: &str, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
+                match col_name {
+                    #(#active_model_set_col_match_arms)*
+                    _ => Err(lifeguard::ActiveModelError::Other(format!("Column string not found on record: {}", col_name)))
+                }
+            }
+        }
+    };
+
     // Generate the expanded code
     let expanded = quote! {
         // Record struct (mutable change-set)
         #[derive(Debug, Clone)]
         pub struct #record_name {
             #(#record_fields)*
+            #session_link_struct_field
+            /// F-style `UPDATE SET col = <expr>` assignments (see `set_*_expr` methods). Cleared on `reset` / `from_model`.
+            pub __update_exprs: std::collections::HashMap<<#entity_name as lifeguard::LifeModelTrait>::Column, sea_query::SimpleExpr>,
             pub __graph: lifeguard::active_model::graph::GraphContainer<Self>,
         }
 
@@ -756,6 +1086,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     #(
                         #ignored_field_names: #ignored_field_defaults,
                     )*
+                    #session_new_init
+                    __update_exprs: std::collections::HashMap::new(),
                     __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
@@ -765,6 +1097,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             pub fn from_model(model: &#model_name) -> Self {
                 Self {
                     #(#from_model_fields)*
+                    #session_new_init
+                    __update_exprs: std::collections::HashMap::new(),
                     __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
@@ -795,7 +1129,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 !self.dirty_fields().is_empty()
             }
 
+            #identity_map_key_method
+
+            #session_helpers
+
             #(#setter_methods)*
+            #(#update_expr_setters)*
         }
 
         impl Default for #record_name {
@@ -815,17 +1154,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn set(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
-                match column {
-                    #(#active_model_set_match_arms)*
-                }
-            }
+            #active_model_set_impl
 
-            fn take(&mut self, column: <#entity_name as lifeguard::LifeModelTrait>::Column) -> Option<sea_query::Value> {
-                match column {
-                    #(#active_model_take_match_arms)*
-                }
-            }
+            #active_model_take_impl
 
             fn get_col(&self, col_name: &str) -> Option<sea_query::Value> {
                 match col_name {
@@ -834,14 +1165,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn set_col(&mut self, col_name: &str, value: sea_query::Value) -> Result<(), lifeguard::ActiveModelError> {
-                match col_name {
-                    #(#active_model_set_col_match_arms)*
-                    _ => Err(lifeguard::ActiveModelError::Other(format!("Column string not found on record: {}", col_name)))
-                }
-            }
+            #active_model_set_col_impl
 
             fn reset(&mut self) {
+                self.__update_exprs.clear();
                 #(#active_model_reset_fields)*
             }
 
@@ -864,6 +1191,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     &record_for_hooks,
                     lifeguard::active_model::validate_op::ValidateOp::Insert,
                 )?;
+
+                if !record_for_hooks.__update_exprs.is_empty() {
+                    return Err(lifeguard::ActiveModelError::Other(
+                        "`set_*_expr` / `__update_exprs` apply only to `update()`; clear them with `reset()` or use `update()`"
+                            .to_string(),
+                    ));
+                }
 
                 // Build INSERT statement
                 let mut query = Query::insert();
@@ -1149,6 +1483,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Call before_delete hook
                 let mut record_for_hooks = self.clone();
                 record_for_hooks.before_delete()?;
+                lifeguard::active_model::validation::run_validators(
+                    &record_for_hooks,
+                    lifeguard::active_model::validate_op::ValidateOp::Delete,
+                )?;
 
                 // Build DELETE or UPDATE (soft-delete) statement
                 // If soft_delete is enabled, this issues an UPDATE instead of DELETE
@@ -1211,6 +1549,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
         // Implement ActiveModelBehavior with optionally customized hooks
         impl lifeguard::ActiveModelBehavior for #record_name {
+            #validate_fields_impl
+            #validation_strategy_impl
             fn before_insert(&mut self) -> Result<(), lifeguard::ActiveModelError> {
                 #before_insert_impl
             }

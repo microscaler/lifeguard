@@ -15,6 +15,7 @@ Migration CLI tool for Lifeguard ORM - manage database schema changes with versi
 - ✅ **Status Tracking** - View applied vs pending migrations
 - ✅ **Entity-Driven Generation** - Generate SQL migrations from Lifeguard entity definitions
 - ✅ **Schema inference (`infer-schema`)** - Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout); see below
+- ✅ **DB vs generated migration baseline (`compare-schema`)** - Reconcile live `information_schema` tables and (for tables in both baselines) **column names** vs merged `*_generated_from_entities.sql` (`CREATE` + `ADD COLUMN`); see below
 - ✅ **CI/CD Integration** - Designed for automated deployment pipelines
 - ✅ **Dry Run Mode** - Preview migrations without executing them
 
@@ -163,7 +164,7 @@ This scans entity definitions and generates SQL migration files for tables, colu
 
 ### `infer-schema`
 
-Introspect a live **PostgreSQL** database (`information_schema`) and print conservative Rust entity sketches to **stdout**. Output is **review-first**: paste into your crate, adjust types, and fix composite PKs (`TODO` comments) as needed.
+Introspect a live **PostgreSQL** database (`information_schema`) and print conservative Rust entity sketches to **stdout**. Output is **review-first**: paste into your crate and adjust types; **composite** primary keys emit `#[primary_key]` on each PK column (same as single-column PKs).
 
 **Requirements:** `--database-url` or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL` (same as other DB commands).
 
@@ -193,6 +194,32 @@ lifeguard-migrate infer-schema \
 ```bash
 cargo test -p lifeguard-migrate schema_infer
 ```
+
+**Optional live DB tests** (skip when no URL): `tests/infer_schema_postgres_smoke.rs` (introspect `public`); `tests/infer_schema_table_filter_si3.rs` (SI-3 — table filter excludes other tables). Set `TEST_DATABASE_URL`, `DATABASE_URL`, or `LIFEGUARD_DATABASE_URL`. See **`DEVELOPMENT.md`** (`lifeguard-migrate` section).
+
+**CLI subprocess e2e** (optional): `tests/infer_schema_cli_subprocess.rs` runs the **`lifeguard-migrate infer-schema`** binary via `CARGO_BIN_EXE_lifeguard-migrate` and asserts the stdout banner (same env URL as above; skips when unset).
+
+### `compare-schema`
+
+Compare **live PostgreSQL** to merged **`*_generated_from_entities.sql`** under a directory:
+
+1. **Table names:** `information_schema` base tables (`table_type = 'BASE TABLE'`) vs `-- Table: name` sections (after chronological merge).
+2. **Column names:** for each table present in **both** baselines, `information_schema.columns` vs columns parsed from the merged `CREATE TABLE` body plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` lines (`column_map_from_merged_baseline`).
+
+Column reconciliation is **name-level** (presence of columns), not equality of SQL types or full `CREATE` definitions. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
+
+**Exit code:** `0` when there is no drift; non-zero when extra/missing tables or extra/missing column names on shared tables (CI-friendly).
+
+```bash
+lifeguard-migrate compare-schema \
+  --database-url "$DATABASE_URL" \
+  --schema public \
+  --generated-dir migrations/generated/inventory
+```
+
+**Library:** `lifeguard_migrate::schema_migration_compare::{compare_generated_dir_to_live_db, MigrationDbCompareReport}`.
+
+**Optional live DB tests:** `tests/migration_db_compare_smoke.rs` (library + CLI; skips without URL / binary env).
 
 ### `info`
 

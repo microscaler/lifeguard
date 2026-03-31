@@ -43,6 +43,7 @@ pub mod checksum;
 pub mod error;
 pub mod file;
 pub mod lock;
+pub mod migration_name;
 #[allow(clippy::module_inception)]
 pub mod migration;
 pub mod migrator;
@@ -60,6 +61,10 @@ pub use lock::{
     acquire_migration_lock, is_migration_lock_held, release_migration_lock, MigrationLockGuard,
 };
 pub use migration::Migration;
+pub use migration_name::MigrationName;
+
+#[doc(inline)]
+pub use lifeguard_derive::DeriveMigrationName;
 pub use migrator::Migrator;
 pub use record::MigrationRecord;
 pub use registry::{

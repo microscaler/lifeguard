@@ -82,7 +82,9 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
         has_many,
         belongs_to,
         has_one,
-        cursor_tiebreak
+        cursor_tiebreak,
+        validate,
+        validation_strategy
     )
 )]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
@@ -98,6 +100,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// - `dirty_fields()` method (returns list of changed fields)
 /// - `is_dirty()` method (checks if any fields changed)
 /// - Setter methods for each field
+/// - Optional `#[validate(custom = path)]` on fields: `path` is `fn(&sea_query::Value) -> Result<(), String>`; runs when the field is set (`get` is `Some`) during `validate_fields`.
+/// - Optional `#[validation_strategy = "aggregate"]` or `"fail_fast"` on the struct: controls how multiple field validators combine (default: fail fast).
+/// - F-style **`UPDATE`**: `set_<field>_expr(sea_query::SimpleExpr)` schedules `SET col = <expr>` (e.g. `Column::n.f_add(1)`); stored in `__update_exprs` until `reset` / `from_model`. Literal `set_*` clears the expression for that column.
 #[proc_macro_derive(
     LifeRecord,
     attributes(
@@ -120,7 +125,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         has_many,
         belongs_to,
         has_one,
-        cursor_tiebreak
+        cursor_tiebreak,
+        validate,
+        validation_strategy
     )
 )]
 pub fn derive_life_record(input: TokenStream) -> TokenStream {
@@ -251,4 +258,48 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(DeriveTryIntoModel, attributes(lifeguard))]
 pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     macros::derive_try_into_model(input)
+}
+
+/// Derive macro for a **unit struct** migration name (`snake_case` of the type name).
+///
+/// Implements [`lifeguard::migration::MigrationName`] and defines an associated constant
+/// `MIGRATION_NAME`. Pair with manual [`lifeguard::migration::Migration`] for `up` / `down`.
+///
+/// ```ignore
+/// #[derive(DeriveMigrationName)]
+/// pub struct CreateUsersTable;
+///
+/// impl lifeguard::migration::Migration for CreateUsersTable {
+///     fn name(&self) -> &str {
+///         lifeguard::migration::MigrationName::migration_name(self)
+///     }
+///     // ...
+/// }
+/// ```
+#[proc_macro_derive(DeriveMigrationName)]
+pub fn derive_migration_name(input: TokenStream) -> TokenStream {
+    macros::derive_migration_name(input)
+}
+
+/// Attribute for named query scopes on `impl Entity` (PRD Phase C).
+///
+/// Transforms `fn active() -> …` into `pub fn scope_active() -> …` so call sites use
+/// `Entity::scope_active()` with `SelectQuery::scope` on the query builder.
+///
+/// - Must be on an **associated function** with **no** `self` receiver.
+/// - If the function is already named `scope_*`, the name is left unchanged.
+/// - Unannotated visibility becomes `pub` (inherited → `pub`); `pub(crate)` and `pub` are kept.
+///
+/// ```ignore
+/// impl Entity {
+///     #[lifeguard_derive::scope]
+///     fn active() -> impl sea_query::IntoCondition {
+///         Column::Status.eq("active")
+///     }
+/// }
+/// // User::find().scope(Entity::scope_active())
+/// ```
+#[proc_macro_attribute]
+pub fn scope(attr: TokenStream, item: TokenStream) -> TokenStream {
+    macros::scope_attr::scope_attr(attr, item)
 }
