@@ -15,7 +15,7 @@ Migration CLI tool for Lifeguard ORM - manage database schema changes with versi
 - ✅ **Status Tracking** - View applied vs pending migrations
 - ✅ **Entity-Driven Generation** - Generate SQL migrations from Lifeguard entity definitions
 - ✅ **Schema inference (`infer-schema`)** - Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout); optional **`--watch`** polling (see below)
-- ✅ **DB vs generated migration baseline (`compare-schema`)** - Reconcile live `information_schema` tables and (for tables in both baselines) **column names** vs merged `*_generated_from_entities.sql` (`CREATE` + `ADD COLUMN`); see below
+- ✅ **DB vs generated migration baseline (`compare-schema`)** - Reconcile live `information_schema` tables, (for tables in both baselines) **column names**, and **simple index key columns** (`pg_indexes` / `indexdef` vs merged baseline); see below
 - ✅ **CI/CD Integration** - Designed for automated deployment pipelines
 - ✅ **Dry Run Mode** - Preview migrations without executing them
 
@@ -214,10 +214,11 @@ Compare **live PostgreSQL** to merged **`*_generated_from_entities.sql`** under 
 
 1. **Table names:** `information_schema` base tables (`table_type = 'BASE TABLE'`) vs `-- Table: name` sections (after chronological merge).
 2. **Column names:** for each table present in **both** baselines, `information_schema.columns` vs columns parsed from the merged `CREATE TABLE` body plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` lines (`column_map_from_merged_baseline`).
+3. **Index key columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists (first parenthesized column list). If a parsed key name is absent from the merged migration column map, it is reported. Expression / functional indexes are skipped when the parser cannot extract plain column names. This is **not** full `CREATE INDEX` parity (no partial-index predicates, operator classes, or `INCLUDE` columns beyond the first key list).
 
 Column reconciliation is **name-level** (presence of columns), not equality of SQL types or full `CREATE` definitions. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
 
-**Exit code:** `0` when there is no drift; non-zero when extra/missing tables or extra/missing column names on shared tables (CI-friendly).
+**Exit code:** `0` when there is no drift; non-zero when extra/missing tables, extra/missing column names on shared tables, or index keys reference names missing from the merged baseline (CI-friendly).
 
 ```bash
 lifeguard-migrate compare-schema \

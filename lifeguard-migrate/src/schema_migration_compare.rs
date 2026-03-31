@@ -8,6 +8,11 @@
 //!
 //! Does **not** compare SQL type text literally (PG `data_type` vs migration `INTEGER` spelling);
 //! name-level reconciliation is the Phase A column diff scope.
+//!
+//! **Index keys (stretch, PRD §5.7a):** for shared tables, non-expression indexes from
+//! [`pg_indexes`](https://www.postgresql.org/docs/current/view-pg-indexes.html) are parsed for
+//! simple column references; any key column name missing from the merged migration column baseline
+//! is reported (expression / functional indexes are skipped when parsing fails).
 
 use lifeguard::LifeExecutor;
 use lifeguard::LifeError;
@@ -72,6 +77,23 @@ pub fn fetch_live_table_column_names(
     Ok(set)
 }
 
+/// One row from [`pg_indexes`](https://www.postgresql.org/docs/current/view-pg-indexes.html).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveIndexRow {
+    pub table_name: String,
+    pub index_name: String,
+    pub indexdef: String,
+}
+
+/// Indexes on a shared table whose **simple** key columns are not all in the merged baseline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexColumnDrift {
+    pub table: String,
+    pub index_name: String,
+    /// Key column names present in `pg_indexes` / `indexdef` but not in merged migration columns.
+    pub unknown_columns: Vec<String>,
+}
+
 /// Column-level drift for a single table that exists in both the live DB and merged migrations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableColumnDrift {
@@ -95,15 +117,18 @@ pub struct MigrationDbCompareReport {
     pub only_in_migrations: Vec<String>,
     /// Tables in both baselines where **column name** sets differ.
     pub column_drifts: Vec<TableColumnDrift>,
+    /// Shared tables where a live index references a column name absent from the merged baseline.
+    pub index_column_drifts: Vec<IndexColumnDrift>,
 }
 
 impl MigrationDbCompareReport {
-    /// `true` when table sets differ or any shared table has column name drift.
+    /// `true` when table sets differ, column names drift, or an index key references an unknown column.
     #[must_use]
     pub fn has_drift(&self) -> bool {
         !self.only_in_database.is_empty()
             || !self.only_in_migrations.is_empty()
             || !self.column_drifts.is_empty()
+            || !self.index_column_drifts.is_empty()
     }
 }
 
@@ -143,13 +168,247 @@ pub fn compare_generated_dir_to_live_db(
     }
     column_drifts.sort_by(|a, b| a.table.cmp(&b.table));
 
+    let shared: BTreeSet<String> = on_disk.intersection(&live).cloned().collect();
+    let index_rows = fetch_live_pg_indexes(executor, schema)?;
+    let mut index_column_drifts = Vec::new();
+    for row in index_rows {
+        if !shared.contains(&row.table_name) {
+            continue;
+        }
+        let Some(parts) = acc.get(row.table_name.as_str()) else {
+            continue;
+        };
+        let mig_map = column_map_from_merged_baseline(parts);
+        let mig_names: BTreeSet<String> = mig_map.keys().cloned().collect();
+        let Some(cols) = parse_pg_indexdef_simple_columns(&row.indexdef) else {
+            continue;
+        };
+        let mut unknown: Vec<String> = cols
+            .into_iter()
+            .filter(|c| !mig_names.contains(c))
+            .collect();
+        if unknown.is_empty() {
+            continue;
+        }
+        unknown.sort();
+        index_column_drifts.push(IndexColumnDrift {
+            table: row.table_name,
+            index_name: row.index_name,
+            unknown_columns: unknown,
+        });
+    }
+    index_column_drifts.sort_by(|a, b| {
+        a.table
+            .cmp(&b.table)
+            .then_with(|| a.index_name.cmp(&b.index_name))
+    });
+
     Ok(MigrationDbCompareReport {
         schema: schema.to_string(),
         generated_dir: generated_dir.to_path_buf(),
         only_in_database: only_in_db,
         only_in_migrations: only_mig,
         column_drifts,
+        index_column_drifts,
     })
+}
+
+/// Non-primary indexes in `schema` from `pg_indexes` (includes unique indexes; expression indexes kept for parse skip).
+pub fn fetch_live_pg_indexes(
+    executor: &dyn LifeExecutor,
+    schema: &str,
+) -> Result<Vec<LiveIndexRow>, LifeError> {
+    let sql = r"
+        SELECT tablename::text, indexname::text, indexdef::text
+        FROM pg_indexes
+        WHERE schemaname = $1
+        ORDER BY tablename, indexname
+    ";
+    let rows = executor.query_all(sql, &[&schema])?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let table_name: String = row
+            .try_get(0)
+            .map_err(|e| LifeError::Other(format!("compare-schema pg_indexes tablename: {e}")))?;
+        let index_name: String = row
+            .try_get(1)
+            .map_err(|e| LifeError::Other(format!("compare-schema pg_indexes indexname: {e}")))?;
+        let indexdef: String = row
+            .try_get(2)
+            .map_err(|e| LifeError::Other(format!("compare-schema pg_indexes indexdef: {e}")))?;
+        if index_name.ends_with("_pkey") {
+            continue;
+        }
+        out.push(LiveIndexRow {
+            table_name,
+            index_name,
+            indexdef,
+        });
+    }
+    Ok(out)
+}
+
+fn after_on_clause(def: &str) -> Option<&str> {
+    let lower = def.to_ascii_lowercase();
+    let i = lower.find(" on ")? + 4;
+    Some(def[i..].trim_start())
+}
+
+fn skip_qualified_table(s: &str) -> Option<&str> {
+    let mut s = s.trim_start();
+    loop {
+        if s.is_empty() {
+            return None;
+        }
+        if s.starts_with('"') {
+            let rest = &s[1..];
+            let end = rest.find('"')?;
+            s = rest[end + 1..].trim_start();
+        } else {
+            let mut cut = s.len();
+            let mut broke = false;
+            for (idx, ch) in s.char_indices() {
+                if ch.is_whitespace() || ch == '(' {
+                    cut = idx;
+                    broke = true;
+                    break;
+                }
+                if ch == '.' {
+                    cut = idx + 1;
+                    broke = true;
+                    break;
+                }
+            }
+            if !broke {
+                cut = s.len();
+            }
+            if cut == 0 {
+                return None;
+            }
+            if s.as_bytes().get(cut.saturating_sub(1)) == Some(&b'.') {
+                s = s[cut..].trim_start();
+                continue;
+            }
+            s = s[cut..].trim_start();
+            break;
+        }
+        if s.starts_with('.') {
+            s = s[1..].trim_start();
+            continue;
+        }
+        break;
+    }
+    Some(s)
+}
+
+fn skip_using_method(s: &str) -> Option<&str> {
+    let s = s.trim_start();
+    if s.len() >= 6 && s[..6].eq_ignore_ascii_case("using ") {
+        let rest = s[6..].trim_start();
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == '(')
+            .unwrap_or(rest.len());
+        Some(rest[end..].trim_start())
+    } else {
+        Some(s)
+    }
+}
+
+fn balanced_paren_group(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim_start();
+    if !s.starts_with('(') {
+        return None;
+    }
+    let mut depth = 0i32;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((&s[1..i], &s[i + 1..]));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn simple_key_columns_from_inner(inner: &str) -> Option<Vec<String>> {
+    let inner = inner.trim();
+    if inner.is_empty() {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    let mut cols = Vec::new();
+    for (i, ch) in inner.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                if let Some(c) = first_simple_index_column(&inner[start..i]) {
+                    cols.push(c);
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if let Some(c) = first_simple_index_column(&inner[start..]) {
+        cols.push(c);
+    }
+    if cols.is_empty() {
+        None
+    } else {
+        Some(cols)
+    }
+}
+
+fn first_simple_index_column(seg: &str) -> Option<String> {
+    let seg = seg.trim();
+    if seg.is_empty() {
+        return None;
+    }
+    if seg.starts_with('(') {
+        return None;
+    }
+    if seg.contains('(') && !seg.starts_with('"') {
+        return None;
+    }
+    let lower = seg.to_ascii_lowercase();
+    if let Some(pos) = lower.find(" collate ") {
+        return first_simple_index_column(&seg[..pos]);
+    }
+    let seg = seg
+        .split_whitespace()
+        .next()
+        .unwrap_or(seg)
+        .trim_end_matches(',');
+    if seg.starts_with('(') {
+        return None;
+    }
+    if seg.starts_with('"') {
+        let rest = &seg[1..];
+        let end = rest.find('"')?;
+        return Some(rest[..end].to_string());
+    }
+    Some(seg.trim_matches('"').to_string())
+}
+
+/// Parse simple btree-style index key columns from `pg_indexes.indexdef`. Returns `None` for
+/// expression indexes or unrecognised shapes.
+#[must_use]
+pub fn parse_pg_indexdef_simple_columns(indexdef: &str) -> Option<Vec<String>> {
+    let mut tail = after_on_clause(indexdef)?;
+    if tail.len() >= 5 && tail[..5].eq_ignore_ascii_case("only ") {
+        tail = tail[5..].trim_start();
+    }
+    tail = skip_qualified_table(tail)?;
+    tail = skip_using_method(tail)?;
+    let (key_inner, _rest) = balanced_paren_group(tail)?;
+    simple_key_columns_from_inner(key_inner)
 }
 
 impl fmt::Display for MigrationDbCompareReport {
@@ -215,6 +474,21 @@ impl fmt::Display for MigrationDbCompareReport {
                 }
             }
         }
+        if !self.index_column_drifts.is_empty() {
+            writeln!(
+                f,
+                "  Index key columns not in merged migration baseline (shared tables only; primary key indexes skipped):"
+            )?;
+            for d in &self.index_column_drifts {
+                writeln!(
+                    f,
+                    "    Table `{}` index `{}`: unknown columns: {}",
+                    d.table,
+                    d.index_name,
+                    d.unknown_columns.join(", ")
+                )?;
+            }
+        }
         Ok(())
     }
 }
@@ -231,6 +505,7 @@ mod tests {
             only_in_database: vec![],
             only_in_migrations: vec![],
             column_drifts: vec![],
+            index_column_drifts: vec![],
         };
         assert!(!r.has_drift());
         let s = r.to_string();
@@ -245,6 +520,7 @@ mod tests {
             only_in_database: vec!["orphan".into()],
             only_in_migrations: vec![],
             column_drifts: vec![],
+            index_column_drifts: vec![],
         };
         assert!(r.has_drift());
     }
@@ -261,10 +537,44 @@ mod tests {
                 only_in_database: vec!["extra".into()],
                 only_in_migrations: vec![],
             }],
+            index_column_drifts: vec![],
         };
         assert!(r.has_drift());
         let s = r.to_string();
         assert!(s.contains("Column name differences"));
         assert!(s.contains("extra"));
+    }
+
+    #[test]
+    fn has_drift_when_index_unknown_column() {
+        let r = MigrationDbCompareReport {
+            schema: "public".into(),
+            generated_dir: Path::new("/x").to_path_buf(),
+            only_in_database: vec![],
+            only_in_migrations: vec![],
+            column_drifts: vec![],
+            index_column_drifts: vec![IndexColumnDrift {
+                table: "t".into(),
+                index_name: "ix".into(),
+                unknown_columns: vec!["ghost".into()],
+            }],
+        };
+        assert!(r.has_drift());
+        assert!(r.to_string().contains("Index key columns"));
+    }
+
+    #[test]
+    fn parse_pg_indexdef_simple_columns_examples() {
+        let def = "CREATE INDEX ix ON public.widgets USING btree (id)";
+        assert_eq!(
+            parse_pg_indexdef_simple_columns(def),
+            Some(vec!["id".to_string()])
+        );
+        let def2 = "CREATE UNIQUE INDEX u ON ONLY myschema.items USING hash (a, b)";
+        assert_eq!(
+            parse_pg_indexdef_simple_columns(def2),
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
+        assert!(parse_pg_indexdef_simple_columns("CREATE INDEX x ON t (lower(y))").is_none());
     }
 }
