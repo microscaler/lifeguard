@@ -6,11 +6,18 @@
 //! Test relationships:
 //! - User `has_many` Posts (one-to-many)
 //! - Post `belongs_to` User (many-to-one)
+//!
+//! **`find_related` + scopes (PRD §7.7):** parent `User::find().scope(…)` predicates are **not**
+//! merged into `find_related` SQL — chain [`SelectQuery::scope`](lifeguard::SelectQuery::scope) (or
+//! [`filter`](lifeguard::SelectQuery::filter)) on the query returned by
+//! [`FindRelated::find_related`](lifeguard::FindRelated::find_related). See
+//! [`DESIGN_FIND_RELATED_SCOPES.md`](../../docs/planning/DESIGN_FIND_RELATED_SCOPES.md) and
+//! `test_find_related_chains_scope_on_related_query` below.
 
 use lifeguard::relation::identity::Identity;
 use lifeguard::{
-    test_helpers::TestDatabase, ActiveModelTrait, FindRelated, LifeExecutor, MayPostgresExecutor,
-    ModelTrait, Related, RelationDef, RelationType,
+    test_helpers::TestDatabase, ActiveModelTrait, ColumnTrait, FindRelated, LifeExecutor,
+    MayPostgresExecutor, ModelTrait, Related, RelationDef, RelationType,
 };
 use sea_query::{ConditionType, IntoIden, TableName, TableRef};
 
@@ -52,6 +59,7 @@ pub mod posts {
     }
 }
 
+use posts::Column as PostColumn;
 use posts::Entity as PostEntity;
 use posts::TestPostRecord;
 use users::Entity as UserEntity;
@@ -396,6 +404,47 @@ fn test_find_related_with_query_modifications() {
         .expect("Failed to query related posts");
 
     assert_eq!(posts.len(), 1, "Should return only 1 post when limit is 1");
+}
+
+/// Parent scopes are not inherited: constrain the **related** row set by chaining `.scope` on the
+/// `SelectQuery` from `find_related` (PRD Phase C / [`DESIGN_FIND_RELATED_SCOPES.md`](../../docs/planning/DESIGN_FIND_RELATED_SCOPES.md)).
+#[test]
+fn test_find_related_chains_scope_on_related_query() {
+    let mut test_db = get_db();
+    let _client = test_db.connect().expect("Failed to connect to database");
+
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    let mut user_record = TestUserRecord::new();
+    user_record.set_name("Scope User".to_string());
+    user_record.set_email("scope@example.com".to_string());
+    let user = user_record
+        .insert(&executor)
+        .expect("Failed to insert user");
+
+    let mut post_keep = TestPostRecord::new();
+    post_keep.set_title("Keep".to_string());
+    post_keep.set_content("c1".to_string());
+    post_keep.set_user_id(user.id);
+    post_keep.insert(&executor).expect("insert post keep");
+
+    let mut post_drop = TestPostRecord::new();
+    post_drop.set_title("Drop".to_string());
+    post_drop.set_content("c2".to_string());
+    post_drop.set_user_id(user.id);
+    post_drop.insert(&executor).expect("insert post drop");
+
+    let posts = user
+        .find_related::<PostEntity>()
+        .expect("find_related")
+        .scope(ColumnTrait::eq(PostColumn::Title, "Keep"))
+        .all(&executor)
+        .expect("query");
+
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].title, "Keep");
 }
 
 // ============================================================================

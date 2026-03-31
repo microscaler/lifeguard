@@ -33,6 +33,17 @@
 
 **Suggested implementation order:** **A → B → C → D → E** (E last: touches lifecycle, pooling, and executor contracts most deeply). Parallelism: **A** with **D** is possible if expression work stays in query layer only.
 
+### 0.3 Follow-on priority (post v0 — §7.7 / §9.7)
+
+Order for remaining **Phase C** / **Phase E** polish (see §7.7, §9.7, [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md)):
+
+| Order | Track | Work |
+|------:|--------|------|
+| **1** | Phase E | **Mapping / docs:** keep [COMPARISON.md](../../COMPARISON.md) and [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) aligned when APIs change; small rustdoc fixes in the same PRs as features. |
+| **2** | Phase C | **Examples:** integration test or `examples/` showing `find_related` then **`.scope` / `.filter`** on the returned `SelectQuery` (parent scopes are not merged into `find_related` SQL). |
+| **3** | Phase C | **Optional codegen:** scope bundles / lists on `Entity` (e.g. derive sugar for `#[scope]`); additive only. |
+| **4** | Phase C | **Opt-in `related_scope` / inherited parent scopes:** design + API on `FindRelated` / `RelationDef` / loaders — **after** (2) and a short design addendum; highest integration risk. |
+
 ---
 
 ## 1. Executive summary
@@ -256,7 +267,7 @@ Tackle after core PRD follow-through items:
 - **Soft delete:** `query::scope` module documents that `LifeModelTrait::soft_delete_column` is applied at execution time and **AND**ed with scoped predicates unless `with_trashed` is set; unit test `scope_and_soft_delete_both_anded_at_execution`.
 - **Tests:** `src/query/scope.rs` — composition + soft-delete interaction + `scope_or` / `scope_any`.
 
-**Still to do for fuller Phase C:** optional codegen beyond `#[scope]` (e.g. scope lists on the struct). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** attribute macro (`lifeguard::scope` / `lifeguard_derive::scope`) on `impl Entity` renames `fn foo` → `scope_foo`. **`find_related` vs scopes:** default behavior documented in crate rustdoc (`query::scope`, `FindRelated`) and [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) (parent scopes are not merged into `find_related` SQL; chain on the returned query). Opt-in `related_scope` / inherited parent scopes remain future work. README matrix (G6) updated for scopes.
+**Still to do for fuller Phase C:** optional codegen beyond `#[scope]` (e.g. scope lists on the struct). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** attribute macro (`lifeguard::scope` / `lifeguard_derive::scope`) on `impl Entity` renames `fn foo` → `scope_foo`. **`find_related` vs scopes:** default behavior documented in crate rustdoc (`query::scope`, `FindRelated`) and [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) (parent scopes are not merged into `find_related` SQL; chain on the returned query). **Integration example:** `tests/db_integration/related_trait.rs` — `test_find_related_chains_scope_on_related_query` chains `.scope` on the query from `find_related`. Opt-in `related_scope` / inherited parent scopes remain future work (see §0.3). README matrix (G6) updated for scopes.
 
 ---
 
@@ -369,7 +380,7 @@ Tackle after core PRD follow-through items:
 - **Tests:** `src/session/mod.rs`, `src/session/pk.rs`, `src/session/uow.rs` — identity map, fingerprint, dirty order, flush error retention, pending insert flush + promote (unit), `Session` pending merge, `SessionDirtyNotifier` `Send`. **`db_integration_suite`:** `tests/db_integration/session_identity_flush.rs` — raw map flush, `mark_dirty_key` + `identity_map_key`, **`Session` + `attach_session` + record `set_*`**, **`Session::flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** → `LifeRecord::update`, **`register_pending_insert`** + **`flush_dirty_with_map_key`** + **`promote_pending_to_loaded`** → `LifeRecord::insert`, same path inside **`flush_dirty_in_transaction_with_map_key`** / **`flush_dirty_in_transaction_pooled_with_map_key`** on Postgres.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase E:** mapping matrix row tweaks as APIs grow. **Done in-tree:** **`LifeRecord::attach_session_with_model`** — linked `Rc<RefCell<Model>>` updated via **`to_model()`** on each session-notifying mutation when conversion succeeds (PRD §9 / `DESIGN_SESSION_UOW.md`).
+**Still to do for fuller Phase E:** mapping matrix row tweaks as APIs grow (ongoing; batch with feature PRs or doc-only PRs — see §0.3). **Done in-tree:** **`LifeRecord::attach_session_with_model`** — linked `Rc<RefCell<Model>>` updated via **`to_model()`** on each session-notifying mutation when conversion succeeds (PRD §9 / `DESIGN_SESSION_UOW.md`).
 
 ---
 
