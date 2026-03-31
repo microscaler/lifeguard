@@ -22,7 +22,7 @@ fn postgres_url() -> Option<String> {
 
 /// Unique schema so parallel tests and shared DBs do not see unrelated `public` tables.
 fn scratch_schema_name() -> String {
-    format!("lg_cmp_{}", Uuid::new_v4().simple())
+    format!("lg_cmp_{id}", id = Uuid::new_v4().simple())
 }
 
 #[test]
@@ -139,12 +139,12 @@ fn compare_schema_cli_succeeds_when_no_drift() {
 
     assert!(
         out.status.success(),
-        "compare-schema failed: stderr={}",
-        String::from_utf8_lossy(&out.stderr)
+        "compare-schema failed: stderr={stderr}",
+        stderr = String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
-        stdout.contains("Tables match") || stdout.contains("Success"),
+        stdout.contains("No drift"),
         "unexpected output: {stdout}"
     );
 }

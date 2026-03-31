@@ -1,6 +1,6 @@
 # Vision: what we’re building
 
-This document is the **long-form product vision**: core ORM abstractions, pooling, **LifeReflector**, transparent caching targets, replica routing, and parity lists (shipped vs planned). For **what compiles today**, use **[STATUS.md](./STATUS.md)** and [SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md). For competitive framing, see **[COMPARISON.md](./COMPARISON.md)**.
+This document is the **long-form product vision**: core ORM abstractions, pooling, **LifeReflector**, transparent caching targets, replica routing, and parity lists (shipped vs planned). For **what compiles today**, repository truth, and competitive framing, see **[COMPARISON.md](./COMPARISON.md)** (start with [repository status](./COMPARISON.md#repository-status)) and [SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md).
 
 ---
 

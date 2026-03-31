@@ -236,8 +236,8 @@ fn handle_compare_schema(
 
     if !generated_dir.is_dir() {
         return Err(MigrationError::InvalidFormat(format!(
-            "compare-schema: not a directory: {}",
-            generated_dir.display()
+            "compare-schema: not a directory: {path}",
+            path = generated_dir.display()
         )));
     }
 

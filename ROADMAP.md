@@ -16,4 +16,4 @@ Story-level detail: [docs/planning/epics-stories/](./docs/planning/epics-stories
 
 ---
 
-[← README](./README.md) · [Status](./STATUS.md)
+[← README](./README.md) · [Comparison](./COMPARISON.md#repository-status)

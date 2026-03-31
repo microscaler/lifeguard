@@ -106,6 +106,12 @@ where
     /// Returns `(map_key, rc)` — keep `map_key` for [`Self::promote_pending_to_loaded`] after a
     /// successful insert, and use [`Self::flush_dirty_with_map_key`] in the flush closure to call
     /// `insert` when [`is_pending_insert_key`](`map_key`).
+    ///
+    /// Synthetic keys are [`PENDING_INSERT_KEY_PREFIX`] plus a decimal id from the map’s internal
+    /// `next_pending_id` field, advanced with `wrapping_add(1)` each time this method runs. After
+    /// \(2^{64}\) such calls, ids could theoretically wrap and collide; in practice unreachable.
+    /// Promote or remove pending entries so `next_pending_id` does not grow without bound in an
+    /// extremely long-lived, high-throughput process.
     pub fn register_pending_insert(&mut self, model: E::Model) -> (String, Rc<RefCell<E::Model>>) {
         let id = self.next_pending_id;
         self.next_pending_id = self.next_pending_id.wrapping_add(1);
@@ -568,10 +574,14 @@ mod tests {
             label: "a",
         });
         let cell = SessionIdentityModelCell::new(&rc);
-        cell.replace_with(SessModel {
-            id: 1,
-            label: "b",
-        });
+        assert!(
+            cell
+                .replace_with(SessModel {
+                    id: 1,
+                    label: "b",
+                })
+                .is_ok()
+        );
         assert_eq!(rc.borrow().label, "b");
     }
 }

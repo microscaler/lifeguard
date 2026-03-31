@@ -1,6 +1,21 @@
 # Competitive comparison and ecosystem
 
-*Snapshot for quick orientation. **Implementation Status** labels **shipped** crate behavior (including optional features), **partial** gaps, and **vision** rows (especially transparent cache and explicit read-preference APIs). Authoritative row-by-row coverage and percentages live in [SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) and `cargo doc`. For what is implemented **today** in this repository, see [STATUS.md](./STATUS.md). The [short summary](#implementation-status-summary-short) below complements that status with parity-oriented completion notes.*
+*This document combines **repository truth** (what ships in-tree today) with a **competitive snapshot** versus other Rust ORMs and ecosystem positioning. In the table below, **Implementation Status** labels **shipped** crate behavior (including optional features), **partial** gaps, and **vision** rows (especially transparent cache and explicit read-preference APIs). Authoritative row-by-row coverage and percentages live in [SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) and `cargo doc`. The [repository status](#repository-status) section states what is implemented **today**; the [short summary](#implementation-status-summary-short) below the table complements that with parity-oriented completion notes.*
+
+## Repository status
+
+**Ground truth** for what is implemented in-tree versus narrative **target** behavior. For the technical pitch, see the [README](./README.md).
+
+### Current status (repository truth)
+
+- **In this crate today:** `LifeExecutor` / `MayPostgresExecutor`, `connect` and connection helpers, `SelectQuery` and the query stack, `#[derive(LifeModel)]` / `#[derive(LifeRecord)]` (`lifeguard-derive`), relations (including loaders and `find_related` / linked paths), migrations (`lifeguard::migration`, `lifeguard-migrate`), transactions, raw SQL helpers, partial models, optional **metrics** (including pool `pool_tier` labels) and **tracing** features, **channel logging** (`lifeguard::logging`), and **`LifeguardPool`** / **`PooledLifeExecutor`** (`lifeguard::pool`, re-exported at the crate root).
+- **Pool maturity:** the pool is **production-usable** for the supported design: one OS thread per slot, **bounded** per-worker queues, configurable **acquire timeout**, optional **replica** tier with **WAL lag** routing and monitor give-up, **slot heal** after connectivity-class errors, **idle liveness** probes, and **max connection lifetime** with jitter. Operators should tune from [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md); the PRD tracks closure and future work in [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md). **`ReadPreference`** + **`PooledLifeExecutor::with_read_preference`** let callers force primary-tier reads for read-your-writes while writes stay on the primary tier.
+- **Migrations / schema tooling (`lifeguard-migrate`):** **`infer-schema`** introspects PostgreSQL and emits Rust entities (including **composite primary keys** via `#[primary_key]` on each PK column). **`compare-schema`** checks live `information_schema` vs merged generated migrations beyond table names—**column-name drift** for tables present in both the database and the migration baseline ([PRD §5](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md), [lifeguard-migrate README](./lifeguard-migrate/README.md)).
+- **Scopes vs `find_related`:** parent entity **`scope`** predicates are **not** merged into **`find_related`**; chain filters or scopes on the **`SelectQuery`** returned from `find_related` ([`query::scope`](./src/query/scope.rs), [DESIGN_FIND_RELATED_SCOPES.md](./docs/planning/DESIGN_FIND_RELATED_SCOPES.md)).
+- **LifeReflector (`lifeguard-reflector`):** distributed cache coherence is implemented in the workspace crate [`lifeguard-reflector`](./lifeguard-reflector/) (same repository as `lifeguard-derive`, `lifeguard-migrate`, and other `lifeguard-*` packages). Behavior and flow diagrams: [ARCHITECTURE.md](./ARCHITECTURE.md) and [The Killer Feature: LifeReflector](./VISION.md#the-killer-feature-lifereflector) in **[VISION.md](./VISION.md)**; the crate may be published or split out later without renaming it.
+- **Docs vs code:** Mermaid diagrams and some marketing sections describe the **target** platform (cache tier, replica routing, pool). Treat [docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md), `cargo doc`, and `examples/` as the ground truth for what compiles. Consumer-facing **`///` docs** are actively maintained (opt-in advanced `SelectQuery` SQL, pool/read preference, session, relations); a strict `RUSTDOCFLAGS='-D warnings'` pass is an ongoing hygiene goal.
+
+---
 
 ## Competitive metrics: Lifeguard vs Rust ORMs
 
@@ -113,6 +128,8 @@ For percentages and row-by-row status, use the mapping document linked in the se
 
 *Note: Performance numbers are estimates based on architecture. Actual benchmarks will be published after implementation.*
 
+*ORM note: the **Diesel** column reflects typical **sync** / blocking **Diesel** usage; **Diesel-async** follows **async**/**Tokio** patterns and is closer in deployment to **SeaORM** / **SQLx** than to sync **Diesel**—see [Ecosystem compatibility](#ecosystem-compatibility).*
+
 ### Target performance claims (product narrative)
 
 **Target Performance:**
@@ -128,16 +145,17 @@ For percentages and row-by-row status, use the mapping document linked in the se
 
 ### Ecosystem compatibility
 
-**⚠️ Important: BRRTRouter and Lifeguard are a parallel ecosystem, separate from async/await Rust.**
+**⚠️ Important:** **BRRTRouter + Lifeguard** and **Tokio + async/await ORMs** are **different supported stacks**. Both are Rust, but they assume **different runtimes**: **`may`** coroutines for **Lifeguard** vs **`async`/`await`** (commonly on **Tokio**) for **SeaORM**, **SQLx**, and **Diesel-async**. That is a **compatibility boundary for how we document and support integrations**—not a claim that Rust forbids linking crates.
 
-These are **two incompatible worlds** with the only commonality being Rust itself:
+| Stack | Runtime / execution model | ORM or access layer | Notes |
+|-------|---------------------------|---------------------|--------|
+| **BRRTRouter + Lifeguard** | **`may`** coroutines | **Lifeguard** | Supported path for this repo’s ORM; **not** interchangeable with async-first ORMs as a single documented “drop-in” integration. |
+| **SeaORM** | **`async`/`await`** — enable a runtime via crate features (e.g. **`runtime-tokio-native-tls`**, other `runtime-*` flags per upstream docs) | SeaORM | **Tokio** (or async-std) is selected by **feature flags**; not a **`may`** stack. |
+| **SQLx** | **`async`/`await`** — requires a runtime feature (**Tokio** or **async-std**) | SQLx | **Unsupported / not recommended** to use without enabling a supported async runtime; misconfiguration may **panic** at runtime rather than failing at compile time—see SQLx feature docs. |
+| **Diesel (sync / core)** | Blocking / synchronous API | Diesel | **Runtime-agnostic** for the classic blocking API when used from normal threads. |
+| **Diesel-async** | **`async`/`await`**, **Tokio**-centric | Diesel-async | Async API; **not** the same portability story as sync **Diesel**. |
 
-| Ecosystem | Runtime | ORM Options | Incompatible With |
-|-----------|---------|-------------|-------------------|
-| **BRRTRouter + Lifeguard** | `may` coroutines | Lifeguard only | SeaORM, Diesel (async), SQLx, Tokio |
-| **Tokio + Async ORMs** | `async/await` | SeaORM, Diesel, SQLx | BRRTRouter, Lifeguard, `may` |
-
-**You cannot mix and match.** If you're using BRRTRouter, you **must** use Lifeguard. The async/await ORMs (SeaORM, Diesel, SQLx) are fundamentally incompatible with the `may` coroutine runtime.
+**Practical status:** Mixing **BRRTRouter + Lifeguard (`may`)** with **SeaORM / SQLx / Diesel-async** in one **supported** application architecture is **not documented here**—each stack expects **`may`** vs **`async`/`await` + **Tokio** (or async-std) respectively. Choose **BRRTRouter + Lifeguard** for the **`may`** path; choose **Tokio + SeaORM**, **Tokio + SQLx**, or **Tokio + Diesel-async** for the mainstream **async/await** path. **Diesel (sync)** stays **runtime-agnostic** for blocking use.
 
 ### When to use each ecosystem
 
@@ -149,15 +167,15 @@ These are **two incompatible worlds** with the only commonality being Rust itsel
 - ✅ You're **PostgreSQL-only** (enables advanced features)
 - ✅ You want **Oracle Coherence-level functionality**
 
-**Use Tokio + Async ORMs if:**
-- ✅ You're using **Tokio/async-await** runtime
-- ✅ You need **multi-database support** (PostgreSQL, MySQL, SQLite, MSSQL)
-- ✅ You want **mature, well-documented ORMs** (SeaORM, Diesel, SQLx)
+**Use Tokio + async ORMs if:**
+- ✅ You're using **Tokio** (or another **async** runtime) with **`async`/`await`**
+- ✅ You need **multi-database support** (PostgreSQL, MySQL, SQLite, MSSQL) — typical for **SeaORM** / **SQLx**
+- ✅ You want **mature, well-documented ORMs** (**SeaORM**, **SQLx**, **Diesel** / **Diesel-async**)
 - ✅ You don't need distributed cache coherence
-- ✅ You're building traditional async/await microservices
+- ✅ You're building traditional **async/await** microservices
 
-**The choice is made at the ecosystem level, not the ORM level.** Once you choose BRRTRouter, Lifeguard is your only ORM option. Once you choose Tokio, you can choose between SeaORM, Diesel, or SQLx—but you cannot use BRRTRouter.
+**Ecosystem choice:** **BRRTRouter** implies **Lifeguard** on **`may`**. A **Tokio**-centric service typically picks **SeaORM**, **SQLx**, or **Diesel-async**; **Diesel (sync)** is **runtime-agnostic** when used as blocking I/O from threads. Cross-stack mixing is **unsupported** as a first-class integration story—not “impossible in Rust,” but **out of scope** for the documented paths above.
 
 ---
 
-[← README](./README.md) · [Status](./STATUS.md) · [Roadmap](./ROADMAP.md)
+[← README](./README.md) · [Roadmap](./ROADMAP.md)

@@ -19,7 +19,7 @@
 
 **Who it is for:** Teams on **`may`** (for example **BRRTRouter**) who want **SeaORM-like** productivity, **typed models and queries**, a **production connection pool** (primary/replica, WAL-aware routing, optional read preference), **OTel-compatible** metrics/tracing, and a **cache-coherence** story (**LifeReflector** + Redis) aimed at **latency-sensitive** tiers.
 
-**Shipped vs aspirational:** Treat **[STATUS.md](./STATUS.md)**, `cargo doc`, and `examples/` as **source of truth**; some diagrams and marketing copy still describe **target** behavior (for example fully automatic transparent Redis on every read path). Product vision, feature lists, and the LifeReflector narrative: **[VISION.md](./VISION.md)**. Parity and competitive framing: **[COMPARISON.md](./COMPARISON.md)** and the [SeaORM mapping](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md).
+**Shipped vs aspirational:** Treat **[COMPARISON.md](./COMPARISON.md#repository-status)** (repository truth), `cargo doc`, and `examples/` as **source of truth**; some diagrams and marketing copy still describe **target** behavior (for example fully automatic transparent Redis on every read path). Product vision, feature lists, and the LifeReflector narrative: **[VISION.md](./VISION.md)**. Parity tables and competitive framing: **[COMPARISON.md](./COMPARISON.md)** and the [SeaORM mapping](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md).
 
 ---
 
@@ -99,9 +99,8 @@ There is **no** `lifeguard::testkit` / `test_pool!` macro in this repository; us
 
 | Topic | Document |
 |--------|----------|
-| **What ships today (repository truth)** | [STATUS.md](./STATUS.md) |
+| **Repository truth, competitive matrix, ecosystem, performance** | [COMPARISON.md](./COMPARISON.md) |
 | **Roadmap (high-level areas)** | [ROADMAP.md](./ROADMAP.md) |
-| **Competitive matrix, ecosystem, performance framing** | [COMPARISON.md](./COMPARISON.md) |
 | **Product vision & long-form “what we’re building”** | [VISION.md](./VISION.md) |
 | **Blog: async ORMs vs `may`, and why Lifeguard exists** | [LIFEGUARD_BLOG_POST.md](./LIFEGUARD_BLOG_POST.md) |
 | **Architecture (diagrams, flows)** | [ARCHITECTURE.md](./ARCHITECTURE.md) |

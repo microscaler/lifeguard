@@ -31,6 +31,17 @@ use super::ModelIdentityMap;
 /// Notifies a [`Session`] that a primary-key fingerprint should be treated as dirty.
 ///
 /// Cloning shares the same backing queue. Safe to store on a derived `LifeRecord` (`Send` + `Sync`).
+///
+/// # Threading / `may`
+///
+/// The pending set uses [`std::sync::Mutex`] so this handle can be [`Send`] + [`Sync`] while
+/// [`Session`]'s identity map remains `Rc`/`RefCell` on **one** thread/coroutine (PRD U-3). A
+/// contended [`Mutex::lock`] blocks the **calling OS thread**; cooperative `may` coroutines on that
+/// thread do not run until the lock is released. In the **intended** model (session + attached
+/// records on the same thread), contention is rare and the critical section is a small
+/// [`HashSet::insert`](std::collections::HashSet::insert). Replacing this with a lock-free structure
+/// would still need a defined dedup/ordering story and does not remove blocking from synchronous
+/// `flush_dirty` paths that merge into the map.
 #[derive(Clone)]
 pub struct SessionDirtyNotifier {
     pending: Arc<Mutex<HashSet<String>>>,

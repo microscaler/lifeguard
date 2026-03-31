@@ -34,8 +34,8 @@ fn infer_schema_cli_prints_generated_banner() {
 
     assert!(
         out.status.success(),
-        "infer-schema failed: stderr={}",
-        String::from_utf8_lossy(&out.stderr)
+        "infer-schema failed: stderr={stderr}",
+        stderr = String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(

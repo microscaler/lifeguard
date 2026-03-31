@@ -1,5 +1,9 @@
 # Progress Tracking
 
+## STATUS merged into COMPARISON (2026-03-28)
+
+- **`STATUS.md` removed.** Former **repository truth** bullets live under **`## Repository status`** in **`COMPARISON.md`** (anchor **`#repository-status`**). **`README.md`**, **`VISION.md`**, **`ARCHITECTURE.md`**, **`ROADMAP.md`** links updated; documentation table uses a single **COMPARISON.md** row for repository truth + competitive content.
+
 ## README badges + logo width (2026-03-28)
 
 - **README.md:** CI badges above hero — **Lifeguard CI** workflow badge (`ci.yaml` on `main`) + static **rustc nightly** badge linking to `.github/workflows/ci.yaml`. Logo image **`width="600"`**.
@@ -10,10 +14,12 @@
 
 ## README reorg — STATUS / ROADMAP / COMPARISON (2026-03-28)
 
+_Superseded for `STATUS.md`: merged into **`COMPARISON.md`** — see **STATUS merged into COMPARISON** above._
+
 - **STATUS.md** (repo root): former README **“Current status (repository truth)”** bullets (verbatim relocation).
 - **ROADMAP.md** (repo root): former README **Roadmap** table + story links.
 - **COMPARISON.md** (repo root): competitive metrics table, legend, implementation summary, differentiators, performance tables, ecosystem compatibility, “when to use” — plus former duplicate **Performance** marketing bullets merged as **Target performance claims**.
-- **README.md**: pitch-first spine — merged **Why Lifeguard** + executive intent into **Why Lifeguard (technical bet)**; links to STATUS/COMPARISON/VISION; compact architecture + getting started + observability + testing; **Documentation** table indexes new files.
+- **README.md**: pitch-first spine — merged **Why Lifeguard** + executive intent into **Why Lifeguard (technical bet)**; links to COMPARISON/VISION; compact architecture + getting started + observability + testing; **Documentation** table indexes new files.
 - **Cross-links:** `VISION.md`, `ARCHITECTURE.md` (LifeReflector anchor fixed to `VISION.md#the-killer-feature-lifereflector`), `docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`, `docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md` now reference `COMPARISON.md` where the competitive table lives.
 - **Git:** `2ee3554` on `feat/schema_validators_session_and_scopes_2` — pushed to `origin` (`farm git commit` + `farm git push`).
 
@@ -89,7 +95,7 @@
 - **PRD Phase E v0 — session identity map (2026-03-28):** `src/session/` — `ModelIdentityMap`, `fingerprint_pk_values` (`session/pk.rs`); exported from `lib.rs`; unit tests; `docs/planning/DESIGN_SESSION_UOW.md`; PRD §9.7 + milestone §0.1 (v0 only — flush/pool follow-on). `cargo test -p lifeguard --lib`, `cargo clippy -p lifeguard --all-targets -- -D warnings`.
 - **PRD Phase D v0 — F-style column expr (2026-03-28):** `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div` → `SimpleExpr` for `UPDATE SET`; unit tests in `column_trait.rs`. PRD §8.7; `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` + `DEVELOPMENT.md` link for rustdoc/coverage process.
 - **PRD Phase C v0 — scopes (2026-03-28):** `src/query/scope.rs` — `SelectQuery::scope`, `IntoScope` (delegates to `filter`); module docs for soft-delete AND semantics; unit tests composition + soft-delete. PRD §7.7; `SEAORM_LIFEGUARD_MAPPING.md` scoped queries row. `cargo test -p lifeguard --lib`, `cargo clippy -p lifeguard --lib -- -D warnings`.
-- **PRD Phase B v0 — validators (2026-03-28):** `ValidateOp` (`Insert`/`Update`), `ValidationError`, `ActiveModelError::Validation(Vec<_>)` with `Display`; `ActiveModelBehavior::validate_fields` / `validate_model` (default no-op); `run_validators` (field → model, fail-fast); `lifeguard-derive` `insert`/`update` call `run_validators` after `before_insert`/`before_update`. Unit tests in `src/active_model/validation.rs`. PRD §6.7. `cargo test -p lifeguard`, `cargo test -p lifeguard-derive`, `cargo clippy -p lifeguard -p lifeguard-derive --all-targets -- -D warnings`; `db_integration_suite` OK with `--test-threads=1` (parallel SIGSEGV env quirk).
+- **PRD Phase B v0 — validators (2026-03-28):** `ValidateOp` (`Insert` / `Update`; **`Delete`** added in follow-on), `ValidationError`, `ActiveModelError::Validation(Vec<_>)` with `Display`; `ActiveModelBehavior::validate_fields` / `validate_model` (default no-op); `run_validators` (field → model, fail-fast); `lifeguard-derive` `insert`/`update`/`delete` call `run_validators` after `before_*`. Unit tests in `src/active_model/validation.rs`. PRD §6.7. `cargo test -p lifeguard`, `cargo test -p lifeguard-derive`, `cargo clippy -p lifeguard -p lifeguard-derive --all-targets -- -D warnings`; `db_integration_suite` OK with `--test-threads=1` (parallel SIGSEGV env quirk).
 - **PRD Phase A v0 — schema inference (2026-03-30):** `lifeguard-migrate infer-schema` + `lifeguard_migrate::schema_infer` (`infer_schema_rust`, `InferOptions`); PostgreSQL `information_schema` introspection; conservative type mapping; composite PK TODO; omitted columns commented. PRD §5.7. `cargo test -p lifeguard-migrate schema_infer`, `cargo clippy -p lifeguard-migrate -- -D warnings`.
 - **Toxiproxy fallback test ignored (2026-03-28):** `tests/db_integration/pool_read_replica.rs` — `pooled_read_falls_back_to_primary_when_replica_lagging` marked `#[ignore]` (flaky: `is_replica_lagging` not true within ~10s after proxy disable in CI). TODO on test + `WalLagMonitor` follow-up. Prior attempt: `src/pool/wal.rs` statement_timeout + reconnect on query error. **Git:** `feat/lifeguard-pool` pushed — main change `ffd0300` (`farm git`; no Cursor co-author).
 - **perf-idam `Cargo.lock` for `--locked` CI (2026-03-28):** Standalone `examples/perf-idam` had no `Cargo.lock` (or it was missing/stale); `cargo generate-lockfile` in that dir; verified `cargo test --locked --no-fail-fast`. Commit `examples/perf-idam/Cargo.lock` so Tilt/CI `cargo test --locked` succeeds.
@@ -198,12 +204,15 @@
 - Compile-time warnings for unsupported types
 - Next core traits from SEAORM_LIFEGUARD_MAPPING.md
 
-## Metrics
-- Edge case coverage: 85% (up from 70%)
-- Test coverage: 80% (up from 75%)
-- Tests passing: 34+ (up from 30) - Added 4 JSON serialization tests
+## Metrics — **historical snapshot (not auto-updated)**
+
+*The bullets below are a **point-in-time** capture from early Memory Bank use. For **current** test counts, CI status, and shipped features, prefer the **Completed ✅** section above, `cargo test` / coverage output, and repository docs—not this block.*
+
+- Edge case coverage: 85% (up from 70%) — *historical*
+- Test coverage: 80% (up from 75%) — *historical*
+- Tests passing: 34+ (up from 30) — *historical* (JSON serialization era); **current** lib tests are listed under **Completed ✅** (e.g. hundreds of `cargo test -p lifeguard --lib` passes in later entries)
 - Memory Bank files: 6/6 initialized
-- CRUD operations: Fixed critical bug in get() method for unset field detection
-- ActiveModel/Record Operations: 7/12 implemented (58%) - Added from_json() and to_json()
-- Query Builder Methods: 19/20 implemented (95%) - Added JOIN operations (join, left_join, right_join, inner_join)
-- Relations: RelationTrait implemented with functional query building (belongs_to, has_one, has_many, has_many_through)
+- CRUD operations: *historical note:* fixed `get()` unset-field behavior (see **Completed** / git history for current CRUD surface)
+- ActiveModel/Record Operations: 7/12 implemented (58%) — *historical*; see **Completed** for `from_json`/`to_json`, validators, session hooks, etc.
+- Query Builder Methods: 19/20 implemented (95%) — *historical*; see **Completed** for CTE/window/join additions
+- Relations: RelationTrait implemented with functional query building (belongs_to, has_one, has_many, has_many_through) — *still directionally true; see **Completed** for `find_related`/scopes docs*

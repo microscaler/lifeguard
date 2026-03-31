@@ -137,7 +137,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 
 **SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK, table filter, SQL keyword field).
 
-**Phase A closure (documentation + tests):** **`infer-schema` CLI subprocess e2e** — `lifeguard-migrate/tests/infer_schema_cli_subprocess.rs` (spawns `CARGO_BIN_EXE_lifeguard-migrate infer-schema`, asserts banner; skips without DB URL). **Library / CI:** `infer_schema_postgres_smoke.rs`, `infer_schema_table_filter_si3.rs` (unchanged). **DBA confidence — live DB vs on-disk generated migrations:** `lifeguard_migrate::schema_migration_compare` + CLI **`compare-schema`** — reconciles **`information_schema` base table names** and, for tables present in both baselines, **column names** (`information_schema.columns` vs columns parsed from merged `CREATE TABLE` + `ADD COLUMN` fragments via `column_map_from_merged_baseline`); **does not** compare SQL type text or constraints in depth. `tests/migration_db_compare_smoke.rs`. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`, `compare-schema`), `DEVELOPMENT.md` (migrate section).
+**Phase A closure (documentation + tests):** **`infer-schema` CLI subprocess e2e** — `lifeguard-migrate/tests/infer_schema_cli_subprocess.rs` (spawns `CARGO_BIN_EXE_lifeguard-migrate infer-schema`, asserts banner; skips without DB URL). **Library / CI:** `infer_schema_postgres_smoke.rs`, `infer_schema_table_filter_si3.rs` (unchanged). **DBA confidence — live DB vs on-disk generated migrations:** `lifeguard_migrate::schema_migration_compare` + CLI **`compare-schema`** — reconciles **`information_schema` base table names** and, for tables present in both baselines, **column names** (`information_schema.columns` vs columns parsed from merged `CREATE TABLE` + `ADD COLUMN` fragments via `column_map_from_merged_baseline`); **does not** compare SQL type text, constraints, or **indexes** in depth (`pg_indexes` / `CREATE INDEX` reconciliation is a **stretch** — see §5.7a). `tests/migration_db_compare_smoke.rs`. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`, `compare-schema`), `DEVELOPMENT.md` (migrate section).
 
 **Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary; `compare-schema` column reconciliation is name-level only).
 
@@ -147,6 +147,7 @@ Tackle after core PRD follow-through items:
 
 - **Watch mode** for `infer-schema`
 - **Richer CI golden workflows** (snapshot automation beyond current unit goldens)
+- **Index reconciliation (stretch):** extend `lifeguard_migrate::schema_migration_compare` and the **`compare-schema`** CLI to fetch index definitions (e.g. `pg_indexes` / `information_schema.statistics`), parse each index’s column list, and verify indexed columns exist in both `column_map_from_merged_baseline` and the live DB; surface mismatches as failures or warnings; align generated migrations so **`CREATE INDEX`** is represented and validated. Follow-up: optional **lifeguard-derive** / migration-time checks that struct fields map to indexed columns where the schema expects them. (See §5.7 shipped scope: table + column **names** only today.)
 
 ---
 
@@ -166,14 +167,14 @@ Tackle after core PRD follow-through items:
 
 ### 6.3 What (scope)
 
-- **Field validators:** Run on values present or changed on `LifeRecord` for insert/update/save paths (exact operations TBD in design).
+- **Field validators:** Run on values present or changed on `LifeRecord` for insert/update/delete/save paths (exact operations TBD in design).
 - **Model validators:** Access multiple fields; run after field validators.
 - **API surface:** Minimum = **traits** + manual registration or inherent impls; **stretch** = derive attributes (`#[validate(...)]`) where macro hygiene allows.
 - **Errors:** Typed error type or `LifeError` variant that carries **field paths** and **messages**; optional aggregation mode.
 
 ### 6.4 How (approach)
 
-- **Integration point:** Call validator pipeline from **`ActiveModelTrait` save/insert/update** (or a single internal choke point) **before** building SQL.
+- **Integration point:** Call validator pipeline from **`ActiveModelTrait` save/insert/update/delete** (or a single internal choke point) **before** building SQL.
 - **Sync only:** Validators are synchronous closures or trait methods; **no** async/`await` (matches `may` stack).
 - **Composition:** Small building blocks (`validate_len`, custom `Fn`) composed into a **validator list** per model; optional derive generates lists.
 - **Testing:** Pure unit tests on validator functions without Postgres; integration tests optional for end-to-end rejection.
@@ -182,7 +183,7 @@ Tackle after core PRD follow-through items:
 
 | Req ID | Requirement | Acceptance criteria |
 |--------|-------------|---------------------|
-| V-1 | **Field validators** run for present/changed fields on `LifeRecord` save paths (insert/update as applicable). | Unit tests: failing field validator blocks persistence and returns typed error. |
+| V-1 | **Field validators** run for present/changed fields on `LifeRecord` save paths (insert/update/delete as applicable). | Unit tests: failing field validator blocks persistence and returns typed error. |
 | V-2 | **Model validators** run after field validators and may inspect multiple fields. | Unit test: cross-field rule works. |
 | V-3 | Errors are **aggregated** or **fail-fast** per explicit policy (default documented). | Tests cover both modes if both are exposed. |
 | V-4 | Opt-out / skip for specific operations if needed (e.g. `save` vs `insert`) — **if** we expose hooks; otherwise document use of hooks. | Documented in rustdoc. |
@@ -197,7 +198,7 @@ Tackle after core PRD follow-through items:
 
 **Shipped in-tree:**
 
-- **Types:** `lifeguard::ValidateOp` (`Insert` | `Update`), `lifeguard::ValidationError` (`field: Option<String>`, `message: String`, with `field` / `model` constructors).
+- **Types:** `lifeguard::ValidateOp` (`Insert` | `Update` | `Delete`), `lifeguard::ValidationError` (`field: Option<String>`, `message: String`, with `field` / `model` constructors).
 - **Errors:** `ActiveModelError::Validation(Vec<ValidationError>)` with `Display` listing field-scoped and model-scoped messages (fail-fast; no multi-error aggregation yet).
 - **Traits:** `ActiveModelBehavior::validate_fields` / `validate_model` (default no-op), `validation_strategy` (default [`ValidationStrategy::FailFast`]), invoked via `lifeguard::run_validators` in order **field → model**.
 - **V-3:** `ValidationStrategy::Aggregate` collects all `Validation` errors from `validate_fields` then `validate_model`; override `validation_strategy` on the record or call `run_validators_with_strategy` directly.

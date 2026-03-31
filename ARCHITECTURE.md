@@ -1,6 +1,6 @@
 # Lifeguard architecture
 
-This document is the **detailed** architecture reference: numbered call flows (primary vs replicas, Redis, LifeReflector), multi-service deployment, connection pooling, and cache coherence sequences. For repository status see [STATUS.md](./STATUS.md); for quick start and doc index, see the [README](./README.md).
+This document is the **detailed** architecture reference: numbered call flows (primary vs replicas, Redis, LifeReflector), multi-service deployment, connection pooling, and cache coherence sequences. For repository status see [COMPARISON.md](./COMPARISON.md#repository-status); for quick start and doc index, see the [README](./README.md).
 
 ---
 
@@ -236,4 +236,4 @@ sequenceDiagram
 
 ---
 
-[← README](./README.md) · [Vision](./VISION.md) · [Status](./STATUS.md) · [Comparison](./COMPARISON.md)
+[← README](./README.md) · [Vision](./VISION.md) · [Comparison](./COMPARISON.md)

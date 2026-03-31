@@ -13,14 +13,13 @@ use sea_query::Value;
 ///
 /// Unset `String(None)` or `Null` → `Ok(())`. Non-string values → `Ok(())` (use only on string columns).
 pub fn string_utf8_chars_max(value: &Value, max: usize) -> Result<(), String> {
-    match value {
-        Value::String(Some(s)) if s.chars().count() > max => Err(format!(
-            "must be at most {max} characters (got {})",
-            s.chars().count()
-        )),
-        Value::String(Some(_)) | Value::String(None) => Ok(()),
-        _ => Ok(()),
+    if let Value::String(Some(s)) = value {
+        let count = s.chars().count();
+        if count > max {
+            return Err(format!("must be at most {max} characters (got {count})"));
+        }
     }
+    Ok(())
 }
 
 /// Minimum and maximum UTF-8 character length (inclusive).

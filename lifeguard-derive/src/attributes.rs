@@ -399,6 +399,16 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
     Ok(attrs)
 }
 
+/// How derived `LifeRecord::validate_fields` combines per-field `#[validate(custom = ...)]` errors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableValidationStrategy {
+    /// First failing field validator stops; remaining field validators are skipped.
+    #[default]
+    FailFast,
+    /// Run every field validator and collect all errors.
+    Aggregate,
+}
+
 /// Table-level attributes for entity definitions
 #[derive(Debug, Clone, Default)]
 pub struct TableAttributes {
@@ -430,6 +440,9 @@ pub struct TableAttributes {
     pub auto_timestamp: bool,
     /// Soft delete flag intercepts DELETE operations and updates `deleted_at` instead
     pub soft_delete: bool,
+    /// When set, the derived `LifeRecord` implements `ActiveModelBehavior::validation_strategy`
+    /// so `validate_fields` matches `run_validators` for that strategy.
+    pub validation_strategy: Option<TableValidationStrategy>,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -610,6 +623,25 @@ pub fn parse_table_attributes(
                 }
             } else if let Ok(meta) = attr.meta.require_list() {
                 table_attrs.after_delete = Some(meta.tokens.to_string());
+            }
+        } else if attr.path().is_ident("validation_strategy") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
+                    let v = s.value().to_ascii_lowercase();
+                    table_attrs.validation_strategy = Some(match v.as_str() {
+                        "aggregate" => TableValidationStrategy::Aggregate,
+                        "fail_fast" | "failfast" => TableValidationStrategy::FailFast,
+                        _ => {
+                            return Err(syn::Error::new_spanned(
+                                attr,
+                                "validation_strategy must be \"aggregate\" or \"fail_fast\"",
+                            ));
+                        }
+                    });
+                }
             }
         }
     }

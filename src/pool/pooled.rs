@@ -155,6 +155,20 @@ impl WorkerPool {
         self.next_worker.fetch_add(1, Ordering::Relaxed) % self.pool_size
     }
 
+    /// Enqueue work on a worker after taking that slot’s [`Mutex`].
+    ///
+    /// **Latency:** The slot index is chosen **before** the lock ([`Self::pick_worker_index`],
+    /// round-robin). If another caller holds the same slot’s mutex via
+    /// [`LifeguardPool::exclusive_primary_write_executor`], this path **blocks** until that
+    /// [`ExclusivePrimaryLifeExecutor`] is dropped—so a long `BEGIN`…`COMMIT` on one slot can delay
+    /// unrelated traffic that round-robins onto that slot. Larger [`Self::pool_size`] spreads load;
+    /// keeping exclusive transactions short reduces head-of-line blocking.
+    ///
+    /// **Scheduling:** [`std::sync::Mutex`] is an OS-thread lock. Blocking here blocks the **calling
+    /// thread** (including a `may` worker thread if your coroutine runs on one), not the pool’s
+    /// dedicated DB worker threads. That matches this pool’s synchronous “submit job → wait for
+    /// reply” API; cooperative runtimes should avoid holding the pool across very long critical
+    /// sections on shared executor threads.
     fn dispatch<T: Send + 'static>(
         &self,
         build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
