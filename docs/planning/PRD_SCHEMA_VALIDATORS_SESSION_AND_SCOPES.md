@@ -157,7 +157,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 Tackle after core PRD follow-through items:
 
 - **~~Watch mode~~** for `infer-schema` — **shipped:** CLI `--watch` + `--watch-interval-secs` (default 5s, min 1); re-introspects on an interval and prints when output changes; `lifeguard-migrate/README.md`
-- **Richer CI golden workflows** (snapshot automation beyond current unit goldens)
+- **~~Richer CI golden workflows~~** — **shipped:** `LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1` rewrites `lifeguard-migrate/tests/golden/*.expected.rs` when running the existing `golden_emit_*` tests; `just bless-infer-schema-goldens`. CI continues to run goldens as normal assertions (do not set the env var in CI).
 - **Index reconciliation (remainder):** v0 ships **name-level** index **key** checks vs the merged migration column baseline (`pg_indexes`, simple column lists; see §5.7). **Still deferred:** represent and validate full **`CREATE INDEX`** in generated baselines (partial indexes, `INCLUDE`, opclasses), optional **lifeguard-derive** / migration-time checks that struct fields map to indexed columns where the schema expects them.
 
 ---

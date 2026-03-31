@@ -19,8 +19,9 @@ Use this checklist whenever you add or change **user-visible behavior** (public 
    - `cargo clippy -p lifeguard --all-targets -- -D warnings`,
    - optionally `just test-coverage` or `cargo llvm-cov -p lifeguard --lib --summary-only` to spot **uncovered new lines** (repo targets **≥65%**, aim **~80%** per project rules).
 4. **Track gaps** in the relevant PRD “Implementation status” subsection (e.g. golden tests for schema inference) instead of leaving them implicit.
+5. **`lifeguard-migrate` infer-schema goldens:** after emitter changes, run **`just bless-infer-schema-goldens`** (or `LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1 cargo test -p lifeguard-migrate golden_`), then commit updated `tests/golden/*.expected.rs`. Do **not** set that env in CI.
 
 ## Related
 
 - `DEVELOPMENT.md` — Clippy / pre-commit workflow.
-- `justfile` — `test-coverage`, `test-coverage-check`.
+- `justfile` — `test-coverage`, `test-coverage-check`, `bless-infer-schema-goldens`.

@@ -214,6 +214,12 @@ test-coverage-check:
     @cargo install cargo-llvm-cov --locked 2>/dev/null || true
     @cargo llvm-cov --lib --summary-only | grep -E "^\s*Total\s+\|\s+[0-9]+\s+\|\s+[0-9]+\s+\|\s+([0-9]+)%" || echo "⚠️  Could not parse coverage, run 'just test-coverage' for full report"
 
+# Rewrite `lifeguard-migrate/tests/golden/*.expected.rs` from current `emit_inferred_rust` (no DB). Set only when changing the emitter; review `git diff` before commit. CI must not set `LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS`.
+bless-infer-schema-goldens:
+    @echo "📝 Blessing infer-schema goldens (LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1)..."
+    LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1 cargo test -p lifeguard-migrate golden_ -- --nocapture
+    @echo "✅ Done. Review changes under lifeguard-migrate/tests/golden/"
+
 # ============================================================================
 # Code Quality
 # ============================================================================

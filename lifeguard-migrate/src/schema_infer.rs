@@ -325,6 +325,21 @@ mod tests {
         )
     }
 
+    /// When **`LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1`**, overwrites the golden file with `got`
+    /// (maintainer workflow after intentional emitter changes). Otherwise asserts equality.
+    fn assert_infer_schema_golden(rel_path: &str, got: &str) {
+        let path = golden_path(rel_path);
+        if std::env::var("LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
+            std::fs::write(&path, got).unwrap_or_else(|e| panic!("bless write {path}: {e}"));
+            return;
+        }
+        let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        assert_eq!(got, expected);
+    }
+
     #[test]
     fn golden_emit_single_table_widgets() {
         let columns = vec![
@@ -348,9 +363,7 @@ mod tests {
         let mut pks = HashMap::new();
         pks.insert("widgets".into(), vec!["id".into()]);
         let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_widgets.expected.rs"))
-            .expect("read infer_widgets golden");
-        assert_eq!(got, expected);
+        assert_infer_schema_golden("infer_widgets.expected.rs", &got);
     }
 
     #[test]
@@ -384,9 +397,7 @@ mod tests {
         let mut pks = HashMap::new();
         pks.insert("widgets".into(), vec!["id".into()]);
         let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_omitted_column.expected.rs"))
-            .expect("read infer_omitted_column golden");
-        assert_eq!(got, expected);
+        assert_infer_schema_golden("infer_omitted_column.expected.rs", &got);
     }
 
     #[test]
@@ -415,9 +426,7 @@ mod tests {
             vec!["site_id".into(), "item_id".into()],
         );
         let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_composite_pk.expected.rs"))
-            .expect("read infer_composite_pk golden");
-        assert_eq!(got, expected);
+        assert_infer_schema_golden("infer_composite_pk.expected.rs", &got);
     }
 
     #[test]
@@ -456,9 +465,7 @@ mod tests {
             tables: vec!["widgets".into()],
         };
         let got = emit_inferred_rust(&opts, columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_widgets.expected.rs"))
-            .expect("read infer_widgets golden");
-        assert_eq!(got, expected);
+        assert_infer_schema_golden("infer_widgets.expected.rs", &got);
     }
 
     #[test]
@@ -484,9 +491,7 @@ mod tests {
         let mut pks = HashMap::new();
         pks.insert("kind_rows".into(), vec!["id".into()]);
         let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_sql_keyword_field.expected.rs"))
-            .expect("read infer_sql_keyword_field golden");
-        assert_eq!(got, expected);
+        assert_infer_schema_golden("infer_sql_keyword_field.expected.rs", &got);
     }
 
     #[test]

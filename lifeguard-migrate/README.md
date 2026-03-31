@@ -198,7 +198,14 @@ lifeguard-migrate infer-schema \
 - Product requirements: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md §5](../docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)
 - CLI vs derive boundary: [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](../docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md)
 
-**Maintainers — deterministic output:** the Rust emitter is `lifeguard_migrate::schema_infer::emit_inferred_rust`. Regression tests compare against golden files in `lifeguard-migrate/tests/golden/*.expected.rs` (no database required). Run:
+**Maintainers — deterministic output:** the Rust emitter is `lifeguard_migrate::schema_infer::emit_inferred_rust`. Regression tests compare against golden files in `lifeguard-migrate/tests/golden/*.expected.rs` (no database required). After **intentional** changes to the emitter, refresh goldens locally (review `git diff` before commit):
+
+```bash
+just bless-infer-schema-goldens
+# equivalent: LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1 cargo test -p lifeguard-migrate golden_
+```
+
+Normal verification (no file writes):
 
 ```bash
 cargo test -p lifeguard-migrate schema_infer
