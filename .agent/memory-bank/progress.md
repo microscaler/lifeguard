@@ -4,6 +4,7 @@
 
 - **ARCHITECTURE.md** (repo root): holds full architecture content — numbered target flowchart, multi-service deployment, connection pool “300 Spartans”, LifeReflector sequence diagram, links back to README.
 - **README.md**: replaced long § with **summarized** `flowchart LR` (request path vs optional/async) + pointer **[ARCHITECTURE.md](./ARCHITECTURE.md)**. Current status bullet for LifeReflector now references ARCHITECTURE.md.
+- **Git:** `db5c3e2` on `feat/schema_validators_session_and_scopes_2` — pushed to `origin` (`farm git commit` + `git push`).
 
 ## README architecture diagrams (2026-03-28)
 
