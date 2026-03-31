@@ -257,6 +257,27 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     macros::derive_try_into_model(input)
 }
 
+/// Derive macro for a **unit struct** migration name (snake_case of the type name).
+///
+/// Implements [`lifeguard::migration::MigrationName`] and defines an associated constant
+/// `MIGRATION_NAME`. Pair with manual [`lifeguard::migration::Migration`] for `up` / `down`.
+///
+/// ```ignore
+/// #[derive(DeriveMigrationName)]
+/// pub struct CreateUsersTable;
+///
+/// impl lifeguard::migration::Migration for CreateUsersTable {
+///     fn name(&self) -> &str {
+///         lifeguard::migration::MigrationName::migration_name(self)
+///     }
+///     // ...
+/// }
+/// ```
+#[proc_macro_derive(DeriveMigrationName)]
+pub fn derive_migration_name(input: TokenStream) -> TokenStream {
+    macros::derive_migration_name(input)
+}
+
 /// Attribute for named query scopes on `impl Entity` (PRD Phase C).
 ///
 /// Transforms `fn active() -> …` into `pub fn scope_active() -> …` so call sites use

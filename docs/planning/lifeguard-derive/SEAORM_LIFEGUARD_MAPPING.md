@@ -69,7 +69,7 @@ Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VAL
 | `DeriveIntoActiveModel` | ❌ Missing | 🔴 **Future** | Conversion from Model to ActiveModel - **Not needed for migrations** |
 | `DeriveActiveModelBehavior` | ✅ Implemented | ✅ Complete | ActiveModelBehavior trait implementation (default impl generated for all Records) |
 | `DeriveActiveEnum` | ❌ Missing | 🟡 **Future** | Enum support for ActiveModel - **Not needed for migrations** |
-| `DeriveMigrationName` | ❌ Missing | 🟡 **Future** | Migration name generation - **Nice-to-have, not a blocker for migrations** |
+| `DeriveMigrationName` | ✅ `lifeguard::migration::DeriveMigrationName` + `MigrationName` | ✅ **Implemented** | Unit struct → snake_case `MIGRATION_NAME` + `MigrationName`; pair with manual `Migration` |
 | `FromJsonQueryResult` | ❌ Missing | 🟡 **Future** | JSON query result deserialization (JSON column support is ✅ core feature) |
 | `DeriveValueType` | ❌ Missing | 🟡 **Future** | ValueType trait for wrapper types - **Not needed for migrations** |
 | `DeriveDisplay` | ❌ Missing | 🟡 **Future** | Display trait for ActiveEnum - **Not needed for migrations** |
@@ -392,7 +392,7 @@ This design simplifies the API while maintaining the same functionality.
 **Note:** The missing derive macros listed above are **NOT prerequisites** for migrations. See `MIGRATION_PREREQUISITES_DISCOVERY.md` for detailed analysis.
 
 **Future State:**
-- `DeriveMigrationName` - Generate migration names (nice-to-have, not a blocker)
+- `DeriveMigrationName` — **shipped:** `lifeguard::migration::DeriveMigrationName` + `MigrationName` trait (`MIGRATION_NAME` constant)
 - Migration CLI tool - Integration with migration tools
 
 #### JSON Support
