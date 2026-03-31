@@ -38,6 +38,13 @@
 //!   [operator tuning / non-goals](https://github.com/microscaler/lifeguard/blob/main/docs/POOLING_OPERATIONS.md),
 //!   and [TCP keepalive / idle tuning](https://github.com/microscaler/lifeguard/blob/main/docs/POOL_TCP_KEEPALIVE.md)
 //!   (PRD and ops links work on **docs.rs** via GitHub URLs; clone has the same paths under `docs/`).
+//!
+//! ## Explicit opt-in APIs
+//!
+//! Advanced `SELECT` features (CTEs, subquery joins, windows, raw `WITH` escape hatches) are **not**
+//! implied by normal [`SelectQuery`] usage — you chain the methods documented in
+//! [`crate::query::select`]. For connection pools, [`ReadPreference`] overrides where **reads** go
+//! ([`PooledLifeExecutor::with_read_preference`]); writes stay on the primary tier.
 
 pub mod config;
 

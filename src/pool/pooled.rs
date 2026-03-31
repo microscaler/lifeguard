@@ -44,6 +44,25 @@ use crate::metrics::METRICS;
 /// Where [`PooledLifeExecutor`] should send **read** queries (`query_one_values` / `query_all_values`).
 ///
 /// Writes always use the primary tier regardless of this value.
+///
+/// # When to use [`ReadPreference::Primary`]
+///
+/// After your code **writes** and then **reads** through the same logical pool, the replica may not
+/// have applied WAL yet. Use [`PooledLifeExecutor::with_read_preference`] with [`ReadPreference::Primary`]
+/// for those reads so they hit the primary and see your own commit. Leave [`ReadPreference::Default`]
+/// for read-mostly paths where slightly stale reads are acceptable and you want load on standbys.
+///
+/// # Example
+///
+/// ```no_run
+/// use lifeguard::{LifeguardPool, PooledLifeExecutor, ReadPreference};
+/// use std::sync::Arc;
+///
+/// # fn take_pool() -> Arc<LifeguardPool> { todo!() }
+/// let pool = take_pool();
+/// let exec = PooledLifeExecutor::new(pool).with_read_preference(ReadPreference::Primary);
+/// let _ = exec.read_preference();
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ReadPreference {
     /// Route reads using [`LifeguardPool`]'s built-in policy: replica tier when configured and WAL
@@ -903,6 +922,9 @@ fn values_to_owned(values: &sea_query::Values) -> Result<Vec<OwnedParam>, LifeEr
 /// [`LifeExecutor::query_all_values`] (or ORM methods built on them). Raw
 /// `execute` / `query_*` with non-empty `&[&dyn ToSql]` are rejected because those
 /// references cannot cross the pool channel.
+///
+/// **Read routing:** by default, reads may go to a configured replica when WAL lag allows; see
+/// [`ReadPreference`] and [`Self::with_read_preference`]. Writes always use the primary tier.
 #[derive(Clone)]
 pub struct PooledLifeExecutor {
     pool: Arc<LifeguardPool>,
@@ -931,8 +953,23 @@ impl PooledLifeExecutor {
         &self.pool
     }
 
-    /// Returns this executor with [`ReadPreference::Primary`] so **`query_*_values`** use the
-    /// primary tier even when replica routing would otherwise send reads to a standby.
+    /// Returns a copy of this executor with the given [`ReadPreference`].
+    ///
+    /// Use [`ReadPreference::Primary`] when you need **read-your-writes** (e.g. insert then select
+    /// on the same request). [`ReadPreference::Default`] restores pool policy (replica when allowed).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use lifeguard::{LifeguardPool, LifeExecutor, PooledLifeExecutor, ReadPreference};
+    /// use sea_query::Values;
+    /// use std::sync::Arc;
+    ///
+    /// # fn take_pool() -> Arc<LifeguardPool> { todo!() }
+    /// let base = PooledLifeExecutor::new(take_pool());
+    /// let primary_reads = base.with_read_preference(ReadPreference::Primary);
+    /// let _ = primary_reads.query_one_values("SELECT 1", &Values(Vec::new()));
+    /// ```
     #[must_use]
     pub fn with_read_preference(self, read_preference: ReadPreference) -> Self {
         Self {

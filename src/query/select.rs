@@ -1,13 +1,30 @@
 //! Select query builder for `LifeModel`.
 //!
-//! This module provides `SelectQuery` and `SelectModel` for building and executing
-//! type-safe database queries. Query building methods (`filter`, `order_by`, `limit`, etc.)
-//! are defined here, while execution methods are in the execution module.
+//! This module provides [`SelectQuery`] and [`SelectModel`] for building and executing
+//! type-safe database queries. Builder methods (`filter`, `order_by`, `limit`, …) live here;
+//! execution (`all`, `one`, …) is in [`crate::query::execution`].
 //!
-//! **CTEs, subquery joins, windows:** use [`SelectQuery::with_cte`] so `WITH` stays on the same
-//! builder as [`all`](crate::query::execution::SelectQuery::all) / [`one`](crate::query::execution::SelectQuery::one).
-//! [`join_subquery`], [`window`], and [`expr_window_as`] wrap `sea_query::SelectStatement`; raw SQL
-//! remains available via [`window_function_cust`].
+//! # Default path vs advanced SQL (nothing is “magic”)
+//!
+//! Most handlers only need **`Entity::find()` → `filter` → `order_by` → `limit` →
+//! [`all`](crate::query::select::SelectQuery::all)**. That path is the default; the ORM does **not**
+//! inject CTEs, subquery joins, or window functions unless **you** chain the APIs below.
+//!
+//! **When you need a richer `SELECT`**, use these **explicit** methods (all keep [`SelectQuery`] so
+//! loaders, soft-delete, and [`all`](crate::query::select::SelectQuery::all) /
+//! [`one`](crate::query::select::SelectQuery::one) still work), or compose [`sea_query::Expr`] for `WHERE`:
+//!
+//! - **`WITH` (CTE)** — [`SelectQuery::with_cte`] (preferred). Avoid [`SelectQuery::with`] unless you
+//!   intentionally want a raw [`sea_query::WithQuery`] and will hand-build SQL.
+//! - **`JOIN (SELECT …)`** — [`SelectQuery::join_subquery`].
+//! - **Subquery as a SELECT column** — [`SelectQuery::subquery_column`].
+//! - **Window functions (`OVER`, `WINDOW`)** — [`SelectQuery::window`], [`SelectQuery::expr_window_as`],
+//!   [`SelectQuery::expr_window_name_as`], or raw SQL via [`SelectQuery::window_function_cust`].
+//!
+//! Bring in [`sea_query`] types as needed: [`CommonTableExpression`](sea_query::CommonTableExpression),
+//! [`WithClause`](sea_query::WithClause), [`WindowStatement`](sea_query::WindowStatement),
+//! [`JoinType`](sea_query::JoinType), and [`ExprTrait`](sea_query::ExprTrait) for `.equals` / `.eq` on
+//! expressions.
 
 use crate::query::column::column_trait::ColumnDefHelper;
 use crate::query::column::definition::get_static_expr;
@@ -19,10 +36,11 @@ use std::rc::Rc;
 
 /// Query builder for selecting records
 ///
-/// This is returned by `LifeModelTrait::find()` and can be chained with filters,
-/// ordering, pagination, and grouping.
+/// Returned by [`LifeModelTrait::find`]. Chain filters, ordering,
+/// pagination, scopes, and (optionally) advanced SQL helpers documented in the [module
+/// prelude](crate::query::select#default-path-vs-advanced-sql-nothing-is-magic).
 ///
-/// # Example
+/// # Example (typical)
 ///
 /// ```no_run
 /// use lifeguard::{SelectQuery, LifeModelTrait, LifeExecutor};
@@ -45,9 +63,10 @@ use std::rc::Rc;
 ///     .all(executor)?;
 /// ```
 ///
-/// Following `SeaORM`'s pattern: `SelectQuery<E>` where `E: LifeModelTrait`.
-/// The Entity (not Model) is the type parameter, and Model is accessed via
-/// the associated type `E::Model`.
+/// CTEs with the same executor path: [`SelectQuery::with_cte`].
+///
+/// Following SeaORM-style naming: `SelectQuery<E>` where `E: LifeModelTrait`. The **entity** is the
+/// type parameter; the row type is `E::Model`.
 pub struct SelectQuery<E>
 where
     E: LifeModelTrait,
@@ -514,12 +533,28 @@ where
         self
     }
 
-    /// Attach a **`WITH`** clause while keeping this [`SelectQuery`] so [`all`](crate::query::execution::SelectQuery::all),
-    /// [`one`](crate::query::execution::SelectQuery::one), loaders, and soft-delete still apply.
+    /// Attach a **`WITH`** clause while keeping this [`SelectQuery`] so [`all`](crate::query::select::SelectQuery::all),
+    /// [`one`](crate::query::select::SelectQuery::one), loaders, and soft-delete still apply.
     ///
     /// Wraps [`SelectStatement::with_cte`](sea_query::SelectStatement::with_cte). Prefer this over
     /// [`Self::with`], which returns a raw [`sea_query::WithQuery`] outside the lifeguard execution
     /// API.
+    ///
+    /// # Example
+    ///
+    /// Build a [`CommonTableExpression`](sea_query::CommonTableExpression) with the `new` / `table_name` / `query`
+    /// builder, wrap it in [`WithClause`](sea_query::WithClause), then pass it here.
+    ///
+    /// ```no_run
+    /// use sea_query::{CommonTableExpression, SelectStatement, WithClause};
+    ///
+    /// let mut inner = SelectStatement::default();
+    /// inner.column(sea_query::Asterisk).from("other_table");
+    /// let mut cte = CommonTableExpression::new();
+    /// cte.table_name("picked").query(inner);
+    /// let wc = WithClause::new().cte(cte.to_owned()).to_owned();
+    /// // Then: `MyEntity::find().with_cte(wc)` — still a `SelectQuery`; chain `.all(executor)` etc.
+    /// ```
     #[must_use]
     pub fn with_cte<C>(mut self, clause: C) -> Self
     where
@@ -531,7 +566,23 @@ where
 
     /// Join the main query to a **subquery** (`JOIN (SELECT …) AS alias ON …`).
     ///
-    /// Wraps [`SelectStatement::join_subquery`](sea_query::SelectStatement::join_subquery).
+    /// Wraps [`SelectStatement::join_subquery`](sea_query::SelectStatement::join_subquery). Use
+    /// [`sea_query::ExprTrait`] (e.g. `.equals`) for the join condition.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use sea_query::SelectStatement;
+    ///
+    /// let mut sq = SelectStatement::default();
+    /// sq.column("id").from("inner_t");
+    /// // Then: `MyEntity::find().join_subquery(
+    /// //     JoinType::LeftJoin,
+    /// //     sq,
+    /// //     "sub_a",
+    /// //     Expr::col("my_table.id").equals(("sub_a", "id")),
+    /// // )`
+    /// ```
     #[must_use]
     pub fn join_subquery<T, C>(
         mut self,
@@ -552,6 +603,15 @@ where
     ///
     /// Pair with [`Self::expr_window_name`] / [`Self::expr_window_name_as`], or use [`Self::expr_window`]
     /// / [`Self::expr_window_as`] for inline `OVER (…)`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use sea_query::WindowStatement;
+    ///
+    /// let w = WindowStatement::partition_by("grp");
+    /// // Then: `MyEntity::find().window("w", w).expr_window_name_as(Expr::col("my_table.id"), "w", "rn")`
+    /// ```
     #[must_use]
     pub fn window<W>(mut self, name: W, def: sea_query::WindowStatement) -> Self
     where
@@ -561,7 +621,18 @@ where
         self
     }
 
-    /// `SELECT … OVER (window)` with an inline [`WindowStatement`](sea_query::WindowStatement).
+    /// `SELECT … OVER (window)` with an inline [`WindowStatement`](sea_query::WindowStatement) (no
+    /// named `WINDOW` clause). Prefer [`Self::window`] + [`Self::expr_window_name_as`] when the same
+    /// window definition is reused across several columns.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use sea_query::{Order, WindowStatement};
+    ///
+    /// let w = WindowStatement::partition_by("grp").order_by("ts", Order::Asc);
+    /// // Then: `MyEntity::find().expr_window(Expr::col("my_table.id"), w)`
+    /// ```
     #[must_use]
     pub fn expr_window<T>(mut self, expr: T, window: sea_query::WindowStatement) -> Self
     where
@@ -572,6 +643,15 @@ where
     }
 
     /// `SELECT … OVER (window) AS alias` with an inline [`WindowStatement`](sea_query::WindowStatement).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use sea_query::WindowStatement;
+    ///
+    /// let w = WindowStatement::partition_by("grp");
+    /// // Then: `MyEntity::find().expr_window_as(Expr::col("my_table.id"), w, "rn")`
+    /// ```
     #[must_use]
     pub fn expr_window_as<T, A>(
         mut self,
@@ -728,35 +808,18 @@ where
     /// # Example
     ///
     /// ```no_run
-    /// use lifeguard::SelectQuery;
     /// use sea_query::Iden;
     ///
-    /// # struct UserModel { id: i32, name: String, row_num: i64 };
-    /// # impl lifeguard::FromRow for UserModel {
-    /// #     fn from_row(_row: &may_postgres::Row) -> Result<Self, may_postgres::Error> { todo!() }
-    /// # }
     /// struct RowNumber;
     /// impl sea_query::Iden for RowNumber {
     ///     fn unquoted(&self) -> &'static str { "row_number" }
     /// }
     ///
-    /// // Add window function to query using custom SQL
-    /// # let query = UserModel::find();
-    /// let query_with_window = query.window_function_cust(
-    ///     "ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)",
-    ///     Some(RowNumber)
-    /// );
+    /// // Then: `MyEntity::find().window_function_cust(
+    /// //     "ROW_NUMBER() OVER (PARTITION BY department_id ORDER BY salary DESC)",
+    /// //     Some(RowNumber),
+    /// // )`
     /// ```
-    /// Add a custom window function expression to the SELECT clause
-    ///
-    /// # Arguments
-    ///
-    /// * `window_expr` - The window function expression as a static string
-    /// * `alias` - Optional alias for the window function
-    ///
-    /// # Returns
-    ///
-    /// Returns `Self` for method chaining.
     #[must_use]
     pub fn window_function_cust<T: Iden>(
         mut self,
