@@ -104,6 +104,23 @@ pub mod validate_attr_tests {
     }
 }
 
+#[test]
+fn user_record_identity_map_key_matches_pk_fingerprint() {
+    use lifeguard::session::fingerprint_pk_values;
+    use sea_query::Value;
+
+    let m = UserModel {
+        id: 42,
+        name: "n".into(),
+        email: "e@x".into(),
+    };
+    let r = UserRecord::from_model(&m);
+    assert_eq!(
+        r.identity_map_key(),
+        Some(fingerprint_pk_values(&[Value::Int(Some(42))]))
+    );
+}
+
 // Entity with numeric fields for testing all numeric types
 // Using a module to avoid name conflicts
 // NOTE: may_postgres doesn't support u8, u16, u64 in FromSql, so we manually implement ModelTrait

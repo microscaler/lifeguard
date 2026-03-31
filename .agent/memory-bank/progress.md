@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **PRD Phase E bridge + G6 README (2026-03-30):** `ModelIdentityMap::mark_dirty_key`; derived `LifeRecord::identity_map_key`; session/design/PRD §9.7; insert rejects non-empty `__update_exprs`; README competitive table + bullets (validators, scopes, F(), session); `DEVELOPMENT.md` db_integration note; SEAORM session row; tests `mark_dirty_key_matches_fingerprint`, `user_record_identity_map_key_matches_pk_fingerprint`, `insert_rejects_when_set_expr_pending`.
 - **PRD Phase D — F-1 ORM `LifeRecord::update` expr RHS (2026-03-30):** `__update_exprs: HashMap<Column, SimpleExpr>`, `set_<field>_expr` per non-PK column; SET clause prefers expr over literal/`save_as`; integration test `record_set_n_expr_update_increments_on_postgres` in `column_f_update.rs` (mutex + shared setup); PRD §8.7.
 - **PRD Phase D — F() in WHERE/ORDER BY (2026-03-30):** `tests/db_integration/column_f_where.rs` (`f_add_in_where_and_order_by_on_postgres`); `ColumnTrait::f_add` docs (`Expr::expr` + `ExprTrait` / `order_by_expr`); PRD §8.7 Phase D note.
 - **PRD V-5 `#[validate(custom = path)]` (2026-03-30):** `lifeguard-derive` parses field `#[validate(custom = path)]`, generates `ActiveModelBehavior::validate_fields` using `ActiveModelTrait::get` + UFCS; `validate` allowed on `LifeModel`/`LifeRecord`; reject on `#[ignore]` fields; tests `validate_attr_tests` in `lifeguard-derive/tests/test_minimal.rs`; PRD §6.7 + SEAORM parity row; `docs/planning/README.md` lists `DESIGN_FIND_RELATED_SCOPES.md`.

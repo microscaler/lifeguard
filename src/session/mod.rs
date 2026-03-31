@@ -7,7 +7,9 @@
 //! # Dirty keys and flush (U-2)
 //!
 //! After you mutate a model through [`Rc`]`<`[`RefCell`]`<…>`>``, call [`ModelIdentityMap::mark_dirty`]
-//! with that model’s primary key. [`ModelIdentityMap::flush_dirty`] visits **dirty** entries in
+//! with that model’s primary key. If you edit a **`#[derive(LifeRecord)]`** value instead, call
+//! [`ModelIdentityMap::mark_dirty_key`] with `record.identity_map_key()?` (all PK columns must be set).
+//! [`ModelIdentityMap::flush_dirty`] visits **dirty** entries in
 //! **lexicographic order of PK fingerprint** (stable, deterministic) and invokes your closure.
 //! The closure typically builds a `LifeRecord` and calls [`crate::active_model::ActiveModelTrait::update`]
 //! or `save` — the map does not generate SQL itself.
@@ -111,6 +113,15 @@ where
         let key = fingerprint_pk_values(&model.get_primary_key_values());
         if self.map.contains_key(&key) {
             self.dirty.insert(key);
+        }
+    }
+
+    /// Mark dirty using a fingerprint string (e.g. from [`lifeguard::session::fingerprint_pk_values`]
+    /// or a derived [`LifeRecord`](crate::active_model::ActiveModelTrait)’s `identity_map_key()`).
+    /// No-op if the key is not registered.
+    pub fn mark_dirty_key(&mut self, key: &str) {
+        if self.map.contains_key(key) {
+            self.dirty.insert(key.to_string());
         }
     }
 
@@ -343,6 +354,22 @@ mod tests {
         };
         map.mark_dirty(&orphan);
         assert_eq!(map.dirty_len(), 0);
+    }
+
+    #[test]
+    fn mark_dirty_key_matches_fingerprint() {
+        let mut map = ModelIdentityMap::<SessEntity>::new();
+        let _ = map.register_loaded(SessModel {
+            id: 5,
+            label: "a",
+        });
+        let key = fingerprint_pk_values(&[Value::Int(Some(5))]);
+        map.mark_dirty_key(&key);
+        assert_eq!(map.dirty_len(), 1);
+        assert!(map.is_marked_dirty(&SessModel {
+            id: 5,
+            label: "x",
+        }));
     }
 
     #[test]

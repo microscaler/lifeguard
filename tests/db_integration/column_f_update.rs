@@ -5,7 +5,9 @@ use std::sync::Mutex;
 use crate::context::get_test_context;
 use lifeguard::executor::LifeError;
 use lifeguard::test_helpers::TestDatabase;
-use lifeguard::{ActiveModelTrait, ColumnTrait, LifeExecutor, LifeModelTrait};
+use lifeguard::{
+    ActiveModelError, ActiveModelTrait, ColumnTrait, LifeExecutor, LifeModelTrait,
+};
 use lifeguard_derive::{LifeModel, LifeRecord};
 use sea_query::{PostgresQueryBuilder, Query};
 
@@ -95,4 +97,29 @@ fn record_set_n_expr_update_increments_on_postgres() {
         .expect("select after");
     let n_after: i32 = row.get(0);
     assert_eq!(n_after, 1);
+}
+
+#[test]
+fn insert_rejects_when_set_expr_pending() {
+    let _guard = LOCK.lock().expect("column_f_update lock");
+
+    let ctx = get_test_context();
+    let mut db = TestDatabase::with_url(&ctx.pg_url);
+    let executor = db.executor().expect("executor");
+
+    setup(&executor).expect("setup");
+
+    let mut rec = CounterRecord::new();
+    rec.set_n_expr(<Entity as LifeModelTrait>::Column::N.f_add(1i32));
+
+    let err = rec.insert(&executor).expect_err("insert must reject pending __update_exprs");
+    match err {
+        ActiveModelError::Other(msg) => {
+            assert!(
+                msg.contains("set_*_expr") || msg.contains("__update_exprs"),
+                "unexpected message: {msg}"
+            );
+        }
+        e => panic!("expected Other, got {e:?}"),
+    }
 }

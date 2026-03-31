@@ -39,7 +39,7 @@ For each PRD-driven or user-facing change, follow **`docs/planning/DEV_RUSTDOC_A
 
 - **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url …` (or set `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). See **`lifeguard-migrate/README.md`** (`infer-schema` section) and **`docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md`**.
 - **Emitter goldens:** changing `lifeguard-migrate/src/schema_infer.rs` output may require updating files under **`lifeguard-migrate/tests/golden/`**. Run **`cargo test -p lifeguard-migrate schema_infer`** before merge.
-- **Live Postgres tests (optional):** `lifeguard-migrate/tests/infer_schema_postgres_smoke.rs` runs **`infer_schema_rust`** against `public`; `infer_schema_table_filter_si3.rs` covers SI-3 table filtering (creates/drops scratch tables). Both require **`TEST_DATABASE_URL`**, **`DATABASE_URL`**, or **`LIFEGUARD_DATABASE_URL`**; otherwise they skip. **`db_integration_suite`** includes **`column_f_update`** (F-style `UPDATE SET` with `f_add` on real Postgres).
+- **Live Postgres tests (optional):** `lifeguard-migrate/tests/infer_schema_postgres_smoke.rs` runs **`infer_schema_rust`** against `public`; `infer_schema_table_filter_si3.rs` covers SI-3 table filtering (creates/drops scratch tables). Both require **`TEST_DATABASE_URL`**, **`DATABASE_URL`**, or **`LIFEGUARD_DATABASE_URL`**; otherwise they skip. **`db_integration_suite`** includes **`column_f_update`** (F-style `UPDATE SET`, derived `set_*_expr` / `update()`, insert guard for `__update_exprs`) and **`column_f_where`** (`WHERE` / `ORDER BY` with `Expr::expr` + `ColumnTrait::f_*`).
 
 ### Development Workflow
 

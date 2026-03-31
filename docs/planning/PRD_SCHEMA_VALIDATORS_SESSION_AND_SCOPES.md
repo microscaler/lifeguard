@@ -246,9 +246,9 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **API:** `lifeguard::SelectQuery::scope` and `lifeguard::IntoScope` in `src/query/scope.rs`. Any `sea_query::IntoCondition` (column expressions, `Condition`, etc.) applies as a scope; implementation delegates to `SelectQuery::filter` so predicates **AND** together.
 - **Pattern:** Entity-associated functions (e.g. `UserEntity::scope_active() -> impl IntoCondition`) are composed with `User::find().scope(UserEntity::scope_active())`.
 - **Soft delete:** `query::scope` module documents that `LifeModelTrait::soft_delete_column` is applied at execution time and **AND**ed with scoped predicates unless `with_trashed` is set; unit test `scope_and_soft_delete_both_anded_at_execution`.
-- **Tests:** `src/query/scope.rs` — composition + soft-delete interaction.
+- **Tests:** `src/query/scope.rs` — composition + soft-delete interaction + `scope_or` / `scope_any`.
 
-**Still to do for fuller Phase C:** derive sugar (`#[scope]` / codegen). **OR:** `SelectQuery::scope_or` / `scope_any` in `src/query/scope.rs` (PRD SC-2). **`find_related` / loaders:** see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md). README matrix row (G6) ongoing.
+**Still to do for fuller Phase C:** derive sugar (`#[scope]` / codegen). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2). **`find_related` / loaders:** see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md). README matrix (G6) updated for scopes.
 
 ---
 
@@ -295,11 +295,13 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Tests:** `src/query/column/column_trait.rs` — `test_f_add_update_sql_contains_arithmetic`, basic compile tests for `f_*`.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase D:** README matrix (G6) ongoing. **Done in-tree:** `LifeRecord` exposes `set_<field>_expr(SimpleExpr)` + `__update_exprs` for derived `update()`; Postgres `tests/db_integration/column_f_update.rs` (`record_set_n_expr_update_increments_on_postgres`). Raw `Query::update` + `column_f_where.rs` (`WHERE` / `ORDER BY` via `Expr::expr` + `ExprTrait` / `order_by_expr`); `ColumnTrait::f_add` rustdoc.
+**F-3 (limitations vs raw SQL):** `ColumnTrait::f_add` rustdoc (aggregates/subqueries → `Expr::cust`); README competitive section + feature bullets (§10 / G6).
+
+**Still to do for fuller Phase D:** deeper numeric casting docs if needed. **Done in-tree:** `LifeRecord` `set_<field>_expr` / `__update_exprs` / derived `update()`; `identity_map_key` for session bridge; `insert()` rejects non-empty `__update_exprs`; Postgres `column_f_update.rs` + `column_f_where.rs`; README G6.
 
 ### 8.8 Dependency note
 
-Coordinate with **`SelectQuery`** and **`ActiveModelTrait`** update paths; likely **SeaQuery extensions** or thin lifeguard wrappers (see §8.4). **LifeRecord** integration remains the main follow-on.
+**LifeRecord** `update()` / `set_*_expr` path coordinates with SeaQuery `UpdateStatement::value`. **`SelectQuery`** F-style filters use `Expr::expr` + SeaQuery’s `ExprTrait` at the call site.
 
 ---
 
@@ -351,13 +353,13 @@ Coordinate with **`SelectQuery`** and **`ActiveModelTrait`** update paths; likel
 **Shipped in-tree:**
 
 - **API:** `lifeguard::ModelIdentityMap` and `lifeguard::fingerprint_pk_values` in `src/session/` — identity map keyed by stable PK fingerprints (`src/session/pk.rs`); same primary key → same `Rc<RefCell<Model>>` (first registration wins; duplicate model dropped).
-- **U-2 (partial):** `mark_dirty`, `unmark_dirty`, `is_marked_dirty`, `dirty_len`, `clear_dirty`, `flush_dirty` — dirty keys flushed in **lexicographic order of PK fingerprint** via a closure `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>` (callers wire `LifeRecord::update` / `save`). **Not** shipped: auto-mark dirty on `LifeRecord::set`, insert-only flush, transactional batching inside the map.
+- **U-2 (partial):** `mark_dirty`, **`mark_dirty_key`** (fingerprint string), `unmark_dirty`, `is_marked_dirty`, `dirty_len`, `clear_dirty`, `flush_dirty` — dirty keys flushed in **lexicographic order of PK fingerprint** via a closure `Fn(&dyn LifeExecutor, Rc<RefCell<Model>>) -> Result<(), ActiveModelError>` (callers wire `LifeRecord::update` / `save`). Derived **`LifeRecord::identity_map_key()`** returns `Some(fingerprint)` when all PK columns are set, for use with `mark_dirty_key` after editing a record. **Not** shipped: auto-mark dirty on `LifeRecord::set`, insert-only flush, transactional batching inside the map.
 - **Design:** `docs/planning/DESIGN_SESSION_UOW.md` — pool pinning, flush, and `may`/threading notes (U-4, U-5).
 - **Rustdoc:** `session` module documents identity, dirty flush, threading (`Send`/`Sync`).
 - **Tests:** `src/session/mod.rs`, `src/session/pk.rs` — identity map, fingerprint, dirty order, flush error retention.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**Still to do for fuller Phase E:** auto-dirty / derive integration, optional `Session` type holding executor/pool policy (U-4 integration), README / mapping matrix row if needed beyond §10 snapshot, Postgres integration tests as the API stabilizes.
+**Still to do for fuller Phase E:** auto-dirty on `LifeRecord::set`, optional `Session` type holding executor/pool policy (U-4 integration), Postgres integration tests that flush via `identity_map_key` + `mark_dirty_key` + `LifeRecord::update` (optional), mapping matrix row tweaks as APIs grow.
 
 ---
 

@@ -14,7 +14,7 @@ Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VAL
 | **Validators** | `run_validators`, `ValidationStrategy` / `run_validators_with_strategy`, `ActiveModelBehavior::validate_fields` / `validate_model`, `ActiveModelError::Validation`, `#[validate(custom = path)]` on fields | 🟡 **Partial** | PRD §6.7; fail-fast (default) + aggregate; derive `custom` validators; built-in predicates TBD |
 | **Scopes** | `SelectQuery::scope`, `scope_or`, `scope_any`, `IntoScope`, `src/query/scope.rs` | 🟡 **Partial** | PRD §7.7; AND + OR composition; soft-delete interaction; `find_related` + scopes: [DESIGN_FIND_RELATED_SCOPES.md](../DESIGN_FIND_RELATED_SCOPES.md) |
 | **F() expressions** | `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div`; `LifeRecord::set_*_expr` + `__update_exprs` on derived `update()` | 🟡 **Partial** | PRD §8.7; `column_f_update.rs` + `column_f_where.rs` |
-| **Session / UoW** | `ModelIdentityMap`, `fingerprint_pk_values`, `mark_dirty` / `flush_dirty`, `src/session/` | 🟡 **Partial** | PRD §9.7; identity + closure-based dirty flush — **no** auto-dirty on `LifeRecord::set`, **no** pool-bound `Session` type yet |
+| **Session / UoW** | `ModelIdentityMap`, `fingerprint_pk_values`, `mark_dirty` / `mark_dirty_key` / `flush_dirty`, `LifeRecord::identity_map_key`, `src/session/` | 🟡 **Partial** | PRD §9.7; identity + dirty flush — **no** auto-dirty on `LifeRecord::set`, **no** pool-bound `Session` type yet |
 
 ## Core Features
 

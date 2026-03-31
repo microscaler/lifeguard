@@ -113,6 +113,8 @@ pub trait ColumnTrait: IntoColumnRef {
     /// For **`WHERE`** / **`ORDER BY`**, wrap the [`sea_query::SimpleExpr`] in [`sea_query::Expr::expr`]
     /// and use [`sea_query::ExprTrait`] (e.g. `.gt(…)`), or pass to [`sea_query::SelectStatement::order_by_expr`].
     ///
+    /// **F-3:** Shipped coverage vs raw-SQL fallbacks are summarized in the repository README (F() / competitive table) and `docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md` §8.
+    ///
     /// # Limitations
     ///
     /// For nested aggregates, subqueries, or vendor-only functions, use [`Expr::cust`](sea_query::Expr::cust)

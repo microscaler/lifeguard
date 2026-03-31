@@ -626,6 +626,27 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     // Generate primary key check code for save()
     // If there are no primary keys, save() should always do insert
     let has_primary_keys = !primary_key_field_names.is_empty();
+
+    let identity_map_key_method = if has_primary_keys {
+        let pk_cap = primary_key_column_variants.len();
+        quote! {
+            /// Stable fingerprint for [`lifeguard::ModelIdentityMap::mark_dirty_key`](lifeguard::ModelIdentityMap::mark_dirty_key) when **all** PK columns are set on this record.
+            #[must_use]
+            pub fn identity_map_key(&self) -> Option<String> {
+                let mut __pk_vals = Vec::with_capacity(#pk_cap);
+                #(
+                    __pk_vals.push(lifeguard::ActiveModelTrait::get(
+                        self,
+                        <#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants,
+                    )?);
+                )*
+                Some(lifeguard::session::fingerprint_pk_values(&__pk_vals))
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let mut save_pk_checks = Vec::new();
     for field_name in primary_key_field_names.iter() {
         save_pk_checks.push(quote! {
@@ -883,6 +904,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 !self.dirty_fields().is_empty()
             }
 
+            #identity_map_key_method
+
             #(#setter_methods)*
             #(#update_expr_setters)*
         }
@@ -954,6 +977,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     &record_for_hooks,
                     lifeguard::active_model::validate_op::ValidateOp::Insert,
                 )?;
+
+                if !record_for_hooks.__update_exprs.is_empty() {
+                    return Err(lifeguard::ActiveModelError::Other(
+                        "`set_*_expr` / `__update_exprs` apply only to `update()`; clear them with `reset()` or use `update()`"
+                            .to_string(),
+                    ));
+                }
 
                 // Build INSERT statement
                 let mut query = Query::insert();
