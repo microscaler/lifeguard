@@ -283,9 +283,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let index_defs: Vec<_> = table_attrs
             .indexes
             .iter()
-            .map(|(name, cols, unique, where_clause)| {
+            .map(|(name, cols, unique, where_clause, include_cols)| {
                 let name_lit = syn::LitStr::new(name, struct_name.span());
                 let col_lits: Vec<_> = cols
+                    .iter()
+                    .map(|c| {
+                        let c_lit = syn::LitStr::new(c, struct_name.span());
+                        quote! { #c_lit.to_string() }
+                    })
+                    .collect();
+                let inc_lits: Vec<_> = include_cols
                     .iter()
                     .map(|c| {
                         let c_lit = syn::LitStr::new(c, struct_name.span());
@@ -304,6 +311,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     lifeguard::IndexDefinition {
                         name: #name_lit.to_string(),
                         columns: vec![#(#col_lits),*],
+                        include_columns: vec![#(#inc_lits),*],
                         unique: #unique_lit,
                         partial_where: #where_expr,
                     }

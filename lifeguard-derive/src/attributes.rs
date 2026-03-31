@@ -409,6 +409,9 @@ pub enum TableValidationStrategy {
     Aggregate,
 }
 
+/// Parsed `#[index = "..."]` (name, key columns, unique, partial WHERE, INCLUDE columns).
+pub(crate) type IndexSpec = (String, Vec<String>, bool, Option<String>, Vec<String>);
+
 /// Table-level attributes for entity definitions
 #[derive(Debug, Clone, Default)]
 pub struct TableAttributes {
@@ -416,8 +419,8 @@ pub struct TableAttributes {
     pub table_comment: Option<String>,
     /// Composite unique constraints (each entry is a vector of column names)
     pub composite_unique: Vec<Vec<String>>,
-    /// Index definitions (name, columns, unique, `partial_where`)
-    pub indexes: Vec<(String, Vec<String>, bool, Option<String>)>,
+    /// Index definitions (name, key columns, unique, `partial_where`, INCLUDE columns)
+    pub indexes: Vec<IndexSpec>,
     /// Table-level CHECK constraints
     /// Each entry is a tuple of (`constraint_name`, expression)
     /// If `constraint_name` is None, a default name will be generated from the table name
@@ -510,7 +513,7 @@ pub fn parse_table_attributes(
                 {
                     let index_def = parse_index_definition(&s.value())?;
                     // Validate that all columns in the index exist
-                    let (name, columns, unique, where_clause) = index_def;
+                    let (name, columns, unique, where_clause, include_cols) = index_def;
                     for col in &columns {
                         if !valid_columns.contains(col) {
                             return Err(syn::Error::new_spanned(
@@ -522,9 +525,20 @@ pub fn parse_table_attributes(
                             ));
                         }
                     }
+                    for col in &include_cols {
+                        if !valid_columns.contains(col) {
+                            return Err(syn::Error::new_spanned(
+                                attr,
+                                format!("INCLUDE column '{}' in index '{}' does not exist on this struct. Available columns: {}",
+                                    col,
+                                    name,
+                                    valid_columns.iter().map(String::as_str).collect::<Vec<_>>().join(", "))
+                            ));
+                        }
+                    }
                     table_attrs
                         .indexes
-                        .push((name, columns, unique, where_clause));
+                        .push((name, columns, unique, where_clause, include_cols));
                 }
             }
         } else if attr.path().is_ident("check") {
@@ -650,12 +664,10 @@ pub fn parse_table_attributes(
 }
 
 /// Parse index definition string
-/// Format: "`idx_name(col1`, col2) WHERE col1 IS NOT NULL"
-/// Returns: (name, columns, unique, `partial_where`)
+/// Formats: `idx_name(col1, col2)`, `idx_name(col1) INCLUDE (col3) WHERE …`, `UNIQUE idx …`.
+/// Returns: (name, key columns, unique, `partial_where`, INCLUDE columns)
 #[allow(dead_code)] // Used by parse_table_attributes
-fn parse_index_definition(
-    def: &str,
-) -> Result<(String, Vec<String>, bool, Option<String>), syn::Error> {
+fn parse_index_definition(def: &str) -> Result<IndexSpec, syn::Error> {
     let def = def.trim();
     let mut unique = false;
 
@@ -667,19 +679,41 @@ fn parse_index_definition(
         def
     };
 
-    // Parse: "idx_name(col1, col2) WHERE condition"
+    // Parse: "… WHERE condition"
     let where_pos = def.find(" WHERE ");
-    let (index_part, where_clause) = if let Some(pos) = where_pos {
+    let (main_part, where_clause) = if let Some(pos) = where_pos {
         (def[..pos].trim(), Some(def[pos + 7..].trim().to_string()))
     } else {
         (def, None)
     };
 
+    // Optional: "key_part INCLUDE (a, b)"
+    let main_lower = main_part.to_ascii_lowercase();
+    let include_idx = main_lower.find(" include ");
+    let (key_part, include_columns) = if let Some(i) = include_idx {
+        let kp = main_part[..i].trim();
+        let after = main_part[i + " include ".len()..].trim();
+        let inner = after.strip_prefix('(').and_then(|s| s.strip_suffix(')')).ok_or_else(|| {
+            syn::Error::new_spanned(
+                def,
+                "Invalid index definition: INCLUDE must be followed by (col1, col2, ...)",
+            )
+        })?;
+        let inc: Vec<String> = inner
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        (kp, inc)
+    } else {
+        (main_part, Vec::new())
+    };
+
     // Parse: "idx_name(col1, col2)"
-    let paren_pos = index_part.find('(');
+    let paren_pos = key_part.find('(');
     if let Some(pos) = paren_pos {
-        let name = index_part[..pos].trim().to_string();
-        let columns_str = &index_part[pos + 1..];
+        let name = key_part[..pos].trim().to_string();
+        let columns_str = &key_part[pos + 1..];
         let columns_str = columns_str.strip_suffix(')').ok_or_else(|| {
             syn::Error::new_spanned(def, "Invalid index definition: missing closing parenthesis")
         })?;
@@ -690,9 +724,15 @@ fn parse_index_definition(
             .filter(|s| !s.is_empty())
             .collect();
 
-        Ok((name, columns, unique, where_clause))
+        Ok((name, columns, unique, where_clause, include_columns))
     } else {
         // No columns specified - single column index
-        Ok((index_part.to_string(), Vec::new(), unique, where_clause))
+        Ok((
+            key_part.to_string(),
+            Vec::new(),
+            unique,
+            where_clause,
+            include_columns,
+        ))
     }
 }

@@ -14,8 +14,7 @@ pub struct TableDefinition {
     /// Composite unique constraints (multi-column unique)
     /// Each entry is a vector of column names
     pub composite_unique: Vec<Vec<String>>,
-    /// Index definitions
-    /// Each entry is: (`index_name`, `columns`, `unique`, `partial_where`)
+    /// Index definitions (key columns, optional INCLUDE, unique, partial WHERE).
     pub indexes: Vec<IndexDefinition>,
     /// Table-level `CHECK` constraints
     /// Each entry is a tuple of (`constraint_name`, `expression`)
@@ -28,8 +27,10 @@ pub struct TableDefinition {
 pub struct IndexDefinition {
     /// Index name
     pub name: String,
-    /// Column names (for composite indexes)
+    /// Key column names ( btree key list )
     pub columns: Vec<String>,
+    /// PostgreSQL **`INCLUDE`** payload columns (non-key columns stored in the index)
+    pub include_columns: Vec<String>,
     /// Whether this is a unique index
     pub unique: bool,
     /// Partial index WHERE clause (if any)

@@ -221,7 +221,7 @@ Compare **live PostgreSQL** to merged **`*_generated_from_entities.sql`** under 
 
 1. **Table names:** `information_schema` base tables (`table_type = 'BASE TABLE'`) vs `-- Table: name` sections (after chronological merge).
 2. **Column names:** for each table present in **both** baselines, `information_schema.columns` vs columns parsed from the merged `CREATE TABLE` body plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` lines (`column_map_from_merged_baseline`).
-3. **Index key columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists (first parenthesized column list). If a parsed key name is absent from the merged migration column map, it is reported. Expression / functional indexes are skipped when the parser cannot extract plain column names. This is **not** full `CREATE INDEX` parity (no partial-index predicates, operator classes, or `INCLUDE` columns beyond the first key list).
+3. **Index key and INCLUDE columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists and optional **`INCLUDE (…)`** payload columns. If any parsed name is absent from the merged migration column map, it is reported. Expression / functional indexes are skipped when the parser cannot extract plain column names. **Not** full `CREATE INDEX` / opclass parity vs `pg_indexes.indexdef`.
 
 Column reconciliation is **name-level** (presence of columns), not equality of SQL types or full `CREATE` definitions. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
 

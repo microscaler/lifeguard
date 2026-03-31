@@ -83,6 +83,24 @@ fn test_valid_multiple_indexes() {
 }
 
 #[test]
+fn test_valid_index_with_include_columns() {
+    #[derive(LifeModel)]
+    #[table_name = "test_valid_index_include"]
+    #[index = "idx_test_include_title(title) INCLUDE (body)"]
+    pub struct TestValidIndexInclude {
+        #[primary_key]
+        pub id: i32,
+        pub title: String,
+        pub body: String,
+    }
+
+    let table_def = Entity::table_definition();
+    assert_eq!(table_def.indexes.len(), 1);
+    assert_eq!(table_def.indexes[0].columns, vec!["title"]);
+    assert_eq!(table_def.indexes[0].include_columns, vec!["body"]);
+}
+
+#[test]
 fn test_valid_index_with_where_clause() {
     #[derive(LifeModel)]
     #[table_name = "test_valid_index_where"]

@@ -139,9 +139,9 @@ pub use session::{
 // Relation trait - Epic 02 Story 08
 pub mod relation;
 pub use relation::{
-    build_where_condition, join_condition, join_tbl_on_condition, BorrowedIdentityIter,
-    FindRelated, Identity, IntoIdentity, Related, RelationBuilder, RelationDef, RelationMetadata,
-    RelationTrait, RelationType,
+    build_where_condition, join_condition, join_tbl_on_condition, join_tbl_on_expr,
+    BorrowedIdentityIter, FindRelated, Identity, IntoIdentity, Related, RelationBuilder,
+    RelationDef, RelationMetadata, RelationTrait, RelationType,
 };
 
 // Partial Model trait - Epic 02 Story 09

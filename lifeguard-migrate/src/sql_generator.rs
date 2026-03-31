@@ -226,6 +226,11 @@ where
                 missing_columns.push(col_name.clone());
             }
         }
+        for col_name in &index.include_columns {
+            if !all_column_names.contains(col_name) {
+                missing_columns.push(col_name.clone());
+            }
+        }
 
         // Skip index if any columns don't exist
         if !missing_columns.is_empty() {
@@ -248,6 +253,12 @@ where
         index_sql.push_str("(");
         index_sql.push_str(&index.columns.join(", "));
         index_sql.push_str(")");
+
+        if !index.include_columns.is_empty() {
+            index_sql.push_str(" INCLUDE (");
+            index_sql.push_str(&index.include_columns.join(", "));
+            index_sql.push_str(")");
+        }
 
         if let Some(ref where_clause) = index.partial_where {
             index_sql.push_str(" WHERE ");

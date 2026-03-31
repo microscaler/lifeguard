@@ -63,6 +63,7 @@ pub mod posts {
 use posts::Column as PostColumn;
 use posts::Entity as PostEntity;
 use posts::TestPostRecord;
+use users::Column as UserColumn;
 use users::Entity as UserEntity;
 use users::{TestUserModel, TestUserRecord};
 
@@ -493,6 +494,55 @@ fn test_find_related_scoped_matches_chained_scope() {
     assert_eq!(via_helper.len(), 1);
     assert_eq!(via_chain.len(), 1);
     assert_eq!(via_helper[0].title, via_chain[0].title);
+}
+
+/// Opt-in **caller-side** scope: [`FindRelated::find_related_parent_scoped`] joins `from_tbl` and
+/// ANDs a predicate on **`Self::Entity`** (PRD §7.7).
+#[test]
+fn test_find_related_parent_scoped_joins_from_table() {
+    let mut test_db = get_db();
+    let _client = test_db.connect().expect("Failed to connect to database");
+
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    let mut user_record = TestUserRecord::new();
+    user_record.set_name("Parent Scoped".to_string());
+    user_record.set_email("parent_scoped@example.com".to_string());
+    let user = user_record
+        .insert(&executor)
+        .expect("Failed to insert user");
+
+    let mut post = TestPostRecord::new();
+    post.set_title("P1".to_string());
+    post.set_content("c".to_string());
+    post.set_user_id(user.id);
+    post.insert(&executor).expect("insert post");
+
+    let wrong_email = user
+        .find_related_parent_scoped(ColumnTrait::eq(
+            UserColumn::Email,
+            "other@example.com",
+        ))
+        .expect("find_related_parent_scoped")
+        .all(&executor)
+        .expect("query");
+    assert!(
+        wrong_email.is_empty(),
+        "parent scope on users.email should exclude this user’s posts when email mismatches"
+    );
+
+    let ok = user
+        .find_related_parent_scoped(ColumnTrait::eq(
+            UserColumn::Email,
+            "parent_scoped@example.com",
+        ))
+        .expect("find_related_parent_scoped")
+        .all(&executor)
+        .expect("query");
+    assert_eq!(ok.len(), 1);
+    assert_eq!(ok[0].title, "P1");
 }
 
 // ============================================================================

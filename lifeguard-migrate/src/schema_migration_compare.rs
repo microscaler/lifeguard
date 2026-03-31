@@ -183,7 +183,11 @@ pub fn compare_generated_dir_to_live_db(
         let Some(cols) = parse_pg_indexdef_simple_columns(&row.indexdef) else {
             continue;
         };
-        let mut unknown: Vec<String> = cols
+        let mut all_cols = cols;
+        if let Some(inc) = parse_pg_indexdef_include_columns(&row.indexdef) {
+            all_cols.extend(inc);
+        }
+        let mut unknown: Vec<String> = all_cols
             .into_iter()
             .filter(|c| !mig_names.contains(c))
             .collect();
@@ -411,6 +415,25 @@ pub fn parse_pg_indexdef_simple_columns(indexdef: &str) -> Option<Vec<String>> {
     simple_key_columns_from_inner(key_inner)
 }
 
+/// PostgreSQL **`INCLUDE`** column list after the btree key, if present (`INCLUDE (a, b)`).
+#[must_use]
+pub fn parse_pg_indexdef_include_columns(indexdef: &str) -> Option<Vec<String>> {
+    let mut tail = after_on_clause(indexdef)?;
+    if tail.len() >= 5 && tail[..5].eq_ignore_ascii_case("only ") {
+        tail = tail[5..].trim_start();
+    }
+    tail = skip_qualified_table(tail)?;
+    tail = skip_using_method(tail)?;
+    let (_, rest) = balanced_paren_group(tail)?;
+    let mut r = rest.trim_start();
+    if r.len() < 8 || !r[..8].eq_ignore_ascii_case("include ") {
+        return Some(Vec::new());
+    }
+    r = r[8..].trim_start();
+    let (inc_inner, _) = balanced_paren_group(r)?;
+    simple_key_columns_from_inner(inc_inner)
+}
+
 impl fmt::Display for MigrationDbCompareReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
@@ -477,7 +500,7 @@ impl fmt::Display for MigrationDbCompareReport {
         if !self.index_column_drifts.is_empty() {
             writeln!(
                 f,
-                "  Index key columns not in merged migration baseline (shared tables only; primary key indexes skipped):"
+                "  Index key / INCLUDE columns not in merged migration baseline (shared tables only; primary key indexes skipped):"
             )?;
             for d in &self.index_column_drifts {
                 writeln!(
@@ -560,7 +583,7 @@ mod tests {
             }],
         };
         assert!(r.has_drift());
-        assert!(r.to_string().contains("Index key columns"));
+        assert!(r.to_string().contains("Index key / INCLUDE columns"));
     }
 
     #[test]
@@ -576,5 +599,18 @@ mod tests {
             Some(vec!["a".to_string(), "b".to_string()])
         );
         assert!(parse_pg_indexdef_simple_columns("CREATE INDEX x ON t (lower(y))").is_none());
+    }
+
+    #[test]
+    fn parse_pg_indexdef_include_columns_examples() {
+        let def = "CREATE INDEX ix ON public.widgets USING btree (id) INCLUDE (name, sku)";
+        assert_eq!(
+            parse_pg_indexdef_include_columns(def),
+            Some(vec!["name".to_string(), "sku".to_string()])
+        );
+        assert_eq!(
+            parse_pg_indexdef_include_columns("CREATE INDEX ix ON t (id)"),
+            Some(vec![])
+        );
     }
 }

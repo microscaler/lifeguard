@@ -7,8 +7,8 @@ use crate::executor::LifeError;
 use crate::model::ModelTrait;
 use crate::query::scope::IntoScope;
 use crate::query::{LifeEntityName, LifeModelTrait, SelectQuery};
-use crate::relation::def::{build_where_condition, RelationDef};
-use sea_query::{Expr, Iden};
+use crate::relation::def::{build_where_condition, join_tbl_on_expr, RelationDef};
+use sea_query::{Expr, Iden, IntoCondition};
 
 /// Trait for defining entity relationships
 ///
@@ -492,6 +492,43 @@ pub trait FindRelated: ModelTrait {
         S: IntoScope<R>,
     {
         self.find_related::<R>().map(|q| q.scope(related_scope))
+    }
+
+    /// [`find_related`](Self::find_related) with an extra **`INNER JOIN`** on the **source** side
+    /// of the relation (`RelationDef::from_tbl`) so predicates on **`Self::Entity`**’s table
+    /// (e.g. from [`SelectQuery::scope`](SelectQuery::scope) helpers) can be applied in the same
+    /// query as the related-table filter.
+    ///
+    /// Use this when you need “inherited” **caller-side** / **from-table** scopes (PRD §7.7;
+    /// design note `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`). This is **not** the same as
+    /// [`find_related_scoped`](Self::find_related_scoped) (which scopes the **related** table
+    /// only). `has_many_through` relations are rejected until explicitly supported.
+    ///
+    /// `parent_scope` must qualify columns on **`Self::Entity`**’s table (same as
+    /// `Self::Entity::find().scope(…)`).
+    fn find_related_parent_scoped<R, S>(&self, parent_scope: S) -> Result<SelectQuery<R>, LifeError>
+    where
+        R: LifeModelTrait,
+        Self::Entity: Related<R> + Default + Iden,
+        S: IntoCondition,
+    {
+        let rel_def = <Self::Entity as Related<R>>::to();
+        if rel_def.through_tbl.is_some() {
+            return Err(LifeError::Other(
+                "find_related_parent_scoped: has_many_through is not supported yet".to_string(),
+            ));
+        }
+        let join_on = join_tbl_on_expr(
+            &rel_def.from_tbl,
+            &rel_def.to_tbl,
+            &rel_def.from_col,
+            &rel_def.to_col,
+        );
+        let mut q = SelectQuery::<R>::new();
+        q = q.inner_join(Self::Entity::default(), join_on);
+        q = q.filter(build_where_condition(&rel_def, self)?);
+        q = q.filter(parent_scope.into_condition());
+        Ok(q)
     }
 }
 
