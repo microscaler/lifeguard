@@ -5,6 +5,7 @@
 
 use crate::executor::LifeError;
 use crate::model::ModelTrait;
+use crate::query::scope::IntoScope;
 use crate::query::{LifeEntityName, LifeModelTrait, SelectQuery};
 use crate::relation::def::{build_where_condition, RelationDef};
 use sea_query::{Expr, Iden};
@@ -405,8 +406,9 @@ where
 /// `find_related` returns a [`SelectQuery`] for the **related** table with a `WHERE` from the
 /// relation metadata only—it does **not** inherit scopes from a separate `Parent::find().scope(…)`
 /// query. Chain [`.scope`](crate::SelectQuery::scope) or [`.filter`](crate::SelectQuery::filter) on
-/// the returned query to narrow related rows. See `docs/planning/DESIGN_FIND_RELATED_SCOPES.md` in
-/// the repository.
+/// the returned query to narrow related rows, or call [`FindRelated::find_related_scoped`] for the
+/// same effect in one step (**related-side** scope only; not parent inheritance). See
+/// `docs/planning/DESIGN_FIND_RELATED_SCOPES.md` in the repository.
 ///
 /// ## Example
 ///
@@ -476,6 +478,21 @@ pub trait FindRelated: ModelTrait {
     where
         R: LifeModelTrait,
         Self::Entity: Related<R>;
+
+    /// Like [`find_related`](Self::find_related), then [`.scope`](SelectQuery::scope) on the
+    /// **related** entity query — explicit opt-in for related-side predicates only.
+    ///
+    /// This does **not** merge scopes from `Parent::find().scope(…)`; it only applies `related_scope`
+    /// to the `SelectQuery<R>` returned from `find_related` (same as
+    /// `find_related()?.scope(related_scope)`).
+    fn find_related_scoped<R, S>(&self, related_scope: S) -> Result<SelectQuery<R>, LifeError>
+    where
+        R: LifeModelTrait,
+        Self::Entity: Related<R>,
+        S: IntoScope<R>,
+    {
+        self.find_related::<R>().map(|q| q.scope(related_scope))
+    }
 }
 
 // Implement FindRelated for all ModelTrait types

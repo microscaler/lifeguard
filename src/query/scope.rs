@@ -37,7 +37,8 @@
 //! automatically merged into [`crate::FindRelated::find_related`] SQL, which selects from the **related**
 //! table and applies only the relation `WHERE` from [`crate::build_where_condition`]. Chain
 //! [`.scope`](crate::SelectQuery::scope) / [`.filter`](crate::SelectQuery::filter) on the query returned
-//! by `find_related` to filter related rows. Design note (repository):
+//! by `find_related` to filter related rows, or use [`crate::FindRelated::find_related_scoped`] for the
+//! same in one call (**related** table only). Design note (repository):
 //! `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`.
 
 use crate::query::select::SelectQuery;
