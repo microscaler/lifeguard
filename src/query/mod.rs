@@ -10,6 +10,7 @@
 //! - **Traits**: Core entity and model traits (`LifeModelTrait`, `LifeEntityName`)
 //! - **Select**: SELECT query builder (`SelectQuery`)
 //! - **Scopes**: Named composable predicates (`scope` module, `SelectQuery::scope`, `IntoScope`)
+//! - **SQL extras on `SelectQuery`**: [`SelectQuery::with_cte`](select::SelectQuery::with_cte) (CTE + lifeguard `all`/`one`), [`join_subquery`](select::SelectQuery::join_subquery), typed [`window`](select::SelectQuery::window) / [`expr_window_as`](select::SelectQuery::expr_window_as) (see also [`subquery_column`](select::SelectQuery::subquery_column), [`window_function_cust`](select::SelectQuery::window_function_cust))
 //! - **Execution**: Query execution methods (`all`, `one`, `first`)
 //! - **Value Conversion**: `SeaQuery` `Value` to `ToSql` (`converted_params` + `value_conversion`)
 //! - **Error Handling**: Error detection and classification utilities

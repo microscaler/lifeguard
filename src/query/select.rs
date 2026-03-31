@@ -3,6 +3,11 @@
 //! This module provides `SelectQuery` and `SelectModel` for building and executing
 //! type-safe database queries. Query building methods (`filter`, `order_by`, `limit`, etc.)
 //! are defined here, while execution methods are in the execution module.
+//!
+//! **CTEs, subquery joins, windows:** use [`SelectQuery::with_cte`] so `WITH` stays on the same
+//! builder as [`all`](crate::query::execution::SelectQuery::all) / [`one`](crate::query::execution::SelectQuery::one).
+//! [`join_subquery`], [`window`], and [`expr_window_as`] wrap `sea_query::SelectStatement`; raw SQL
+//! remains available via [`window_function_cust`].
 
 use crate::query::column::column_trait::ColumnDefHelper;
 use crate::query::column::definition::get_static_expr;
@@ -509,11 +514,107 @@ where
         self
     }
 
+    /// Attach a **`WITH`** clause while keeping this [`SelectQuery`] so [`all`](crate::query::execution::SelectQuery::all),
+    /// [`one`](crate::query::execution::SelectQuery::one), loaders, and soft-delete still apply.
+    ///
+    /// Wraps [`SelectStatement::with_cte`](sea_query::SelectStatement::with_cte). Prefer this over
+    /// [`Self::with`], which returns a raw [`sea_query::WithQuery`] outside the lifeguard execution
+    /// API.
+    #[must_use]
+    pub fn with_cte<C>(mut self, clause: C) -> Self
+    where
+        C: Into<sea_query::WithClause>,
+    {
+        self.query.with_cte(clause);
+        self
+    }
+
+    /// Join the main query to a **subquery** (`JOIN (SELECT …) AS alias ON …`).
+    ///
+    /// Wraps [`SelectStatement::join_subquery`](sea_query::SelectStatement::join_subquery).
+    #[must_use]
+    pub fn join_subquery<T, C>(
+        mut self,
+        join: sea_query::JoinType,
+        subquery: SelectStatement,
+        alias: T,
+        on: C,
+    ) -> Self
+    where
+        T: sea_query::IntoIden,
+        C: sea_query::IntoCondition,
+    {
+        self.query.join_subquery(join, subquery, alias, on);
+        self
+    }
+
+    /// Define a named **`WINDOW`** clause (`WINDOW name AS (PARTITION BY …)`).
+    ///
+    /// Pair with [`Self::expr_window_name`] / [`Self::expr_window_name_as`], or use [`Self::expr_window`]
+    /// / [`Self::expr_window_as`] for inline `OVER (…)`.
+    #[must_use]
+    pub fn window<W>(mut self, name: W, def: sea_query::WindowStatement) -> Self
+    where
+        W: sea_query::IntoIden,
+    {
+        self.query.window(name, def);
+        self
+    }
+
+    /// `SELECT … OVER (window)` with an inline [`WindowStatement`](sea_query::WindowStatement).
+    #[must_use]
+    pub fn expr_window<T>(mut self, expr: T, window: sea_query::WindowStatement) -> Self
+    where
+        T: Into<sea_query::Expr>,
+    {
+        self.query.expr_window(expr, window);
+        self
+    }
+
+    /// `SELECT … OVER (window) AS alias` with an inline [`WindowStatement`](sea_query::WindowStatement).
+    #[must_use]
+    pub fn expr_window_as<T, A>(
+        mut self,
+        expr: T,
+        window: sea_query::WindowStatement,
+        alias: A,
+    ) -> Self
+    where
+        T: Into<sea_query::Expr>,
+        A: sea_query::IntoIden,
+    {
+        self.query.expr_window_as(expr, window, alias);
+        self
+    }
+
+    /// `SELECT … OVER window_name` (use after [`Self::window`]).
+    #[must_use]
+    pub fn expr_window_name<T, W>(mut self, expr: T, window_name: W) -> Self
+    where
+        T: Into<sea_query::Expr>,
+        W: sea_query::IntoIden,
+    {
+        self.query.expr_window_name(expr, window_name);
+        self
+    }
+
+    /// `SELECT … OVER window_name AS alias` (use after [`Self::window`]).
+    #[must_use]
+    pub fn expr_window_name_as<T, W, A>(mut self, expr: T, window_name: W, alias: A) -> Self
+    where
+        T: Into<sea_query::Expr>,
+        W: sea_query::IntoIden,
+        A: sea_query::IntoIden,
+    {
+        self.query.expr_window_name_as(expr, window_name, alias);
+        self
+    }
+
     /// Add a Common Table Expression (CTE) using WITH clause
     ///
     /// CTEs allow you to define temporary named result sets that exist only for the duration of a query.
-    /// **Note:** This method returns a `WithQuery` which has a different API than `SelectQuery`.
-    /// You can use `with_query.select()` to continue building the query.
+    /// **Note:** This method returns a [`sea_query::WithQuery`], not [`SelectQuery`]. For lifeguard
+    /// execution (`all` / `one`), use [`Self::with_cte`] instead.
     ///
     /// # Arguments
     ///
@@ -937,5 +1038,59 @@ mod tests {
             !sql_upper.contains("CONCAT"),
             "Should not have CONCAT when no select_as is present. SQL: {sql}"
         );
+    }
+
+    #[test]
+    fn with_cte_prepends_with_clause() {
+        use sea_query::{
+            CommonTableExpression, PostgresQueryBuilder, SelectStatement, WithClause,
+        };
+
+        let mut inner = SelectStatement::default();
+        inner.column(sea_query::Asterisk).from("cte_source");
+        let mut cte = CommonTableExpression::new();
+        cte.table_name("my_cte").query(inner);
+        let wc = WithClause::new().cte(cte.to_owned()).to_owned();
+
+        let q = SelectQuery::<TestSelectAsEntity>::new().with_cte(wc);
+        let (sql, _) = q.query.build(PostgresQueryBuilder);
+        let upper = sql.to_uppercase();
+        assert!(
+            upper.starts_with("WITH"),
+            "expected WITH prefix, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn join_subquery_emits_subselect_join() {
+        use sea_query::{ExprTrait, JoinType, PostgresQueryBuilder, SelectStatement};
+
+        let mut sq = SelectStatement::default();
+        sq.column("id").from("inner_t");
+
+        let q = SelectQuery::<TestSelectAsEntity>::new().join_subquery(
+            JoinType::LeftJoin,
+            sq,
+            "sub_a",
+            sea_query::Expr::col("test_table.id").equals(("sub_a", "id")),
+        );
+        let (sql, _) = q.query.build(PostgresQueryBuilder);
+        let upper = sql.to_uppercase();
+        assert!(upper.contains("LEFT JOIN"), "SQL: {sql}");
+        assert!(upper.contains("SUB_A"), "SQL: {sql}");
+    }
+
+    #[test]
+    fn window_clause_and_expr_window_name_as() {
+        use sea_query::{Expr, PostgresQueryBuilder, WindowStatement};
+
+        let w = WindowStatement::partition_by("grp");
+        let q = SelectQuery::<TestSelectAsEntity>::new()
+            .window("w", w)
+            .expr_window_name_as(Expr::col("test_table.id"), "w", "rn");
+        let (sql, _) = q.query.build(PostgresQueryBuilder);
+        let upper = sql.to_uppercase();
+        assert!(upper.contains("WINDOW"), "SQL: {sql}");
+        assert!(upper.contains("OVER"), "SQL: {sql}");
     }
 }
