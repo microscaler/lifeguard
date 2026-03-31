@@ -12,7 +12,7 @@ Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VAL
 |------------|------------------------|--------|-------|
 | **Schema inference (DB → Rust)** | `lifeguard-migrate infer-schema`, `schema_infer::emit_inferred_rust`, `tests/golden/*.expected.rs` | 🟡 **Partial** | PRD §5.7; deterministic emitter golden tests; conservative type mapping; composite PK gaps possible |
 | **Validators** | `run_validators`, `ValidationStrategy` / `run_validators_with_strategy`, `ActiveModelBehavior::validate_fields` / `validate_model`, `ActiveModelError::Validation`, `#[validate(custom = path)]` on fields, `lifeguard::predicates` (`len` / `range` helpers on `Value`) | 🟡 **Partial** | PRD §6.7; fail-fast (default) + aggregate; derive `custom` validators; built-in predicates for compose-in-`validate_fields` |
-| **Scopes** | `SelectQuery::scope`, `scope_or`, `scope_any`, `IntoScope`, `src/query/scope.rs` | 🟡 **Partial** | PRD §7.7; AND + OR composition; soft-delete interaction; `find_related` + scopes: [DESIGN_FIND_RELATED_SCOPES.md](../DESIGN_FIND_RELATED_SCOPES.md) |
+| **Scopes** | `SelectQuery::scope`, `scope_or`, `scope_any`, `IntoScope`, `#[scope]` on `impl Entity` (`lifeguard::scope`), `src/query/scope.rs` | 🟡 **Partial** | PRD §7.7; AND + OR composition; soft-delete interaction; `find_related` + scopes: [DESIGN_FIND_RELATED_SCOPES.md](../DESIGN_FIND_RELATED_SCOPES.md) |
 | **F() expressions** | `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div`; `LifeRecord::set_*_expr` + `__update_exprs` on derived `update()` | 🟡 **Partial** | PRD §8.7; `column_f_update.rs` + `column_f_where.rs` |
 | **Session / UoW** | `ModelIdentityMap`, `fingerprint_pk_values`, `mark_dirty` / `mark_dirty_key` / `flush_dirty`, `LifeRecord::identity_map_key`, `src/session/` | 🟡 **Partial** | PRD §9.7; identity + dirty flush — **no** auto-dirty on `LifeRecord::set`, **no** pool-bound `Session` type yet |
 
@@ -892,7 +892,7 @@ SQL Views are **virtual tables** based on the result of a SQL query. They:
 | **Materialized View** | **Cached Query Model** | 🟡 **Future** | Model backed by materialized view table, refresh support |
 | **View with JOINs** | **Query-based Model** | ✅ **Partial** | Use query builder with joins, map to struct |
 | **View with Aggregations** | **Projection/Partial Model** | ✅ **Implemented** | `DerivePartialModel` for selected columns |
-| **View as Security Layer** | **Scoped Queries** | 🟡 **Partial** | `SelectQuery::scope` / `IntoScope` + entity helpers returning `IntoCondition` (`src/query/scope.rs`); derive sugar TBD |
+| **View as Security Layer** | **Scoped Queries** | 🟡 **Partial** | `SelectQuery::scope` / `IntoScope` + `#[scope]` (`lifeguard::scope`) + entity helpers returning `IntoCondition` (`src/query/scope.rs`) |
 
 #### Implementation Patterns
 

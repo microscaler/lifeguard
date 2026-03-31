@@ -4,7 +4,9 @@
 //!
 //! Define associated functions (or constants) that return anything implementing
 //! [`sea_query::IntoCondition`] (e.g. [`sea_query::Expr`] from [`crate::ColumnTrait`]),
-//! then chain with [`SelectQuery::scope`] (or [`SelectQuery::filter`]):
+//! then chain with [`SelectQuery::scope`] (or [`SelectQuery::filter`]). Prefer the
+//! [`crate::scope`] attribute on `impl Entity` so `fn active()` becomes `scope_active()`
+//! (see `lifeguard-derive` / PRD Phase C).
 //!
 //! ```ignore
 //! User::find()

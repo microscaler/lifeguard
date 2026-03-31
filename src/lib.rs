@@ -81,6 +81,9 @@ pub use pool::{
     PooledLifeExecutor, WalLagPolicy,
 };
 
+#[doc(inline)]
+pub use lifeguard_derive::scope;
+
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
 // Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
 // and enable the scalar features they use (e.g. `chrono`, `uuid`, `decimal`); the workspace

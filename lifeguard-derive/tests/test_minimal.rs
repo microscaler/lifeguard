@@ -53,6 +53,35 @@ pub mod column_name_tests {
     }
 }
 
+/// `#[scope]` attribute on `impl Entity` (PRD Phase C derive sugar).
+pub mod scope_attr_tests {
+    use lifeguard::ColumnTrait;
+    use lifeguard::LifeModelTrait;
+    use lifeguard::scope;
+    use lifeguard_derive::{LifeModel, LifeRecord};
+    use sea_query::IntoCondition;
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "scope_macro_users"]
+    pub struct ScopeMacroUser {
+        #[primary_key]
+        pub id: i32,
+        pub active: bool,
+    }
+
+    impl Entity {
+        #[scope]
+        fn active() -> impl IntoCondition {
+            Column::Active.eq(true)
+        }
+    }
+
+    #[test]
+    fn scope_attr_renames_to_scope_active_and_chains() {
+        let _q = Entity::find().scope(Entity::scope_active());
+    }
+}
+
 /// `#[validate(custom = ...)]` on `LifeRecord` fields (PRD V-5).
 pub mod validate_attr_tests {
     use lifeguard::{run_validators, ValidateOp};

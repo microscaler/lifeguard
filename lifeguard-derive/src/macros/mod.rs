@@ -7,6 +7,7 @@ pub mod life_record;
 pub mod linked;
 pub mod partial_model;
 pub mod relation;
+pub mod scope_attr;
 pub mod try_into_model;
 
 pub use entity::derive_entity;

@@ -1,7 +1,7 @@
 # Active Context
 
 ## Current Work
-- **PRD follow-on:** optional `infer-schema` CLI + Postgres smoke / CI hook; Phase E **insert-only** session flush for new rows (no PK); `#[scope]` derive / find_related + scopes as needed.
+- **PRD follow-on:** Phase E **insert-only** session flush for new rows (no PK); `find_related` + scopes per `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`; optional `infer-schema` CLI / CI smoke.
 - **Dev process + Phase D v0 (2026-03-28):** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` (rustdoc + coverage checklist); Phase D `ColumnTrait::f_*` for SeaQuery `UPDATE SET`.
 - **PRD Phase C v0 — scopes (2026-03-28):** `SelectQuery::scope`, `IntoScope`, `src/query/scope.rs` docs + tests; PRD §7.7; mapping doc row. Next: Phase D F() or README G6 follow-ups if requested.
 - **PRD Phase B v0 — validators (2026-03-28):** Landed trait-based validation pipeline + `ActiveModelError::Validation`; derive wires `run_validators` after `before_insert`/`before_update`. PRD `docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md` §6.7 + milestone §0.1. Memory bank updated with this line.

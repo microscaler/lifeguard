@@ -153,7 +153,7 @@ The lists below mix **shipped**, **partial**, and **planned** capabilities. For 
 **Competitive Features:**
 - 🟡 Schema inference (`lifeguard-migrate infer-schema`; Diesel-style parity — [PRD §5](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
 - 🟡 Session/Unit of Work (`ModelIdentityMap`, `Session` / `SessionDirtyNotifier`, `attach_session` + record auto-dirty enqueue, `flush_dirty`, `flush_dirty_in_transaction` / `flush_dirty_in_transaction_pooled` + `LifeguardPool::exclusive_primary_write_executor`, `LifeRecord::identity_map_key`; insert-only session flush still roadmap — [PRD §9](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
-- 🟡 Scopes (`SelectQuery::scope`, `scope_or` / `scope_any`; [PRD §7](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
+- 🟡 Scopes (`SelectQuery::scope`, `scope_or` / `scope_any`, `#[scope]` on `impl Entity`; [PRD §7](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
 - ✅ Model Managers (Django)
 - 🟡 F() Expressions (`ColumnTrait::f_*`, `LifeRecord::set_*_expr` / `identity_map_key`, `Expr::expr` in `WHERE`/`ORDER BY`; [PRD §8](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
 - ✅ Advanced eager loading strategies (SQLAlchemy)
@@ -489,7 +489,7 @@ Story-level detail: [docs/planning/epics-stories/](./docs/planning/epics-stories
 | **Soft Deletes** | ✅✅✅ Built-in support | ✅ **Implemented** (`#[soft_delete]` + `SelectQuery` / loader filtering) | ⚠️ Manual | ❌ No | ❌ No |
 | **Auto Timestamps** | ✅✅✅ created_at, updated_at | ✅ **Implemented** (`#[auto_timestamp]` on `LifeRecord` insert/update paths) | ⚠️ Manual | ❌ No | ❌ No |
 | **Session/Unit of Work** | ✅✅✅ Identity map, dirty tracking | 🟡 **Partial** (`ModelIdentityMap`, `Session`, `attach_session` / auto-dirty enqueue, `flush_dirty` / `flush_dirty_in_transaction` / `flush_dirty_in_transaction_pooled`, `LifeRecord::identity_map_key`; insert-only flush still roadmap; [PRD §9](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)) | ❌ No | ❌ No | ❌ No |
-| **Scopes** | ✅✅✅ Named query scopes | 🟡 **Partial** (`SelectQuery::scope`, `scope_or` / `scope_any`, `IntoScope`; [PRD §7](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)) | ❌ No | ❌ No | ❌ No |
+| **Scopes** | ✅✅✅ Named query scopes | 🟡 **Partial** (`SelectQuery::scope`, `scope_or` / `scope_any`, `IntoScope`, `lifeguard::scope`; [PRD §7](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)) | ❌ No | ❌ No | ❌ No |
 | **Model Managers** | ✅✅✅ Custom query methods | ✅ **Implemented** (ModelManager trait + custom methods pattern) | ❌ No | ❌ No | ❌ No |
 | **F() Expressions** | ✅✅✅ Database-level expressions | 🟡 **Partial** (`ColumnTrait::f_*`, derived `set_*_expr` + `update()`, `Expr::expr` + `ExprTrait` / `order_by_expr` for filters; [PRD §8](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)) | ❌ No | ⚠️ Limited | ❌ No |
 | **Subqueries** | ✅✅✅ Full support | 🟡 **Future** (Not yet implemented) | ✅✅✅ Full support | ✅✅ Full support | ✅✅ Manual SQL |
@@ -530,9 +530,9 @@ Story-level detail: [docs/planning/epics-stories/](./docs/planning/epics-stories
 
 **Strong in-tree today:** core traits (`LifeModelTrait`, `ModelTrait`, `ActiveModelTrait`, …), CRUD/save paths, `SelectQuery` stack, relations and eager/loader paths (including composite keys and linked traversals), migrations framework (`lifeguard::migration`, `lifeguard-migrate`), JSON column support, derive **`#[soft_delete]`** / **`#[auto_timestamp]`**, partial models, lifecycle hooks, **`LifeguardPool`** / **`PooledLifeExecutor`** with primary+replica tiers, WAL lag routing, slot heal, idle liveness, max connection lifetime, and optional **metrics** (including **`pool_tier`** labels) / **tracing**.
 
-**Partial (PRD v0 shipped; see [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)):** schema inference CLI/module, validators (`#[validate(custom = …)]`, aggregate mode, **`lifeguard::predicates`**), `SelectQuery::scope` + **`scope_or` / `scope_any`**, F() on **`UPDATE`** (derived `set_*_expr`), **`WHERE`/`ORDER BY`** via SeaQuery, **`Session`** / **`ModelIdentityMap`** with **`mark_dirty_key`**, **`attach_session`** (dirty enqueue when PK set), **`flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** ( **`LifeguardPool::exclusive_primary_write_executor`** ).
+**Partial (PRD v0 shipped; see [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md)):** schema inference CLI/module, validators (`#[validate(custom = …)]`, aggregate mode, **`lifeguard::predicates`**), `SelectQuery::scope` + **`scope_or` / `scope_any`** + **`#[scope]`**, F() on **`UPDATE`** (derived `set_*_expr`), **`WHERE`/`ORDER BY`** via SeaQuery, **`Session`** / **`ModelIdentityMap`** with **`mark_dirty_key`**, **`attach_session`** (dirty enqueue when PK set), **`flush_dirty_in_transaction`** / **`flush_dirty_in_transaction_pooled`** ( **`LifeguardPool::exclusive_primary_write_executor`** ).
 
-**Partial or roadmap:** `#[scope]` derive, insert-only session flush, optional auto-sync **Model** from **LifeRecord**, some SQL builder extras (subqueries/CTEs/windows), explicit read-preference API surface (pool routing is already shipped), migration derive niceties (e.g. `DeriveMigrationName` per mapping), and any remaining pooling parity called out in [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md) and [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md).
+**Partial or roadmap:** insert-only session flush, optional auto-sync **Model** from **LifeRecord**, some SQL builder extras (subqueries/CTEs/windows), explicit read-preference API surface (pool routing is already shipped), migration derive niceties (e.g. `DeriveMigrationName` per mapping), and any remaining pooling parity called out in [PRD_CONNECTION_POOLING.md](./docs/planning/PRD_CONNECTION_POOLING.md) and [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md).
 
 **Roadmap / vision:** productized “transparent Redis on every read”; LifeReflector and cache coherence in [`lifeguard-reflector`](./lifeguard-reflector/).
 
@@ -560,7 +560,7 @@ For percentages and row-by-row status, use the mapping document linked in the se
 - ❌ PostgreSQL-only (by design - enables advanced features)
 - ❌ Requires `may` coroutine runtime (not Tokio)
 - ❌ Smaller ecosystem (newer project)
-- ⚠️ Some roadmap items remain (insert-only session flush, validator/scope derive sugar, explicit read-preference API, SQL builder extras, migration derives, etc.); see [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md), mapping doc, and pooling docs
+- ⚠️ Some roadmap items remain (insert-only session flush, explicit read-preference API, SQL builder extras, migration derives, etc.); see [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md), mapping doc, and pooling docs
 
 ### Performance Comparison (Estimated)
 

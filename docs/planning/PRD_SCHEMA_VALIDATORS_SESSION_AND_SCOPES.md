@@ -16,7 +16,7 @@
 - [x] Design note(s): schema inference CLI / codegen boundary — [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md)
 - [x] **Phase A — Schema inference** ([§5](#5-schema-inference-from-db--diesel-style)) — *can ship independently* — **v0 landed:** `lifeguard-migrate infer-schema` + `lifeguard_migrate::schema_infer` (see §5.7)
 - [x] **Phase B — Validators** ([§6](#6-validators-field--model-level)) — **v0 landed:** trait hooks + `run_validators` + `ActiveModelError::Validation`; see [§6.7](#67-implementation-status-v0)
-- [x] **Phase C — Scopes** ([§7](#7-scopes-named-query-scopes)) — **v0 landed:** `SelectQuery::scope`, `IntoScope`; see [§7.7](#77-implementation-status-v0)
+- [x] **Phase C — Scopes** ([§7](#7-scopes-named-query-scopes)) — **v0 landed:** `SelectQuery::scope`, `IntoScope`, **`#[scope]`** attribute (`lifeguard::scope`); see [§7.7](#77-implementation-status-v0)
 - [x] **Phase D — F() expressions** ([§8](#8-f-expressions-database-level-expressions)) — **v0 landed:** `ColumnTrait::f_add` / `f_sub` / `f_mul` / `f_div`; see [§8.7](#87-implementation-status-v0)
 - [x] **Phase E — Session / Unit of Work (v0 — identity map + session handle)** ([§9](#9-session--unit-of-work-identity-map-dirty-tracking)) — **v0:** `ModelIdentityMap`, `Session`, `SessionDirtyNotifier`, `attach_session` / record auto-dirty enqueue, **`LifeguardPool::exclusive_primary_write_executor`** / **`Session::flush_dirty_in_transaction_pooled`** (U-4 pin-slot); **deferred:** insert-only flush; see [§9.7](#97-implementation-status-v0--u-2-partial)
 - [x] [§10 Success criteria](#10-success-criteria) satisfied for **PRD v0** (partial parity per phase; follow-on work remains in §5–§9 “still to do” bullets)
@@ -249,7 +249,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Soft delete:** `query::scope` module documents that `LifeModelTrait::soft_delete_column` is applied at execution time and **AND**ed with scoped predicates unless `with_trashed` is set; unit test `scope_and_soft_delete_both_anded_at_execution`.
 - **Tests:** `src/query/scope.rs` — composition + soft-delete interaction + `scope_or` / `scope_any`.
 
-**Still to do for fuller Phase C:** derive sugar (`#[scope]` / codegen). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2). **`find_related` / loaders:** see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md). README matrix (G6) updated for scopes.
+**Still to do for fuller Phase C:** optional codegen beyond `#[scope]` (e.g. scope lists on the struct). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** attribute macro (`lifeguard::scope` / `lifeguard_derive::scope`) on `impl Entity` renames `fn foo` → `scope_foo`. **`find_related` / loaders:** see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md). README matrix (G6) updated for scopes.
 
 ---
 

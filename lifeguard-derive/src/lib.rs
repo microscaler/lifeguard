@@ -256,3 +256,26 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
 pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     macros::derive_try_into_model(input)
 }
+
+/// Attribute for named query scopes on `impl Entity` (PRD Phase C).
+///
+/// Transforms `fn active() -> …` into `pub fn scope_active() -> …` so call sites use
+/// `Entity::scope_active()` with `SelectQuery::scope` on the query builder.
+///
+/// - Must be on an **associated function** with **no** `self` receiver.
+/// - If the function is already named `scope_*`, the name is left unchanged.
+/// - Unannotated visibility becomes `pub` (inherited → `pub`); `pub(crate)` and `pub` are kept.
+///
+/// ```ignore
+/// impl Entity {
+///     #[lifeguard_derive::scope]
+///     fn active() -> impl sea_query::IntoCondition {
+///         Column::Status.eq("active")
+///     }
+/// }
+/// // User::find().scope(Entity::scope_active())
+/// ```
+#[proc_macro_attribute]
+pub fn scope(attr: TokenStream, item: TokenStream) -> TokenStream {
+    macros::scope_attr::scope_attr(attr, item)
+}
