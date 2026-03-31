@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Work
+- **README reorg (2026-03-28):** Landing page split — **`STATUS.md`** (repository truth bullets), **`ROADMAP.md`**, **`COMPARISON.md`** (competitive matrix + ecosystem + performance framing). **`README.md`** is pitch + getting started + doc index table; competitive table no longer on README. **`ARCHITECTURE.md`** LifeReflector link points to **`VISION.md#the-killer-feature-lifereflector`** (was broken README anchor). PRD + SEAORM mapping references updated to **`COMPARISON.md`**.
 - **PRD follow-on:** Phase E **insert-only** session flush for new rows (no PK); `find_related` + scopes per `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`; optional `infer-schema` CLI / CI smoke.
 - **Dev process + Phase D v0 (2026-03-28):** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` (rustdoc + coverage checklist); Phase D `ColumnTrait::f_*` for SeaQuery `UPDATE SET`.
 - **PRD Phase C v0 — scopes (2026-03-28):** `SelectQuery::scope`, `IntoScope`, `src/query/scope.rs` docs + tests; PRD §7.7; mapping doc row. Next: Phase D F() or README G6 follow-ups if requested.

@@ -1,6 +1,6 @@
 # Lifeguard architecture
 
-This document is the **detailed** architecture reference: numbered call flows (primary vs replicas, Redis, LifeReflector), multi-service deployment, connection pooling, and cache coherence sequences. For project status and quick start, see the [README](./README.md).
+This document is the **detailed** architecture reference: numbered call flows (primary vs replicas, Redis, LifeReflector), multi-service deployment, connection pooling, and cache coherence sequences. For repository status see [STATUS.md](./STATUS.md); for quick start and doc index, see the [README](./README.md).
 
 ---
 
@@ -56,7 +56,7 @@ flowchart TB
     style Ex fill:#90ee90,stroke:#333,stroke-width:2px
 ```
 
-**Legend (numbers):** **1–4** — synchronous request path through ORM → pool → **primary** (writes, read-your-writes, or forced primary) or **replicas** (scaled reads when the pool routes there). **5–6** — optional Redis **read-through**: not automatic in every API today; pattern is GET first, on miss run **1–4** then populate Redis. **7–10** — **asynchronous**: after a successful commit, **NOTIFY** wakes LifeReflector; it refreshes Redis only for keys already in the active set (see [The Killer Feature: LifeReflector](./README.md#the-killer-feature-lifereflector) in the README).
+**Legend (numbers):** **1–4** — synchronous request path through ORM → pool → **primary** (writes, read-your-writes, or forced primary) or **replicas** (scaled reads when the pool routes there). **5–6** — optional Redis **read-through**: not automatic in every API today; pattern is GET first, on miss run **1–4** then populate Redis. **7–10** — **asynchronous**: after a successful commit, **NOTIFY** wakes LifeReflector; it refreshes Redis only for keys already in the active set (see [The Killer Feature: LifeReflector](./VISION.md#the-killer-feature-lifereflector) in **[VISION.md](./VISION.md)**).
 
 **Key Components:**
 - **LifeguardPool**: Persistent connection pool; routes to primary vs replica **worker pools** using WAL lag and optional [`ReadPreference`](./src/pool/pooled.rs).
@@ -236,4 +236,4 @@ sequenceDiagram
 
 ---
 
-[← Back to README](./README.md)
+[← README](./README.md) · [Vision](./VISION.md) · [Status](./STATUS.md) · [Comparison](./COMPARISON.md)

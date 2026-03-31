@@ -1,5 +1,7 @@
 # Observability in Lifeguard
 
+**Overview (OTel-compatible tracing, Prometheus, Datadog/OTLP):** see the repo root **[OBSERVABILITY.md](../OBSERVABILITY.md)**.
+
 Lifeguard provides comprehensive observability through Prometheus metrics and OpenTelemetry tracing. These features are optional and can be enabled via feature flags.
 
 ## Kubernetes (Kind / Tilt): apply and refresh dashboards

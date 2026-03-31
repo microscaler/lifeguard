@@ -1,5 +1,24 @@
 # Progress Tracking
 
+## README reorg — STATUS / ROADMAP / COMPARISON (2026-03-28)
+
+- **STATUS.md** (repo root): former README **“Current status (repository truth)”** bullets (verbatim relocation).
+- **ROADMAP.md** (repo root): former README **Roadmap** table + story links.
+- **COMPARISON.md** (repo root): competitive metrics table, legend, implementation summary, differentiators, performance tables, ecosystem compatibility, “when to use” — plus former duplicate **Performance** marketing bullets merged as **Target performance claims**.
+- **README.md**: pitch-first spine — merged **Why Lifeguard** + executive intent into **Why Lifeguard (technical bet)**; links to STATUS/COMPARISON/VISION; compact architecture + getting started + observability + testing; **Documentation** table indexes new files.
+- **Cross-links:** `VISION.md`, `ARCHITECTURE.md` (LifeReflector anchor fixed to `VISION.md#the-killer-feature-lifereflector`), `docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`, `docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md` now reference `COMPARISON.md` where the competitive table lives.
+
+## VISION.md + README CTO summary (2026-03-28)
+
+- **VISION.md** (repo root): moved former README **“What we’re building”** (LifeModel/LifeRecord, pool, LifeReflector, transparent caching, replica modes, feature lists) from README.
+- **README.md**: new **Executive summary (CTO)** section; link to **VISION.md**; LifeReflector bullet points to **VISION.md#the-killer-feature-lifereflector**; **Documentation** list includes VISION.md; **ARCHITECTURE.md** footer links Vision.
+
+## OBSERVABILITY.md (repo root) + README summary (2026-03-28)
+
+- **OBSERVABILITY.md** (repo root): OTel-compatible / OTLP + Datadog note; moved Prometheus / tracing / LifeReflector metric bullets from README; links to **docs/OBSERVABILITY.md** (tables, Kind) and **docs/OBSERVABILITY_APP_INTEGRATION.md**.
+- **README.md**: Observability § replaced with short summary; pool paragraph links root + **docs/OBSERVABILITY.md**; developer links updated.
+- **docs/OBSERVABILITY.md**: top pointer to **../OBSERVABILITY.md**.
+
 ## ARCHITECTURE.md split from README (2026-03-28)
 
 - **ARCHITECTURE.md** (repo root): holds full architecture content — numbered target flowchart, multi-service deployment, connection pool “300 Spartans”, LifeReflector sequence diagram, links back to README.

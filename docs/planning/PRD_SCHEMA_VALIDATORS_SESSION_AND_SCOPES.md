@@ -4,7 +4,7 @@
 **Status:** **Draft** — Requirements and acceptance criteria; design splits into follow-on `DESIGN_*.md` per workstream as implementation starts.  
 **Audience:** Lifeguard maintainers, `lifeguard-derive` authors, and application teams targeting SeaORM-like ergonomics on `may`.  
 **Iteration 2 (PRD follow-on):** default git branch for the next tranche of work — `feat/schema_validators_session_and_scopes_2` (v0 landed via PR #56 on `main`; this branch continues §5–§9 “still to do” items).  
-**References:** [README.md](../../README.md) competitive matrix (“Not Implemented” rows); [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md); `src/query/`, `lifeguard-derive/`, `lifeguard::LifeRecord` / `LifeModel` patterns.
+**References:** [COMPARISON.md](../../COMPARISON.md) competitive matrix (“Not Implemented” rows); [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md); `src/query/`, `lifeguard-derive/`, `lifeguard::LifeRecord` / `LifeModel` patterns.
 
 ---
 
@@ -207,7 +207,7 @@ Tackle after core PRD follow-through items:
 - **V-5 (derive sugar):** `#[validate(custom = path)]` on model fields — `path` is `fn(&sea_query::Value) -> Result<(), String>`; `LifeRecord` implements `validate_fields` to run each custom validator when `ActiveModelTrait::get` is `Some` for that column. Unsupported on `#[ignore]`/`#[skip]` fields. Tests: `lifeguard-derive/tests/test_minimal.rs` (`validate_attr_tests`).
 - **Built-in predicates:** `lifeguard::predicates` (`src/active_model/predicates.rs`) — `string_utf8_chars_max`, `string_utf8_chars_in_range`, `blob_or_string_byte_len_max`, `i64_in_range`, `f64_in_range` on `sea_query::Value`; unit tests in-module.
 
-**G6 (documentation):** README competitive/feature bullets and [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) parity row list shipped validator APIs, predicate names, and the intentional gap vs SeaORM’s broader built-in attribute set.
+**G6 (documentation):** [COMPARISON.md](../../COMPARISON.md) competitive/feature bullets and [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) parity row list shipped validator APIs, predicate names, and the intentional gap vs SeaORM’s broader built-in attribute set.
 
 ---
 
@@ -302,11 +302,11 @@ Tackle after core PRD follow-through items:
 - **Tests:** `src/query/column/column_trait.rs` — `test_f_add_update_sql_contains_arithmetic`, basic compile tests for `f_*`.
 - **Process:** `docs/planning/DEV_RUSTDOC_AND_COVERAGE.md` and `DEVELOPMENT.md` (rustdoc + coverage checklist for feature work).
 
-**F-3 (limitations vs raw SQL):** `ColumnTrait::f_add` rustdoc (aggregates/subqueries → `Expr::cust`); README competitive section + feature bullets (§10 / G6).
+**F-3 (limitations vs raw SQL):** `ColumnTrait::f_add` rustdoc (aggregates/subqueries → `Expr::cust`); [COMPARISON.md](../../COMPARISON.md) competitive section + feature bullets (§10 / G6).
 
-**PostgreSQL numeric typing (F-style ops):** SeaQuery emits `SimpleExpr` arithmetic; PostgreSQL applies **binary promotion** (e.g. `integer` + `numeric` → `numeric`). Lifeguard does **not** inject implicit casts—align operand types in the query builder, or use `Expr::cust` / explicit SQL for `::bigint`, `::numeric`, etc. README + [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) F() row; rustdoc on `ColumnTrait::f_add` (`src/query/column/column_trait.rs`).
+**PostgreSQL numeric typing (F-style ops):** SeaQuery emits `SimpleExpr` arithmetic; PostgreSQL applies **binary promotion** (e.g. `integer` + `numeric` → `numeric`). Lifeguard does **not** inject implicit casts—align operand types in the query builder, or use `Expr::cust` / explicit SQL for `::bigint`, `::numeric`, etc. [COMPARISON.md](../../COMPARISON.md) + [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) F() row; rustdoc on `ColumnTrait::f_add` (`src/query/column/column_trait.rs`).
 
-**Done in-tree:** `LifeRecord` `set_<field>_expr` / `__update_exprs` / derived `update()`; `identity_map_key` for session bridge; `insert()` rejects non-empty `__update_exprs`; Postgres `column_f_update.rs` + `column_f_where.rs`; README + mapping G6 for F().
+**Done in-tree:** `LifeRecord` `set_<field>_expr` / `__update_exprs` / derived `update()`; `identity_map_key` for session bridge; `insert()` rejects non-empty `__update_exprs`; Postgres `column_f_update.rs` + `column_f_where.rs`; [COMPARISON.md](../../COMPARISON.md) + mapping G6 for F().
 
 ### 8.8 Dependency note
 
@@ -376,7 +376,7 @@ Tackle after core PRD follow-through items:
 
 - [x] Each **phase** (A–E) has **passing tests** (unit and, where needed, integration with `TEST_DATABASE_URL`) — **v0:** phases ship unit tests; integration coverage varies by workstream (see §5.7–§9.7).
 - [x] **Public rustdoc** describes the supported API surface and sharp edges — **v0:** each phase documents limitations in-module (ongoing: expand examples as APIs stabilize).
-- [x] [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) and [README.md](../../README.md) competitive table updated: **Partial** / **Implemented** labels for schema inference, validators, scopes, F(), session/UoW; mapping doc **PRD parity snapshot** table.
+- [x] [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) and [COMPARISON.md](../../COMPARISON.md) competitive table updated: **Partial** / **Implemented** labels for schema inference, validators, scopes, F(), session/UoW; mapping doc **PRD parity snapshot** table.
 - [x] No new **unwrap** in library paths without JSF policy compliance; clippy `-D warnings` on touched crates — **policy:** `#![deny(clippy::unwrap_used)]` / `expect_used` on `lifeguard` crate; run clippy on touched crates before merge.
 
 ---
@@ -404,6 +404,6 @@ Tackle after core PRD follow-through items:
 
 ## 13. References
 
-- [README.md](../../README.md) — “Competitive metrics” table (Not Implemented rows).
+- [COMPARISON.md](../../COMPARISON.md) — competitive metrics table (Not Implemented rows).
 - [PRD_CONNECTION_POOLING.md](./PRD_CONNECTION_POOLING.md) — pool semantics that Session must align with.
 - PostgreSQL information schema — introspection source of truth for Phase A.

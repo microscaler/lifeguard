@@ -6,7 +6,7 @@ This document maps SeaORM (v2.0.0-rc.28) and SeaQuery (v0.32.7) components to th
 
 ### PRD parity snapshot (schema, validators, scopes, F(), session)
 
-Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md). These rows summarize **v0** shipped behavior vs SeaORM-style **vision**; the README competitive matrix tracks the same features.
+Cross-reference: [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md](../PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md). These rows summarize **v0** shipped behavior vs SeaORM-style **vision**; [COMPARISON.md](../../../COMPARISON.md) tracks the same features in table form.
 
 | Capability | Primary API / location | Status | Notes |
 |------------|------------------------|--------|-------|
