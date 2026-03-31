@@ -24,16 +24,20 @@
 //!
 //! # Pooling (U-4)
 //!
-//! See `docs/planning/DESIGN_SESSION_UOW.md` for how a future pool-bound session relates to
-//! [`LifeguardPool`](crate::LifeguardPool).
+//! See `docs/planning/DESIGN_SESSION_UOW.md` for pooling (U-4). [`Session`] bundles the map and a
+//! sendable [`SessionDirtyNotifier`] for `LifeRecord::attach_session` / `detach_session` (entities with a PK).
+//!
+//! Flush with [`LifeguardPool`](crate::LifeguardPool) via [`Session::flush_dirty`] and a [`PooledLifeExecutor`](crate::pool::PooledLifeExecutor) (or any [`LifeExecutor`](crate::executor::LifeExecutor)).
 //!
 //! # See also
 //!
 //! - Project PRD §9 (session / UoW).
 
 mod pk;
+mod uow;
 
 pub use pk::fingerprint_pk_values;
+pub use uow::{Session, SessionDirtyNotifier};
 
 use crate::active_model::ActiveModelError;
 use crate::executor::LifeExecutor;
