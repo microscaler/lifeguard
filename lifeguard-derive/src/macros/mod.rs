@@ -9,6 +9,7 @@ pub mod linked;
 pub mod partial_model;
 pub mod relation;
 pub mod scope_attr;
+pub mod scope_bundle;
 pub mod try_into_model;
 
 pub use migration_name_derive::derive_migration_name;

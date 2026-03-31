@@ -41,7 +41,7 @@ Order for remaining **Phase C** / **Phase E** polish (see §7.7, §9.7, [DESIGN_
 |------:|--------|------|
 | **1** | Phase E | **Mapping / docs:** keep [COMPARISON.md](../../COMPARISON.md) and [SEAORM_LIFEGUARD_MAPPING.md](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) aligned when APIs change; small rustdoc fixes in the same PRs as features. |
 | **2** | Phase C | **Examples:** integration test or `examples/` showing `find_related` then **`.scope` / `.filter`** on the returned `SelectQuery` (parent scopes are not merged into `find_related` SQL). |
-| **3** | Phase C | **Optional codegen:** scope bundles / lists on `Entity` (e.g. derive sugar for `#[scope]`); additive only. |
+| **3** | Phase C | **~~Optional codegen: scope bundles~~** — **shipped:** `lifeguard::scope_bundle` / `lifeguard_derive::scope_bundle` AND-combines listed `#[scope]` names into one `scope_*() -> sea_query::Condition`. Further list-on-struct sugar remains optional. |
 | **4** | Phase C | **Opt-in `related_scope` / inherited parent scopes:** design + API on `FindRelated` / `RelationDef` / loaders — **after** (2) and a short design addendum; highest integration risk. |
 
 ---
@@ -267,7 +267,7 @@ Tackle after core PRD follow-through items:
 - **Soft delete:** `query::scope` module documents that `LifeModelTrait::soft_delete_column` is applied at execution time and **AND**ed with scoped predicates unless `with_trashed` is set; unit test `scope_and_soft_delete_both_anded_at_execution`.
 - **Tests:** `src/query/scope.rs` — composition + soft-delete interaction + `scope_or` / `scope_any`.
 
-**Still to do for fuller Phase C:** optional codegen beyond `#[scope]` (e.g. scope lists on the struct). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** attribute macro (`lifeguard::scope` / `lifeguard_derive::scope`) on `impl Entity` renames `fn foo` → `scope_foo`. **`find_related` vs scopes:** default behavior documented in crate rustdoc (`query::scope`, `FindRelated`) and [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) (parent scopes are not merged into `find_related` SQL; chain on the returned query). **Integration example:** `tests/db_integration/related_trait.rs` — `test_find_related_chains_scope_on_related_query` chains `.scope` on the query from `find_related`. Opt-in `related_scope` / inherited parent scopes remain future work (see §0.3). README matrix (G6) updated for scopes.
+**Still to do for fuller Phase C:** optional extra codegen (e.g. declarative scope lists on the struct beyond `#[scope_bundle]`). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** (`lifeguard::scope`) on `impl Entity` renames `fn foo` → `scope_foo`; **`#[scope_bundle]`** (`lifeguard::scope_bundle`) AND-combines existing scopes into `scope_<name>() -> sea_query::Condition` (tests: `lifeguard-derive/tests/test_minimal.rs` `scope_bundle_and_chains`). **`find_related` vs scopes:** default behavior documented in crate rustdoc (`query::scope`, `FindRelated`) and [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) (parent scopes are not merged into `find_related` SQL; chain on the returned query). **Integration example:** `tests/db_integration/related_trait.rs` — `test_find_related_chains_scope_on_related_query` chains `.scope` on the query from `find_related`. Opt-in `related_scope` / inherited parent scopes remain future work (see §0.3). README matrix (G6) updated for scopes.
 
 ---
 

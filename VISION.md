@@ -125,7 +125,7 @@ The lists below mix **shipped**, **partial**, and **planned** capabilities. For 
 **Competitive Features:**
 - 🟡 Schema inference (`lifeguard-migrate infer-schema`, composite PK `#[primary_key]` codegen, `compare-schema` column drift — [PRD §5](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
 - 🟡 Session/Unit of Work (`ModelIdentityMap`, `Session` / `SessionDirtyNotifier`, `attach_session` + record auto-dirty enqueue, `flush_dirty` / `flush_dirty_with_map_key`, `register_pending_insert` / `promote_pending_to_loaded` / `is_pending_insert_key`, `flush_dirty_in_transaction` / `flush_dirty_in_transaction_pooled` + `LifeguardPool::exclusive_primary_write_executor`, `LifeRecord::identity_map_key` — [PRD §9](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
-- 🟡 Scopes (`SelectQuery::scope`, `scope_or` / `scope_any`, `#[scope]` on `impl Entity`; parent scopes are not merged into `find_related`—chain on the returned query — [PRD §7](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
+- 🟡 Scopes (`SelectQuery::scope`, `scope_or` / `scope_any`, `#[scope]` / `#[scope_bundle]` on `impl Entity`; parent scopes are not merged into `find_related`—chain on the returned query — [PRD §7](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
 - ✅ Model Managers (Django)
 - 🟡 F() Expressions (`ColumnTrait::f_*`, `LifeRecord::set_*_expr` / `identity_map_key`, `Expr::expr` in `WHERE`/`ORDER BY`; PostgreSQL applies its own numeric promotion for mixed types—match column/RHS types or use explicit casts when you need a specific storage type; [PRD §8](./docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md))
 - ✅ Advanced eager loading strategies (SQLAlchemy)

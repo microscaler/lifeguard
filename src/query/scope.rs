@@ -6,12 +6,15 @@
 //! [`sea_query::IntoCondition`] (e.g. [`sea_query::Expr`] from [`crate::ColumnTrait`]),
 //! then chain with [`SelectQuery::scope`] (or [`SelectQuery::filter`]). Prefer the
 //! [`crate::scope`] attribute on `impl Entity` so `fn active()` becomes `scope_active()`
-//! (see `lifeguard-derive` / PRD Phase C).
+//! (see `lifeguard-derive` / PRD Phase C). To **AND** several existing `scope_*` helpers without
+//! repeating `.scope` at every call site, use [`crate::scope_bundle`] on `impl Entity`:
+//! `#[scope_bundle(active, published)] fn storefront() {}` → `scope_storefront() -> Condition`.
 //!
 //! ```ignore
 //! User::find()
 //!     .scope(UserEntity::scope_active())
 //!     .scope(UserEntity::scope_published())
+//! // or: User::find().scope(UserEntity::scope_storefront())
 //! ```
 //!
 //! # Composition

@@ -89,7 +89,7 @@ pub use pool::{
 };
 
 #[doc(inline)]
-pub use lifeguard_derive::scope;
+pub use lifeguard_derive::{scope, scope_bundle};
 
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
 // Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
