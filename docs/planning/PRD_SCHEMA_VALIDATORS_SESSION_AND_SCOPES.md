@@ -199,8 +199,9 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Integration:** `lifeguard-derive` generated `insert` / `update` / `delete` call `run_validators` **after** the corresponding `before_*` hook and **before** SQL build.
 - **Tests:** Unit tests on `run_validators` ordering, fail-fast, aggregate collection, and `Delete` op; `cargo clippy` / `lifeguard-derive` tests pass.
 - **V-5 (derive sugar):** `#[validate(custom = path)]` on model fields — `path` is `fn(&sea_query::Value) -> Result<(), String>`; `LifeRecord` implements `validate_fields` to run each custom validator when `ActiveModelTrait::get` is `Some` for that column. Unsupported on `#[ignore]`/`#[skip]` fields. Tests: `lifeguard-derive/tests/test_minimal.rs` (`validate_attr_tests`).
+- **Built-in predicates:** `lifeguard::predicates` (`src/active_model/predicates.rs`) — `string_utf8_chars_max`, `string_utf8_chars_in_range`, `blob_or_string_byte_len_max`, `i64_in_range`, `f64_in_range` on `sea_query::Value`; unit tests in-module.
 
-**Still to do for fuller Phase B:** built-in predicates (`range`, `len`, …) if desired; README / mapping matrix polish (G6).
+**Still to do for fuller Phase B:** README / mapping matrix polish (G6).
 
 ---
 

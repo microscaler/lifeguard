@@ -1,6 +1,7 @@
 # Progress Tracking
 
 ## Completed ✅
+- **PRD Phase B — built-in validation predicates (2026-03-31):** `src/active_model/predicates.rs` (`lifeguard::predicates`) — `string_utf8_chars_max`, `string_utf8_chars_in_range`, `blob_or_string_byte_len_max`, `i64_in_range`, `f64_in_range`; PRD §6.7 + SEAORM parity row; `lib.rs` re-export.
 - **PRD Phase E — `Session::flush_dirty_in_transaction` (2026-03-31):** `MayPostgresExecutor` + `BEGIN`/`COMMIT`/`ROLLBACK` around `flush_dirty`; docs (PRD §9.7, `DESIGN_SESSION_UOW.md`, `session` module); integration `session_flush_dirty_in_transaction_persists_via_update`; `register_loaded` rustdoc (insert path).
 - **PRD Phase E — `Session` + auto-dirty on `LifeRecord` (2026-03-31):** `src/session/uow.rs` (`Session`, `SessionDirtyNotifier`, pending-dirty merge at `flush_dirty`); `LifeRecord` derive: `attach_session` / `detach_session`, `__lg_session_notifier`, hooks on `set_*` / `set` / `take` / `set_col` / `set_*_expr` (PK entities); integration `session_flush_dirty_after_attach_session_and_set_n_on_record`; PRD §0.1/§9.7, `DESIGN_SESSION_UOW.md`, `DEVELOPMENT.md`. `Send`-safe notifier (graph closures).
 - **PRD §9 Postgres flush integration (2026-03-30):** `tests/db_integration/session_identity_flush.rs` (`identity_map_flush_dirty_persists_via_update`, `identity_map_flush_dirty_with_mark_dirty_key_and_identity_map_key`); `db_integration_suite` module; PRD §9.7 + `DEVELOPMENT.md`.

@@ -60,6 +60,9 @@ pub mod validation;
 #[doc(inline)]
 pub use validation::{run_validators, run_validators_with_strategy};
 
+/// Built-in `len` / `range`-style validators on [`sea_query::Value`] (PRD Phase B follow-on).
+pub mod predicates;
+
 // Graph sorting and nesting mechanics
 pub mod graph;
 #[doc(inline)]
