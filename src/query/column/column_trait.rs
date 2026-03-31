@@ -119,21 +119,32 @@ pub trait ColumnTrait: IntoColumnRef {
     ///
     /// For nested aggregates, subqueries, or vendor-only functions, use [`Expr::cust`](sea_query::Expr::cust)
     /// or SeaQuery’s expression API directly.
+    ///
+    /// **PostgreSQL numeric typing:** mixed operand types (e.g. `integer` + `numeric`) follow PostgreSQL’s
+    /// usual promotion rules. If you need a specific result type (e.g. `bigint`), match column and RHS types
+    /// or add an explicit cast in SQL via [`Expr::cust`](sea_query::Expr::cust) / SeaQuery—Lifeguard does not
+    /// inject casts. See PRD §8 / README (F() / competitive matrix) for shipped vs raw-SQL fallbacks.
     fn f_add<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
         Expr::col(self).add(rhs)
     }
 
     /// Database-side **subtract**: `column - rhs`.
+    ///
+    /// Same PostgreSQL numeric promotion considerations as [`ColumnTrait::f_add`].
     fn f_sub<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
         Expr::col(self).sub(rhs)
     }
 
     /// Database-side **multiply**: `column * rhs`.
+    ///
+    /// Same PostgreSQL numeric promotion considerations as [`ColumnTrait::f_add`].
     fn f_mul<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
         Expr::col(self).mul(rhs)
     }
 
     /// Database-side **divide**: `column / rhs`.
+    ///
+    /// Same PostgreSQL numeric promotion considerations as [`ColumnTrait::f_add`].
     fn f_div<R: Into<sea_query::SimpleExpr>>(self, rhs: R) -> sea_query::SimpleExpr {
         Expr::col(self).div(rhs)
     }
