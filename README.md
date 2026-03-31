@@ -1,5 +1,10 @@
 <p align="center">
-  <img src="/docs/images/Lifeguard2.png" alt="Lifeguard logo" />
+  <a href="https://github.com/microscaler/lifeguard/actions/workflows/ci.yaml?query=branch%3Amain"><img src="https://github.com/microscaler/lifeguard/actions/workflows/ci.yaml/badge.svg" alt="Lifeguard CI" /></a>
+  &nbsp;
+  <a href="https://github.com/microscaler/lifeguard/blob/main/.github/workflows/ci.yaml"><img src="https://img.shields.io/badge/CI-rustc%20nightly-orange?logo=rust&logoColor=white" alt="CI uses Rust nightly (see workflow for pinned toolchain)" /></a>
+</p>
+<p align="center">
+  <img src="/docs/images/Lifeguard2.png" alt="Lifeguard logo" width="600" />
 </p>
 
 # 🛟 Lifeguard: Coroutine-Driven Database Runtime for Rust
@@ -8,7 +13,7 @@
 
 ## Why Lifeguard (technical bet)
 
-**The problem:** Existing Rust ORMs (SeaORM, Diesel, SQLx) target async/`Tokio`. The `may` coroutine runtime uses stackful coroutines, not async futures—**architectures do not bridge** without significant cost.
+**The problem:** Existing Rust ORMs (SeaORM, Diesel, SQLx) target async/`Tokio`. The `may` coroutine runtime uses stackful coroutines, not async futures—**architectures do not bridge** without significant cost. For the narrative on that mismatch and the pain of forcing async ORMs onto a coroutine stack, see **[LIFEGUARD_BLOG_POST.md](./LIFEGUARD_BLOG_POST.md)**.
 
 **The approach:** A full ORM on **`may_postgres`** (coroutine-native PostgreSQL). No async runtime on the database path. Pure coroutine I/O.
 
@@ -98,6 +103,7 @@ There is **no** `lifeguard::testkit` / `test_pool!` macro in this repository; us
 | **Roadmap (high-level areas)** | [ROADMAP.md](./ROADMAP.md) |
 | **Competitive matrix, ecosystem, performance framing** | [COMPARISON.md](./COMPARISON.md) |
 | **Product vision & long-form “what we’re building”** | [VISION.md](./VISION.md) |
+| **Blog: async ORMs vs `may`, and why Lifeguard exists** | [LIFEGUARD_BLOG_POST.md](./LIFEGUARD_BLOG_POST.md) |
 | **Architecture (diagrams, flows)** | [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | **Observability overview (OTel-compatible, Datadog via OTLP)** | [OBSERVABILITY.md](./OBSERVABILITY.md) |
 | **Host-owned OTel/tracing wiring** | [docs/OBSERVABILITY_APP_INTEGRATION.md](./docs/OBSERVABILITY_APP_INTEGRATION.md) |

@@ -1,5 +1,13 @@
 # Progress Tracking
 
+## README badges + logo width (2026-03-28)
+
+- **README.md:** CI badges above hero — **Lifeguard CI** workflow badge (`ci.yaml` on `main`) + static **rustc nightly** badge linking to `.github/workflows/ci.yaml`. Logo image **`width="600"`**.
+
+## README blog link (2026-03-28)
+
+- **README.md:** “The problem” in **Why Lifeguard** links to **`LIFEGUARD_BLOG_POST.md`** at repo root (async/`Tokio` ORMs vs `may`); Documentation table row added.
+
 ## README reorg — STATUS / ROADMAP / COMPARISON (2026-03-28)
 
 - **STATUS.md** (repo root): former README **“Current status (repository truth)”** bullets (verbatim relocation).
@@ -7,6 +15,7 @@
 - **COMPARISON.md** (repo root): competitive metrics table, legend, implementation summary, differentiators, performance tables, ecosystem compatibility, “when to use” — plus former duplicate **Performance** marketing bullets merged as **Target performance claims**.
 - **README.md**: pitch-first spine — merged **Why Lifeguard** + executive intent into **Why Lifeguard (technical bet)**; links to STATUS/COMPARISON/VISION; compact architecture + getting started + observability + testing; **Documentation** table indexes new files.
 - **Cross-links:** `VISION.md`, `ARCHITECTURE.md` (LifeReflector anchor fixed to `VISION.md#the-killer-feature-lifereflector`), `docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`, `docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md` now reference `COMPARISON.md` where the competitive table lives.
+- **Git:** `2ee3554` on `feat/schema_validators_session_and_scopes_2` — pushed to `origin` (`farm git commit` + `farm git push`).
 
 ## VISION.md + README CTO summary (2026-03-28)
 
