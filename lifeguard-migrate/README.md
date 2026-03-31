@@ -15,7 +15,7 @@ Migration CLI tool for Lifeguard ORM - manage database schema changes with versi
 - ✅ **Status Tracking** - View applied vs pending migrations
 - ✅ **Entity-Driven Generation** - Generate SQL migrations from Lifeguard entity definitions
 - ✅ **Schema inference (`infer-schema`)** - Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout); see below
-- ✅ **DB vs generated migration baseline (`compare-schema`)** - Compare live `information_schema` base table names to merged `*_generated_from_entities.sql` (`-- Table:` sections) for DBA / CI confidence; see below
+- ✅ **DB vs generated migration baseline (`compare-schema`)** - Reconcile live `information_schema` tables and (for tables in both baselines) **column names** vs merged `*_generated_from_entities.sql` (`CREATE` + `ADD COLUMN`); see below
 - ✅ **CI/CD Integration** - Designed for automated deployment pipelines
 - ✅ **Dry Run Mode** - Preview migrations without executing them
 
@@ -164,7 +164,7 @@ This scans entity definitions and generates SQL migration files for tables, colu
 
 ### `infer-schema`
 
-Introspect a live **PostgreSQL** database (`information_schema`) and print conservative Rust entity sketches to **stdout**. Output is **review-first**: paste into your crate, adjust types, and fix composite PKs (`TODO` comments) as needed.
+Introspect a live **PostgreSQL** database (`information_schema`) and print conservative Rust entity sketches to **stdout**. Output is **review-first**: paste into your crate and adjust types; **composite** primary keys emit `#[primary_key]` on each PK column (same as single-column PKs).
 
 **Requirements:** `--database-url` or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL` (same as other DB commands).
 
@@ -201,9 +201,14 @@ cargo test -p lifeguard-migrate schema_infer
 
 ### `compare-schema`
 
-Compare **live PostgreSQL base tables** (`information_schema.tables`, `table_type = 'BASE TABLE'`) to the set of table names implied by merged **`*_generated_from_entities.sql`** files under a directory (same `-- Table: name` sections used by entity-driven delta generation). **Table names only** — not column types or constraints — useful for spotting drift between what was applied to the database and what your generated migration history describes. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
+Compare **live PostgreSQL** to merged **`*_generated_from_entities.sql`** under a directory:
 
-**Exit code:** `0` when the two sets match; non-zero when there are tables only in the database or only on disk (CI-friendly).
+1. **Table names:** `information_schema` base tables (`table_type = 'BASE TABLE'`) vs `-- Table: name` sections (after chronological merge).
+2. **Column names:** for each table present in **both** baselines, `information_schema.columns` vs columns parsed from the merged `CREATE TABLE` body plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` lines (`column_map_from_merged_baseline`).
+
+Column reconciliation is **name-level** (presence of columns), not equality of SQL types or full `CREATE` definitions. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
+
+**Exit code:** `0` when there is no drift; non-zero when extra/missing tables or extra/missing column names on shared tables (CI-friendly).
 
 ```bash
 lifeguard-migrate compare-schema \

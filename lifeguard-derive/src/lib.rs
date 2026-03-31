@@ -257,7 +257,7 @@ pub fn derive_try_into_model(input: TokenStream) -> TokenStream {
     macros::derive_try_into_model(input)
 }
 
-/// Derive macro for a **unit struct** migration name (snake_case of the type name).
+/// Derive macro for a **unit struct** migration name (`snake_case` of the type name).
 ///
 /// Implements [`lifeguard::migration::MigrationName`] and defines an associated constant
 /// `MIGRATION_NAME`. Pair with manual [`lifeguard::migration::Migration`] for `up` / `down`.

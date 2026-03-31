@@ -13,7 +13,7 @@
 | Layer | Crate / binary | Responsibility |
 |--------|----------------|----------------|
 | Introspection | `lifeguard_migrate::schema_infer` | Query PostgreSQL `information_schema` (and related catalogs), map types conservatively, emit Rust source **as text** via `infer_schema_rust` → `emit_inferred_rust`. **Golden tests** lock emitter output under `lifeguard-migrate/tests/golden/` (no live DB required). |
-| Reconciliation (table names) | `lifeguard_migrate::schema_migration_compare` | Compare live `information_schema.tables` (`BASE TABLE`) to table names from merged `*_generated_from_entities.sql` (`-- Table:` sections via `generated_migration_diff::accumulate_table_baselines_from_dir`). **Not** column-level diff — DBA confidence that the database’s table inventory matches the entity-generated migration baseline on disk. |
+| Reconciliation (tables + columns) | `lifeguard_migrate::schema_migration_compare` | Compare live `information_schema` **base table names** to merged `*_generated_from_entities.sql`; for tables in **both** baselines, compare **column names** (`information_schema.columns` vs `generated_migration_diff::column_map_from_merged_baseline` from `CREATE` + `ADD COLUMN` fragments). Name-level only — not full SQL type equality. |
 | CLI | `lifeguard-migrate` subcommands **`infer-schema`**, **`compare-schema`** | **`infer-schema`:** `--database-url` / env, `--schema`, repeatable `--table`; call `infer_schema_rust`, print Rust. **`compare-schema`:** `--generated-dir` (directory of `*_generated_from_entities.sql`), same schema flag; exit non-zero on drift. |
 | Consumption | Application / examples | Teams **copy, review, and commit** emitted `LifeModel` / `LifeRecord` modules into their crate (e.g. `examples/entities`). No automatic merge into `lifeguard-codegen` today. |
 
@@ -22,13 +22,13 @@
 ## What is intentionally out of scope for v0
 
 - **Bidirectional sync** (DB change → Rust → DB) as a single command.
-- **Watch mode** / CI diff gates (PRD stretch; may build on stable sort + golden files).
+- **Watch mode** / richer CI golden workflows — **deferred** (PRD §5.7a); may build on stable sort + golden files.
 - **Emitting migrations** from inferred models — migration SQL continues to flow from entity definitions + `lifeguard-migrate` generators, not from `infer-schema` alone.
 
 ## Type mapping policy
 
 - **Conservative:** unknown PostgreSQL types → omit column with `// OMITTED:` (see `schema_infer.rs` and PRD SI-2).
-- **Composite primary keys:** emitted with `TODO` comments; single-column PKs get `#[primary_key]`.
+- **Composite primary keys:** each PK column gets `#[primary_key]` (same as multi-field PK support in `lifeguard-derive`).
 - **Versioning:** mapping tables live in code; when extending types, update tests and this doc’s PRD cross-reference.
 
 ## Safety and configuration

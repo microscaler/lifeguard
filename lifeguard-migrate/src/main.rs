@@ -102,9 +102,11 @@ enum Commands {
         tables: Vec<String>,
     },
 
-    /// Compare live database **base table** names to merged **`*_generated_from_entities.sql`** baselines (`-- Table:` sections).
+    /// Compare live database to merged **`*_generated_from_entities.sql`** baselines (`-- Table:` sections).
     ///
-    /// Exits with an error when sets differ (DBA / CI confidence). Does not compare column types—only table name presence.
+    /// Reconciles **table names** (base tables in `information_schema`) and, for tables present in both
+    /// baselines, **column names** from `information_schema.columns` vs parsed `CREATE TABLE` + `ADD COLUMN`
+    /// lines. Does not compare SQL type text or constraints in depth (name-level column diff only).
     CompareSchema {
         /// PostgreSQL schema (namespace) for `information_schema.tables`
         #[arg(long, default_value = "public")]
@@ -249,7 +251,7 @@ fn handle_compare_schema(
     print!("{report}");
     if report.has_drift() {
         return Err(MigrationError::InvalidFormat(
-            "compare-schema: live database table set does not match merged generated migration baseline (see above)."
+            "compare-schema: live database does not match merged generated migration baseline (tables and/or column names — see above)."
                 .to_string(),
         ));
     }

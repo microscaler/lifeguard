@@ -27,6 +27,15 @@
 //! `deleted_at IS NULL` (or the configured column) **unless** [`SelectQuery::with_trashed`]
 //! was used. That predicate is **AND**ed with every `scope` / `filter` you added. Scopes do
 //! not replace the global soft-delete filter.
+//!
+//! # Relations and `find_related`
+//!
+//! Scopes apply to the **root** entity of the [`SelectQuery`] you are building. They are **not**
+//! automatically merged into [`crate::FindRelated::find_related`] SQL, which selects from the **related**
+//! table and applies only the relation `WHERE` from [`crate::build_where_condition`]. Chain
+//! [`.scope`](crate::SelectQuery::scope) / [`.filter`](crate::SelectQuery::filter) on the query returned
+//! by `find_related` to filter related rows. Design note (repository):
+//! `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`.
 
 use crate::query::select::SelectQuery;
 use crate::query::traits::LifeModelTrait;

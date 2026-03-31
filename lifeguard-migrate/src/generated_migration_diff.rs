@@ -65,6 +65,25 @@ pub struct TableBaselineParts {
     pub delta_section_fragments: Vec<String>,
 }
 
+/// Column names → definition tail (everything after the column name) from a merged table baseline:
+/// `CREATE TABLE` column lines plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` from merged deltas.
+///
+/// Used by [`crate::schema_migration_compare`] for column-level reconciliation with `information_schema`.
+#[must_use]
+pub fn column_map_from_merged_baseline(parts: &TableBaselineParts) -> BTreeMap<String, String> {
+    let combined = combined_old_section(parts);
+    let mut cols = BTreeMap::new();
+    if let Some(sec) = parts.last_create_section.as_ref() {
+        if let Some((_, body, _)) = extract_create_and_tail(sec) {
+            cols = parse_column_defs_from_create_body(&body);
+        }
+    }
+    for (name, def) in parse_add_columns_from_alter_blob(&combined) {
+        cols.insert(name, def);
+    }
+    cols
+}
+
 /// Replay every `*_generated_from_entities.sql` under `dir` (oldest first) and merge table sections.
 #[must_use]
 pub fn accumulate_table_baselines_from_dir(dir: &Path) -> BTreeMap<String, TableBaselineParts> {
@@ -659,5 +678,25 @@ CREATE TABLE IF NOT EXISTS widgets (
             prev,
             &[("widgets".into(), new_sql.into())]
         ));
+    }
+
+    #[test]
+    fn column_map_from_merged_baseline_merges_create_and_alter() {
+        let mut parts = TableBaselineParts::default();
+        parts.last_create_section = Some(
+            r"CREATE TABLE IF NOT EXISTS widgets (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR(255) NOT NULL
+);"
+            .to_string(),
+        );
+        parts.delta_section_fragments.push(
+            "ALTER TABLE widgets ADD COLUMN IF NOT EXISTS sku VARCHAR(50) NOT NULL DEFAULT '';\n"
+                .to_string(),
+        );
+        let m = column_map_from_merged_baseline(&parts);
+        assert!(m.contains_key("id"));
+        assert!(m.contains_key("name"));
+        assert!(m.contains_key("sku"));
     }
 }

@@ -7,7 +7,8 @@ use lifeguard_derive::{LifeModel, LifeRecord};
 #[derive(Debug, Clone, PartialEq, LifeModel, LifeRecord)]
 #[table_name = "pair_keys"]
 pub struct PairKeys {
-    // TODO: composite PRIMARY KEY (site_id, item_id) — confirm Lifeguard PK tuple layout.
+    #[primary_key]
     pub site_id: i32,
+    #[primary_key]
     pub item_id: i32,
 }

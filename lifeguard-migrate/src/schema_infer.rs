@@ -147,15 +147,6 @@ pub(crate) fn emit_inferred_rust(
         writeln!(out, "#[table_name = \"{}\"]", table).unwrap();
         writeln!(out, "pub struct {} {{", struct_name).unwrap();
 
-        if pk_cols.len() > 1 {
-            writeln!(
-                out,
-                "    // TODO: composite PRIMARY KEY ({}) — confirm Lifeguard PK tuple layout.",
-                pk_cols.join(", ")
-            )
-            .unwrap();
-        }
-
         for col in &cols {
             let rust_type = map_pg_to_rust(&col.data_type, &col.udt_name, col.is_nullable);
             if let Some((ty, attrs)) = rust_type {
@@ -163,7 +154,7 @@ pub(crate) fn emit_inferred_rust(
                 for line in attrs {
                     writeln!(out, "    {}", line).unwrap();
                 }
-                if pk_set.len() == 1 && pk_set.contains(&col.column_name) {
+                if pk_set.contains(&col.column_name) {
                     writeln!(out, "    #[primary_key]").unwrap();
                 }
                 writeln!(out, "    pub {}: {},", field, ty).unwrap();
@@ -399,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn golden_emit_composite_primary_key_todo() {
+    fn golden_emit_composite_primary_key() {
         let columns = vec![
             ColumnMeta {
                 table_name: "pair_keys".into(),

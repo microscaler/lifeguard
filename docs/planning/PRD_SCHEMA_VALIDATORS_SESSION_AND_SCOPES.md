@@ -127,20 +127,26 @@ Success means developers can (where applicable) **generate or refresh** models f
 **Still product-open:**
 
 - Emit `LifeModel` only vs also `LifeRecord` stubs vs `PartialModel` hints (v0 emits both derives where applicable).
-- Watch mode / CI golden snapshots (PRD stretch).
 
 ### 5.7 Implementation status (v0)
 
 **Shipped in-tree:**
 
 - **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url <URL>` (or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`). Flags: `--schema` (default `public`), `--table TABLE` (repeatable) to restrict tables.
-- **Library:** `lifeguard_migrate::schema_infer::{infer_schema_rust, InferOptions}` — introspects `information_schema`, maps common PostgreSQL types to Rust types conservatively, emits `#[derive(LifeModel, LifeRecord)]` structs with `#[primary_key]` when the PK is a **single** column; **composite** PKs get a `TODO` comment; unsupported types are **omitted** with `// OMITTED:` lines (SI-2).
+- **Library:** `lifeguard_migrate::schema_infer::{infer_schema_rust, InferOptions}` — introspects `information_schema`, maps common PostgreSQL types to Rust types conservatively, emits `#[derive(LifeModel, LifeRecord)]` structs with `#[primary_key]` on **each** primary-key column (including **composite** PKs — multiple `#[primary_key]` attributes, matching `lifeguard-derive`); unsupported types are **omitted** with `// OMITTED:` lines (SI-2).
 
-**SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK TODO, table filter, SQL keyword field).
+**SI-1 / golden coverage:** deterministic output is covered by unit tests on `emit_inferred_rust` in `lifeguard-migrate/src/schema_infer.rs` against `lifeguard-migrate/tests/golden/*.expected.rs` (single table, omitted column, composite PK, table filter, SQL keyword field).
 
-**Phase A closure (documentation + tests):** **`infer-schema` CLI subprocess e2e** — `lifeguard-migrate/tests/infer_schema_cli_subprocess.rs` (spawns `CARGO_BIN_EXE_lifeguard-migrate infer-schema`, asserts banner; skips without DB URL). **Library / CI:** `infer_schema_postgres_smoke.rs`, `infer_schema_table_filter_si3.rs` (unchanged). **DBA confidence — live DB vs on-disk generated migrations:** `lifeguard_migrate::schema_migration_compare` + CLI **`compare-schema`** — compares `information_schema` base table names to merged `*_generated_from_entities.sql` `-- Table:` baselines; `tests/migration_db_compare_smoke.rs`. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`, `compare-schema`), `DEVELOPMENT.md` (migrate section).
+**Phase A closure (documentation + tests):** **`infer-schema` CLI subprocess e2e** — `lifeguard-migrate/tests/infer_schema_cli_subprocess.rs` (spawns `CARGO_BIN_EXE_lifeguard-migrate infer-schema`, asserts banner; skips without DB URL). **Library / CI:** `infer_schema_postgres_smoke.rs`, `infer_schema_table_filter_si3.rs` (unchanged). **DBA confidence — live DB vs on-disk generated migrations:** `lifeguard_migrate::schema_migration_compare` + CLI **`compare-schema`** — reconciles **`information_schema` base table names** and, for tables present in both baselines, **column names** (`information_schema.columns` vs columns parsed from merged `CREATE TABLE` + `ADD COLUMN` fragments via `column_map_from_merged_baseline`); **does not** compare SQL type text or constraints in depth. `tests/migration_db_compare_smoke.rs`. **Docs:** `lifeguard-migrate/README.md` (`infer-schema`, `compare-schema`), `DEVELOPMENT.md` (migrate section).
 
-**Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary; compare-schema table-name reconciliation).
+**Design:** [DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md](./DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md) (CLI vs codegen boundary; `compare-schema` column reconciliation is name-level only).
+
+### 5.7a Deferred (Phase A stretch — end of backlog)
+
+Tackle after core PRD follow-through items:
+
+- **Watch mode** for `infer-schema`
+- **Richer CI golden workflows** (snapshot automation beyond current unit goldens)
 
 ---
 
@@ -249,7 +255,7 @@ Success means developers can (where applicable) **generate or refresh** models f
 - **Soft delete:** `query::scope` module documents that `LifeModelTrait::soft_delete_column` is applied at execution time and **AND**ed with scoped predicates unless `with_trashed` is set; unit test `scope_and_soft_delete_both_anded_at_execution`.
 - **Tests:** `src/query/scope.rs` — composition + soft-delete interaction + `scope_or` / `scope_any`.
 
-**Still to do for fuller Phase C:** optional codegen beyond `#[scope]` (e.g. scope lists on the struct). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** attribute macro (`lifeguard::scope` / `lifeguard_derive::scope`) on `impl Entity` renames `fn foo` → `scope_foo`. **`find_related` / loaders:** see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md). README matrix (G6) updated for scopes.
+**Still to do for fuller Phase C:** optional codegen beyond `#[scope]` (e.g. scope lists on the struct). **Done in-tree:** `SelectQuery::scope_or` / `scope_any` (PRD SC-2); **`#[scope]`** attribute macro (`lifeguard::scope` / `lifeguard_derive::scope`) on `impl Entity` renames `fn foo` → `scope_foo`. **`find_related` vs scopes:** default behavior documented in crate rustdoc (`query::scope`, `FindRelated`) and [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) (parent scopes are not merged into `find_related` SQL; chain on the returned query). Opt-in `related_scope` / inherited parent scopes remain future work. README matrix (G6) updated for scopes.
 
 ---
 
