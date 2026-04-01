@@ -44,7 +44,7 @@
 
 ### Before we “build” anything here
 
-There is nothing to code for G6 itself. The **next action** is to adopt the checklist in **review** (and optionally add one sentence to **DEVELOPMENT.md** pointing here if the team wants it — only if requested).
+There is nothing to code for G6 itself. The checklist lives in **[DEVELOPMENT.md](../../DEVELOPMENT.md)** (**G6 — COMPARISON + SeaORM mapping**) and points here for full context.
 
 ---
 
@@ -69,19 +69,18 @@ There is nothing to code for G6 itself. The **next action** is to adopt the chec
 - New users copy the example: “start from a loaded **parent model**, call **`find_related::<Child>()`**, then **`.scope(ChildEntity::scope_…())`** (or **`.filter`**).”
 - Comments in the example state the invariant: **`Post::find().scope(published)`** does **not** flow into **`post_model.find_related::<Comment>()`** — only **Comment**-table scopes on the returned query apply unless you use **`find_related_parent_scoped`** for **parent-table** predicates.
 
-### Suggested shape of a future `examples/` addition (not implemented here)
+### Shipped example (root crate)
 
-- One binary, same entities as an existing integration scenario if possible (avoid new schema), or a tiny in-repo schema under `examples/` already used elsewhere.
-- **Print or query** optional; the value is **compiling, commented code** linked from **README** documentation table.
+- **`examples/find_related_scope_example.rs`** — compiles without a database (`cargo check --example find_related_scope_example`); demonstrates **`find_related` → `.scope`** and **`find_related_scoped`** with the same related-side predicate. Table names are **`example_scope_demo_*`** (documentation-only; no DDL in this binary).
 
 ### Risks / constraints
 
 - Examples must stay **in sync** with derive and relation APIs — treat them as **extra coverage** that CI compiles (`cargo check -p …` / workspace `examples` pattern the repo already uses).
 - Do not imply **parent** scope inheritance; pair with a one-line pointer to [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md).
 
-### Before we build
+### Before further work
 
-Decide: **doc-only** pointer to existing integration tests vs **new `examples/` binary**. If the team wants **`examples/`**, pick the smallest crate layout consistent with the workspace (follow existing `examples/` conventions in this repo).
+Integration tests in **`tests/db_integration/related_trait.rs`** remain the **behavioral** source of truth; the **`examples/`** binary is for **discovery** and **compile-time** documentation.
 
 ---
 
@@ -131,7 +130,7 @@ See also appendix **§C** in [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELAT
 
 ### Before we build
 
-Requires a **design spike** (separate short **DESIGN_** doc or ADR): chosen SQL shape for at least **`has_many`** + **`has_many_through`**, interaction with **soft delete**, and **performance** expectations. This markdown intentionally **does not** specify the API.
+See **[DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md)** for candidate directions, open questions, and spike exit criteria. This section remains **non-normative** until that spike concludes.
 
 ---
 
@@ -140,3 +139,4 @@ Requires a **design spike** (separate short **DESIGN_** doc or ADR): chosen SQL 
 - PRD: [§0.3 Follow-on priority](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) (search **0.3**)
 - Relations + scopes default: [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md)
 - Deferred compare-schema index parity: [DESIGN_FIND_RELATED_SCOPES.md — Appendix](./DESIGN_FIND_RELATED_SCOPES.md#appendix-deferred-behavior-and-how-it-would-be-used) §A
+- Inherited parent + loader spike: [DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md)

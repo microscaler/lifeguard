@@ -35,6 +35,15 @@ just validate      # Run all checks (format, lint, check, tests)
 
 For each PRD-driven or user-facing change, follow **`docs/planning/DEV_RUSTDOC_AND_COVERAGE.md`**: update **`///` rustdoc** for public API, add **unit/integration tests** as appropriate, and optionally run **`cargo llvm-cov`** (see `just test-coverage`) before merge.
 
+### G6 — COMPARISON + SeaORM mapping (PRD)
+
+When you change **user-visible** APIs (`lifeguard`, `lifeguard-derive`, `lifeguard-migrate` CLI), keep narrative docs in sync:
+
+1. **[COMPARISON.md](./COMPARISON.md)** — repository truth and matrix rows.
+2. **[docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md)** — parity snapshot and feature bullets.
+
+Prefer **same-PR** updates for small deltas. Full checklist and context: **[docs/planning/PRD_FOLLOWON_NEXT_THREE.md](./docs/planning/PRD_FOLLOWON_NEXT_THREE.md)** §1.
+
 ### `lifeguard-migrate` and schema inference
 
 **CLI:** `cargo run -p lifeguard-migrate -- infer-schema --database-url …` (or set `DATABASE_URL` / `LIFEGUARD_DATABASE_URL`); optional **`--watch`** / **`--watch-interval-secs`** re-poll and re-print when emitted Rust changes (PRD §5.7a). **`compare-schema`** compares live base tables, per-table column names, and simple index key names to merged `*_generated_from_entities.sql` under `--generated-dir` (DBA / CI). See **`lifeguard-migrate/README.md`** (`infer-schema` and `compare-schema`) and **`docs/planning/DESIGN_SCHEMA_INFERENCE_CLI_CODEGEN.md`**.

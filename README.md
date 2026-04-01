@@ -109,7 +109,8 @@ There is **no** `lifeguard::testkit` / `test_pool!` macro in this repository; us
 | **Metrics tables, Kind/Tilt `kubectl apply`** | [docs/OBSERVABILITY.md](./docs/OBSERVABILITY.md#kubernetes-kind-tilt-apply-and-refresh-dashboards) |
 | **Connection pool operations & tuning** | [docs/POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md) · [docs/planning/DESIGN_CONNECTION_POOLING.md](./docs/planning/DESIGN_CONNECTION_POOLING.md) |
 | **SeaORM ↔ Lifeguard mapping (authoritative parity)** | [docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) |
-| **Developer workflow & Clippy / pre-commit** | [DEVELOPMENT.md](./DEVELOPMENT.md) |
+| **Developer workflow, Clippy / pre-commit, G6 doc alignment** | [DEVELOPMENT.md](./DEVELOPMENT.md) |
+| **`find_related` + related-side scope (compile-only example)** | [examples/find_related_scope_example.rs](./examples/find_related_scope_example.rs) |
 | **Tests & CI Postgres/Redis** | [docs/TEST_INFRASTRUCTURE.md](./docs/TEST_INFRASTRUCTURE.md) |
 | **Epic notes & story tree** | [docs/EPICS/](./docs/EPICS/) · [docs/planning/epics-stories/](./docs/planning/epics-stories/) |
 | **Planning index** | [docs/planning/README.md](./docs/planning/README.md) |

@@ -46,7 +46,7 @@ Order for remaining **Phase C** / **Phase E** polish (see §7.7, §9.7, [DESIGN_
 
 ### 0.4 Expanded: next three follow-on items (teaching + planning)
 
-Rows **1**, **2**, and **4** from the table above are expanded in one place — **usage today vs future**, **G6 checklist**, **example-surface gap** (`examples/` vs tests only), and **why inherited parent + loader merge is highest risk** — in **[PRD_FOLLOWON_NEXT_THREE.md](./PRD_FOLLOWON_NEXT_THREE.md)**. Read that before scheduling implementation or a design spike.
+Rows **1**, **2**, and **4** from the table above are expanded in one place — **usage today vs future**, **G6 checklist**, **example surface** (`examples/find_related_scope_example.rs` in the crate root), and **why inherited parent + loader merge is highest risk** — in **[PRD_FOLLOWON_NEXT_THREE.md](./PRD_FOLLOWON_NEXT_THREE.md)**. **G6** is also summarized in **[DEVELOPMENT.md](../DEVELOPMENT.md)**. A pre-code **spike** outline for inherited parent + loaders is **[DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md)**.
 
 ---
 

@@ -22,7 +22,7 @@ When loading related rows (e.g. `post.find_related(Comment)`), should **parent s
 ## Next implementation steps (optional)
 
 - After a write on the primary, **read-your-writes** on pooled executors: use `PooledLifeExecutor::with_read_preference(ReadPreference::Primary)` (see `src/pool/pooled.rs`) so `SELECT` paths do not hit a possibly stale replica (same applies to pooled reads right after `INSERT`/`UPDATE`).
-- **~~Add examples~~** — **Done:** `tests/db_integration/related_trait.rs` — `test_find_related_chains_scope_on_related_query` chains [`.scope`](../../src/query/scope.rs) on the [`SelectQuery`](../../src/query/select.rs) returned from [`find_related`](../../src/relation/traits.rs) (parent scopes are still not merged; this constrains the **related** table only). Optional `examples/` binary can mirror the same pattern later.
+- **~~Add examples~~** — **Done:** `tests/db_integration/related_trait.rs` — `test_find_related_chains_scope_on_related_query` …; **also** root **`examples/find_related_scope_example.rs`** (compile-only demo: `cargo check --example find_related_scope_example`).
 - **Related-side one-call API** — **Done:** [`find_related_scoped`](../../src/relation/traits.rs); test `test_find_related_scoped_matches_chained_scope`.
 - **~~Dedicated opt-in for parent-table predicates~~** — **done:** `find_related_parent_scoped` (see above). **Implicit** inheritance of a full parent `SelectQuery` / loader merge remains out of scope.
 - Cross-link: [`SEAORM_LIFEGUARD_MAPPING.md`](./lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) scopes row points here for `find_related` + scopes semantics.

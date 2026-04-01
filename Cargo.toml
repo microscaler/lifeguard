@@ -32,6 +32,10 @@ path = "examples/query_builder_example.rs"
 name = "test_sql_generation"
 path = "examples/test_sql_generation.rs"
 
+[[example]]
+name = "find_related_scope_example"
+path = "examples/find_related_scope_example.rs"
+
 
 [dependencies]
 # Coroutine runtime
