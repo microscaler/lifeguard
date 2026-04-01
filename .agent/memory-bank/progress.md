@@ -57,6 +57,7 @@ _Superseded for `STATUS.md`: merged into **`COMPARISON.md`** — see **STATUS me
 - **Mechanical:** `cargo doc -p lifeguard --no-deps` reports **~30** rustdoc warnings; `cargo test -p lifeguard --doc` is **not** all-green. **`lifeguard-derive`** and **`lifeguard-migrate`** are separate consumer surfaces for a full “everything the user touches” pass.
 
 ## Completed ✅
+- **PRD — inherited-scope spike conclusion + index compare roadmap (2026-03-28):** `DESIGN_INHERITED_PARENT_SCOPES_SPIKE` filled; `DESIGN_INDEX_COMPARE_ROADMAP`; PRD/migrate/README/FOLLOWON updates.
 - **PRD follow-on — G6 + example + spike doc (2026-03-28):** `examples/find_related_scope_example`, DEVELOPMENT G6, `DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md`, doc cross-links.
 - **Docs — PRD_FOLLOWON_NEXT_THREE.md + PRD §0.4 (2026-03-28):** Expanded next three PRD follow-on items (mapping hygiene, example surface, inherited parent+loader); teaching/planning only before build.
 - **Docs — DESIGN appendix + migrate README limits + rustdocs (2026-03-28):** Captured deferred index comparison vs `pg_indexes`, many-to-many `find_related_parent_scoped`, and implicit parent-loader merge in `DESIGN_FIND_RELATED_SCOPES.md`; `lifeguard-migrate/README.md` compare-schema limits/roadmap; `schema_migration_compare` + `FindRelated`/`scope` rustdocs; PRD cross-links. Memory bank updated.

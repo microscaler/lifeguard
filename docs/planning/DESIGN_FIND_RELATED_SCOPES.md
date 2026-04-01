@@ -41,7 +41,7 @@ This section records **roadmap** items that are **not** fully implemented today,
 
 **How full parity would be used:** Run in **CI or release gates** so a DBA change in production (e.g. switching to `GIN` + `jsonb_path_ops`) fails the check unless merged migrations (or a future canonical index IR) encode the same intent. Teams that need strict **index equivalence** today should add **manual review**, **`pg_dump` diff**, or **Postgres event triggers** outside Lifeguard until this roadmap item lands.
 
-**Where to read more:** [`lifeguard-migrate/README.md` § `compare-schema` — Limits and roadmap](../../lifeguard-migrate/README.md#compare-schema-limits-and-roadmap-index-comparison).
+**Where to read more:** [`lifeguard-migrate/README.md` § `compare-schema` — Limits and roadmap](../../lifeguard-migrate/README.md#compare-schema-limits-and-roadmap-index-comparison). **Phased implementation ideas (T1–T4):** [DESIGN_INDEX_COMPARE_ROADMAP.md](./DESIGN_INDEX_COMPARE_ROADMAP.md).
 
 ---
 
@@ -61,4 +61,4 @@ This section records **roadmap** items that are **not** fully implemented today,
 
 **How implicit merge would be used (if ever added):** A hypothetical API might mean: “load posts for **exactly** the users matched by this scoped parent query,” or “when batch-loading related rows, **inherit** the parent query’s `WHERE` without repeating `.scope` on every child query.” That reduces boilerplate but increases **integration risk** (duplicate predicates, join order, performance).
 
-**What to do today:** Use **`find_related_parent_scoped`** for **explicit** caller-side predicates on **`Self::Entity`**’s table; use **`find_related_scoped`** for **related-table** predicates; chain **`.scope` / `.filter`** on the `SelectQuery` returned by **`find_related`**; or build **manual joins** for multi-hop cases. See the [Recommended default](#recommended-default-adopted-for-v0-documentation) section above.
+**What to do today:** Use **`find_related_parent_scoped`** for **explicit** caller-side predicates on **`Self::Entity`**’s table; use **`find_related_scoped`** for **related-table** predicates; chain **`.scope` / `.filter`** on the `SelectQuery` returned by **`find_related`**; or build **manual joins** for multi-hop cases. See the [Recommended default](#recommended-default-adopted-for-v0-documentation) section above. **Spike (completed):** no first-class **implicit** merge API — application **two-step** (parent query → PKs → loader / child query) — [DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md).

@@ -236,6 +236,8 @@ Column reconciliation is **name-level** (presence of columns), not equality of S
 
 **How teams use this in practice:** Treat `compare-schema` as a **guardrail** that merged migration **column sets** cover every **simple** indexed column name the database uses for btree + INCLUDE shapes the parser understands. For **strict** index equivalence (opclass, expressions, partial predicates not represented in entity-driven SQL), use **DBA review**, **`pg_dump`**, or other tooling until the roadmap closes the gap.
 
+**Phased backlog (opclass / full `indexdef` / derive checks):** [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](../docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) (PRD §5.7a).
+
 Design detail for relations vs scopes (unrelated to indexes but often asked in the same breath): [`docs/planning/DESIGN_FIND_RELATED_SCOPES.md`](../docs/planning/DESIGN_FIND_RELATED_SCOPES.md) — appendix **“Deferred behavior and how it would be used”**.
 
 **Exit code:** `0` when there is no drift; non-zero when extra/missing tables, extra/missing column names on shared tables, or index keys reference names missing from the merged baseline (CI-friendly).

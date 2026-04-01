@@ -84,13 +84,13 @@ Integration tests in **`tests/db_integration/related_trait.rs`** remain the **be
 
 ---
 
-## 3. Phase C — inherited parent `SelectQuery` + loader merge (future)
+## 3. Phase C — inherited parent `SelectQuery` + loader merge (spike completed)
 
-### What the PRD asks
+### What the PRD asked
 
-[§0.3](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) row **4** (tail): **Inherited parent scopes** — merging a parent **`SelectQuery`** into **`find_related`** SQL — plus **loaders**, marked **future / highest risk**.
+[§0.3](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) row **4** (tail): **Inherited parent scopes** — merging a parent **`SelectQuery`** into **`find_related`** SQL — plus **loaders** (highest integration risk).
 
-[§7.7](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) repeats: **implicit** merge of parent `SelectQuery` state into **loaders** / multi-hop joins is **not** implemented; see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) appendix §C.
+**Spike conclusion:** **[DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md)** — recommend **A** (no new implicit-merge API) + document **D** (two-step / explicit PKs); **B/C** deferred. **Implicit** merge remains **not** implemented; see [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md) appendix §C.
 
 ### Problem statement
 
@@ -128,9 +128,9 @@ See also appendix **§C** in [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELAT
 2. **Loader-specific:** a **`Loader::with_parent_filter(…)`** that takes a **closed-world** predicate type, not arbitrary `SelectQuery` state.
 3. **Documentation-first:** keep **no implicit merge** until a design doc signs off on SQL shapes + one integration test matrix per relation kind (`belongs_to`, `has_many`, `has_many_through`).
 
-### Before we build
+### Index comparison (PRD §5.7a) — separate track
 
-See **[DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md)** for candidate directions, open questions, and spike exit criteria. This section remains **non-normative** until that spike concludes.
+Deferred items (opclass, full `indexdef`, derive-time checks) are **not** part of the inherited-scope decision. See **[DESIGN_INDEX_COMPARE_ROADMAP.md](./DESIGN_INDEX_COMPARE_ROADMAP.md)**.
 
 ---
 
@@ -138,5 +138,5 @@ See **[DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES
 
 - PRD: [§0.3 Follow-on priority](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) (search **0.3**)
 - Relations + scopes default: [DESIGN_FIND_RELATED_SCOPES.md](./DESIGN_FIND_RELATED_SCOPES.md)
-- Deferred compare-schema index parity: [DESIGN_FIND_RELATED_SCOPES.md — Appendix](./DESIGN_FIND_RELATED_SCOPES.md#appendix-deferred-behavior-and-how-it-would-be-used) §A
-- Inherited parent + loader spike: [DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md)
+- Deferred compare-schema index parity: [DESIGN_FIND_RELATED_SCOPES.md — Appendix](./DESIGN_FIND_RELATED_SCOPES.md#appendix-deferred-behavior-and-how-it-would-be-used) §A; phased backlog: [DESIGN_INDEX_COMPARE_ROADMAP.md](./DESIGN_INDEX_COMPARE_ROADMAP.md)
+- Inherited parent scopes (spike completed): [DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md)
