@@ -35,11 +35,15 @@
 //!
 //! Scopes apply to the **root** entity of the [`SelectQuery`] you are building. They are **not**
 //! automatically merged into [`crate::FindRelated::find_related`] SQL, which selects from the **related**
-//! table and applies only the relation `WHERE` from [`crate::build_where_condition`]. Chain
+//! table and applies only the relation `WHERE` from [`crate::build_where_condition`]. There is **no**
+//! implicit merge from a separate parent `SelectQuery` or from eager loaders—repeat the predicate on
+//! the returned query, or use an explicit API. Chain
 //! [`.scope`](crate::SelectQuery::scope) / [`.filter`](crate::SelectQuery::filter) on the query returned
-//! by `find_related` to filter related rows, or use [`crate::FindRelated::find_related_scoped`] for the
-//! same in one call (**related** table only). Design note (repository):
-//! `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`.
+//! by `find_related` to filter related rows; use [`crate::FindRelated::find_related_scoped`] for
+//! **related-side** scopes in one call; use [`crate::FindRelated::find_related_parent_scoped`] when you
+//! need an **`INNER JOIN`** on the relation’s **source** table plus caller-side predicates (direct
+//! edges only; `has_many_through` is not supported yet). Design note (repository):
+//! `docs/planning/DESIGN_FIND_RELATED_SCOPES.md` (including appendix **Deferred behavior and how it would be used**).
 
 use crate::query::select::SelectQuery;
 use crate::query::traits::LifeModelTrait;

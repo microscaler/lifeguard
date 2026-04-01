@@ -221,9 +221,22 @@ Compare **live PostgreSQL** to merged **`*_generated_from_entities.sql`** under 
 
 1. **Table names:** `information_schema` base tables (`table_type = 'BASE TABLE'`) vs `-- Table: name` sections (after chronological merge).
 2. **Column names:** for each table present in **both** baselines, `information_schema.columns` vs columns parsed from the merged `CREATE TABLE` body plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` lines (`column_map_from_merged_baseline`).
-3. **Index key and INCLUDE columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists and optional **`INCLUDE (…)`** payload columns. If any parsed name is absent from the merged migration column map, it is reported. Expression / functional indexes are skipped when the parser cannot extract plain column names. **Not** full `CREATE INDEX` / opclass parity vs `pg_indexes.indexdef`.
+3. **Index key and INCLUDE columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists and optional **`INCLUDE (…)`** payload columns. If any parsed name is absent from the merged migration column map, it is reported. Expression / functional indexes are skipped when the parser cannot extract plain column names. **Not** full `CREATE INDEX` / opclass parity vs `pg_indexes.indexdef` — see [Limits and roadmap](#compare-schema-limits-and-roadmap-index-comparison) below.
 
 Column reconciliation is **name-level** (presence of columns), not equality of SQL types or full `CREATE` definitions. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
+
+#### `compare-schema`: limits and roadmap (index comparison)
+
+| Compared today (name-level) | Not compared (roadmap / manual review) |
+|----------------------------|----------------------------------------|
+| Key column names + **`INCLUDE`** column names when `indexdef` parses as simple btree + INCLUDE | **Operator class** / access method (`USING gist`, `jsonb_path_ops`, …) |
+| | Per-column **collation**, **NULLS FIRST/LAST** |
+| | **Expression** or **functional** index keys (parser returns `None` → skipped) |
+| | Full **string equality** of `pg_indexes.indexdef` vs merged migration text |
+
+**How teams use this in practice:** Treat `compare-schema` as a **guardrail** that merged migration **column sets** cover every **simple** indexed column name the database uses for btree + INCLUDE shapes the parser understands. For **strict** index equivalence (opclass, expressions, partial predicates not represented in entity-driven SQL), use **DBA review**, **`pg_dump`**, or other tooling until the roadmap closes the gap.
+
+Design detail for relations vs scopes (unrelated to indexes but often asked in the same breath): [`docs/planning/DESIGN_FIND_RELATED_SCOPES.md`](../docs/planning/DESIGN_FIND_RELATED_SCOPES.md) — appendix **“Deferred behavior and how it would be used”**.
 
 **Exit code:** `0` when there is no drift; non-zero when extra/missing tables, extra/missing column names on shared tables, or index keys reference names missing from the merged baseline (CI-friendly).
 

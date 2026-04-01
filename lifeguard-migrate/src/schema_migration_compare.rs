@@ -9,10 +9,15 @@
 //! Does **not** compare SQL type text literally (PG `data_type` vs migration `INTEGER` spelling);
 //! name-level reconciliation is the Phase A column diff scope.
 //!
-//! **Index keys (stretch, PRD §5.7a):** for shared tables, non-expression indexes from
+//! **Index keys + `INCLUDE` (PRD §5.7a):** for shared tables, rows from
 //! [`pg_indexes`](https://www.postgresql.org/docs/current/view-pg-indexes.html) are parsed for
-//! simple column references; any key column name missing from the merged migration column baseline
-//! is reported (expression / functional indexes are skipped when parsing fails).
+//! **simple** btree-style key columns and optional **`INCLUDE (…)`** column names when the
+//! `indexdef` shape matches what the parser understands. Any such name missing from the merged
+//! migration column baseline is reported in [`IndexColumnDrift`]. **Not** compared: full
+//! `CREATE INDEX` text equality, **operator classes** / access method (`USING gist`, `jsonb_path_ops`,
+//! …), per-column **collation**, **NULLS FIRST/LAST**, or arbitrary **expression** keys (those
+//! indexes are skipped when parsing fails). See [`MigrationDbCompareReport`] and the
+//! **`compare-schema`: limits and roadmap** section in `lifeguard-migrate/README.md`.
 
 use lifeguard::LifeExecutor;
 use lifeguard::LifeError;
@@ -85,12 +90,14 @@ pub struct LiveIndexRow {
     pub indexdef: String,
 }
 
-/// Indexes on a shared table whose **simple** key columns are not all in the merged baseline.
+/// Indexes on a shared table where **parsed** btree key and/or **`INCLUDE`** column names are not
+/// all present in the merged migration column map.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexColumnDrift {
     pub table: String,
     pub index_name: String,
-    /// Key column names present in `pg_indexes` / `indexdef` but not in merged migration columns.
+    /// Key and `INCLUDE` column names from `pg_indexes.indexdef` that are absent from the merged
+    /// migration baseline (see module docs for what parsing covers).
     pub unknown_columns: Vec<String>,
 }
 
@@ -117,12 +124,14 @@ pub struct MigrationDbCompareReport {
     pub only_in_migrations: Vec<String>,
     /// Tables in both baselines where **column name** sets differ.
     pub column_drifts: Vec<TableColumnDrift>,
-    /// Shared tables where a live index references a column name absent from the merged baseline.
+    /// Shared tables where a live index’s **parsed** key / `INCLUDE` names reference a column absent
+    /// from the merged baseline.
     pub index_column_drifts: Vec<IndexColumnDrift>,
 }
 
 impl MigrationDbCompareReport {
-    /// `true` when table sets differ, column names drift, or an index key references an unknown column.
+    /// `true` when table sets differ, column names drift, or an index’s parsed key / `INCLUDE`
+    /// names reference a column missing from the merged migration map.
     #[must_use]
     pub fn has_drift(&self) -> bool {
         !self.only_in_database.is_empty()
