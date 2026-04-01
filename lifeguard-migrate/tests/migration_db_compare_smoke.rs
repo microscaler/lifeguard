@@ -6,13 +6,18 @@
 use std::fs;
 
 use lifeguard::{connect, LifeExecutor, MayPostgresExecutor};
-use lifeguard_migrate::schema_migration_compare::compare_generated_dir_to_live_db;
+use lifeguard_migrate::schema_migration_compare::{
+    compare_generated_dir_to_live_db, fetch_live_btree_index_key_opclasses,
+};
 use uuid::Uuid;
 
 const FILE: &str = "20990101000000_generated_from_entities.sql";
 const TABLE: &str = "smoke_t";
 const EXTRA_COL: &str = "extra_col";
 const HASH_IDX_COL: &str = "x";
+/// T2b catalog smoke: table + btree index on `jsonb` with non-default opclass.
+const JSONB_TABLE: &str = "smoke_jsonb_t";
+const JSONB_IDX: &str = "idx_smoke_jsonb_j";
 
 fn postgres_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
@@ -226,6 +231,135 @@ fn compare_reports_access_method_drift_when_live_uses_non_btree_index() {
         .find(|d| d.table == TABLE && d.index_name == format!("{TABLE}_hash_idx"))
         .expect("access method drift for hash index");
     assert_eq!(am.access_method, "hash");
+}
+
+#[test]
+fn fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops() {
+    let Some(url) = postgres_url() else {
+        eprintln!("fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops: skipped (no DB URL)");
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!(
+                "CREATE TABLE {schema}.{JSONB_TABLE} (id INTEGER NOT NULL PRIMARY KEY, j JSONB NOT NULL)"
+            ),
+            &[],
+        )
+        .expect("create table");
+    executor
+        .execute(
+            &format!(
+                "CREATE INDEX {JSONB_IDX} ON {schema}.{JSONB_TABLE} USING btree (j jsonb_path_ops)"
+            ),
+            &[],
+        )
+        .expect("create jsonb_path_ops index");
+
+    let rows = fetch_live_btree_index_key_opclasses(&executor, &schema).expect("catalog query");
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    let hit = rows.iter().find(|r| {
+        r.table_name == JSONB_TABLE
+            && r.index_name == JSONB_IDX
+            && r.opclass_name == "jsonb_path_ops"
+    });
+    let Some(hit) = hit else {
+        panic!("expected catalog row for {JSONB_TABLE}/{JSONB_IDX}, got: {rows:?}");
+    };
+    assert!(
+        hit.is_non_default_opclass,
+        "jsonb_path_ops should differ from default jsonb_ops: {hit:?}"
+    );
+    assert_eq!(hit.column_name.as_deref(), Some("j"));
+    assert_eq!(hit.default_opclass_name.as_deref(), Some("jsonb_ops"));
+}
+
+#[test]
+fn compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops() {
+    let Some(url) = postgres_url() else {
+        eprintln!(
+            "compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops: skipped (no DB URL)"
+        );
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sql = format!(
+        "-- Table: {JSONB_TABLE}\n\
+         CREATE TABLE IF NOT EXISTS {JSONB_TABLE} (id INTEGER PRIMARY KEY, j JSONB NOT NULL);\n\n\
+         CREATE INDEX {JSONB_IDX} ON {JSONB_TABLE} (j);\n"
+    );
+    fs::write(dir.path().join(FILE), sql).expect("write generated sql");
+
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!(
+                "CREATE TABLE {schema}.{JSONB_TABLE} (id INTEGER NOT NULL PRIMARY KEY, j JSONB NOT NULL)"
+            ),
+            &[],
+        )
+        .expect("create table");
+    executor
+        .execute(
+            &format!(
+                "CREATE INDEX {JSONB_IDX} ON {schema}.{JSONB_TABLE} USING btree (j jsonb_path_ops)"
+            ),
+            &[],
+        )
+        .expect("create jsonb_path_ops index");
+
+    let report = compare_generated_dir_to_live_db(&executor, &schema, dir.path())
+        .expect("compare_generated_dir_to_live_db");
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    let d = report
+        .index_btree_nondefault_opclass_drifts
+        .iter()
+        .find(|x| x.table == JSONB_TABLE && x.index_name == JSONB_IDX)
+        .expect("expected T2b opclass drift");
+    assert_eq!(d.opclass_name, "jsonb_path_ops");
+    assert_eq!(d.column_name.as_deref(), Some("j"));
+    assert_eq!(d.default_opclass_name.as_deref(), Some("jsonb_ops"));
+    assert!(report.has_drift(), "opclass drift should set has_drift");
 }
 
 #[test]

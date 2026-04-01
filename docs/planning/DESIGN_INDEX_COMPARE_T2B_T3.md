@@ -104,10 +104,12 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 
 ### 3.8 Suggested deliverables (T2b)
 
-1. **Spike SQL:** one query listing `(schemaname, tablename, indexname, key_ord, attname_or_null, opcname, opcmethod)` for btree indexes.
-2. **Rust types:** e.g. `IndexOpclassDrift { table, index_name, key_ordinal, column: Option<String>, live_opclass: String, expected_opclass: Option<String> }`.
-3. **Tests:** fixture `indexdef` strings **plus** catalog-driven integration tests when `TEST_DATABASE_URL` is set.
+1. **Spike SQL:** **Done** — see [`fetch_live_btree_index_key_opclasses`](../../lifeguard-migrate/src/schema_migration_compare.rs): `pg_index` + `generate_subscripts(indkey::int2[], 1)` + `indclass::oid[]` + `pg_opclass` + default opclass via `opcdefault` for btree. **Shipped in `compare-schema`:** non-default key opclasses on **shared** tables populate `MigrationDbCompareReport::index_btree_nondefault_opclass_drifts`.
+2. **Rust types:** **Done** — `LiveBtreeIndexKeyOpclassRow` (raw catalog rows) and `IndexBtreeNonDefaultOpclassDrift` (report).
+3. **Tests:** **Done** — `migration_db_compare_smoke`: `fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops`, `compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops` (require DB URL).
 4. **Docs:** `lifeguard-migrate/README` limits table updated; cross-link this file.
+
+**Follow-on (still T2b backlog):** migration-side **expected** opclass from entity/column types; dedupe with **T1** when text mismatch is only opclass formatting; collation / sort order reporting.
 
 ---
 

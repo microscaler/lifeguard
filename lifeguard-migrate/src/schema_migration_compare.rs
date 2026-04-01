@@ -18,9 +18,13 @@
 //! of column-level drift for that index. **Access method:** non-**btree** indexes are reported in
 //! [`IndexAccessMethodDrift`]. **T1:** when both sides name the index, [`normalize_index_statement_for_compare`]
 //! compares normalized `CREATE INDEX` text (whitespace, `IF NOT EXISTS`, optional explicit **`USING btree`**).
-//! **Not** fully normalized: btree **opclass** variants (`jsonb_path_ops`, …), **collation**,
-//! **NULLS FIRST/LAST**, or expression keys when parsing fails. See [`MigrationDbCompareReport`]
-//! and **`compare-schema`** limits in `lifeguard-migrate/README.md`.
+//! **T2b (partial):** [`fetch_live_btree_index_key_opclasses`] reads **`pg_index` / `pg_opclass`**
+//! for **btree** indexes and flags keys whose opclass is not the type’s default (`opcdefault`).
+//! [`MigrationDbCompareReport::index_btree_nondefault_opclass_drifts`] lists those on **shared**
+//! tables (primary-key indexes excluded). **Not** fully normalized: **collation**,
+//! **NULLS FIRST/LAST**, expression-key opclasses vs type defaults, or hand-written migration
+//! opclasses vs live. See [`MigrationDbCompareReport`] and **`compare-schema`** limits in
+//! `lifeguard-migrate/README.md`.
 
 use lifeguard::LifeExecutor;
 use lifeguard::LifeError;
@@ -139,6 +143,36 @@ pub struct IndexOnlyInMigrationDrift {
     pub index_name: String,
 }
 
+/// Btree index key uses a **non-default** operator class for the underlying column type (catalog **T2b**).
+///
+/// Expression keys (`pg_index` `indkey` slot `0`) are not reported here. If PostgreSQL has no
+/// default btree opclass for the type, no drift is emitted for that key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexBtreeNonDefaultOpclassDrift {
+    pub table: String,
+    pub index_name: String,
+    /// 1-based key column position in the btree index.
+    pub key_ordinal: i32,
+    pub column_name: Option<String>,
+    /// Live opclass name (e.g. `jsonb_path_ops`).
+    pub opclass_name: String,
+    /// Default btree opclass name for the column type when resolved.
+    pub default_opclass_name: Option<String>,
+}
+
+/// One btree **key** column slot from [`fetch_live_btree_index_key_opclasses`] (catalog proof / tooling).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveBtreeIndexKeyOpclassRow {
+    pub table_name: String,
+    pub index_name: String,
+    pub key_ordinal: i32,
+    pub column_name: Option<String>,
+    pub opclass_name: String,
+    pub access_method: String,
+    pub default_opclass_name: Option<String>,
+    pub is_non_default_opclass: bool,
+}
+
 /// Column-level drift for a single table that exists in both the live DB and merged migrations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableColumnDrift {
@@ -172,12 +206,15 @@ pub struct MigrationDbCompareReport {
     pub index_definition_text_drifts: Vec<IndexDefinitionTextDrift>,
     pub index_only_in_database: Vec<IndexOnlyInDatabaseDrift>,
     pub index_only_in_migration: Vec<IndexOnlyInMigrationDrift>,
+    /// **T2b:** btree key uses non-default opclass for the column type (`pg_opclass` / `opcdefault`).
+    pub index_btree_nondefault_opclass_drifts: Vec<IndexBtreeNonDefaultOpclassDrift>,
 }
 
 impl MigrationDbCompareReport {
     /// `true` when table sets differ, column names drift, an index’s parsed key / `INCLUDE`
     /// names reference a column missing from the merged migration map, a live index is not
-    /// **`btree`** (implicit or explicit), or **T1** / only-in-one-side index names differ.
+    /// **`btree`** (implicit or explicit), **T1** / only-in-one-side index names differ, or a btree
+    /// key uses a **non-default** opclass (**T2b** catalog).
     #[must_use]
     pub fn has_drift(&self) -> bool {
         !self.only_in_database.is_empty()
@@ -188,6 +225,7 @@ impl MigrationDbCompareReport {
             || !self.index_definition_text_drifts.is_empty()
             || !self.index_only_in_database.is_empty()
             || !self.index_only_in_migration.is_empty()
+            || !self.index_btree_nondefault_opclass_drifts.is_empty()
     }
 }
 
@@ -365,6 +403,28 @@ pub fn compare_generated_dir_to_live_db(
             .then_with(|| a.index_name.cmp(&b.index_name))
     });
 
+    let opclass_rows = fetch_live_btree_index_key_opclasses(executor, schema)?;
+    let mut index_btree_nondefault_opclass_drifts = Vec::new();
+    for o in opclass_rows {
+        if !o.is_non_default_opclass || !shared.contains(&o.table_name) {
+            continue;
+        }
+        index_btree_nondefault_opclass_drifts.push(IndexBtreeNonDefaultOpclassDrift {
+            table: o.table_name,
+            index_name: o.index_name,
+            key_ordinal: o.key_ordinal,
+            column_name: o.column_name,
+            opclass_name: o.opclass_name,
+            default_opclass_name: o.default_opclass_name,
+        });
+    }
+    index_btree_nondefault_opclass_drifts.sort_by(|a, b| {
+        a.table
+            .cmp(&b.table)
+            .then_with(|| a.index_name.cmp(&b.index_name))
+            .then_with(|| a.key_ordinal.cmp(&b.key_ordinal))
+    });
+
     Ok(MigrationDbCompareReport {
         schema: schema.to_string(),
         generated_dir: generated_dir.to_path_buf(),
@@ -376,6 +436,7 @@ pub fn compare_generated_dir_to_live_db(
         index_definition_text_drifts,
         index_only_in_database,
         index_only_in_migration,
+        index_btree_nondefault_opclass_drifts,
     })
 }
 
@@ -409,6 +470,102 @@ pub fn fetch_live_pg_indexes(
             table_name,
             index_name,
             indexdef,
+        });
+    }
+    Ok(out)
+}
+
+/// Btree index **key** slots with operator class names from **`pg_index` / `pg_opclass`** (catalog **T2b** proof).
+///
+/// Restricted to **`pg_am.amname = 'btree'`**, valid indexes (`indisvalid`), non-primary (`NOT indisprimary`),
+/// base tables in `schema`. Uses `indkey::int2[]` / `indclass::oid[]` (PostgreSQL 12+). Expression keys
+/// (`indkey` slot `0`) return `column_name = None` and `is_non_default_opclass = false`.
+#[must_use]
+pub fn fetch_live_btree_index_key_opclasses(
+    executor: &dyn LifeExecutor,
+    schema: &str,
+) -> Result<Vec<LiveBtreeIndexKeyOpclassRow>, LifeError> {
+    let sql = r"
+        SELECT
+            t.relname::text AS tablename,
+            ic.relname::text AS indexname,
+            s.k::int AS key_ord,
+            CASE
+                WHEN (xi.indkey::int2[])[s.k] = 0::int2 THEN NULL
+                ELSE a.attname::text
+            END AS column_name,
+            opc.opcname::text AS opclass_name,
+            am.amname::text AS access_method,
+            defopc.opcname::text AS default_opclass_name,
+            CASE
+                WHEN (xi.indkey::int2[])[s.k] = 0::int2 THEN false
+                WHEN defopc.oid IS NULL THEN false
+                ELSE opc.oid IS DISTINCT FROM defopc.oid
+            END AS is_non_default
+        FROM pg_index xi
+        JOIN pg_class ic ON ic.oid = xi.indexrelid
+        JOIN pg_class t ON t.oid = xi.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_am am ON am.oid = ic.relam
+        CROSS JOIN LATERAL generate_subscripts(xi.indkey::int2[], 1) AS s(k)
+        JOIN pg_opclass opc ON opc.oid = (xi.indclass::oid[])[s.k]
+        LEFT JOIN pg_attribute a
+            ON a.attrelid = xi.indrelid
+            AND a.attnum = (xi.indkey::int2[])[s.k]
+            AND (xi.indkey::int2[])[s.k] <> 0::int2
+        LEFT JOIN LATERAL (
+            SELECT oc.oid, oc.opcname
+            FROM pg_opclass oc
+            WHERE a.atttypid IS NOT NULL
+                AND oc.opcintype = a.atttypid
+                AND oc.opcmethod = (SELECT oid FROM pg_am WHERE amname = 'btree')
+                AND oc.opcdefault
+            LIMIT 1
+        ) defopc ON true
+        WHERE n.nspname = $1
+            AND t.relkind IN ('r', 'p')
+            AND ic.relkind = 'i'
+            AND am.amname = 'btree'
+            AND xi.indisvalid
+            AND NOT xi.indisprimary
+        ORDER BY t.relname, ic.relname, s.k
+    ";
+    let rows = executor.query_all(sql, &[&schema])?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let table_name: String = row.try_get(0).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass tablename: {e}"))
+        })?;
+        let index_name: String = row.try_get(1).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass indexname: {e}"))
+        })?;
+        let key_ordinal: i32 = row.try_get(2).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass key_ord: {e}"))
+        })?;
+        let column_name: Option<String> = row.try_get(3).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass column_name: {e}"))
+        })?;
+        let opclass_name: String = row.try_get(4).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass opcname: {e}"))
+        })?;
+        let access_method: String = row.try_get(5).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass amname: {e}"))
+        })?;
+        let default_opclass_name: Option<String> = row.try_get(6).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass default_opcname: {e}"))
+        })?;
+        let is_non_default_opclass: bool = row.try_get(7).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree opclass is_non_default: {e}"))
+        })?;
+        out.push(LiveBtreeIndexKeyOpclassRow {
+            table_name,
+            index_name,
+            key_ordinal,
+            column_name,
+            opclass_name,
+            access_method,
+            default_opclass_name,
+            is_non_default_opclass,
         });
     }
     Ok(out)
@@ -833,6 +990,32 @@ impl fmt::Display for MigrationDbCompareReport {
                 writeln!(f, "    Table `{}` index `{}`", d.table, d.index_name)?;
             }
         }
+        if !self.index_btree_nondefault_opclass_drifts.is_empty() {
+            writeln!(
+                f,
+                "  Btree index key uses non-default operator class (pg_catalog T2b; shared tables only; primary key indexes excluded):"
+            )?;
+            for d in &self.index_btree_nondefault_opclass_drifts {
+                let col = d
+                    .column_name
+                    .as_deref()
+                    .map_or("(expression key not evaluated)".to_string(), str::to_string);
+                let def = d
+                    .default_opclass_name
+                    .as_deref()
+                    .unwrap_or("?");
+                writeln!(
+                    f,
+                    "    Table `{}` index `{}` key #{} column `{}`: opclass `{}` (default for type: `{}`)",
+                    d.table,
+                    d.index_name,
+                    d.key_ordinal,
+                    col,
+                    d.opclass_name,
+                    def
+                )?;
+            }
+        }
         Ok(())
     }
 }
@@ -854,6 +1037,7 @@ mod tests {
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
+            index_btree_nondefault_opclass_drifts: vec![],
         };
         assert!(!r.has_drift());
         let s = r.to_string();
@@ -873,6 +1057,7 @@ mod tests {
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
+            index_btree_nondefault_opclass_drifts: vec![],
         };
         assert!(r.has_drift());
     }
@@ -894,6 +1079,7 @@ mod tests {
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
+            index_btree_nondefault_opclass_drifts: vec![],
         };
         assert!(r.has_drift());
         let s = r.to_string();
@@ -918,6 +1104,7 @@ mod tests {
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
+            index_btree_nondefault_opclass_drifts: vec![],
         };
         assert!(r.has_drift());
         assert!(r.to_string().contains("Index key / INCLUDE columns"));
@@ -990,6 +1177,7 @@ mod tests {
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
+            index_btree_nondefault_opclass_drifts: vec![],
         };
         assert!(r.has_drift());
         assert!(r.to_string().contains("access method not btree"));
@@ -1004,5 +1192,33 @@ mod tests {
             normalize_index_statement_for_compare(mig),
             normalize_index_statement_for_compare(live)
         );
+    }
+
+    #[test]
+    fn has_drift_when_btree_nondefault_opclass_only() {
+        let r = MigrationDbCompareReport {
+            schema: "public".into(),
+            generated_dir: Path::new("/x").to_path_buf(),
+            only_in_database: vec![],
+            only_in_migrations: vec![],
+            column_drifts: vec![],
+            index_column_drifts: vec![],
+            index_access_method_drifts: vec![],
+            index_definition_text_drifts: vec![],
+            index_only_in_database: vec![],
+            index_only_in_migration: vec![],
+            index_btree_nondefault_opclass_drifts: vec![IndexBtreeNonDefaultOpclassDrift {
+                table: "t".into(),
+                index_name: "ix".into(),
+                key_ordinal: 1,
+                column_name: Some("j".into()),
+                opclass_name: "jsonb_path_ops".into(),
+                default_opclass_name: Some("jsonb_ops".into()),
+            }],
+        };
+        assert!(r.has_drift());
+        let s = r.to_string();
+        assert!(s.contains("non-default operator class"));
+        assert!(s.contains("jsonb_path_ops"));
     }
 }
