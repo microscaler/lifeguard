@@ -44,6 +44,10 @@ Order for remaining **Phase C** / **Phase E** polish (see §7.7, §9.7, [DESIGN_
 | **3** | Phase C | **~~Optional codegen: scope bundles~~** — **shipped:** `lifeguard::scope_bundle` / `lifeguard_derive::scope_bundle` AND-combines listed `#[scope]` names into one `scope_*() -> sea_query::Condition`. Further list-on-struct sugar remains optional. |
 | **4** | Phase C | **Related-side scope (opt-in):** **`FindRelated::find_related_scoped`** — same as `find_related()?.scope(…)`; integration test `test_find_related_scoped_matches_chained_scope`. **Inherited parent scopes** (merge parent `SelectQuery` into `find_related` SQL) + loaders — still future / highest risk. |
 
+### 0.4 Expanded: next three follow-on items (teaching + planning)
+
+Rows **1**, **2**, and **4** from the table above are expanded in one place — **usage today vs future**, **G6 checklist**, **example-surface gap** (`examples/` vs tests only), and **why inherited parent + loader merge is highest risk** — in **[PRD_FOLLOWON_NEXT_THREE.md](./PRD_FOLLOWON_NEXT_THREE.md)**. Read that before scheduling implementation or a design spike.
+
 ---
 
 ## 1. Executive summary

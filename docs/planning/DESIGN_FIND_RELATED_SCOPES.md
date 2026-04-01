@@ -1,7 +1,7 @@
 # Design note: `find_related` and named scopes
 
 **Status:** Default behavior **documented in crate rustdoc** (`query::scope`, `FindRelated`). **Related-side opt-in:** [`FindRelated::find_related_scoped`](../../src/relation/traits.rs) applies a scope on the related `SelectQuery` in one call (same as `find_related()?.scope(…)`). **Caller-side / parent-table opt-in:** [`FindRelated::find_related_parent_scoped`](../../src/relation/traits.rs) adds an **`INNER JOIN`** on `RelationDef::from_tbl` and ANDs predicates on **`Self::Entity`**’s table (same expressions as `Self::Entity::find().scope(…)`). **`has_many_through`** is rejected until supported. **Implicit** merge of arbitrary parent `SelectQuery` state into loaders / multi-hop joins remains future work.  
-**PRD:** [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md §7](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) (scopes, SC-1–SC-4).
+**PRD:** [PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md §7](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) (scopes, SC-1–SC-4); follow-on queue **expanded** in [PRD_FOLLOWON_NEXT_THREE.md](./PRD_FOLLOWON_NEXT_THREE.md) (G6 hygiene, `find_related` + scope **example surface**, inherited parent + loader merge).
 
 ## Current behavior (v0)
 
