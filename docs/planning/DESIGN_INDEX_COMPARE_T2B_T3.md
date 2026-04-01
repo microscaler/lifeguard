@@ -1,7 +1,7 @@
 # Design: `compare-schema` index parity — **T2b** (btree opclass) & **T3** (expression keys)
 
 **Audience:** implementers of `lifeguard_migrate::schema_migration_compare`, migration SQL generation, and optional derive extensions.  
-**Status:** design only — not implemented.  
+**Status:** **T2b** / **T3** partially implemented in code — this document remains the deeper design; update code/README/roadmap when behavior changes.  
 **Parent:** [DESIGN_INDEX_COMPARE_ROADMAP.md](./DESIGN_INDEX_COMPARE_ROADMAP.md) (shipped **T1** / **T2** / **T4** summarized there).  
 **Related code:** [`lifeguard-migrate/src/schema_migration_compare.rs`](../../lifeguard-migrate/src/schema_migration_compare.rs), [`lifeguard-migrate/src/sql_generator.rs`](../../lifeguard-migrate/src/sql_generator.rs), [`src/query/table/definition.rs`](../../src/query/table/definition.rs) (`IndexDefinition`).
 
@@ -176,10 +176,11 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 
 ### 4.8 Suggested deliverables (T3)
 
-1. **Spike:** SQL to list index keys with `pg_attribute.attname` **or** `pg_get_expr` output per ordinality.
-2. **Rust:** `IndexKeyKind` enum `SimpleColumn { name }` / `Expression { normalized_text }` / `Unknown`.
-3. **Compare function:** given merged migration index statement + live catalog row → drift vec.
-4. **Tests:** expression index fixtures (`lower()`, binary op, cast); integration with scratch schema (pattern after `migration_db_compare_smoke.rs`).
+1. **Spike:** SQL to list index keys with `pg_attribute.attname` **or** `pg_get_expr` output per ordinality. **Done (v1):** [`fetch_live_btree_expression_index_key_slots`](../../lifeguard-migrate/src/schema_migration_compare.rs) uses `pg_index.indkey` = `0` and `pg_get_indexdef(index_oid, key_ord, false)` per slot.
+2. **Rust:** `IndexKeyKind` enum `SimpleColumn { name }` / `Expression { normalized_text }` / `Unknown`. **Partial:** [`IndexExpressionKeyVsSimpleMigrationDrift`](../../lifeguard-migrate/src/schema_migration_compare.rs) + report field (not a full per-key enum yet).
+3. **Compare function:** given merged migration index statement + live catalog row → drift vec. **Partial:** [`compare_generated_dir_to_live_db`](../../lifeguard-migrate/src/schema_migration_compare.rs) emits T3 drift when migration parses as simple keys only; **T1** suppressed for that index.
+4. **Tests:** expression index fixtures (`lower()`, binary op, cast); integration with scratch schema (pattern after `migration_db_compare_smoke.rs`). **Partial:** `fetch_live_btree_expression_index_key_slots_lists_lower_email`, `compare_reports_expression_key_when_migration_lists_simple_columns_only`.
+5. **Follow-on (T3 v2+):** normalized expression-on-both-sides compare; optional dedupe with **T1**; `IndexDefinition` / derive (separate phase).
 
 ---
 
@@ -216,8 +217,8 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 
 1. **T2b spike** — catalog SQL + prove opclass list matches `indexdef` for sample indexes.  
 2. **T2b v1** — emit drift for **non-default** opclass on btree simple-column keys (optional: expected from type).  
-3. **T3 spike** — classify keys as column vs expression from catalog.  
-4. **T3 v1** — structural drift when migration index is simple-column-only and live has expressions.  
+3. **T3 spike** — classify keys as column vs expression from catalog. **Shipped (v1):** expression slots via `indkey` = `0` + `pg_get_indexdef`.  
+4. **T3 v1** — structural drift when migration index is simple-column-only and live has expressions. **Shipped:** [`IndexExpressionKeyVsSimpleMigrationDrift`](../../lifeguard-migrate/src/schema_migration_compare.rs).  
 5. **T3 v2** — normalized expression compare; consider **T1** dedupe.  
 6. **Optional:** extend `IndexDefinition` / derive **after** compare path is stable.
 

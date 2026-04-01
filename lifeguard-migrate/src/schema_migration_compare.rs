@@ -21,14 +21,17 @@
 //! **T2b (partial):** [`fetch_live_btree_index_key_opclasses`] reads **`pg_index` / `pg_opclass`**
 //! for **btree** indexes and flags keys whose opclass is not the type’s default (`opcdefault`).
 //! [`MigrationDbCompareReport::index_btree_nondefault_opclass_drifts`] lists those on **shared**
-//! tables (primary-key indexes excluded). **Not** fully normalized: **collation**,
-//! **NULLS FIRST/LAST**, expression-key opclasses vs type defaults, or hand-written migration
-//! opclasses vs live. See [`MigrationDbCompareReport`] and **`compare-schema`** limits in
-//! `lifeguard-migrate/README.md`.
+//! tables (primary-key indexes excluded). **T3 (partial):** when merged migration SQL lists only
+//! **simple** btree key columns for an index name but **`pg_index.indkey`** has an **expression**
+//! slot (`0`), [`MigrationDbCompareReport::index_expression_key_vs_simple_migration_drifts`]
+//! reports structured drift (and **T1** text drift is **not** emitted for that index). **Not** fully
+//! normalized: **collation**, **NULLS FIRST/LAST**, expression-key opclasses vs type defaults, or
+//! hand-written migration opclasses vs live. See [`MigrationDbCompareReport`] and **`compare-schema`**
+//! limits in `lifeguard-migrate/README.md`.
 
 use lifeguard::LifeExecutor;
 use lifeguard::LifeError;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
@@ -143,6 +146,22 @@ pub struct IndexOnlyInMigrationDrift {
     pub index_name: String,
 }
 
+/// Live btree index uses at least one **expression** key (`pg_index.indkey` = `0`), but the merged
+/// baseline’s `CREATE INDEX` line parses as **simple column** keys only (**T3** catalog vs parse).
+///
+/// For the same index, **T1** normalized text drift is suppressed in favor of this row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexExpressionKeyVsSimpleMigrationDrift {
+    pub table: String,
+    pub index_name: String,
+    /// 1-based btree key ordinals where the live catalog reports an expression key.
+    pub expression_key_ordinals: Vec<i32>,
+    /// `pg_get_indexdef(index_oid, ordinal, false)` for each expression slot (same order as ordinals).
+    pub live_expression_key_defs: Vec<String>,
+    /// Column names from [`parse_pg_indexdef_simple_columns`] on the merged migration statement.
+    pub migration_simple_key_columns: Vec<String>,
+}
+
 /// Btree index key uses a **non-default** operator class for the underlying column type (catalog **T2b**).
 ///
 /// Expression keys (`pg_index` `indkey` slot `0`) are not reported here. If PostgreSQL has no
@@ -202,6 +221,8 @@ pub struct MigrationDbCompareReport {
     /// Shared tables where a live index uses a non-**btree** access method (entity migrations are
     /// btree-oriented; PRD §5.7a / **T2** partial).
     pub index_access_method_drifts: Vec<IndexAccessMethodDrift>,
+    /// **T3 (partial):** live btree index has expression key(s); merged migration lists simple columns only.
+    pub index_expression_key_vs_simple_migration_drifts: Vec<IndexExpressionKeyVsSimpleMigrationDrift>,
     /// **T1:** normalized full `CREATE INDEX` text differs for the same index name.
     pub index_definition_text_drifts: Vec<IndexDefinitionTextDrift>,
     pub index_only_in_database: Vec<IndexOnlyInDatabaseDrift>,
@@ -213,8 +234,8 @@ pub struct MigrationDbCompareReport {
 impl MigrationDbCompareReport {
     /// `true` when table sets differ, column names drift, an index’s parsed key / `INCLUDE`
     /// names reference a column missing from the merged migration map, a live index is not
-    /// **`btree`** (implicit or explicit), **T1** / only-in-one-side index names differ, or a btree
-    /// key uses a **non-default** opclass (**T2b** catalog).
+    /// **`btree`** (implicit or explicit), **T1** / only-in-one-side index names differ, a btree
+    /// key uses a **non-default** opclass (**T2b** catalog), or **T3** expression vs simple migration keys.
     #[must_use]
     pub fn has_drift(&self) -> bool {
         !self.only_in_database.is_empty()
@@ -222,6 +243,7 @@ impl MigrationDbCompareReport {
             || !self.column_drifts.is_empty()
             || !self.index_column_drifts.is_empty()
             || !self.index_access_method_drifts.is_empty()
+            || !self.index_expression_key_vs_simple_migration_drifts.is_empty()
             || !self.index_definition_text_drifts.is_empty()
             || !self.index_only_in_database.is_empty()
             || !self.index_only_in_migration.is_empty()
@@ -293,7 +315,23 @@ pub fn compare_generated_dir_to_live_db(
         .map(|d| (d.table.clone(), d.index_name.clone()))
         .collect();
 
+    let expr_key_rows = fetch_live_btree_expression_index_key_slots(executor, schema)?;
+    let mut expr_slots_by_index: BTreeMap<(String, String), Vec<(i32, String)>> = BTreeMap::new();
+    for er in expr_key_rows {
+        if !shared.contains(&er.table_name) {
+            continue;
+        }
+        expr_slots_by_index
+            .entry((er.table_name, er.index_name))
+            .or_default()
+            .push((er.key_ordinal, er.key_def));
+    }
+    for slots in expr_slots_by_index.values_mut() {
+        slots.sort_by(|a, b| a.0.cmp(&b.0));
+    }
+
     let mut index_definition_text_drifts = Vec::new();
+    let mut index_expression_key_vs_simple_migration_drifts = Vec::new();
     let mut index_column_drifts = Vec::new();
     let mut index_only_in_database = Vec::new();
 
@@ -309,6 +347,25 @@ pub fn compare_generated_dir_to_live_db(
         let mig_stmt = index_by_name.get(&row.index_name);
 
         if let Some(mig) = mig_stmt {
+            let idx_key = (row.table_name.clone(), row.index_name.clone());
+            if let Some(slots) = expr_slots_by_index.get(&idx_key) {
+                if !slots.is_empty() {
+                    if let Some(mig_cols) = parse_pg_indexdef_simple_columns(mig) {
+                        let ordinals: Vec<i32> = slots.iter().map(|(o, _)| *o).collect();
+                        let defs: Vec<String> = slots.iter().map(|(_, d)| d.clone()).collect();
+                        index_expression_key_vs_simple_migration_drifts.push(
+                            IndexExpressionKeyVsSimpleMigrationDrift {
+                                table: row.table_name.clone(),
+                                index_name: row.index_name.clone(),
+                                expression_key_ordinals: ordinals,
+                                live_expression_key_defs: defs,
+                                migration_simple_key_columns: mig_cols,
+                            },
+                        );
+                        continue;
+                    }
+                }
+            }
             let nm = normalize_index_statement_for_compare(mig);
             let nl = normalize_index_statement_for_compare(&row.indexdef);
             if nm != nl {
@@ -362,6 +419,11 @@ pub fn compare_generated_dir_to_live_db(
     }
 
     index_definition_text_drifts.sort_by(|a, b| {
+        a.table
+            .cmp(&b.table)
+            .then_with(|| a.index_name.cmp(&b.index_name))
+    });
+    index_expression_key_vs_simple_migration_drifts.sort_by(|a, b| {
         a.table
             .cmp(&b.table)
             .then_with(|| a.index_name.cmp(&b.index_name))
@@ -433,6 +495,7 @@ pub fn compare_generated_dir_to_live_db(
         column_drifts,
         index_column_drifts,
         index_access_method_drifts,
+        index_expression_key_vs_simple_migration_drifts,
         index_definition_text_drifts,
         index_only_in_database,
         index_only_in_migration,
@@ -566,6 +629,70 @@ pub fn fetch_live_btree_index_key_opclasses(
             access_method,
             default_opclass_name,
             is_non_default_opclass,
+        });
+    }
+    Ok(out)
+}
+
+/// One **expression** btree key slot (`pg_index.indkey` = `0`) from [`fetch_live_btree_expression_index_key_slots`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveBtreeExpressionKeyRow {
+    pub table_name: String,
+    pub index_name: String,
+    pub key_ordinal: i32,
+    pub key_def: String,
+}
+
+/// Btree index key slots where **`pg_index.indkey`** is zero — i.e. **expression** keys (catalog **T3**).
+///
+/// Uses `pg_get_indexdef(index_oid, key_ord, false)` for each slot. Restricted like
+/// [`fetch_live_btree_index_key_opclasses`]: valid non-primary btree indexes on base tables in `schema`.
+#[must_use]
+pub fn fetch_live_btree_expression_index_key_slots(
+    executor: &dyn LifeExecutor,
+    schema: &str,
+) -> Result<Vec<LiveBtreeExpressionKeyRow>, LifeError> {
+    let sql = r"
+        SELECT
+            t.relname::text AS tablename,
+            ic.relname::text AS indexname,
+            s.k::int AS key_ord,
+            pg_get_indexdef(ic.oid, s.k, false)::text AS key_def
+        FROM pg_index xi
+        JOIN pg_class ic ON ic.oid = xi.indexrelid
+        JOIN pg_class t ON t.oid = xi.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_am am ON am.oid = ic.relam
+        CROSS JOIN LATERAL generate_subscripts(xi.indkey::int2[], 1) AS s(k)
+        WHERE n.nspname = $1
+            AND t.relkind IN ('r', 'p')
+            AND ic.relkind = 'i'
+            AND am.amname = 'btree'
+            AND xi.indisvalid
+            AND NOT xi.indisprimary
+            AND (xi.indkey::int2[])[s.k] = 0::int2
+        ORDER BY t.relname, ic.relname, s.k
+    ";
+    let rows = executor.query_all(sql, &[&schema])?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let table_name: String = row.try_get(0).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree expr key tablename: {e}"))
+        })?;
+        let index_name: String = row.try_get(1).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree expr key indexname: {e}"))
+        })?;
+        let key_ordinal: i32 = row.try_get(2).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree expr key key_ord: {e}"))
+        })?;
+        let key_def: String = row.try_get(3).map_err(|e| {
+            LifeError::Other(format!("compare-schema btree expr key key_def: {e}"))
+        })?;
+        out.push(LiveBtreeExpressionKeyRow {
+            table_name,
+            index_name,
+            key_ordinal,
+            key_def,
         });
     }
     Ok(out)
@@ -957,6 +1084,29 @@ impl fmt::Display for MigrationDbCompareReport {
                 )?;
             }
         }
+        if !self.index_expression_key_vs_simple_migration_drifts.is_empty() {
+            writeln!(
+                f,
+                "  Live btree index uses expression key(s); merged migration lists simple columns only (pg_catalog T3; T1 suppressed for these indexes; shared tables only; primary key indexes skipped):"
+            )?;
+            for d in &self.index_expression_key_vs_simple_migration_drifts {
+                let ord: Vec<String> = d
+                    .expression_key_ordinals
+                    .iter()
+                    .map(|o| o.to_string())
+                    .collect();
+                let mig = d.migration_simple_key_columns.join(", ");
+                writeln!(
+                    f,
+                    "    Table `{}` index `{}`: expression key position(s) [{}]; migration simple keys: {}; live expression(s): {}",
+                    d.table,
+                    d.index_name,
+                    ord.join(", "),
+                    mig,
+                    d.live_expression_key_defs.join(" | ")
+                )?;
+            }
+        }
         if !self.index_definition_text_drifts.is_empty() {
             writeln!(
                 f,
@@ -1034,6 +1184,7 @@ mod tests {
             column_drifts: vec![],
             index_column_drifts: vec![],
             index_access_method_drifts: vec![],
+            index_expression_key_vs_simple_migration_drifts: vec![],
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
@@ -1054,6 +1205,7 @@ mod tests {
             column_drifts: vec![],
             index_column_drifts: vec![],
             index_access_method_drifts: vec![],
+            index_expression_key_vs_simple_migration_drifts: vec![],
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
@@ -1076,6 +1228,7 @@ mod tests {
             }],
             index_column_drifts: vec![],
             index_access_method_drifts: vec![],
+            index_expression_key_vs_simple_migration_drifts: vec![],
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
@@ -1101,6 +1254,7 @@ mod tests {
                 unknown_columns: vec!["ghost".into()],
             }],
             index_access_method_drifts: vec![],
+            index_expression_key_vs_simple_migration_drifts: vec![],
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
@@ -1174,6 +1328,7 @@ mod tests {
                 index_name: "ix".into(),
                 access_method: "hash".into(),
             }],
+            index_expression_key_vs_simple_migration_drifts: vec![],
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
@@ -1204,6 +1359,7 @@ mod tests {
             column_drifts: vec![],
             index_column_drifts: vec![],
             index_access_method_drifts: vec![],
+            index_expression_key_vs_simple_migration_drifts: vec![],
             index_definition_text_drifts: vec![],
             index_only_in_database: vec![],
             index_only_in_migration: vec![],
@@ -1220,5 +1376,35 @@ mod tests {
         let s = r.to_string();
         assert!(s.contains("non-default operator class"));
         assert!(s.contains("text_pattern_ops"));
+    }
+
+    #[test]
+    fn has_drift_when_expression_key_vs_simple_migration_only() {
+        let r = MigrationDbCompareReport {
+            schema: "public".into(),
+            generated_dir: Path::new("/x").to_path_buf(),
+            only_in_database: vec![],
+            only_in_migrations: vec![],
+            column_drifts: vec![],
+            index_column_drifts: vec![],
+            index_access_method_drifts: vec![],
+            index_expression_key_vs_simple_migration_drifts: vec![
+                IndexExpressionKeyVsSimpleMigrationDrift {
+                    table: "t".into(),
+                    index_name: "ix".into(),
+                    expression_key_ordinals: vec![1],
+                    live_expression_key_defs: vec!["lower((email))".into()],
+                    migration_simple_key_columns: vec!["email".into()],
+                },
+            ],
+            index_definition_text_drifts: vec![],
+            index_only_in_database: vec![],
+            index_only_in_migration: vec![],
+            index_btree_nondefault_opclass_drifts: vec![],
+        };
+        assert!(r.has_drift());
+        let s = r.to_string();
+        assert!(s.contains("expression key"));
+        assert!(s.contains("lower((email))"));
     }
 }

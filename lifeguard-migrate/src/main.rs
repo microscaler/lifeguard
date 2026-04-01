@@ -271,7 +271,7 @@ fn handle_compare_schema(
     print!("{report}");
     if report.has_drift() {
         return Err(MigrationError::InvalidFormat(
-            "compare-schema: live database does not match merged generated migration baseline (tables, column names, index keys, index definitions, index presence, btree operator classes, and/or index access methods — see above)."
+            "compare-schema: live database does not match merged generated migration baseline (tables, column names, index keys, index definitions, index presence, btree operator classes, expression vs simple index keys, and/or index access methods — see above)."
                 .to_string(),
         ));
     }

@@ -7,7 +7,8 @@ use std::fs;
 
 use lifeguard::{connect, LifeExecutor, MayPostgresExecutor};
 use lifeguard_migrate::schema_migration_compare::{
-    compare_generated_dir_to_live_db, fetch_live_btree_index_key_opclasses,
+    compare_generated_dir_to_live_db, fetch_live_btree_expression_index_key_slots,
+    fetch_live_btree_index_key_opclasses,
 };
 use uuid::Uuid;
 
@@ -19,6 +20,9 @@ const HASH_IDX_COL: &str = "x";
 /// Note: `jsonb_path_ops` is **GIN-only** and cannot be used with `USING btree`.
 const OPCLASS_TABLE: &str = "smoke_opclass_t";
 const OPCLASS_IDX: &str = "idx_smoke_opclass_body";
+/// T3 catalog smoke: live expression btree key vs merged simple-column `CREATE INDEX`.
+const EXPR_TABLE: &str = "smoke_expr_t";
+const EXPR_IDX: &str = "idx_smoke_expr_email";
 
 fn postgres_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
@@ -361,6 +365,148 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_text_pattern_ops() {
     assert_eq!(d.column_name.as_deref(), Some("body"));
     assert_eq!(d.default_opclass_name.as_deref(), Some("text_ops"));
     assert!(report.has_drift(), "opclass drift should set has_drift");
+}
+
+#[test]
+fn fetch_live_btree_expression_index_key_slots_lists_lower_email() {
+    let Some(url) = postgres_url() else {
+        eprintln!(
+            "fetch_live_btree_expression_index_key_slots_lists_lower_email: skipped (no DB URL)"
+        );
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!(
+                "CREATE TABLE {schema}.{EXPR_TABLE} (id INTEGER NOT NULL PRIMARY KEY, email TEXT NOT NULL)"
+            ),
+            &[],
+        )
+        .expect("create table");
+    executor
+        .execute(
+            &format!(
+                "CREATE INDEX {EXPR_IDX} ON {schema}.{EXPR_TABLE} ((lower(email)))"
+            ),
+            &[],
+        )
+        .expect("create expression index");
+
+    let rows = fetch_live_btree_expression_index_key_slots(&executor, &schema).expect("catalog");
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    let hit = rows.iter().find(|r| r.table_name == EXPR_TABLE && r.index_name == EXPR_IDX);
+    let Some(hit) = hit else {
+        panic!("expected expression key row for {EXPR_TABLE}/{EXPR_IDX}, got: {rows:?}");
+    };
+    assert_eq!(hit.key_ordinal, 1);
+    assert!(
+        hit.key_def.to_ascii_lowercase().contains("lower"),
+        "unexpected pg_get_indexdef fragment: {:?}",
+        hit.key_def
+    );
+}
+
+#[test]
+fn compare_reports_expression_key_when_migration_lists_simple_columns_only() {
+    let Some(url) = postgres_url() else {
+        eprintln!(
+            "compare_reports_expression_key_when_migration_lists_simple_columns_only: skipped (no DB URL)"
+        );
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sql = format!(
+        "-- Table: {EXPR_TABLE}\n\
+         CREATE TABLE IF NOT EXISTS {EXPR_TABLE} (id INTEGER PRIMARY KEY, email TEXT NOT NULL);\n\n\
+         CREATE INDEX {EXPR_IDX} ON {EXPR_TABLE} (email);\n"
+    );
+    fs::write(dir.path().join(FILE), sql).expect("write generated sql");
+
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!(
+                "CREATE TABLE {schema}.{EXPR_TABLE} (id INTEGER NOT NULL PRIMARY KEY, email TEXT NOT NULL)"
+            ),
+            &[],
+        )
+        .expect("create table");
+    executor
+        .execute(
+            &format!(
+                "CREATE INDEX {EXPR_IDX} ON {schema}.{EXPR_TABLE} ((lower(email)))"
+            ),
+            &[],
+        )
+        .expect("create expression index");
+
+    let report = compare_generated_dir_to_live_db(&executor, &schema, dir.path())
+        .expect("compare_generated_dir_to_live_db");
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    let d = report
+        .index_expression_key_vs_simple_migration_drifts
+        .iter()
+        .find(|x| x.table == EXPR_TABLE && x.index_name == EXPR_IDX)
+        .expect("expected T3 expression-key drift");
+    assert_eq!(d.migration_simple_key_columns, vec!["email".to_string()]);
+    assert_eq!(d.expression_key_ordinals, vec![1]);
+    assert!(
+        !d.live_expression_key_defs.is_empty()
+            && d.live_expression_key_defs[0]
+                .to_ascii_lowercase()
+                .contains("lower"),
+        "live defs: {:?}",
+        d.live_expression_key_defs
+    );
+    assert!(
+        report
+            .index_definition_text_drifts
+            .iter()
+            .all(|t| t.index_name != EXPR_IDX),
+        "T1 should be suppressed when T3 fires: {:?}",
+        report.index_definition_text_drifts
+    );
+    assert!(report.has_drift(), "T3 drift should set has_drift");
 }
 
 #[test]
