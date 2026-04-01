@@ -242,7 +242,7 @@ This design simplifies the API while maintaining the same functionality.
 | `#[sea_orm(check = "...")]` | ❌ Missing | 🔴 **Migration Blocker** | CHECK constraint - **CRITICAL for entity-driven migrations** - Need to support table-level and column-level CHECK constraints |
 | `#[sea_orm(composite_unique = [...])]` | ❌ Missing | 🔴 **Migration Blocker** | Composite unique constraint - **CRITICAL for entity-driven migrations** - Need to support multi-column unique constraints |
 | `#[sea_orm(table_comment = "...")]` | ❌ Missing | 🟡 **Migration Enhancement** | Table comment (COMMENT ON TABLE) - **Nice-to-have for migrations** - Metadata for documentation |
-| `#[sea_orm(index = "...")]` | `#[index = "..."]` on `LifeModel` (`TableAttributes`) | 🟡 **Partial** | Composite / unique / **`WHERE`** / **`INCLUDE (cols)`** → `IndexDefinition` + `sql_generator` emits PostgreSQL `CREATE INDEX`; validate columns at derive time; **opclasses** not first-class |
+| `#[sea_orm(index = "...")]` | `#[index = "..."]` on `LifeModel` (`TableAttributes`) | 🟡 **Partial** | **`IndexDefinition::key_parts`** ([`IndexKeyPart`](../../../src/query/table/definition.rs)) holds per-key column vs expression, optional **`text_pattern_ops`**, **`COLLATE`**, **`ASC`/`DESC`**, **`NULLS`**; `#[index = "…"]` grammar uses comma + paren-depth splitting, `expr \| cols` for expressions, `sql_generator` + **`infer-schema`** (btree only) emit matching SQL / attrs; full **`indexdef`** / non-btree parity still compare-tool territory |
 
 ---
 

@@ -4,8 +4,8 @@
 //! It reads ColumnDefinition and TableDefinition to produce PostgreSQL-compatible SQL.
 
 use lifeguard::{
-    query::column::column_trait::ColumnDefHelper, ColumnTrait, LifeEntityName, LifeModelTrait,
-    TableDefinition,
+    index_key_parts_coverage_columns, query::column::column_trait::ColumnDefHelper, ColumnTrait,
+    LifeEntityName, LifeModelTrait, TableDefinition,
 };
 use sea_query::IdenStatic;
 use std::fmt::Write;
@@ -129,7 +129,7 @@ where
             let already_covered = table_def
                 .indexes
                 .iter()
-                .any(|idx| idx.columns.len() == 1 && idx.columns[0] == col_name);
+                .any(|idx| index_covers_only_column(idx, col_name));
             if !already_covered {
                 single_column_indexes.push(col_name.to_string());
             }
@@ -250,9 +250,9 @@ where
         index_sql.push_str(&index.name);
         index_sql.push_str(" ON ");
         index_sql.push_str(&full_table_name);
-        index_sql.push_str("(");
-        index_sql.push_str(&index.columns.join(", "));
-        index_sql.push_str(")");
+        index_sql.push('(');
+        index_sql.push_str(&index_key_body_sql(index));
+        index_sql.push(')');
 
         if !index.include_columns.is_empty() {
             index_sql.push_str(" INCLUDE (");
@@ -323,6 +323,28 @@ where
     }
 
     Ok(sql)
+}
+
+fn index_covers_only_column(
+    index: &lifeguard::IndexDefinition,
+    col_name: &str,
+) -> bool {
+    let cov = if !index.key_parts.is_empty() {
+        index_key_parts_coverage_columns(&index.key_parts)
+    } else {
+        index.columns.clone()
+    };
+    cov.len() == 1 && cov[0] == col_name
+}
+
+fn index_key_body_sql(index: &lifeguard::IndexDefinition) -> String {
+    if !index.key_parts.is_empty() {
+        lifeguard::format_index_key_list_sql(&index.key_parts)
+    } else if let Some(ref k) = index.key_list_sql {
+        k.clone()
+    } else {
+        index.columns.join(", ")
+    }
 }
 
 /// Sanitize a name for use in constraint names

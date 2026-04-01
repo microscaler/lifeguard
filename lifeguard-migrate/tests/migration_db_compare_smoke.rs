@@ -23,6 +23,15 @@ const OPCLASS_IDX: &str = "idx_smoke_opclass_body";
 /// T3 catalog smoke: live expression btree key vs merged simple-column `CREATE INDEX`.
 const EXPR_TABLE: &str = "smoke_expr_t";
 const EXPR_IDX: &str = "idx_smoke_expr_email";
+/// T2b: migration names same non-default opclass as live — expect no opclass drift.
+const OPCLASS_MATCH_TABLE: &str = "smoke_opclass_match_t";
+const OPCLASS_MATCH_IDX: &str = "idx_opclass_match_body";
+/// T3 v2: migration + live both expression index, normalized slots match — no T1 / slot mismatch.
+const T3V2_TABLE: &str = "smoke_t3v2_t";
+const T3V2_IDX: &str = "idx_t3v2_lower_email";
+/// Ordering / collation: explicit DESC in migration vs live ASC.
+const ORD_TABLE: &str = "smoke_ord_t";
+const ORD_IDX: &str = "idx_ord_id";
 
 fn postgres_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
@@ -364,7 +373,215 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_text_pattern_ops() {
     assert_eq!(d.opclass_name, "text_pattern_ops");
     assert_eq!(d.column_name.as_deref(), Some("body"));
     assert_eq!(d.default_opclass_name.as_deref(), Some("text_ops"));
+    assert!(d.migration_explicit_opclass.is_none());
     assert!(report.has_drift(), "opclass drift should set has_drift");
+}
+
+#[test]
+fn compare_no_opclass_drift_when_migration_explicit_matches_live() {
+    let Some(url) = postgres_url() else {
+        eprintln!(
+            "compare_no_opclass_drift_when_migration_explicit_matches_live: skipped (no DB URL)"
+        );
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sql = format!(
+        "-- Table: {OPCLASS_MATCH_TABLE}\n\
+         CREATE TABLE IF NOT EXISTS {OPCLASS_MATCH_TABLE} (id INTEGER PRIMARY KEY, body TEXT NOT NULL);\n\n\
+         CREATE INDEX {OPCLASS_MATCH_IDX} ON {OPCLASS_MATCH_TABLE} (body text_pattern_ops);\n"
+    );
+    fs::write(dir.path().join(FILE), sql).expect("write generated sql");
+
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!(
+                "CREATE TABLE {schema}.{OPCLASS_MATCH_TABLE} (id INTEGER NOT NULL PRIMARY KEY, body TEXT NOT NULL)"
+            ),
+            &[],
+        )
+        .expect("create table");
+    executor
+        .execute(
+            &format!(
+                "CREATE INDEX {OPCLASS_MATCH_IDX} ON {schema}.{OPCLASS_MATCH_TABLE} USING btree (body text_pattern_ops)"
+            ),
+            &[],
+        )
+        .expect("create index");
+
+    let report = compare_generated_dir_to_live_db(&executor, &schema, dir.path())
+        .expect("compare_generated_dir_to_live_db");
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    assert!(
+        report
+            .index_btree_nondefault_opclass_drifts
+            .iter()
+            .all(|d| d.table != OPCLASS_MATCH_TABLE),
+        "unexpected opclass drift: {:?}",
+        report.index_btree_nondefault_opclass_drifts
+    );
+    assert!(
+        !report.has_drift(),
+        "expected no drift when migration opclass matches live; got {:?}",
+        report.index_definition_text_drifts
+    );
+}
+
+#[test]
+fn compare_t3_v2_skips_t1_when_expression_indexdefs_normalize_equal() {
+    let Some(url) = postgres_url() else {
+        eprintln!(
+            "compare_t3_v2_skips_t1_when_expression_indexdefs_normalize_equal: skipped (no DB URL)"
+        );
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sql = format!(
+        "-- Table: {T3V2_TABLE}\n\
+         CREATE TABLE IF NOT EXISTS {T3V2_TABLE} (id INTEGER PRIMARY KEY, email TEXT NOT NULL);\n\n\
+         CREATE INDEX {T3V2_IDX} ON {T3V2_TABLE} ((lower(email)));\n"
+    );
+    fs::write(dir.path().join(FILE), sql).expect("write generated sql");
+
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!(
+                "CREATE TABLE {schema}.{T3V2_TABLE} (id INTEGER NOT NULL PRIMARY KEY, email TEXT NOT NULL)"
+            ),
+            &[],
+        )
+        .expect("create table");
+    executor
+        .execute(
+            &format!(
+                "CREATE INDEX {T3V2_IDX} ON {schema}.{T3V2_TABLE} ((lower(email)))"
+            ),
+            &[],
+        )
+        .expect("create expression index");
+
+    let report = compare_generated_dir_to_live_db(&executor, &schema, dir.path())
+        .expect("compare_generated_dir_to_live_db");
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    assert!(
+        report.index_key_normalized_slots_mismatch_drifts.is_empty(),
+        "unexpected slot mismatch: {:?}",
+        report.index_key_normalized_slots_mismatch_drifts
+    );
+    assert!(
+        report.index_definition_text_drifts.is_empty(),
+        "T3 v2 should suppress T1 when slots match; got {:?}",
+        report.index_definition_text_drifts
+    );
+    assert!(!report.has_drift(), "expected no drift");
+}
+
+#[test]
+fn compare_reports_ordering_drift_when_migration_desc_not_live_asc() {
+    let Some(url) = postgres_url() else {
+        eprintln!("compare_reports_ordering_drift_when_migration_desc_not_live_asc: skipped (no DB URL)");
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sql = format!(
+        "-- Table: {ORD_TABLE}\n\
+         CREATE TABLE IF NOT EXISTS {ORD_TABLE} (id INTEGER PRIMARY KEY);\n\n\
+         CREATE INDEX {ORD_IDX} ON {ORD_TABLE} (id DESC);\n"
+    );
+    fs::write(dir.path().join(FILE), sql).expect("write generated sql");
+
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!("CREATE TABLE {schema}.{ORD_TABLE} (id INTEGER NOT NULL PRIMARY KEY)"),
+            &[],
+        )
+        .expect("create table");
+    executor
+        .execute(
+            &format!("CREATE INDEX {ORD_IDX} ON {schema}.{ORD_TABLE} (id)"),
+            &[],
+        )
+        .expect("create asc index");
+
+    let report = compare_generated_dir_to_live_db(&executor, &schema, dir.path())
+        .expect("compare_generated_dir_to_live_db");
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    let od = report
+        .index_btree_key_ordering_collation_drifts
+        .iter()
+        .find(|d| d.table == ORD_TABLE && d.index_name == ORD_IDX)
+        .expect("ordering/collation drift");
+    assert!(
+        od.detail.to_ascii_lowercase().contains("desc")
+            || od.detail.to_ascii_lowercase().contains("asc"),
+        "detail: {}",
+        od.detail
+    );
+    assert!(report.has_drift());
 }
 
 #[test]

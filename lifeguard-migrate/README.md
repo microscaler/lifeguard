@@ -162,9 +162,11 @@ lifeguard-migrate generate-from-entities \
 
 This scans entity definitions and generates SQL migration files for tables, columns, indexes, and constraints.
 
+**Structured btree keys** (optional): `#[index = "…"]` fills **`IndexDefinition::key_parts`** ([`IndexKeyPart`](../src/query/table/definition.rs)) — comma-separated segments at paren depth 0; per segment either a **column** with optional `COLLATE`, operator class (`text_pattern_ops`, …), `ASC`/`DESC`, `NULLS FIRST`/`LAST`, or **`expr | col1, col2`** (space-pipe-space) for expressions (`CREATE INDEX` omits the `| coverage` tail). Examples: `(lower(email) | email)`, `(slug text_pattern_ops)`, `(created_at DESC NULLS LAST)`. See [`DESIGN_INDEX_COMPARE_T2B_T3.md`](../docs/planning/DESIGN_INDEX_COMPARE_T2B_T3.md) §4.5 Option C.
+
 ### `infer-schema`
 
-Introspect a live **PostgreSQL** database (`information_schema`) and print conservative Rust entity sketches to **stdout**. Output is **review-first**: paste into your crate and adjust types; **composite** primary keys emit `#[primary_key]` on each PK column (same as single-column PKs).
+Introspect a live **PostgreSQL** database (`information_schema` + catalog for secondary **btree** indexes) and print conservative Rust entity sketches to **stdout**. Output is **review-first**: paste into your crate and adjust types; **composite** primary keys emit `#[primary_key]` on each PK column (same as single-column PKs). Non-primary btree indexes become **`#[index = "..."]`** lines (structured keys / `expr | cols` when needed); expression indexes are **skipped** if referenced table columns cannot be inferred for coverage.
 
 **Requirements:** `--database-url` or `DATABASE_URL` / `LIFEGUARD_DATABASE_URL` (same as other DB commands).
 
@@ -224,7 +226,10 @@ Compare **live PostgreSQL** to merged **`*_generated_from_entities.sql`** under 
 3. **Index key and INCLUDE columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists and optional **`INCLUDE (…)`** payload columns. If there is **no** matching `CREATE INDEX` / `CREATE UNIQUE INDEX` line for that index name in the merged baseline, and any parsed name is absent from the merged migration column map, it is reported. When the **same index name** exists in merged SQL and in `pg_indexes`, **`compare-schema`** does **not** emit column-level drift for that index: it runs **T3** when the live catalog has expression btree keys and the migration line parses as simple columns only; otherwise **T1** ([`normalize_index_statement_for_compare`](./src/schema_migration_compare.rs)).
 4. **Index presence and text (T1):** indexes whose names appear only in the live DB or only in merged migration SQL are reported; normalized statement mismatch is reported when both sides name the index. Expression / functional indexes are still skipped when the parser cannot extract plain column names.
 5. **Expression btree keys vs simple migration (T3, catalog, partial):** when merged SQL has a matching `CREATE INDEX` line that parses as **simple column** keys only, but **`pg_index.indkey`** has an **expression** slot (`0`) for that live btree index, structured drift is reported ([`fetch_live_btree_expression_index_key_slots`](./src/schema_migration_compare.rs)); **T1** text drift is **not** emitted for that index name.
-6. **Btree non-default operator class (T2b, catalog):** for **shared** tables, **`pg_index` / `pg_opclass`** lists each btree key slot; if the opclass is not the type’s default (`opcdefault`), drift is reported ([`fetch_live_btree_index_key_opclasses`](./src/schema_migration_compare.rs)). Expression keys (`indkey` 0) are skipped; **collation** / **NULLS FIRST/LAST** / hand-written migration opclasses are not modeled beyond **T1** text — see [Limits and roadmap](#compare-schema-limits-and-roadmap-index-comparison) below.
+6. **Btree non-default operator class (T2b, catalog + migration):** for **shared** tables, **`pg_index` / `pg_opclass`** lists each btree key slot; drift is reported when the **live** opclass differs from the **expected** opclass: an explicit btree opclass token on the merged `CREATE INDEX` key segment, else the type’s catalog default ([`fetch_live_btree_index_key_opclasses`](./src/schema_migration_compare.rs)). Expression keys (`indkey` 0) are skipped.
+7. **T3 v2 (normalized key slots):** when at least one side uses an **expression** btree key, per-slot [`normalize_index_key_slot_for_compare`](./src/schema_migration_compare.rs) compares merged key segments to `pg_get_indexdef`; match suppresses **T1**; mismatch → structured drift (no **T1**).
+8. **T1 dedupe (opclass-only):** if normalized full statements differ only because of **simple-key** opclass tokens (and `INCLUDE` / `WHERE` tails match), **T1** is not emitted.
+9. **Ordering / collation (explicit migration text):** if merged SQL **explicitly** sets `COLLATE`, `ASC`/`DESC`, or `NULLS` on a simple key, live **`pg_index.indcollation` / `indoption`** is checked ([`fetch_live_btree_index_key_catalog_slots`](./src/schema_migration_compare.rs)); mismatch → structured drift.
 
 Column reconciliation is **name-level** (presence of columns), not equality of SQL types or full `CREATE` definitions. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
 
@@ -233,19 +238,20 @@ Column reconciliation is **name-level** (presence of columns), not equality of S
 | Compared today (name-level) | Not compared (roadmap / manual review) |
 |----------------------------|----------------------------------------|
 | Key column names + **`INCLUDE`** column names when `indexdef` parses as simple btree + INCLUDE **and** there is no migration line for that index name | Subtle **string** differences beyond normalization (e.g. some quoting / PG-specific spellings) |
-| **Access method:** `USING` must be **`btree`** (implicit or explicit) — `hash` / `gin` / `gist` / … → drift | Per-column **collation**, **NULLS FIRST/LAST** |
-| **Normalized** full `CREATE INDEX` text when migration + live share the same index name (`normalize_index_statement_for_compare`) | **T2b** does not assert migration **expected** opclass from entity types — only live **non-default** vs `pg_opclass.opcdefault` for simple column keys |
+| **Access method:** `USING` must be **`btree`** (implicit or explicit) — `hash` / `gin` / `gist` / … → drift | Implicit live **collation** / default **NULLS** when migration omits `COLLATE` / `NULLS` (no drift) |
+| **Normalized** full `CREATE INDEX` text when migration + live share the same index name (`normalize_index_statement_for_compare`), modulo opclass-only key differences | No structured per-key IR (opclass / sort as fields); use verbatim `key_list_sql` from derive when needed |
 | Index names **only** in live DB or **only** in merged migration (shared tables) | **Expression** live keys with **no** migration line still follow column / only-in-DB paths; **T2b** skips expression key slots |
-| **T2b:** btree key opclass ≠ type default (`fetch_live_btree_index_key_opclasses`, PostgreSQL 12+) | Normalized **expression** text compare migration ↔ live (**T3** v2); migration lines that already contain expressions fall back to **T1** |
-| **T3 (partial):** live expression btree key + merged migration parses as simple keys only (`fetch_live_btree_expression_index_key_slots`, `pg_get_indexdef`) | Full **T3** parity for expression-on-both-sides, derive-side expression IR, etc. |
+| **T2b:** live opclass ≠ merged explicit or type default (`fetch_live_btree_index_key_opclasses`) | **Casts** / `::type` noise in expression **T3 v2** normalization vs `pg_get_indexdef` |
+| **T3 v2:** normalized key slots when either side has expression keys (`fetch_live_btree_index_key_catalog_slots`, `normalize_index_key_slot_for_compare`) | Richer derive than `key_list_sql` + `expr \| cols` (e.g. per-key ASC/DESC as data) |
+| **T3 (v1):** live expression + migration simple columns (`fetch_live_btree_expression_index_key_slots`) | Richer expression **predicate** / **WHERE** parity |
 
-**How teams use this in practice:** Treat `compare-schema` as a **guardrail** for table/column alignment plus **index** parity at the level above. Models can opt into compile-time coverage with **`#[require_index_coverage]`** on `LifeModel` (see `lifeguard-derive`). For **strict** expression / predicate parity when both sides use expressions, use **DBA review**, **`pg_dump`**, or other tooling until **T3** v2; **T3** v1 already flags “live expression / migration simple columns” for same-named indexes.
+**How teams use this in practice:** Treat `compare-schema` as a **guardrail** for table/column alignment plus **index** parity at the level above. Models can opt into compile-time coverage with **`#[require_index_coverage]`** on `LifeModel` (see `lifeguard-derive`). **T3 v1** flags live expression vs migration simple columns; **T3 v2** compares normalized expression (and mixed) key slots and suppresses opaque **T1** when they match.
 
 **Roadmap (opclass / expression keys):** [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](../docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) (PRD §5.7a). **Detailed design (T2b / T3):** [`docs/planning/DESIGN_INDEX_COMPARE_T2B_T3.md`](../docs/planning/DESIGN_INDEX_COMPARE_T2B_T3.md).
 
 Design detail for relations vs scopes (unrelated to indexes but often asked in the same breath): [`docs/planning/DESIGN_FIND_RELATED_SCOPES.md`](../docs/planning/DESIGN_FIND_RELATED_SCOPES.md) — appendix **“Deferred behavior and how it would be used”**.
 
-**Exit code:** `0` when there is no drift; non-zero when extra/missing tables, extra/missing column names on shared tables, or any index drift (unknown indexed column names, non-btree access method, live expression keys vs simple migration keys, normalized definition text mismatch, index only in DB or only in migrations, btree non-default operator class on a shared table) (CI-friendly).
+**Exit code:** `0` when there is no drift; non-zero when extra/missing tables, extra/missing column names on shared tables, or any index drift (unknown indexed column names, non-btree access method, live expression keys vs simple migration keys, **T3 v2** slot mismatch, explicit ordering/collation mismatch, normalized definition text mismatch, index only in DB or only in migrations, btree operator class mismatch vs merged expectation on a shared table) (CI-friendly).
 
 ```bash
 lifeguard-migrate compare-schema \
@@ -254,7 +260,7 @@ lifeguard-migrate compare-schema \
   --generated-dir migrations/generated/inventory
 ```
 
-**Library:** `lifeguard_migrate::schema_migration_compare::{compare_generated_dir_to_live_db, fetch_live_btree_expression_index_key_slots, fetch_live_btree_index_key_opclasses, MigrationDbCompareReport}`.
+**Library:** `lifeguard_migrate::schema_migration_compare::{compare_generated_dir_to_live_db, fetch_live_btree_expression_index_key_slots, fetch_live_btree_index_key_catalog_slots, fetch_live_btree_index_key_opclasses, MigrationDbCompareReport}`.
 
 **Optional live DB tests:** `tests/migration_db_compare_smoke.rs` (library + CLI; skips without URL / binary env).
 

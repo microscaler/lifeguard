@@ -28,7 +28,7 @@ This document scopes work so implementation can proceed in **independent phases*
 | **Column / INCLUDE names** — `parse_pg_indexdef_simple_columns` / `parse_pg_indexdef_include_columns` | Plain column names when the key list parses as comma-separated **simple** segments | `first_simple_index_column` takes the **first** token of each segment after stripping a leading `COLLATE` clause. It **ignores** trailing **`jsonb_path_ops`**, **`text_pattern_ops`**, **`uuid_ops`**, etc. So **T2b** issues can be **invisible** to this path. Returns **`None`** when any key segment starts with `(` → **expression index** → **T3** skipped. |
 | **T2** — `parse_pg_indexdef_access_method` | Access method ≠ `btree` | Correctly scoped; does not address **same** access method, **different** btree opclass. |
 
-**Entity / codegen model:** [`IndexDefinition`](../../src/query/table/definition.rs) has `columns: Vec<String>` (names only), `include_columns`, `unique`, `partial_where`. There is **no** field for per-key **opclass**, **sort direction**, **collation**, or **expression** text. [`sql_generator`](../../lifeguard-migrate/src/sql_generator.rs) emits `CREATE [UNIQUE] INDEX … ON … (col1, col2)` without opclass unless hand-edited migration text diverges.
+**Entity / codegen model:** [`IndexDefinition`](../../src/query/table/definition.rs) has **`key_parts: Vec<IndexKeyPart>`** (column vs expression, optional opclass / collation / sort / nulls), **`columns`** (flattened coverage for validation), legacy **`key_list_sql`** when parts are empty, `include_columns`, `unique`, `partial_where`. [`sql_generator`](../../lifeguard-migrate/src/sql_generator.rs) prefers **`format_index_key_list_sql`** over `key_list_sql` / bare `columns`. **`infer-schema`** emits **`#[index]`** from btree catalog metadata where expression coverage can be inferred.
 
 ---
 
@@ -153,12 +153,16 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 **Pros:** Reuses text surfaces.  
 **Cons:** Still brittle across PG versions and quoting; does not fix “missing index in migration” beyond T1/T2.
 
-#### Option C — Extend `IndexDefinition` / `#[index]`
+#### Option C — Extend `IndexDefinition` / `#[index]` (**v2 shipped**)
 
-- Allow optional **expression** keys in the derive string grammar, e.g. `#[index = "idx ((lower(email)))"]`, plumbed into `sql_generator`.
+- **`IndexDefinition::key_parts`** — structured btree segments ([`IndexKeyPart::Column`](../../src/query/table/definition.rs) vs [`IndexKeyPart::Expression`](../../src/query/table/definition.rs)); optional **`key_list_sql`** when parts are empty (verbatim legacy).
+- **Derive grammar:** top-level key segments split on commas at **paren depth 0**; per segment either **structured column** (`col`, `col text_pattern_ops`, `col COLLATE "C" pat_ops`, `col DESC NULLS FIRST`, …) or **`expr | col1, col2`** (space-pipe-space) for expressions / mixed lists.
+- **`format_index_key_list_derive_value`** vs **`format_index_key_list_sql`:** derive round-trip strings use `expr | coverage` inside the attribute; `CREATE INDEX` SQL omits the coverage tail.
+- **`infer-schema`:** non-primary **btree** indexes → `#[index = "..."]` using the same model (skips expression indexes when coverage tokens match no table column).
+- **Security:** expression / raw fragments remain **trusted author input**.
 
-**Pros:** Single source of truth in Rust.  
-**Cons:** **Large** product change (validation, SQL injection safety, quoting rules, SeaORM/Lifeguard doc churn). Should be a **separate** project phase after **compare** can **detect** drift.
+**Pros:** Single source of truth in Rust; aligns generated SQL with **T2b/T3** compare when authors opt in.  
+**Cons:** Authors must maintain valid PostgreSQL; no automatic normalization vs live `indexdef` beyond compare tooling.
 
 ### 4.6 Suggested drift taxonomy (T3)
 
@@ -179,8 +183,8 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 1. **Spike:** SQL to list index keys with `pg_attribute.attname` **or** `pg_get_expr` output per ordinality. **Done (v1):** [`fetch_live_btree_expression_index_key_slots`](../../lifeguard-migrate/src/schema_migration_compare.rs) uses `pg_index.indkey` = `0` and `pg_get_indexdef(index_oid, key_ord, false)` per slot.
 2. **Rust:** `IndexKeyKind` enum `SimpleColumn { name }` / `Expression { normalized_text }` / `Unknown`. **Partial:** [`IndexExpressionKeyVsSimpleMigrationDrift`](../../lifeguard-migrate/src/schema_migration_compare.rs) + report field (not a full per-key enum yet).
 3. **Compare function:** given merged migration index statement + live catalog row → drift vec. **Partial:** [`compare_generated_dir_to_live_db`](../../lifeguard-migrate/src/schema_migration_compare.rs) emits T3 drift when migration parses as simple keys only; **T1** suppressed for that index.
-4. **Tests:** expression index fixtures (`lower()`, binary op, cast); integration with scratch schema (pattern after `migration_db_compare_smoke.rs`). **Partial:** `fetch_live_btree_expression_index_key_slots_lists_lower_email`, `compare_reports_expression_key_when_migration_lists_simple_columns_only`.
-5. **Follow-on (T3 v2+):** normalized expression-on-both-sides compare; optional dedupe with **T1**; `IndexDefinition` / derive (separate phase).
+4. **Tests:** expression index fixtures (`lower()`, binary op, cast); integration with scratch schema (pattern after `migration_db_compare_smoke.rs`). **Partial:** `fetch_live_btree_expression_index_key_slots_lists_lower_email`, `compare_reports_expression_key_when_migration_lists_simple_columns_only`, `compare_t3_v2_skips_t1_when_expression_indexdefs_normalize_equal`, `compare_reports_ordering_drift_when_migration_desc_not_live_asc`.
+5. **T3 v2 (shipped):** [`fetch_live_btree_index_key_catalog_slots`](../../lifeguard-migrate/src/schema_migration_compare.rs) + [`normalize_index_key_slot_for_compare`](../../lifeguard-migrate/src/schema_migration_compare.rs); [`IndexKeyNormalizedSlotsMismatchDrift`](../../lifeguard-migrate/src/schema_migration_compare.rs); **T1** suppressed on slot match when either side has expression keys. **T1** opclass-only dedupe when simple-key lists match modulo btree opclass tokens and `INCLUDE`/`WHERE` tails match. **Follow-on:** cast / `::type` canonicalization. **ORM v1 (shipped):** `IndexDefinition::key_list_sql` + derive `expr | cols` grammar (see §4.5 Option C).
 
 ---
 
@@ -190,7 +194,7 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 |---|-----------------|-------------------|---------------------|
 | **Primary signal** | Whole statement | Per-key opclass vs default or parsed migration | Per-key column vs expr |
 | **Best data source** | `pg_indexes.indexdef` + migration file | `pg_index` + `pg_opclass` (+ types for defaults) | `pg_index` / `pg_get_expr` + migration parse |
-| **Entity model gap** | N/A | No opclass in `IndexDefinition` | No expression keys in `IndexDefinition` |
+| **Entity model gap** | N/A | No structured opclass field (verbatim `key_list_sql` may include `_ops`) | Optional `key_list_sql`; derive: key text then ` \| ` then coverage columns |
 | **Risk** | Formatting noise | Type-default table maintenance | Expr normalization + security if extending derive |
 
 ---
@@ -219,7 +223,7 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 2. **T2b v1** — emit drift for **non-default** opclass on btree simple-column keys (optional: expected from type).  
 3. **T3 spike** — classify keys as column vs expression from catalog. **Shipped (v1):** expression slots via `indkey` = `0` + `pg_get_indexdef`.  
 4. **T3 v1** — structural drift when migration index is simple-column-only and live has expressions. **Shipped:** [`IndexExpressionKeyVsSimpleMigrationDrift`](../../lifeguard-migrate/src/schema_migration_compare.rs).  
-5. **T3 v2** — normalized expression compare; consider **T1** dedupe.  
+5. **T3 v2** — normalized expression compare; consider **T1** dedupe. **Shipped:** per-slot normalization + mismatch drift + opclass-only **T1** suppression; explicit migration **COLLATE** / **ASC|DESC** / **NULLS** vs `pg_index`.  
 6. **Optional:** extend `IndexDefinition` / derive **after** compare path is stable.
 
 ---

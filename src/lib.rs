@@ -110,9 +110,12 @@ pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor};
 // Query builder - Epic 02 Story 03
 pub mod query;
 pub use query::{
-    from_row_unsigned_try_from_failed, ColumnDefinition, ColumnTrait, FromRow, IndexDefinition,
-    IntoScope, LifeEntityName, LifeModelTrait, ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait,
-    PrimaryKeyToColumn, PrimaryKeyTrait, SelectModel, SelectQuery, StoredProcedure, TableDefinition,
+    format_index_key_list_derive_value, format_index_key_list_sql,
+    from_row_unsigned_try_from_failed, index_definition_to_derive_index_value,
+    index_key_parts_coverage_columns, ColumnDefinition, ColumnTrait, FromRow, IndexBtreeNulls,
+    IndexBtreeSort, IndexDefinition, IndexKeyPart, IntoScope, LifeEntityName, LifeModelTrait,
+    ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn, PrimaryKeyTrait,
+    SelectModel, SelectQuery, StoredProcedure, TableDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules

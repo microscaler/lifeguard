@@ -108,7 +108,11 @@ pub use column::{ColumnDefinition, ColumnTrait};
 // Table operations (for entity-driven migrations)
 pub mod table;
 #[doc(inline)]
-pub use table::{IndexDefinition, TableDefinition};
+pub use table::{
+    format_index_key_list_derive_value, format_index_key_list_sql,
+    index_definition_to_derive_index_value, index_key_parts_coverage_columns, IndexBtreeNulls,
+    IndexBtreeSort, IndexDefinition, IndexKeyPart, TableDefinition,
+};
 
 // Primary key operations
 pub mod primary_key;
