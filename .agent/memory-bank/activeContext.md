@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Work
+- **PRD closure + compare-schema T2 (2026-03-28):** `IndexAccessMethodDrift` / `parse_pg_indexdef_access_method`; PRD §0.1 §5.7a §7.7 §9.7; `DESIGN_INDEX_COMPARE_ROADMAP`; `ROADMAP`; `SEAORM` snapshot; migrate README limits; `DESIGN_FIND_RELATED` appendix A. Verified: `cargo test -p lifeguard-migrate`, `cargo clippy -p lifeguard-migrate --all-targets --all-features -- -D warnings`.
 - **PRD resume — spike + index roadmap (2026-03-28):** `DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md` completed (recommendation A+D; B/C defer). New `DESIGN_INDEX_COMPARE_ROADMAP.md` (§5.7a T1–T4). PRD §0.3/§0.4, §5.7a, §7.7, §9.7; `PRD_FOLLOWON_NEXT_THREE` §3; `DESIGN_FIND_RELATED_SCOPES` appendix A/C; `lifeguard-migrate/README` updated.
 - **PRD follow-on implemented (2026-03-28):** `DEVELOPMENT.md` G6 section; `examples/find_related_scope_example.rs` + `Cargo.toml` `[[example]]`; `DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md`; `PRD_FOLLOWON_NEXT_THREE.md` / `PRD` §0.4 / `DESIGN_FIND_RELATED_SCOPES` / `README` / `docs/planning/README` updated. Verified: `cargo clippy -p lifeguard --all-targets --all-features -- -D warnings`.
 - **Docs — PRD follow-on next three expanded (2026-03-28):** `docs/planning/PRD_FOLLOWON_NEXT_THREE.md` — G6/COMPARISON+SEAORM hygiene, `find_related`+scope example surface (`examples/` vs integration tests), inherited parent `SelectQuery`+loader merge (risks, spike directions). PRD §0.4 + DESIGN_FIND_RELATED_SCOPES cross-link.
