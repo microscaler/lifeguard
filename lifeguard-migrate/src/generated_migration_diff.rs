@@ -118,6 +118,139 @@ pub fn combined_old_section(parts: &TableBaselineParts) -> String {
     s
 }
 
+/// After `ON`, optional **`USING`** *method*, require `(` for the btree key list.
+fn tail_after_qualified_table_for_create_index(after_table: &str) -> Option<&str> {
+    let mut t = after_table.trim_start();
+    if t.starts_with('(') {
+        return Some(t);
+    }
+    if t.len() < 6 || !t[..6].eq_ignore_ascii_case("using ") {
+        return None;
+    }
+    t = t[6..].trim_start();
+    let end = t
+        .find(|c: char| c.is_whitespace() || c == '(')
+        .unwrap_or(t.len());
+    if t.as_bytes().get(end) == Some(&b'(') {
+        return Some(&t[end..]);
+    }
+    t = t[end..].trim_start();
+    t.starts_with('(').then_some(t)
+}
+
+/// Split `schema.table` / `"schema"."table"` / `table` from the start of `s`; remainder is key list / `INCLUDE` / `WHERE`.
+fn split_qualified_table_prefix(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim_start();
+    if s.is_empty() {
+        return None;
+    }
+    let mut i = 0usize;
+    loop {
+        let rest = &s[i..];
+        if rest.is_empty() {
+            return None;
+        }
+        if rest.starts_with('"') {
+            let end = rest[1..].find('"')?;
+            i += 1 + end + 2;
+        } else {
+            let seg_end = rest
+                .find(|c: char| c == '.' || c.is_whitespace() || c == '(')
+                .unwrap_or(rest.len());
+            if seg_end == 0 {
+                return None;
+            }
+            i += seg_end;
+        }
+        let after = &s[i..];
+        if after.starts_with('.') {
+            i += 1;
+            continue;
+        }
+        break;
+    }
+    Some((&s[..i], &s[i..]))
+}
+
+fn split_first_ident_token(s: &str) -> Option<(String, &str)> {
+    let s = s.trim_start();
+    if s.is_empty() {
+        return None;
+    }
+    if s.starts_with('"') {
+        let end = s[1..].find('"')?;
+        return Some((s[1..end + 1].to_string(), &s[end + 2..]));
+    }
+    let end = s
+        .find(|c: char| c.is_whitespace() || c == '(')
+        .unwrap_or(s.len());
+    if end == 0 {
+        return None;
+    }
+    Some((s[..end].to_string(), &s[end..]))
+}
+
+/// Parse a single-line `CREATE [UNIQUE] INDEX … ON …` from merged migration text.
+///
+/// Returns `(index_name, unqualified_table_name, statement_without_trailing_semicolon)` when the
+/// line matches; `None` otherwise. Hand-written deltas may use **`USING`** before the key list.
+fn try_parse_create_index_statement(line: &str) -> Option<(String, String, String)> {
+    let stmt = line.trim().trim_end_matches(';').trim();
+    let upper = stmt.to_ascii_uppercase();
+    let rest = if upper.starts_with("CREATE UNIQUE INDEX ") {
+        &stmt["CREATE UNIQUE INDEX ".len()..]
+    } else if upper.starts_with("CREATE INDEX ") {
+        &stmt["CREATE INDEX ".len()..]
+    } else {
+        return None;
+    };
+    let mut r = rest.trim_start();
+    while r.len() >= 13 && r[..13].eq_ignore_ascii_case("CONCURRENTLY ") {
+        r = r[13..].trim_start();
+    }
+    while r.len() >= 14 && r[..14].eq_ignore_ascii_case("IF NOT EXISTS ") {
+        r = r[14..].trim_start();
+    }
+    let (idx_name, after_idx) = split_first_ident_token(r)?;
+    let mut after = after_idx.trim_start();
+    if after.len() < 3 || !after[..3].eq_ignore_ascii_case("ON ") {
+        return None;
+    }
+    after = after[3..].trim_start();
+    let (_qtable, after_tbl) = split_qualified_table_prefix(after)?;
+    let after_keys = tail_after_qualified_table_for_create_index(after_tbl)?;
+    if !after_keys.starts_with('(') {
+        return None;
+    }
+    let table_unqual = _qtable
+        .rsplit('.')
+        .next()?
+        .trim_matches('"')
+        .to_string();
+    Some((idx_name, table_unqual, stmt.to_string()))
+}
+
+/// `CREATE INDEX` / `CREATE UNIQUE INDEX` lines from a merged table baseline, keyed by index name.
+///
+/// Later lines in [`combined_old_section`] win when the same index name appears more than once.
+#[must_use]
+pub fn index_statements_for_table_from_merged_baseline(
+    parts: &TableBaselineParts,
+    table: &str,
+) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    let combined = combined_old_section(parts);
+    for line in combined.lines() {
+        let Some((idx, tbl, stmt)) = try_parse_create_index_statement(line) else {
+            continue;
+        };
+        if tbl == table {
+            map.insert(idx, stmt);
+        }
+    }
+    map
+}
+
 /// True if `dir` contains at least one `*_generated_from_entities.sql`.
 #[must_use]
 pub fn service_dir_has_generated_migrations(dir: &Path) -> bool {
@@ -698,5 +831,30 @@ CREATE TABLE IF NOT EXISTS widgets (
         assert!(m.contains_key("id"));
         assert!(m.contains_key("name"));
         assert!(m.contains_key("sku"));
+    }
+
+    #[test]
+    fn index_statements_for_table_from_merged_baseline_parses_create_index_lines() {
+        let mut parts = TableBaselineParts::default();
+        parts.last_create_section = Some(
+            "CREATE TABLE IF NOT EXISTS widgets (id INT PRIMARY KEY);\n\
+             CREATE INDEX idx_widgets_name ON widgets(name);\n"
+                .to_string(),
+        );
+        let m = index_statements_for_table_from_merged_baseline(&parts, "widgets");
+        assert_eq!(m.len(), 1);
+        assert!(m.contains_key("idx_widgets_name"));
+    }
+
+    #[test]
+    fn index_statements_merge_delta_if_not_exists_line() {
+        let mut parts = TableBaselineParts::default();
+        parts.last_create_section =
+            Some("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY);\n".to_string());
+        parts
+            .delta_section_fragments
+            .push("CREATE INDEX IF NOT EXISTS i ON t(id);\n".to_string());
+        let m = index_statements_for_table_from_merged_baseline(&parts, "t");
+        assert!(m.contains_key("i"));
     }
 }

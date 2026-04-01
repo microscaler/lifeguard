@@ -13,11 +13,14 @@
 //! [`pg_indexes`](https://www.postgresql.org/docs/current/view-pg-indexes.html) are parsed for
 //! **simple** btree-style key columns and optional **`INCLUDE (…)`** column names when the
 //! `indexdef` shape matches what the parser understands. Any such name missing from the merged
-//! migration column baseline is reported in [`IndexColumnDrift`]. **Access method:** non-**btree**
-//! indexes are reported in [`IndexAccessMethodDrift`]. **Not** compared: full `CREATE INDEX` text
-//! equality, btree **opclass** variants (`jsonb_path_ops`, …), **collation**, **NULLS FIRST/LAST**,
-//! or expression keys when parsing fails. See [`MigrationDbCompareReport`] and **`compare-schema`**
-//! limits in `lifeguard-migrate/README.md`.
+//! migration column baseline is reported in [`IndexColumnDrift`], **unless** the same index name has
+//! a `CREATE INDEX` line in the merged baseline — then [`IndexDefinitionTextDrift`] is used instead
+//! of column-level drift for that index. **Access method:** non-**btree** indexes are reported in
+//! [`IndexAccessMethodDrift`]. **T1:** when both sides name the index, [`normalize_index_statement_for_compare`]
+//! compares normalized `CREATE INDEX` text (whitespace, `IF NOT EXISTS`, optional explicit **`USING btree`**).
+//! **Not** fully normalized: btree **opclass** variants (`jsonb_path_ops`, …), **collation**,
+//! **NULLS FIRST/LAST**, or expression keys when parsing fails. See [`MigrationDbCompareReport`]
+//! and **`compare-schema`** limits in `lifeguard-migrate/README.md`.
 
 use lifeguard::LifeExecutor;
 use lifeguard::LifeError;
@@ -27,6 +30,7 @@ use std::path::Path;
 
 use crate::generated_migration_diff::{
     accumulate_table_baselines_from_dir, column_map_from_merged_baseline,
+    index_statements_for_table_from_merged_baseline,
 };
 
 /// Table names from merged `*_generated_from_entities.sql` in `dir` (from `-- Table:` headers).
@@ -111,6 +115,30 @@ pub struct IndexColumnDrift {
     pub unknown_columns: Vec<String>,
 }
 
+/// Shared table + index name where normalized migration `CREATE INDEX` text ≠ live `pg_indexes.indexdef`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexDefinitionTextDrift {
+    pub table: String,
+    pub index_name: String,
+    pub normalized_migration: String,
+    pub normalized_live: String,
+}
+
+/// Live index (non–primary-key) on a shared table with no matching `CREATE INDEX` line in the merged
+/// baseline (and not solely explained by [`IndexColumnDrift`] or [`IndexAccessMethodDrift`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexOnlyInDatabaseDrift {
+    pub table: String,
+    pub index_name: String,
+}
+
+/// Index declared in merged migration text for a shared table but missing from live `pg_indexes`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexOnlyInMigrationDrift {
+    pub table: String,
+    pub index_name: String,
+}
+
 /// Column-level drift for a single table that exists in both the live DB and merged migrations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableColumnDrift {
@@ -140,12 +168,16 @@ pub struct MigrationDbCompareReport {
     /// Shared tables where a live index uses a non-**btree** access method (entity migrations are
     /// btree-oriented; PRD §5.7a / **T2** partial).
     pub index_access_method_drifts: Vec<IndexAccessMethodDrift>,
+    /// **T1:** normalized full `CREATE INDEX` text differs for the same index name.
+    pub index_definition_text_drifts: Vec<IndexDefinitionTextDrift>,
+    pub index_only_in_database: Vec<IndexOnlyInDatabaseDrift>,
+    pub index_only_in_migration: Vec<IndexOnlyInMigrationDrift>,
 }
 
 impl MigrationDbCompareReport {
     /// `true` when table sets differ, column names drift, an index’s parsed key / `INCLUDE`
-    /// names reference a column missing from the merged migration map, or a live index is not
-    /// **`btree`** (implicit or explicit).
+    /// names reference a column missing from the merged migration map, a live index is not
+    /// **`btree`** (implicit or explicit), or **T1** / only-in-one-side index names differ.
     #[must_use]
     pub fn has_drift(&self) -> bool {
         !self.only_in_database.is_empty()
@@ -153,6 +185,9 @@ impl MigrationDbCompareReport {
             || !self.column_drifts.is_empty()
             || !self.index_column_drifts.is_empty()
             || !self.index_access_method_drifts.is_empty()
+            || !self.index_definition_text_drifts.is_empty()
+            || !self.index_only_in_database.is_empty()
+            || !self.index_only_in_migration.is_empty()
     }
 }
 
@@ -215,17 +250,50 @@ pub fn compare_generated_dir_to_live_db(
             .then_with(|| a.index_name.cmp(&b.index_name))
     });
 
+    let non_btree_keys: BTreeSet<(String, String)> = index_access_method_drifts
+        .iter()
+        .map(|d| (d.table.clone(), d.index_name.clone()))
+        .collect();
+
+    let mut index_definition_text_drifts = Vec::new();
     let mut index_column_drifts = Vec::new();
-    for row in index_rows {
+    let mut index_only_in_database = Vec::new();
+
+    for row in &index_rows {
         if !shared.contains(&row.table_name) {
             continue;
         }
         let Some(parts) = acc.get(row.table_name.as_str()) else {
             continue;
         };
+        let index_by_name =
+            index_statements_for_table_from_merged_baseline(parts, &row.table_name);
+        let mig_stmt = index_by_name.get(&row.index_name);
+
+        if let Some(mig) = mig_stmt {
+            let nm = normalize_index_statement_for_compare(mig);
+            let nl = normalize_index_statement_for_compare(&row.indexdef);
+            if nm != nl {
+                index_definition_text_drifts.push(IndexDefinitionTextDrift {
+                    table: row.table_name.clone(),
+                    index_name: row.index_name.clone(),
+                    normalized_migration: nm,
+                    normalized_live: nl,
+                });
+            }
+            continue;
+        }
+
         let mig_map = column_map_from_merged_baseline(parts);
         let mig_names: BTreeSet<String> = mig_map.keys().cloned().collect();
         let Some(cols) = parse_pg_indexdef_simple_columns(&row.indexdef) else {
+            let key = (row.table_name.clone(), row.index_name.clone());
+            if !non_btree_keys.contains(&key) {
+                index_only_in_database.push(IndexOnlyInDatabaseDrift {
+                    table: row.table_name.clone(),
+                    index_name: row.index_name.clone(),
+                });
+            }
             continue;
         };
         let mut all_cols = cols;
@@ -233,20 +301,65 @@ pub fn compare_generated_dir_to_live_db(
             all_cols.extend(inc);
         }
         let mut unknown: Vec<String> = all_cols
-            .into_iter()
-            .filter(|c| !mig_names.contains(c))
+            .iter()
+            .filter(|c| !mig_names.contains(*c))
+            .cloned()
             .collect();
-        if unknown.is_empty() {
+        unknown.sort();
+        if !unknown.is_empty() {
+            index_column_drifts.push(IndexColumnDrift {
+                table: row.table_name.clone(),
+                index_name: row.index_name.clone(),
+                unknown_columns: unknown,
+            });
             continue;
         }
-        unknown.sort();
-        index_column_drifts.push(IndexColumnDrift {
-            table: row.table_name,
-            index_name: row.index_name,
-            unknown_columns: unknown,
-        });
+        let key = (row.table_name.clone(), row.index_name.clone());
+        if !non_btree_keys.contains(&key) {
+            index_only_in_database.push(IndexOnlyInDatabaseDrift {
+                table: row.table_name.clone(),
+                index_name: row.index_name.clone(),
+            });
+        }
     }
+
+    index_definition_text_drifts.sort_by(|a, b| {
+        a.table
+            .cmp(&b.table)
+            .then_with(|| a.index_name.cmp(&b.index_name))
+    });
     index_column_drifts.sort_by(|a, b| {
+        a.table
+            .cmp(&b.table)
+            .then_with(|| a.index_name.cmp(&b.index_name))
+    });
+    index_only_in_database.sort_by(|a, b| {
+        a.table
+            .cmp(&b.table)
+            .then_with(|| a.index_name.cmp(&b.index_name))
+    });
+
+    let mut index_only_in_migration = Vec::new();
+    for table in &shared {
+        let Some(parts) = acc.get(table.as_str()) else {
+            continue;
+        };
+        let mig_indexes = index_statements_for_table_from_merged_baseline(parts, table);
+        let live_names: BTreeSet<String> = index_rows
+            .iter()
+            .filter(|r| r.table_name == *table)
+            .map(|r| r.index_name.clone())
+            .collect();
+        for name in mig_indexes.keys() {
+            if !live_names.contains(name) {
+                index_only_in_migration.push(IndexOnlyInMigrationDrift {
+                    table: table.clone(),
+                    index_name: name.clone(),
+                });
+            }
+        }
+    }
+    index_only_in_migration.sort_by(|a, b| {
         a.table
             .cmp(&b.table)
             .then_with(|| a.index_name.cmp(&b.index_name))
@@ -260,6 +373,9 @@ pub fn compare_generated_dir_to_live_db(
         column_drifts,
         index_column_drifts,
         index_access_method_drifts,
+        index_definition_text_drifts,
+        index_only_in_database,
+        index_only_in_migration,
     })
 }
 
@@ -362,6 +478,92 @@ fn skip_using_method(s: &str) -> Option<&str> {
     } else {
         Some(s)
     }
+}
+
+fn strip_create_index_prefix_options(mut r: &str) -> &str {
+    r = r.trim_start();
+    while r.len() >= 13 && r[..13].eq_ignore_ascii_case("CONCURRENTLY ") {
+        r = r[13..].trim_start();
+    }
+    while r.len() >= 14 && r[..14].eq_ignore_ascii_case("IF NOT EXISTS ") {
+        r = r[14..].trim_start();
+    }
+    r
+}
+
+fn collapse_ws_outside_quotes(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_double = false;
+    let mut in_single = false;
+    let mut prev_ws = false;
+    for ch in input.chars() {
+        match ch {
+            '"' if !in_single => {
+                in_double = !in_double;
+                out.push(ch);
+                prev_ws = false;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+                out.push(ch);
+                prev_ws = false;
+            }
+            c if c.is_whitespace() && !in_double && !in_single => {
+                if !prev_ws {
+                    out.push(' ');
+                    prev_ws = true;
+                }
+            }
+            c => {
+                out.push(c);
+                prev_ws = false;
+            }
+        }
+    }
+    out.trim().to_string()
+}
+
+fn strip_using_btree_after_on_table(s: &str) -> String {
+    let lower = s.to_ascii_lowercase();
+    let Some(on_pos) = lower.find(" on ") else {
+        return s.to_string();
+    };
+    let before_on = &s[..on_pos + 4];
+    let tail = s[on_pos + 4..].trim_start();
+    let Some(after_table) = skip_qualified_table(tail) else {
+        return s.to_string();
+    };
+    let consumed = tail.len() - after_table.len();
+    let table_part = &tail[..consumed];
+    let mut rest = after_table.trim_start();
+    const USING_BTREE: &str = "using btree";
+    if rest.len() >= USING_BTREE.len()
+        && rest[..USING_BTREE.len()].eq_ignore_ascii_case(USING_BTREE)
+    {
+        let after_using = rest[USING_BTREE.len()..].trim_start();
+        if after_using.starts_with('(') {
+            rest = after_using;
+        }
+    }
+    format!("{}{}{}", before_on, table_part.trim_end(), rest)
+}
+
+/// Normalize a `CREATE [UNIQUE] INDEX` statement for **T1** string comparison (migration vs `pg_indexes.indexdef`).
+#[must_use]
+pub fn normalize_index_statement_for_compare(s: &str) -> String {
+    let s = s.trim().trim_end_matches(';').trim();
+    let upper = s.to_ascii_uppercase();
+    let rebuilt = if upper.starts_with("CREATE UNIQUE INDEX ") {
+        let r = strip_create_index_prefix_options(&s["CREATE UNIQUE INDEX ".len()..]);
+        format!("CREATE UNIQUE INDEX {r}")
+    } else if upper.starts_with("CREATE INDEX ") {
+        let r = strip_create_index_prefix_options(&s["CREATE INDEX ".len()..]);
+        format!("CREATE INDEX {r}")
+    } else {
+        s.to_string()
+    };
+    let c = collapse_ws_outside_quotes(rebuilt.trim());
+    strip_using_btree_after_on_table(&c)
 }
 
 /// PostgreSQL access method for `CREATE INDEX` / `pg_indexes.indexdef`: `btree` (implicit when the
@@ -598,6 +800,39 @@ impl fmt::Display for MigrationDbCompareReport {
                 )?;
             }
         }
+        if !self.index_definition_text_drifts.is_empty() {
+            writeln!(
+                f,
+                "  Index definition text differs (normalized CREATE INDEX vs live pg_indexes.indexdef; shared tables only; primary key indexes skipped):"
+            )?;
+            for d in &self.index_definition_text_drifts {
+                writeln!(
+                    f,
+                    "    Table `{}` index `{}`:",
+                    d.table, d.index_name
+                )?;
+                writeln!(f, "      migration: {}", d.normalized_migration)?;
+                writeln!(f, "      live:      {}", d.normalized_live)?;
+            }
+        }
+        if !self.index_only_in_database.is_empty() {
+            writeln!(
+                f,
+                "  Indexes only in live database (not in merged migration baseline; shared tables only; primary key indexes skipped):"
+            )?;
+            for d in &self.index_only_in_database {
+                writeln!(f, "    Table `{}` index `{}`", d.table, d.index_name)?;
+            }
+        }
+        if !self.index_only_in_migration.is_empty() {
+            writeln!(
+                f,
+                "  Indexes only in merged migration baseline (not in live database; shared tables only):"
+            )?;
+            for d in &self.index_only_in_migration {
+                writeln!(f, "    Table `{}` index `{}`", d.table, d.index_name)?;
+            }
+        }
         Ok(())
     }
 }
@@ -616,6 +851,9 @@ mod tests {
             column_drifts: vec![],
             index_column_drifts: vec![],
             index_access_method_drifts: vec![],
+            index_definition_text_drifts: vec![],
+            index_only_in_database: vec![],
+            index_only_in_migration: vec![],
         };
         assert!(!r.has_drift());
         let s = r.to_string();
@@ -632,6 +870,9 @@ mod tests {
             column_drifts: vec![],
             index_column_drifts: vec![],
             index_access_method_drifts: vec![],
+            index_definition_text_drifts: vec![],
+            index_only_in_database: vec![],
+            index_only_in_migration: vec![],
         };
         assert!(r.has_drift());
     }
@@ -650,6 +891,9 @@ mod tests {
             }],
             index_column_drifts: vec![],
             index_access_method_drifts: vec![],
+            index_definition_text_drifts: vec![],
+            index_only_in_database: vec![],
+            index_only_in_migration: vec![],
         };
         assert!(r.has_drift());
         let s = r.to_string();
@@ -671,6 +915,9 @@ mod tests {
                 unknown_columns: vec!["ghost".into()],
             }],
             index_access_method_drifts: vec![],
+            index_definition_text_drifts: vec![],
+            index_only_in_database: vec![],
+            index_only_in_migration: vec![],
         };
         assert!(r.has_drift());
         assert!(r.to_string().contains("Index key / INCLUDE columns"));
@@ -740,9 +987,22 @@ mod tests {
                 index_name: "ix".into(),
                 access_method: "hash".into(),
             }],
+            index_definition_text_drifts: vec![],
+            index_only_in_database: vec![],
+            index_only_in_migration: vec![],
         };
         assert!(r.has_drift());
         assert!(r.to_string().contains("access method not btree"));
         assert!(r.to_string().contains("USING hash"));
+    }
+
+    #[test]
+    fn normalize_index_statement_equates_if_not_exists_and_using_btree() {
+        let mig = "CREATE INDEX IF NOT EXISTS i ON public.t(id);";
+        let live = "CREATE INDEX i ON public.t USING btree (id)";
+        assert_eq!(
+            normalize_index_statement_for_compare(mig),
+            normalize_index_statement_for_compare(live)
+        );
     }
 }

@@ -15,7 +15,7 @@ Migration CLI tool for Lifeguard ORM - manage database schema changes with versi
 - ✅ **Status Tracking** - View applied vs pending migrations
 - ✅ **Entity-Driven Generation** - Generate SQL migrations from Lifeguard entity definitions
 - ✅ **Schema inference (`infer-schema`)** - Introspect PostgreSQL and print `LifeModel` / `LifeRecord` Rust sketches (stdout); optional **`--watch`** polling (see below)
-- ✅ **DB vs generated migration baseline (`compare-schema`)** - Reconcile live `information_schema` tables, (for tables in both baselines) **column names**, and **simple index key columns** (`pg_indexes` / `indexdef` vs merged baseline); see below
+- ✅ **DB vs generated migration baseline (`compare-schema`)** - Reconcile live `information_schema` tables, (for tables in both baselines) **column names**, **index** drift (`pg_indexes` vs merged baseline: unknown column names, non-btree access methods, normalized `CREATE INDEX` text when names match, indexes only in DB or only in migrations); see below
 - ✅ **CI/CD Integration** - Designed for automated deployment pipelines
 - ✅ **Dry Run Mode** - Preview migrations without executing them
 
@@ -221,7 +221,8 @@ Compare **live PostgreSQL** to merged **`*_generated_from_entities.sql`** under 
 
 1. **Table names:** `information_schema` base tables (`table_type = 'BASE TABLE'`) vs `-- Table: name` sections (after chronological merge).
 2. **Column names:** for each table present in **both** baselines, `information_schema.columns` vs columns parsed from the merged `CREATE TABLE` body plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` lines (`column_map_from_merged_baseline`).
-3. **Index key and INCLUDE columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists and optional **`INCLUDE (…)`** payload columns. If any parsed name is absent from the merged migration column map, it is reported. Expression / functional indexes are skipped when the parser cannot extract plain column names. **Not** full `CREATE INDEX` / opclass parity vs `pg_indexes.indexdef` — see [Limits and roadmap](#compare-schema-limits-and-roadmap-index-comparison) below.
+3. **Index key and INCLUDE columns (name-level):** for shared tables, non–primary-key rows in `pg_indexes` are parsed for **simple** btree-style key lists and optional **`INCLUDE (…)`** payload columns. If there is **no** matching `CREATE INDEX` / `CREATE UNIQUE INDEX` line for that index name in the merged baseline, and any parsed name is absent from the merged migration column map, it is reported. When the **same index name** exists in merged SQL and in `pg_indexes`, **`compare-schema`** compares [`normalize_index_statement_for_compare`](./src/schema_migration_compare.rs) output instead of emitting column-level drift for that index.
+4. **Index presence and text (T1):** indexes whose names appear only in the live DB or only in merged migration SQL are reported; normalized statement mismatch is reported when both sides name the index. Expression / functional indexes are still skipped when the parser cannot extract plain column names. **Not** full parity for btree **opclass**, **collation**, **NULLS FIRST/LAST**, or arbitrary `WHERE` / expression shapes — see [Limits and roadmap](#compare-schema-limits-and-roadmap-index-comparison) below.
 
 Column reconciliation is **name-level** (presence of columns), not equality of SQL types or full `CREATE` definitions. Use **`--schema`** for a service or scratch namespace when you must not compare against every table in `public` (shared dev/CI databases often contain many unrelated tables).
 
@@ -229,18 +230,18 @@ Column reconciliation is **name-level** (presence of columns), not equality of S
 
 | Compared today (name-level) | Not compared (roadmap / manual review) |
 |----------------------------|----------------------------------------|
-| Key column names + **`INCLUDE`** column names when `indexdef` parses as simple btree + INCLUDE | Per-column **btree opclass** (e.g. `jsonb_path_ops` vs default on same access method) |
-| **Access method:** `USING` must be **`btree`** (implicit or explicit) — `hash` / `gin` / `gist` / … → drift | Full **string equality** of `pg_indexes.indexdef` vs merged migration text |
-| | Per-column **collation**, **NULLS FIRST/LAST** |
-| | **Expression** or **functional** index keys (parser returns `None` → skipped) |
+| Key column names + **`INCLUDE`** column names when `indexdef` parses as simple btree + INCLUDE **and** there is no migration line for that index name | Per-column **btree opclass** (e.g. `jsonb_path_ops` vs default on same access method) |
+| **Access method:** `USING` must be **`btree`** (implicit or explicit) — `hash` / `gin` / `gist` / … → drift | Subtle **string** differences beyond normalization (e.g. some quoting / PG-specific spellings) |
+| **Normalized** full `CREATE INDEX` text when migration + live share the same index name (`normalize_index_statement_for_compare`) | Per-column **collation**, **NULLS FIRST/LAST** |
+| Index names **only** in live DB or **only** in merged migration (shared tables) | **Expression** or **functional** index keys when the parser returns `None` → skipped for column + text paths |
 
-**How teams use this in practice:** Treat `compare-schema` as a **guardrail** that merged migration **column sets** cover every **simple** indexed column name the database uses for btree + INCLUDE shapes the parser understands. For **strict** index equivalence (opclass, expressions, partial predicates not represented in entity-driven SQL), use **DBA review**, **`pg_dump`**, or other tooling until the roadmap closes the gap.
+**How teams use this in practice:** Treat `compare-schema` as a **guardrail** for table/column alignment plus **index** parity at the level above. Models can opt into compile-time coverage with **`#[require_index_coverage]`** on `LifeModel` (see `lifeguard-derive`). For **strict** opclass / expression / predicate parity, use **DBA review**, **`pg_dump`**, or other tooling until **T2b** / **T3** land.
 
-**Phased backlog (opclass / full `indexdef` / derive checks):** [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](../docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) (PRD §5.7a).
+**Roadmap (opclass / expression keys):** [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](../docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) (PRD §5.7a).
 
 Design detail for relations vs scopes (unrelated to indexes but often asked in the same breath): [`docs/planning/DESIGN_FIND_RELATED_SCOPES.md`](../docs/planning/DESIGN_FIND_RELATED_SCOPES.md) — appendix **“Deferred behavior and how it would be used”**.
 
-**Exit code:** `0` when there is no drift; non-zero when extra/missing tables, extra/missing column names on shared tables, or index keys reference names missing from the merged baseline (CI-friendly).
+**Exit code:** `0` when there is no drift; non-zero when extra/missing tables, extra/missing column names on shared tables, or any index drift (unknown indexed column names, non-btree access method, normalized definition text mismatch, index only in DB or only in migrations) (CI-friendly).
 
 ```bash
 lifeguard-migrate compare-schema \

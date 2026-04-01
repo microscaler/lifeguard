@@ -11,7 +11,7 @@ Epic-style checklists in older docs were overstated relative to this crate. Use 
 | `LifeguardPool` / `PooledLifeExecutor` (primary/replica, WAL, heal, metrics) | Shipped (see [POOLING_OPERATIONS.md](./docs/POOLING_OPERATIONS.md), PRD for remaining parity) |
 | **`ReadPreference`** on `PooledLifeExecutor` (explicit primary-tier reads); transparent Redis on every query | Partial — API shipped; “Redis on every read” remains vision / reflector path |
 | LifeReflector, enterprise cache coherence | In-tree [`lifeguard-reflector`](./lifeguard-reflector/) (evolving) |
-| **`compare-schema` index parity (T1 / T2b / T3 / T4)** | Backlog — [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](./docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) (non-**btree** access method drift **shipped**; full `indexdef` text, btree opclasses, expression keys, derive checks remain optional) |
+| **`compare-schema` index parity (T1 / T2b / T3 / T4)** | [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](./docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) — **T1** (normalized index statement text + only-in-DB/migration names), **T2** (non-**btree** access method), and **T4** (`#[require_index_coverage]`) **shipped**; **T2b** (btree opclasses) and **T3** (expression keys) remain optional |
 
 Story-level detail: [docs/planning/epics-stories/](./docs/planning/epics-stories/) · Feature audit: [docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md](./docs/planning/lifeguard-derive/SEAORM_LIFEGUARD_MAPPING.md) · [docs/EPICS/](./docs/EPICS/) (curated notes).
 

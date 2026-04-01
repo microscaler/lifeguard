@@ -236,6 +236,12 @@ fn compile_error_index_ignored_field() {
 }
 
 #[test]
+fn compile_error_require_index_coverage() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_require_index_coverage.rs");
+}
+
+#[test]
 fn compile_error_composite_unique_skipped_field() {
     let t = TEST_CASES.lock().unwrap();
     t.compile_fail("tests/ui/compile_error_composite_unique_skipped_field.rs");

@@ -225,6 +225,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         Ok(attrs) => attrs,
         Err(e) => return e.to_compile_error().into(),
     };
+    if let Err(e) = attributes::validate_require_index_coverage(
+        fields,
+        &valid_columns,
+        &table_attrs,
+        struct_name.span(),
+    ) {
+        return e.to_compile_error().into();
+    }
 
     // Generate Model name
     let model_name = Ident::new(&format!("{struct_name}Model"), struct_name.span());

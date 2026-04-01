@@ -1,6 +1,10 @@
 //! Attribute parsing utilities
 
+use std::collections::HashSet;
+
 use syn::{Attribute, ExprLit, Field, Lit};
+
+use crate::utils;
 
 /// Extract table name from struct attributes
 pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
@@ -446,6 +450,9 @@ pub struct TableAttributes {
     /// When set, the derived `LifeRecord` implements `ActiveModelBehavior::validation_strategy`
     /// so `validate_fields` matches `run_validators` for that strategy.
     pub validation_strategy: Option<TableValidationStrategy>,
+    /// When true, every database column on the struct must appear in at least one of: `#[primary_key]`,
+    /// `#[indexed]`, a table-level `#[index = "..."]` key or INCLUDE list, or `#[composite_unique = "..."]`.
+    pub require_index_coverage: bool,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -657,10 +664,72 @@ pub fn parse_table_attributes(
                     });
                 }
             }
+        } else if attr.path().is_ident("require_index_coverage") {
+            match &attr.meta {
+                syn::Meta::Path(_) => table_attrs.require_index_coverage = true,
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "require_index_coverage must be a unit attribute: #[require_index_coverage]",
+                    ));
+                }
+            }
         }
     }
 
     Ok(table_attrs)
+}
+
+/// Enforces [`TableAttributes::require_index_coverage`] after table attributes are parsed.
+pub fn validate_require_index_coverage(
+    fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
+    valid_columns: &HashSet<String>,
+    table_attrs: &TableAttributes,
+    span: proc_macro2::Span,
+) -> syn::Result<()> {
+    if !table_attrs.require_index_coverage {
+        return Ok(());
+    }
+    let mut covered: HashSet<String> = HashSet::new();
+    for field in fields {
+        let Some(field_name) = &field.ident else {
+            continue;
+        };
+        if has_attribute(field, "skip") || has_attribute(field, "ignore") {
+            continue;
+        }
+        let col = extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+        let col_attrs = parse_column_attributes(field)?;
+        if col_attrs.is_primary_key || col_attrs.is_indexed {
+            covered.insert(col);
+        }
+    }
+    for (_, cols, _, _, inc) in &table_attrs.indexes {
+        for c in cols {
+            covered.insert(c.clone());
+        }
+        for c in inc {
+            covered.insert(c.clone());
+        }
+    }
+    for group in &table_attrs.composite_unique {
+        for c in group {
+            covered.insert(c.clone());
+        }
+    }
+    let mut missing: Vec<String> = valid_columns.difference(&covered).cloned().collect();
+    missing.sort();
+    if !missing.is_empty() {
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "require_index_coverage: column(s) not covered by #[primary_key], #[indexed], #[index], or #[composite_unique]: {}",
+                missing.join(", ")
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Parse index definition string
