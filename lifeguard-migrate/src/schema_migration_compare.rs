@@ -13,11 +13,11 @@
 //! [`pg_indexes`](https://www.postgresql.org/docs/current/view-pg-indexes.html) are parsed for
 //! **simple** btree-style key columns and optional **`INCLUDE (…)`** column names when the
 //! `indexdef` shape matches what the parser understands. Any such name missing from the merged
-//! migration column baseline is reported in [`IndexColumnDrift`]. **Not** compared: full
-//! `CREATE INDEX` text equality, **operator classes** / access method (`USING gist`, `jsonb_path_ops`,
-//! …), per-column **collation**, **NULLS FIRST/LAST**, or arbitrary **expression** keys (those
-//! indexes are skipped when parsing fails). See [`MigrationDbCompareReport`] and the
-//! **`compare-schema`: limits and roadmap** section in `lifeguard-migrate/README.md`.
+//! migration column baseline is reported in [`IndexColumnDrift`]. **Access method:** non-**btree**
+//! indexes are reported in [`IndexAccessMethodDrift`]. **Not** compared: full `CREATE INDEX` text
+//! equality, btree **opclass** variants (`jsonb_path_ops`, …), **collation**, **NULLS FIRST/LAST**,
+//! or expression keys when parsing fails. See [`MigrationDbCompareReport`] and **`compare-schema`**
+//! limits in `lifeguard-migrate/README.md`.
 
 use lifeguard::LifeExecutor;
 use lifeguard::LifeError;
@@ -90,6 +90,16 @@ pub struct LiveIndexRow {
     pub indexdef: String,
 }
 
+/// Live index uses a **non-btree** access method; merged entity-driven SQL assumes **btree**-style
+/// indexes only (see `lifeguard_migrate::sql_generator`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexAccessMethodDrift {
+    pub table: String,
+    pub index_name: String,
+    /// Lowercase PostgreSQL access method (`hash`, `gin`, `gist`, …).
+    pub access_method: String,
+}
+
 /// Indexes on a shared table where **parsed** btree key and/or **`INCLUDE`** column names are not
 /// all present in the merged migration column map.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,17 +137,22 @@ pub struct MigrationDbCompareReport {
     /// Shared tables where a live index’s **parsed** key / `INCLUDE` names reference a column absent
     /// from the merged baseline.
     pub index_column_drifts: Vec<IndexColumnDrift>,
+    /// Shared tables where a live index uses a non-**btree** access method (entity migrations are
+    /// btree-oriented; PRD §5.7a / **T2** partial).
+    pub index_access_method_drifts: Vec<IndexAccessMethodDrift>,
 }
 
 impl MigrationDbCompareReport {
-    /// `true` when table sets differ, column names drift, or an index’s parsed key / `INCLUDE`
-    /// names reference a column missing from the merged migration map.
+    /// `true` when table sets differ, column names drift, an index’s parsed key / `INCLUDE`
+    /// names reference a column missing from the merged migration map, or a live index is not
+    /// **`btree`** (implicit or explicit).
     #[must_use]
     pub fn has_drift(&self) -> bool {
         !self.only_in_database.is_empty()
             || !self.only_in_migrations.is_empty()
             || !self.column_drifts.is_empty()
             || !self.index_column_drifts.is_empty()
+            || !self.index_access_method_drifts.is_empty()
     }
 }
 
@@ -179,6 +194,27 @@ pub fn compare_generated_dir_to_live_db(
 
     let shared: BTreeSet<String> = on_disk.intersection(&live).cloned().collect();
     let index_rows = fetch_live_pg_indexes(executor, schema)?;
+    let mut index_access_method_drifts = Vec::new();
+    for row in &index_rows {
+        if !shared.contains(&row.table_name) {
+            continue;
+        }
+        if let Some(method) = parse_pg_indexdef_access_method(&row.indexdef) {
+            if method != "btree" {
+                index_access_method_drifts.push(IndexAccessMethodDrift {
+                    table: row.table_name.clone(),
+                    index_name: row.index_name.clone(),
+                    access_method: method,
+                });
+            }
+        }
+    }
+    index_access_method_drifts.sort_by(|a, b| {
+        a.table
+            .cmp(&b.table)
+            .then_with(|| a.index_name.cmp(&b.index_name))
+    });
+
     let mut index_column_drifts = Vec::new();
     for row in index_rows {
         if !shared.contains(&row.table_name) {
@@ -223,6 +259,7 @@ pub fn compare_generated_dir_to_live_db(
         only_in_migrations: only_mig,
         column_drifts,
         index_column_drifts,
+        index_access_method_drifts,
     })
 }
 
@@ -325,6 +362,33 @@ fn skip_using_method(s: &str) -> Option<&str> {
     } else {
         Some(s)
     }
+}
+
+/// PostgreSQL access method for `CREATE INDEX` / `pg_indexes.indexdef`: `btree` (implicit when the
+/// key list follows the table name directly), or the first identifier after **`USING`** (`hash`,
+/// `gin`, `gist`, …). Returns [`None`] if the `ON …` tail cannot be interpreted.
+#[must_use]
+pub fn parse_pg_indexdef_access_method(indexdef: &str) -> Option<String> {
+    let mut tail = after_on_clause(indexdef)?;
+    if tail.len() >= 5 && tail[..5].eq_ignore_ascii_case("only ") {
+        tail = tail[5..].trim_start();
+    }
+    tail = skip_qualified_table(tail)?;
+    let tail = tail.trim_start();
+    if tail.starts_with('(') {
+        return Some("btree".to_string());
+    }
+    if tail.len() >= 6 && tail[..6].eq_ignore_ascii_case("using ") {
+        let rest = tail[6..].trim_start();
+        let first = rest.split_whitespace().next()?;
+        let method = if let Some(dot) = first.rfind('.') {
+            &first[dot + 1..]
+        } else {
+            first
+        };
+        return Some(method.to_ascii_lowercase());
+    }
+    None
 }
 
 fn balanced_paren_group(s: &str) -> Option<(&str, &str)> {
@@ -521,6 +585,19 @@ impl fmt::Display for MigrationDbCompareReport {
                 )?;
             }
         }
+        if !self.index_access_method_drifts.is_empty() {
+            writeln!(
+                f,
+                "  Index access method not btree (entity migrations assume btree; shared tables only; primary key indexes skipped):"
+            )?;
+            for d in &self.index_access_method_drifts {
+                writeln!(
+                    f,
+                    "    Table `{}` index `{}`: USING {}",
+                    d.table, d.index_name, d.access_method
+                )?;
+            }
+        }
         Ok(())
     }
 }
@@ -538,6 +615,7 @@ mod tests {
             only_in_migrations: vec![],
             column_drifts: vec![],
             index_column_drifts: vec![],
+            index_access_method_drifts: vec![],
         };
         assert!(!r.has_drift());
         let s = r.to_string();
@@ -553,6 +631,7 @@ mod tests {
             only_in_migrations: vec![],
             column_drifts: vec![],
             index_column_drifts: vec![],
+            index_access_method_drifts: vec![],
         };
         assert!(r.has_drift());
     }
@@ -570,6 +649,7 @@ mod tests {
                 only_in_migrations: vec![],
             }],
             index_column_drifts: vec![],
+            index_access_method_drifts: vec![],
         };
         assert!(r.has_drift());
         let s = r.to_string();
@@ -590,6 +670,7 @@ mod tests {
                 index_name: "ix".into(),
                 unknown_columns: vec!["ghost".into()],
             }],
+            index_access_method_drifts: vec![],
         };
         assert!(r.has_drift());
         assert!(r.to_string().contains("Index key / INCLUDE columns"));
@@ -621,5 +702,47 @@ mod tests {
             parse_pg_indexdef_include_columns("CREATE INDEX ix ON t (id)"),
             Some(vec![])
         );
+    }
+
+    #[test]
+    fn parse_pg_indexdef_access_method_examples() {
+        assert_eq!(
+            parse_pg_indexdef_access_method("CREATE INDEX ix ON public.widgets USING btree (id)"),
+            Some("btree".to_string())
+        );
+        assert_eq!(
+            parse_pg_indexdef_access_method("CREATE INDEX ix ON t (id)"),
+            Some("btree".to_string())
+        );
+        assert_eq!(
+            parse_pg_indexdef_access_method(
+                "CREATE UNIQUE INDEX u ON ONLY myschema.items USING hash (a, b)"
+            ),
+            Some("hash".to_string())
+        );
+        assert_eq!(
+            parse_pg_indexdef_access_method("CREATE INDEX ix ON t USING gin (j)"),
+            Some("gin".to_string())
+        );
+    }
+
+    #[test]
+    fn has_drift_when_index_access_method_not_btree() {
+        let r = MigrationDbCompareReport {
+            schema: "public".into(),
+            generated_dir: Path::new("/x").to_path_buf(),
+            only_in_database: vec![],
+            only_in_migrations: vec![],
+            column_drifts: vec![],
+            index_column_drifts: vec![],
+            index_access_method_drifts: vec![IndexAccessMethodDrift {
+                table: "t".into(),
+                index_name: "ix".into(),
+                access_method: "hash".into(),
+            }],
+        };
+        assert!(r.has_drift());
+        assert!(r.to_string().contains("access method not btree"));
+        assert!(r.to_string().contains("USING hash"));
     }
 }

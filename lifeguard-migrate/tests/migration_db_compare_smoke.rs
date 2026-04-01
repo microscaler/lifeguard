@@ -12,6 +12,7 @@ use uuid::Uuid;
 const FILE: &str = "20990101000000_generated_from_entities.sql";
 const TABLE: &str = "smoke_t";
 const EXTRA_COL: &str = "extra_col";
+const HASH_IDX_COL: &str = "x";
 
 fn postgres_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
@@ -150,6 +151,81 @@ fn compare_reports_column_and_index_drift_when_live_has_extra_indexed_column() {
         .find(|d| d.table == TABLE)
         .expect("index drift for smoke table");
     assert_eq!(ix.unknown_columns, vec![EXTRA_COL.to_string()]);
+}
+
+#[test]
+fn compare_reports_access_method_drift_when_live_uses_non_btree_index() {
+    let Some(url) = postgres_url() else {
+        eprintln!(
+            "compare_reports_access_method_drift_when_live_uses_non_btree_index: skipped (no DB URL)"
+        );
+        return;
+    };
+
+    let schema = scratch_schema_name();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let sql = format!(
+        "-- Table: {TABLE}\n\
+         CREATE TABLE IF NOT EXISTS {TABLE} (id INTEGER PRIMARY KEY, {HASH_IDX_COL} INTEGER NOT NULL);\n"
+    );
+    fs::write(dir.path().join(FILE), sql).expect("write generated sql");
+
+    let client = connect(&url).expect("connect");
+    let executor = MayPostgresExecutor::new(client);
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+    executor
+        .execute(&format!("CREATE SCHEMA {schema}"), &[])
+        .expect("create schema");
+    executor
+        .execute(
+            &format!(
+                "CREATE TABLE {schema}.{TABLE} (id INTEGER NOT NULL PRIMARY KEY, {HASH_IDX_COL} INTEGER NOT NULL)"
+            ),
+            &[],
+        )
+        .expect("create scratch table");
+    executor
+        .execute(
+            &format!(
+                "CREATE INDEX {TABLE}_hash_idx ON {schema}.{TABLE} USING hash ({HASH_IDX_COL})"
+            ),
+            &[],
+        )
+        .expect("create hash index");
+
+    let report = compare_generated_dir_to_live_db(&executor, &schema, dir.path())
+        .expect("compare_generated_dir_to_live_db");
+
+    executor
+        .execute(
+            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
+            &[],
+        )
+        .ok();
+
+    assert!(report.has_drift(), "expected access-method drift");
+    assert!(
+        report.column_drifts.is_empty(),
+        "no column drift when merged baseline lists all columns: {:?}",
+        report.column_drifts
+    );
+    assert!(
+        report.index_column_drifts.is_empty(),
+        "x is in merged baseline: {:?}",
+        report.index_column_drifts
+    );
+    let am = report
+        .index_access_method_drifts
+        .iter()
+        .find(|d| d.table == TABLE && d.index_name == format!("{TABLE}_hash_idx"))
+        .expect("access method drift for hash index");
+    assert_eq!(am.access_method, "hash");
 }
 
 #[test]

@@ -229,10 +229,10 @@ Column reconciliation is **name-level** (presence of columns), not equality of S
 
 | Compared today (name-level) | Not compared (roadmap / manual review) |
 |----------------------------|----------------------------------------|
-| Key column names + **`INCLUDE`** column names when `indexdef` parses as simple btree + INCLUDE | **Operator class** / access method (`USING gist`, `jsonb_path_ops`, …) |
+| Key column names + **`INCLUDE`** column names when `indexdef` parses as simple btree + INCLUDE | Per-column **btree opclass** (e.g. `jsonb_path_ops` vs default on same access method) |
+| **Access method:** `USING` must be **`btree`** (implicit or explicit) — `hash` / `gin` / `gist` / … → drift | Full **string equality** of `pg_indexes.indexdef` vs merged migration text |
 | | Per-column **collation**, **NULLS FIRST/LAST** |
 | | **Expression** or **functional** index keys (parser returns `None` → skipped) |
-| | Full **string equality** of `pg_indexes.indexdef` vs merged migration text |
 
 **How teams use this in practice:** Treat `compare-schema` as a **guardrail** that merged migration **column sets** cover every **simple** indexed column name the database uses for btree + INCLUDE shapes the parser understands. For **strict** index equivalence (opclass, expressions, partial predicates not represented in entity-driven SQL), use **DBA review**, **`pg_dump`**, or other tooling until the roadmap closes the gap.
 
