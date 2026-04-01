@@ -37,5 +37,6 @@
 
 ## References
 
+- **`T2b` / `T3` (detailed design):** [DESIGN_INDEX_COMPARE_T2B_T3.md](./DESIGN_INDEX_COMPARE_T2B_T3.md) — btree opclass parity and expression / functional index keys (catalog vs string parsing, drift taxonomy, phases, open questions).
 - `lifeguard_migrate::schema_migration_compare`
 - `lifeguard_migrate::sql_generator` / `IndexDefinition`

@@ -237,7 +237,7 @@ Column reconciliation is **name-level** (presence of columns), not equality of S
 
 **How teams use this in practice:** Treat `compare-schema` as a **guardrail** for table/column alignment plus **index** parity at the level above. Models can opt into compile-time coverage with **`#[require_index_coverage]`** on `LifeModel` (see `lifeguard-derive`). For **strict** opclass / expression / predicate parity, use **DBA review**, **`pg_dump`**, or other tooling until **T2b** / **T3** land.
 
-**Roadmap (opclass / expression keys):** [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](../docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) (PRD §5.7a).
+**Roadmap (opclass / expression keys):** [`docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md`](../docs/planning/DESIGN_INDEX_COMPARE_ROADMAP.md) (PRD §5.7a). **Detailed design (T2b / T3):** [`docs/planning/DESIGN_INDEX_COMPARE_T2B_T3.md`](../docs/planning/DESIGN_INDEX_COMPARE_T2B_T3.md).
 
 Design detail for relations vs scopes (unrelated to indexes but often asked in the same breath): [`docs/planning/DESIGN_FIND_RELATED_SCOPES.md`](../docs/planning/DESIGN_FIND_RELATED_SCOPES.md) — appendix **“Deferred behavior and how it would be used”**.
 
