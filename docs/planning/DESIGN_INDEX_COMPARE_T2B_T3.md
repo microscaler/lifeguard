@@ -37,11 +37,11 @@ This document scopes work so implementation can proceed in **independent phases*
 ### 3.1 Definitions
 
 - **Access method** (`USING btree` / `gin` / …): already covered by **T2**.
-- **Operator class** (opclass): per **index key column** (or expression), PostgreSQL attaches an **opclass** that defines how values are ordered/compared for that index. For btree, types have a **default** opclass (e.g. `jsonb_ops` for `jsonb`). Indexes may specify a **non-default** opclass, e.g. `jsonb_path_ops`, `text_pattern_ops`.
+- **Operator class** (opclass): per **index key column** (or expression), PostgreSQL attaches an **opclass** that defines how values are ordered/compared for that index. For **btree**, types have a **default** opclass (e.g. `text_ops` for `text`, `jsonb_ops` for `jsonb`). Indexes may specify a **non-default** btree opclass, e.g. **`text_pattern_ops`** on `text`. **`jsonb_path_ops`** is for **`GIN`** on `jsonb`, not btree — do not use it in `USING btree (...)` (PostgreSQL error `E42704`).
 
 ### 3.2 Why teams care
 
-- **JSONB:** `jsonb_path_ops` vs default changes index capabilities and size; migrations that forget the opclass can “pass” column-name checks while being **wrong** for query plans.
+- **JSONB / GIN:** `jsonb_path_ops` vs default (on **GIN**) changes index capabilities; that path is **T2** (access method), not btree **T2b**. **Btree** `text` + `text_pattern_ops` vs `text_ops` affects `LIKE` / pattern matching compatibility — migrations that omit it can pass column-name checks but be **wrong** for query plans.
 - **Text / UUID / inet:** pattern ops and type-specific opclasses affect operator compatibility (`LIKE`, etc.).
 
 ### 3.3 Problem statement
@@ -106,7 +106,7 @@ Recommendation: **phase 1** = report **actual** opclass per btree key slot from 
 
 1. **Spike SQL:** **Done** — see [`fetch_live_btree_index_key_opclasses`](../../lifeguard-migrate/src/schema_migration_compare.rs): `pg_index` + `generate_subscripts(indkey::int2[], 1)` + `indclass::oid[]` + `pg_opclass` + default opclass via `opcdefault` for btree. **Shipped in `compare-schema`:** non-default key opclasses on **shared** tables populate `MigrationDbCompareReport::index_btree_nondefault_opclass_drifts`.
 2. **Rust types:** **Done** — `LiveBtreeIndexKeyOpclassRow` (raw catalog rows) and `IndexBtreeNonDefaultOpclassDrift` (report).
-3. **Tests:** **Done** — `migration_db_compare_smoke`: `fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops`, `compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops` (require DB URL).
+3. **Tests:** **Done** — `migration_db_compare_smoke`: `fetch_live_btree_index_key_opclasses_lists_text_pattern_ops`, `compare_reports_btree_non_default_opclass_when_live_uses_text_pattern_ops` (require DB URL; uses btree `text_pattern_ops` vs default `text_ops` — not `jsonb_path_ops`, which is GIN-only).
 4. **Docs:** `lifeguard-migrate/README` limits table updated; cross-link this file.
 
 **Follow-on (still T2b backlog):** migration-side **expected** opclass from entity/column types; dedupe with **T1** when text mismatch is only opclass formatting; collation / sort order reporting.

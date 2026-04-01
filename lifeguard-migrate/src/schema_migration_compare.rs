@@ -154,7 +154,7 @@ pub struct IndexBtreeNonDefaultOpclassDrift {
     /// 1-based key column position in the btree index.
     pub key_ordinal: i32,
     pub column_name: Option<String>,
-    /// Live opclass name (e.g. `jsonb_path_ops`).
+    /// Live opclass name (e.g. `text_pattern_ops` on btree `text`; `jsonb_path_ops` is GIN-only).
     pub opclass_name: String,
     /// Default btree opclass name for the column type when resolved.
     pub default_opclass_name: Option<String>,
@@ -1211,14 +1211,14 @@ mod tests {
                 table: "t".into(),
                 index_name: "ix".into(),
                 key_ordinal: 1,
-                column_name: Some("j".into()),
-                opclass_name: "jsonb_path_ops".into(),
-                default_opclass_name: Some("jsonb_ops".into()),
+                column_name: Some("body".into()),
+                opclass_name: "text_pattern_ops".into(),
+                default_opclass_name: Some("text_ops".into()),
             }],
         };
         assert!(r.has_drift());
         let s = r.to_string();
         assert!(s.contains("non-default operator class"));
-        assert!(s.contains("jsonb_path_ops"));
+        assert!(s.contains("text_pattern_ops"));
     }
 }

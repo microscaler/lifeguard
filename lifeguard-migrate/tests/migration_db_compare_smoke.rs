@@ -15,9 +15,10 @@ const FILE: &str = "20990101000000_generated_from_entities.sql";
 const TABLE: &str = "smoke_t";
 const EXTRA_COL: &str = "extra_col";
 const HASH_IDX_COL: &str = "x";
-/// T2b catalog smoke: table + btree index on `jsonb` with non-default opclass.
-const JSONB_TABLE: &str = "smoke_jsonb_t";
-const JSONB_IDX: &str = "idx_smoke_jsonb_j";
+/// T2b catalog smoke: btree index with non-default opclass (`text_pattern_ops`; default is `text_ops`).
+/// Note: `jsonb_path_ops` is **GIN-only** and cannot be used with `USING btree`.
+const OPCLASS_TABLE: &str = "smoke_opclass_t";
+const OPCLASS_IDX: &str = "idx_smoke_opclass_body";
 
 fn postgres_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
@@ -234,9 +235,9 @@ fn compare_reports_access_method_drift_when_live_uses_non_btree_index() {
 }
 
 #[test]
-fn fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops() {
+fn fetch_live_btree_index_key_opclasses_lists_text_pattern_ops() {
     let Some(url) = postgres_url() else {
-        eprintln!("fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops: skipped (no DB URL)");
+        eprintln!("fetch_live_btree_index_key_opclasses_lists_text_pattern_ops: skipped (no DB URL)");
         return;
     };
 
@@ -256,7 +257,7 @@ fn fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops() {
     executor
         .execute(
             &format!(
-                "CREATE TABLE {schema}.{JSONB_TABLE} (id INTEGER NOT NULL PRIMARY KEY, j JSONB NOT NULL)"
+                "CREATE TABLE {schema}.{OPCLASS_TABLE} (id INTEGER NOT NULL PRIMARY KEY, body TEXT NOT NULL)"
             ),
             &[],
         )
@@ -264,11 +265,11 @@ fn fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops() {
     executor
         .execute(
             &format!(
-                "CREATE INDEX {JSONB_IDX} ON {schema}.{JSONB_TABLE} USING btree (j jsonb_path_ops)"
+                "CREATE INDEX {OPCLASS_IDX} ON {schema}.{OPCLASS_TABLE} USING btree (body text_pattern_ops)"
             ),
             &[],
         )
-        .expect("create jsonb_path_ops index");
+        .expect("create text_pattern_ops btree index");
 
     let rows = fetch_live_btree_index_key_opclasses(&executor, &schema).expect("catalog query");
     executor
@@ -279,26 +280,26 @@ fn fetch_live_btree_index_key_opclasses_lists_jsonb_path_ops() {
         .ok();
 
     let hit = rows.iter().find(|r| {
-        r.table_name == JSONB_TABLE
-            && r.index_name == JSONB_IDX
-            && r.opclass_name == "jsonb_path_ops"
+        r.table_name == OPCLASS_TABLE
+            && r.index_name == OPCLASS_IDX
+            && r.opclass_name == "text_pattern_ops"
     });
     let Some(hit) = hit else {
-        panic!("expected catalog row for {JSONB_TABLE}/{JSONB_IDX}, got: {rows:?}");
+        panic!("expected catalog row for {OPCLASS_TABLE}/{OPCLASS_IDX}, got: {rows:?}");
     };
     assert!(
         hit.is_non_default_opclass,
-        "jsonb_path_ops should differ from default jsonb_ops: {hit:?}"
+        "text_pattern_ops should differ from default text_ops: {hit:?}"
     );
-    assert_eq!(hit.column_name.as_deref(), Some("j"));
-    assert_eq!(hit.default_opclass_name.as_deref(), Some("jsonb_ops"));
+    assert_eq!(hit.column_name.as_deref(), Some("body"));
+    assert_eq!(hit.default_opclass_name.as_deref(), Some("text_ops"));
 }
 
 #[test]
-fn compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops() {
+fn compare_reports_btree_non_default_opclass_when_live_uses_text_pattern_ops() {
     let Some(url) = postgres_url() else {
         eprintln!(
-            "compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops: skipped (no DB URL)"
+            "compare_reports_btree_non_default_opclass_when_live_uses_text_pattern_ops: skipped (no DB URL)"
         );
         return;
     };
@@ -306,9 +307,9 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops() {
     let schema = scratch_schema_name();
     let dir = tempfile::tempdir().expect("tempdir");
     let sql = format!(
-        "-- Table: {JSONB_TABLE}\n\
-         CREATE TABLE IF NOT EXISTS {JSONB_TABLE} (id INTEGER PRIMARY KEY, j JSONB NOT NULL);\n\n\
-         CREATE INDEX {JSONB_IDX} ON {JSONB_TABLE} (j);\n"
+        "-- Table: {OPCLASS_TABLE}\n\
+         CREATE TABLE IF NOT EXISTS {OPCLASS_TABLE} (id INTEGER PRIMARY KEY, body TEXT NOT NULL);\n\n\
+         CREATE INDEX {OPCLASS_IDX} ON {OPCLASS_TABLE} (body);\n"
     );
     fs::write(dir.path().join(FILE), sql).expect("write generated sql");
 
@@ -327,7 +328,7 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops() {
     executor
         .execute(
             &format!(
-                "CREATE TABLE {schema}.{JSONB_TABLE} (id INTEGER NOT NULL PRIMARY KEY, j JSONB NOT NULL)"
+                "CREATE TABLE {schema}.{OPCLASS_TABLE} (id INTEGER NOT NULL PRIMARY KEY, body TEXT NOT NULL)"
             ),
             &[],
         )
@@ -335,11 +336,11 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops() {
     executor
         .execute(
             &format!(
-                "CREATE INDEX {JSONB_IDX} ON {schema}.{JSONB_TABLE} USING btree (j jsonb_path_ops)"
+                "CREATE INDEX {OPCLASS_IDX} ON {schema}.{OPCLASS_TABLE} USING btree (body text_pattern_ops)"
             ),
             &[],
         )
-        .expect("create jsonb_path_ops index");
+        .expect("create text_pattern_ops btree index");
 
     let report = compare_generated_dir_to_live_db(&executor, &schema, dir.path())
         .expect("compare_generated_dir_to_live_db");
@@ -354,11 +355,11 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_jsonb_path_ops() {
     let d = report
         .index_btree_nondefault_opclass_drifts
         .iter()
-        .find(|x| x.table == JSONB_TABLE && x.index_name == JSONB_IDX)
+        .find(|x| x.table == OPCLASS_TABLE && x.index_name == OPCLASS_IDX)
         .expect("expected T2b opclass drift");
-    assert_eq!(d.opclass_name, "jsonb_path_ops");
-    assert_eq!(d.column_name.as_deref(), Some("j"));
-    assert_eq!(d.default_opclass_name.as_deref(), Some("jsonb_ops"));
+    assert_eq!(d.opclass_name, "text_pattern_ops");
+    assert_eq!(d.column_name.as_deref(), Some("body"));
+    assert_eq!(d.default_opclass_name.as_deref(), Some("text_ops"));
     assert!(report.has_drift(), "opclass drift should set has_drift");
 }
 
