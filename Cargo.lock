@@ -1464,11 +1464,12 @@ dependencies = [
  "may_minihttp",
  "may_postgres",
  "once_cell",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "opentelemetry-prometheus",
+ "opentelemetry_sdk",
  "postgres-types",
  "prometheus",
- "protobuf 3.7.2",
+ "protobuf",
  "rand 0.8.5",
  "redis",
  "regex",
@@ -1789,22 +1790,6 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "opentelemetry"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e32339a5dc40459130b3bd269e9892439f55b33e772d2a9d402a789baaf4e8a"
-dependencies = [
- "futures-core",
- "futures-sink",
- "indexmap",
- "js-sys",
- "once_cell",
- "pin-project-lite",
- "thiserror 1.0.69",
- "urlencoding",
-]
-
-[[package]]
-name = "opentelemetry"
 version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e87237e2775f74896f9ad219d26a2081751187eb7c9f5c58dde20a23b95d16c"
@@ -1819,41 +1804,29 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-prometheus"
-version = "0.14.1"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f8f082da115b0dcb250829e3ed0b8792b8f963a1ad42466e48422fbe6a079bd"
+checksum = "098a71a4430bb712be6130ed777335d2e5b19bc8566de5f2edddfce906def6ab"
 dependencies = [
  "once_cell",
- "opentelemetry 0.21.0",
+ "opentelemetry",
  "opentelemetry_sdk",
  "prometheus",
- "protobuf 2.28.0",
+ "tracing",
 ]
 
 [[package]]
 name = "opentelemetry_sdk"
-version = "0.21.2"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f16aec8a98a457a52664d69e0091bac3a0abd18ead9b641cb00202ba4e0efe4"
+checksum = "afdefb21d1d47394abc1ba6c57363ab141be19e27cc70d0e422b7f303e4d290b"
 dependencies = [
- "async-trait",
  "futures-channel",
  "futures-executor",
  "futures-util",
  "glob",
- "once_cell",
- "opentelemetry 0.21.0",
- "ordered-float",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "ordered-float"
-version = "4.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
-dependencies = [
- "num-traits",
+ "opentelemetry",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -2080,24 +2053,18 @@ dependencies = [
 
 [[package]]
 name = "prometheus"
-version = "0.13.4"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d33c28a30771f7f96db69893f78b857f7450d7e0237e9c8fc6427a81bae7ed1"
+checksum = "3ca5326d8d0b950a9acd87e6a3f94745394f62e4dae1b1ee22b2bc0c394af43a"
 dependencies = [
  "cfg-if",
  "fnv",
  "lazy_static",
  "memchr",
  "parking_lot",
- "protobuf 2.28.0",
- "thiserror 1.0.69",
+ "protobuf",
+ "thiserror 2.0.17",
 ]
-
-[[package]]
-name = "protobuf"
-version = "2.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106dd99e98437432fed6519dedecfade6a06a73bb7b2a1e019fdd2bee5778d94"
 
 [[package]]
 name = "protobuf"
@@ -3042,12 +3009,6 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
-
-[[package]]
-name = "urlencoding"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "utf8_iter"

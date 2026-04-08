@@ -34,12 +34,14 @@ use opentelemetry::{
     KeyValue,
 };
 #[cfg(feature = "metrics")]
-use opentelemetry_prometheus::PrometheusExporter;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 #[cfg(feature = "metrics")]
 // Note: once_cell::sync::Lazy is deprecated in favor of std::sync::LazyLock,
 // but LazyLock requires Rust 1.80+. Using once_cell for compatibility.
 #[allow(deprecated)]
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Once};
+#[cfg(feature = "metrics")]
+static INIT_GLOBAL_METER_PROVIDER: Once = Once::new();
 
 /// Lifeguard metrics collector
 ///
@@ -47,8 +49,8 @@ use std::sync::LazyLock;
 /// lazily on first access and can be accessed via the `METRICS` static.
 #[cfg(feature = "metrics")]
 pub struct LifeguardMetrics {
-    /// Prometheus exporter for scraping metrics
-    pub exporter: PrometheusExporter,
+    /// Registry that holds the OTEL→Prometheus collector (keep alive for `gather()` / HTTP scrape).
+    pub registry: Arc<prometheus::Registry>,
     /// Total pool slots (primary + replica); unlabeled for backward-compatible dashboards.
     pub pool_size: Gauge<u64>,
     /// Worker slots per `pool_tier` label (`primary` \| `replica`).
@@ -84,13 +86,21 @@ impl LifeguardMetrics {
     /// In production, this should be handled by the application's startup error handling.
     #[must_use]
     pub fn init() -> Self {
-        // Note: Using expect() here is intentional - metrics initialization failure
-        // is a critical system error that should fail fast at startup.
-        // The application should handle this at a higher level.
-        #[allow(clippy::expect_used)] // Critical system error - fail fast at startup
-        let exporter = opentelemetry_prometheus::exporter()
-            .build()
-            .expect("failed to build prometheus exporter");
+        // Wire the Prometheus exporter as the **global** OTEL meter provider so instruments
+        // created via `global::meter` are not no-ops. Keep `registry` alive for text scrape.
+        let registry = Arc::new(prometheus::Registry::new());
+        let reg_for_provider = (*registry).clone();
+        INIT_GLOBAL_METER_PROVIDER.call_once(|| {
+            #[allow(clippy::expect_used)] // Critical system error - fail fast at startup
+            let exporter = opentelemetry_prometheus::exporter()
+                .with_registry(reg_for_provider)
+                .build()
+                .expect("failed to build prometheus exporter");
+            let provider = SdkMeterProvider::builder()
+                .with_reader(exporter)
+                .build();
+            global::set_meter_provider(provider);
+        });
         let meter = global::meter("lifeguard");
 
         let pool_size = meter
@@ -146,7 +156,7 @@ impl LifeguardMetrics {
             .build();
 
         Self {
-            exporter,
+            registry,
             pool_size,
             pool_workers,
             active_connections,
@@ -237,6 +247,19 @@ impl LifeguardMetrics {
         self.pool_connection_rotated_total
             .add(1, &Self::tier_kv(tier));
     }
+}
+
+/// OpenMetrics text for Lifeguard `lifeguard_*` series (for appending to BRRTRouter `/metrics`).
+#[cfg(feature = "metrics")]
+pub fn prometheus_scrape_text() -> String {
+    use prometheus::Encoder;
+    let encoder = prometheus::TextEncoder::new();
+    let metric_families = METRICS.registry.gather();
+    let mut buf = Vec::new();
+    if let Err(e) = encoder.encode(&metric_families, &mut buf) {
+        return format!("# lifeguard metrics encode error: {e}\n");
+    }
+    String::from_utf8_lossy(&buf).into_owned()
 }
 
 #[cfg(feature = "metrics")]
@@ -347,7 +370,8 @@ mod tests {
 
     #[test]
     fn test_metrics_initialization() {
-        let metrics = LifeguardMetrics::init();
+        // Use the singleton so global meter provider is initialized once (matches production).
+        let metrics: &LifeguardMetrics = &*METRICS;
         // Just verify it doesn't panic
         metrics.record_query_duration(std::time::Duration::from_millis(100), None);
         metrics.record_query_error(None);

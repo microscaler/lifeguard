@@ -1,9 +1,11 @@
 #!/bin/bash
-# Setup Kind cluster for Lifeguard test infrastructure
+# Setup Kind cluster for Lifeguard test infrastructure.
+# Uses the shared microscaler Kind cluster (default name: kind → context kind-kind).
+# kind-config.yaml is a symlink to ../../shared-kind-cluster/kind-config.yaml.
 
 set -euo pipefail
 
-CLUSTER_NAME="lifeguard-test"
+CLUSTER_NAME="kind"
 NAMESPACE="lifeguard-test"
 
 echo "🔧 Setting up Kind cluster for Lifeguard tests..."
@@ -24,15 +26,13 @@ if ! command -v kubectl &> /dev/null; then
     exit 1
 fi
 
-# Check if cluster already exists
-if kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
-    echo "⚠️  Cluster ${CLUSTER_NAME} already exists. Deleting it first..."
-    kind delete cluster --name "${CLUSTER_NAME}"
+# Create shared cluster if missing (do not delete an existing cluster by default)
+if ! kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
+    echo "📦 Creating shared Kind cluster (${CLUSTER_NAME})..."
+    kind create cluster --config kind-config.yaml
+else
+    echo "✅ Kind cluster '${CLUSTER_NAME}' already exists; skipping create."
 fi
-
-# Create cluster
-echo "📦 Creating Kind cluster..."
-kind create cluster --name "${CLUSTER_NAME}" --config kind-config.yaml
 
 # Wait for cluster to be ready
 echo "⏳ Waiting for cluster to be ready..."
@@ -46,7 +46,7 @@ echo ""
 echo "✅ Kind cluster setup complete!"
 echo ""
 echo "📋 Cluster details:"
-echo "   Cluster: ${CLUSTER_NAME}"
+echo "   Cluster: ${CLUSTER_NAME} (kubectl context: kind-kind)"
 echo "   Namespace: ${NAMESPACE}"
 echo ""
 echo "💡 Stack (Bitnami primary + 2 replicas + Redis) is applied by Tilt: just dev-up"
