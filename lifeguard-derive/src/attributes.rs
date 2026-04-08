@@ -462,6 +462,7 @@ pub(crate) struct ParsedIndexSpec {
 
 /// Table-level attributes for entity definitions
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_excessive_bools)] // Independent `#[derive(LifeModel)]` attribute flags, not a state machine
 pub struct TableAttributes {
     /// Table comment/documentation
     pub table_comment: Option<String>,

@@ -30,7 +30,7 @@ fn resolve_scope_expr(ident: &Ident) -> proc_macro2::TokenStream {
     }
 }
 
-/// Generates `pub fn scope_<name>() -> sea_query::Condition` by ANDing the listed scopes.
+/// Generates `pub fn scope_<name>() -> sea_query::Condition` by `ANDing` the listed scopes.
 pub fn scope_bundle_attr(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ScopeBundleArgs);
     if args.idents.is_empty() {

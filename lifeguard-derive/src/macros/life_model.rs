@@ -389,7 +389,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 nulls,
                             } => {
                                 let sl = syn::LitStr::new(sql, struct_name.span());
-                                let cov_lits: Vec<_> = coverage_columns
+                                let expression_coverage_lits: Vec<_> = coverage_columns
                                     .iter()
                                     .map(|c| {
                                         let cl = syn::LitStr::new(c, struct_name.span());
@@ -431,7 +431,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 quote! {
                                     lifeguard::IndexKeyPart::Expression {
                                         sql: #sl.to_string(),
-                                        coverage_columns: vec![#(#cov_lits),*],
+                                        coverage_columns: vec![#(#expression_coverage_lits),*],
                                         opclass: #opc,
                                         collate: #col,
                                         sort: #sort_ts,
