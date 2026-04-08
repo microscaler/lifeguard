@@ -21,7 +21,9 @@ fn generate_sql_emits_expression_index_key_list() {
         .expect("sql");
 
     assert!(
-        sql.contains("CREATE INDEX idx_users_lower_email ON users(lower(email));"),
+        sql.contains(
+            "CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users(lower(email));",
+        ),
         "expected expression key in CREATE INDEX, got:\n{sql}"
     );
 }
@@ -42,7 +44,9 @@ fn generate_sql_emits_structured_column_desc() {
         .expect("sql");
 
     assert!(
-        sql.contains("CREATE INDEX idx_posts_created ON posts(created_at DESC NULLS LAST);"),
+        sql.contains(
+            "CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC NULLS LAST);",
+        ),
         "expected structured DESC+NULLS in CREATE INDEX, got:\n{sql}"
     );
 }
@@ -63,7 +67,9 @@ fn generate_sql_emits_opclass_in_index_key_list() {
         .expect("sql");
 
     assert!(
-        sql.contains("CREATE INDEX idx_articles_slug ON articles(slug text_pattern_ops);"),
+        sql.contains(
+            "CREATE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug text_pattern_ops);",
+        ),
         "expected opclass in key list, got:\n{sql}"
     );
 }
