@@ -45,6 +45,15 @@
 //! implied by normal [`SelectQuery`] usage — you chain the methods documented in
 //! [`crate::query::select`]. For connection pools, [`ReadPreference`] overrides where **reads** go
 //! ([`PooledLifeExecutor::with_read_preference`]); writes stay on the primary tier.
+//!
+//! ## PostgreSQL `UUID` columns
+//!
+//! Columns with SQL type **`UUID`** must use the Rust type [`uuid::Uuid`] (or `Option<uuid::Uuid>`)
+//! on `LifeModel` / `LifeRecord` fields. Using `String` with `#[column_type = "UUID"]` causes
+//! **runtime** row deserialization failures (`String` vs Postgres `uuid`), not a compile-time error.
+//!
+//! See **[UUID and Postgres scalar types](https://github.com/microscaler/lifeguard/blob/main/docs/UUID_AND_POSTGRES_TYPES.md)**
+//! (in-tree: `docs/UUID_AND_POSTGRES_TYPES.md`).
 
 pub mod config;
 
