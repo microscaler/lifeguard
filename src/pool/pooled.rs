@@ -171,7 +171,7 @@ impl WorkerPool {
     /// sections on shared executor threads.
     fn dispatch<T: Send + 'static>(
         &self,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         let slot = self.pick_worker_index();
         let _slot_guard = self.slot_locks[slot]
@@ -185,7 +185,7 @@ impl WorkerPool {
     fn dispatch_locked<T: Send + 'static>(
         &self,
         slot: usize,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         if slot >= self.pool_size {
             return Err(LifeError::Pool(format!(
@@ -199,14 +199,14 @@ impl WorkerPool {
     fn dispatch_on_sender<T: Send + 'static>(
         &self,
         tx: &crossbeam_channel::Sender<WorkerJob>,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::acquire_connection_span().entered();
 
         let wait_start = Instant::now();
         let deadline = wait_start + self.acquire_timeout;
-        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
+        let (reply_tx, reply_rx) = may::sync::mpsc::channel();
         let job = build(reply_tx);
 
         let mut current_job = job;
@@ -476,7 +476,7 @@ impl LifeguardPool {
 
     fn dispatch_write<T: Send + 'static>(
         &self,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         self.primary.dispatch(build)
     }
@@ -484,7 +484,7 @@ impl LifeguardPool {
     fn dispatch_read_with_preference<T: Send + 'static>(
         &self,
         preference: ReadPreference,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         self.read_pool_for(preference).dispatch(build)
     }
@@ -647,19 +647,19 @@ enum WorkerJob {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
-        reply: std::sync::mpsc::SyncSender<Result<u64, LifeError>>,
+        reply: may::sync::mpsc::Sender<Result<u64, LifeError>>,
     },
     QueryOne {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
-        reply: std::sync::mpsc::SyncSender<Result<Row, LifeError>>,
+        reply: may::sync::mpsc::Sender<Result<Row, LifeError>>,
     },
     QueryAll {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
-        reply: std::sync::mpsc::SyncSender<Result<Vec<Row>, LifeError>>,
+        reply: may::sync::mpsc::Sender<Result<Vec<Row>, LifeError>>,
     },
 }
 
@@ -956,7 +956,7 @@ impl PooledLifeExecutor {
 
     fn dispatch_read<T: Send + 'static>(
         &self,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         self.pool
             .dispatch_read_with_preference(self.read_preference, build)
