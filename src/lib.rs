@@ -141,6 +141,9 @@ pub use active_model::{
 pub mod model;
 pub use model::{ModelError, ModelTrait, TryIntoModel};
 
+// Export sea_query types that are required by the external Lifeguard API
+pub use sea_query::Order;
+
 // Session / identity map (PRD Phase E v0)
 pub mod session;
 pub use session::{
