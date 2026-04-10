@@ -102,6 +102,17 @@ pub trait ColumnTrait: IntoColumnRef {
         Expr::col(self).between(start, end)
     }
 
+    /// Check if target JSON element contains the supplied JSON value (`column @> value`)
+    fn json_contains<T: Into<serde_json::Value>>(self, value: T) -> Expr {
+        Expr::col(self).binary(sea_query::BinOper::Custom("@>"), Expr::val(value.into()))
+    }
+
+    /// Check if target JSON element is contained by the supplied JSON structure (`column <@ value`)
+    fn is_contained_by_json<T: Into<serde_json::Value>>(self, value: T) -> Expr {
+        Expr::col(self).binary(sea_query::BinOper::Custom("<@"), Expr::val(value.into()))
+    }
+
+
     /// Database-side **add** for this column: `column + rhs` ([`sea_query::SimpleExpr`]).
     ///
     /// Use with `UPDATE ... SET col = col + $1` by passing the result to
