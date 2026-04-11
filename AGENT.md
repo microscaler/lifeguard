@@ -89,4 +89,5 @@ When this occurs, the API seamlessly falls back onto `brrtrouter-gen`'s generate
 To trace the specific histories of these failures mapped across active branches, review these formal documents:
 - [Consignments Postmortem: `list_jobs` UUID Failure](../hauliage/docs/postmortem-consignments-list-jobs-empty-2026-04.md)
 - [Fleet Postmortem: `list_vehicles` Routing Mask](../hauliage/docs/postmortem-fleet-api-response-mismatch-2026-04.md)
+- [Fleet Postmortem: Migration Desynchronization via Manual Patching](../hauliage/docs/postmortem-lifeguard-migration-sync-failures-2026-04.md)
 - [Architecture Decision Record: BRRTRouter Routing Strategy (ADR 0001)](../hauliage/docs/0001-brrtrouter-controller-routing-strategy.md)
