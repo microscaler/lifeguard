@@ -66,6 +66,18 @@ where
 
     let mut sql = String::new();
 
+    // Early exit for Views
+    if table_def.is_view {
+        let view_query = table_def.view_query.as_deref().unwrap_or("SELECT 1; -- View Query Missing");
+        writeln!(sql, "CREATE OR REPLACE VIEW {} AS", full_table_name)
+            .map_err(|e| format!("Failed to write SQL: {}", e))?;
+        writeln!(sql, "{};", view_query)
+            .map_err(|e| format!("Failed to write SQL: {}", e))?;
+        
+        // Return without columns, checks, index logic etc., since Views don't map to tables
+        return Ok(sql);
+    }
+
     // Generate CREATE TABLE statement
     writeln!(sql, "CREATE TABLE IF NOT EXISTS {} (", full_table_name)
         .map_err(|e| format!("Failed to write SQL: {}", e))?;

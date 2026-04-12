@@ -61,7 +61,7 @@ pub fn fetch_live_base_table_names(
     let sql = r"
         SELECT table_name::text
         FROM information_schema.tables
-        WHERE table_schema = $1 AND table_type = 'BASE TABLE'
+        WHERE table_schema = $1 AND table_type IN ('BASE TABLE', 'VIEW')
         ORDER BY table_name
     ";
     let rows = executor.query_all(sql, &[&schema])?;
@@ -306,6 +306,10 @@ pub fn compare_generated_dir_to_live_db(
         let Some(parts) = acc.get(table.as_str()) else {
             continue;
         };
+        // Skip column assertion drift for native views, since views dictate columns passively.
+        if parts.is_view() {
+            continue;
+        }
         let mig_map = column_map_from_merged_baseline(parts);
         let mig_names: BTreeSet<String> = mig_map.keys().cloned().collect();
         let live_names = fetch_live_table_column_names(executor, schema, table)?;

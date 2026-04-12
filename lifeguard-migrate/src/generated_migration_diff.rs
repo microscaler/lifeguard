@@ -65,6 +65,14 @@ pub struct TableBaselineParts {
     pub delta_section_fragments: Vec<String>,
 }
 
+impl TableBaselineParts {
+    /// True if the merged parts represent a PostgreSQL VIEW rather than a table
+    pub fn is_view(&self) -> bool {
+        let combined = combined_old_section(self);
+        combined.contains("CREATE OR REPLACE VIEW ")
+    }
+}
+
 /// Column names → definition tail (everything after the column name) from a merged table baseline:
 /// `CREATE TABLE` column lines plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` from merged deltas.
 ///

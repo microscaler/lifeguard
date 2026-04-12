@@ -498,6 +498,10 @@ pub struct TableAttributes {
     /// When true, every database column on the struct must appear in at least one of: `#[primary_key]`,
     /// `#[indexed]`, a table-level `#[index = "..."]` key or INCLUDE list, or `#[composite_unique = "..."]`.
     pub require_index_coverage: bool,
+    /// Whether the entity represents a PostgreSQL VIEW instead of a BASE TABLE
+    pub is_view: bool,
+    /// The select query backing the view (used for generation)
+    pub view_query: Option<String>,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -714,6 +718,25 @@ pub fn parse_table_attributes(
                         attr,
                         "require_index_coverage must be a unit attribute: #[require_index_coverage]",
                     ));
+                }
+            }
+        } else if attr.path().is_ident("view") {
+            table_attrs.is_view = true;
+            if let Ok(meta) = attr.meta.require_list() {
+                // Parse #[view(query = "SELECT ...")]
+                let nested = meta.parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+                )?;
+                for nested_meta in nested {
+                    if let syn::Meta::NameValue(nv) = nested_meta {
+                        if nv.path.is_ident("query") {
+                            if let syn::Expr::Lit(ExprLit {
+                                lit: Lit::Str(s), ..
+                            }) = &nv.value {
+                                table_attrs.view_query = Some(s.value());
+                            }
+                        }
+                    }
                 }
             }
         }

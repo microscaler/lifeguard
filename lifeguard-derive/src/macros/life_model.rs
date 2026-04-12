@@ -481,12 +481,23 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         quote! { vec![#(#check_tuples),*] }
     };
 
+    let is_view_expr = syn::LitBool::new(table_attrs.is_view, struct_name.span());
+    let view_query_expr = table_attrs.view_query.as_ref().map_or_else(
+        || quote! { None },
+        |q| {
+            let q_lit = syn::LitStr::new(q, struct_name.span());
+            quote! { Some(#q_lit.to_string()) }
+        },
+    );
+
     let table_definition_expr = quote! {
         lifeguard::TableDefinition {
             table_comment: #table_comment_expr,
             composite_unique: #composite_unique_expr,
             indexes: #indexes_expr,
             check_constraints: #check_constraints_expr,
+            is_view: #is_view_expr,
+            view_query: #view_query_expr,
         }
     };
     let mut model_get_match_arms = Vec::new();

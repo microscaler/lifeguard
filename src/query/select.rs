@@ -841,7 +841,7 @@ where
     /// and returns an `AggregateQuery` that resolves to a single i64 value.
     #[must_use]
     pub fn count(mut self) -> crate::query::aggregate::AggregateQuery<E, i64> {
-        use sea_query::ExprTrait;
+        
         // Clear existing selects and orders
         self.query.clear_selects();
         self.query.clear_order_by();

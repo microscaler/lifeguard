@@ -223,6 +223,10 @@ pub struct TableDefinition {
     /// Each entry is a tuple of (`constraint_name`, `expression`)
     /// If `constraint_name` is `None`, a default name will be generated from the table name
     pub check_constraints: Vec<(Option<String>, String)>,
+    /// Whether this entity is a PostgreSQL VIEW instead of a BASE TABLE
+    pub is_view: bool,
+    /// The select query backing the view (used for schema generation)
+    pub view_query: Option<String>,
 }
 
 /// Index definition metadata

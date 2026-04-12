@@ -288,7 +288,7 @@ impl<'a> SchemaManager<'a> {
         };
 
         let mut table = Table::create();
-        table.table(table_ref);
+        table.table(table_ref).if_not_exists();
 
         // Get all columns from the entity
         let columns = E::all_columns();
