@@ -15,6 +15,7 @@
 //! - Option<T> for all above types
 //! - `uuid::Uuid` (via `sea_query::Value::Uuid`)
 //! - `chrono::NaiveDateTime` (via `sea_query::Value::ChronoDateTime`)
+//! - `chrono::NaiveDate` (via `sea_query::Value::ChronoDate`) — Postgres `DATE`
 //!
 //! # Type Conversion Consistency
 //!
@@ -59,6 +60,17 @@ pub fn is_naive_datetime_type(ty: &Type) -> bool {
             .segments
             .last()
             .is_some_and(|s| s.ident == "NaiveDateTime");
+    }
+    false
+}
+
+/// `chrono::NaiveDate` / `Value::ChronoDate` — Postgres `DATE`, distinct from `NaiveDateTime`.
+pub fn is_naive_date_type(ty: &Type) -> bool {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        return path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "NaiveDate");
     }
     false
 }
@@ -297,6 +309,12 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
         };
     }
 
+    if is_naive_date_type(field_type) {
+        return quote! {
+            sea_query::Value::ChronoDate(Some(self.#field_name))
+        };
+    }
+
     // Handle other types
     if let Type::Path(TypePath { path, .. }) = field_type {
         if let Some(segment) = path.segments.last() {
@@ -383,6 +401,12 @@ pub fn generate_option_field_to_value_with_default(
     if is_naive_datetime_type(inner_type) {
         return quote! {
             self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v))).unwrap_or(sea_query::Value::ChronoDateTime(None))
+        };
+    }
+
+    if is_naive_date_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDate(Some(v))).unwrap_or(sea_query::Value::ChronoDate(None))
         };
     }
 
@@ -497,6 +521,12 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
     if is_naive_datetime_type(inner_type) {
         return quote! {
             self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v)))
+        };
+    }
+
+    if is_naive_date_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDate(Some(v)))
         };
     }
 
@@ -1067,6 +1097,46 @@ pub fn generate_value_to_option_field(
         };
     }
 
+    if is_naive_date_type(inner_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDate(Some(v)) => {
+                    self.#field_name = Some(v);
+                    Ok(())
+                }
+                sea_query::Value::ChronoDate(None) => {
+                    self.#field_name = None;
+                    Ok(())
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDate (NaiveDate)".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_naive_datetime_type(inner_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDateTime(Some(v)) => {
+                    self.#field_name = Some(v);
+                    Ok(())
+                }
+                sea_query::Value::ChronoDateTime(None) => {
+                    self.#field_name = None;
+                    Ok(())
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDateTime (NaiveDateTime)".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
     // Note: Money type conversion requires currency_code field, handled in FromRow generation
     // This function is for Value-to-option-field conversion (used in Record setters)
     // Money will need special handling in FromRow to construct from amount + currency
@@ -1618,5 +1688,15 @@ mod tests {
         assert!(is_naive_datetime_type(&qualified));
         let not_dt: Type = parse_str("String").unwrap();
         assert!(!is_naive_datetime_type(&not_dt));
+    }
+
+    #[test]
+    fn naive_date_type_detection_matches_bare_and_qualified_paths() {
+        let bare: Type = parse_str("NaiveDate").unwrap();
+        assert!(is_naive_date_type(&bare));
+        let qualified: Type = parse_str("chrono::NaiveDate").unwrap();
+        assert!(is_naive_date_type(&qualified));
+        assert!(!is_naive_date_type(&parse_str("NaiveDateTime").unwrap()));
+        assert!(!is_naive_date_type(&parse_str("String").unwrap()));
     }
 }
