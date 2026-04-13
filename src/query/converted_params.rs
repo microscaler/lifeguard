@@ -26,6 +26,8 @@ where
     let mut floats: Vec<f32> = Vec::new();
     let mut doubles: Vec<f64> = Vec::new();
 
+    let mut decimals: Vec<rust_decimal::Decimal> = Vec::new();
+
     let mut chrono_dates: Vec<chrono::NaiveDate> = Vec::new();
     let mut chrono_times: Vec<chrono::NaiveTime> = Vec::new();
     let mut chrono_date_times: Vec<chrono::NaiveDateTime> = Vec::new();
@@ -69,6 +71,8 @@ where
             Value::Float(Some(fl)) => floats.push(*fl),
             Value::Double(Some(d)) => doubles.push(*d),
 
+            Value::Decimal(Some(d)) => decimals.push(*d),
+
             Value::ChronoDate(Some(d)) => chrono_dates.push(*d),
             Value::ChronoTime(Some(t)) => chrono_times.push(*t),
             Value::ChronoDateTime(Some(dt)) => chrono_date_times.push(*dt),
@@ -91,6 +95,8 @@ where
             | Value::BigUnsigned(None)
             | Value::Float(None)
             | Value::Double(None) => nulls.push(None),
+
+            Value::Decimal(None) => nulls.push(None),
 
             Value::ChronoDate(None) => null_chrono_dates.push(None),
             Value::ChronoTime(None) => null_chrono_times.push(None),
@@ -138,6 +144,8 @@ where
     let mut chrono_datetime_null_idx = 0;
     let mut chrono_datetime_utc_null_idx = 0;
     let mut chrono_datetime_local_null_idx = 0;
+
+    let mut decimal_idx = 0;
 
     let mut params: Vec<&dyn ToSql> = Vec::new();
 
@@ -217,6 +225,10 @@ where
                 params.push(&doubles[double_idx] as &dyn ToSql);
                 double_idx += 1;
             }
+            Value::Decimal(Some(_)) => {
+                params.push(&decimals[decimal_idx] as &dyn ToSql);
+                decimal_idx += 1;
+            }
             Value::TinyInt(None)
             | Value::SmallInt(None)
             | Value::TinyUnsigned(None)
@@ -225,6 +237,10 @@ where
             | Value::BigUnsigned(None)
             | Value::Float(None)
             | Value::Double(None) => {
+                params.push(&nulls[null_idx] as &dyn ToSql);
+                null_idx += 1;
+            }
+            Value::Decimal(None) => {
                 params.push(&nulls[null_idx] as &dyn ToSql);
                 null_idx += 1;
             }
@@ -273,4 +289,28 @@ where
     }
 
     f(&params)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::Value;
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_converted_params_decimal() {
+        let dec = Decimal::from_str("123.45").unwrap();
+        
+        let values = vec![
+            Value::Decimal(Some(dec)),
+            Value::Decimal(None),
+        ];
+
+        let result = with_converted_value_slice(&values, |e| e, |params| {
+            assert_eq!(params.len(), 2, "Should bind 2 parameters");
+            Ok::<(), String>(())
+        });
+
+        assert!(result.is_ok(), "Decimal conversion failed with error: {:?}", result.err());
+    }
 }
