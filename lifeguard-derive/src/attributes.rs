@@ -498,7 +498,7 @@ pub struct TableAttributes {
     /// When true, every database column on the struct must appear in at least one of: `#[primary_key]`,
     /// `#[indexed]`, a table-level `#[index = "..."]` key or INCLUDE list, or `#[composite_unique = "..."]`.
     pub require_index_coverage: bool,
-    /// Whether the entity represents a PostgreSQL VIEW instead of a BASE TABLE
+    /// Whether the entity represents a `PostgreSQL` VIEW instead of a BASE TABLE
     pub is_view: bool,
     /// The select query backing the view (used for generation)
     pub view_query: Option<String>,
