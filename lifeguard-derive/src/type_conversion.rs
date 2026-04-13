@@ -271,10 +271,8 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
 
     // Check for rust_decimal::Decimal
     if is_decimal_type(field_type) {
-        // Convert Decimal to String for SeaQuery Value
-        // SeaQuery doesn't have a Decimal variant, so we use String
         return quote! {
-            sea_query::Value::String(Some(self.#field_name.to_string()))
+            sea_query::Value::Decimal(Some(self.#field_name))
         };
     }
 
@@ -365,7 +363,7 @@ pub fn generate_option_field_to_value_with_default(
     // Check for rust_decimal::Decimal
     if is_decimal_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.to_string()))).unwrap_or(sea_query::Value::String(None))
+            self.#field_name.as_ref().map(|v| sea_query::Value::Decimal(Some(*v))).unwrap_or(sea_query::Value::Decimal(None))
         };
     }
 
@@ -478,7 +476,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
     if is_decimal_type(inner_type) {
         return quote! {
             self.#field_name.as_ref()
-                .map(|v| sea_query::Value::String(Some(v.to_string())))
+                .map(|v| sea_query::Value::Decimal(Some(*v)))
         };
     }
 
@@ -636,29 +634,20 @@ pub fn generate_value_to_field(
     if is_decimal_type(field_type) {
         return quote! {
             match value {
-                sea_query::Value::String(Some(v)) => {
-                    match v.parse::<rust_decimal::Decimal>() {
-                        Ok(dec) => {
-                            self.#field_name = dec;
-                            Ok(())
-                        }
-                        Err(e) => Err(lifeguard::ActiveModelError::InvalidValueType {
-                            column: stringify!(#column_variant).to_string(),
-                            expected: "String containing valid Decimal".to_string(),
-                            actual: format!("String({}) - parse error: {}", v, e),
-                        })
-                    }
+                sea_query::Value::Decimal(Some(v)) => {
+                    self.#field_name = v;
+                    Ok(())
                 }
-                sea_query::Value::String(None) => {
+                sea_query::Value::Decimal(None) => {
                     return Err(lifeguard::ActiveModelError::InvalidValueType {
                         column: stringify!(#column_variant).to_string(),
-                        expected: "String (non-null)".to_string(),
+                        expected: "Decimal (non-null)".to_string(),
                         actual: format!("{:?}", value),
                     });
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
                     column: stringify!(#column_variant).to_string(),
-                    expected: "String".to_string(),
+                    expected: "Decimal".to_string(),
                     actual: format!("{:?}", value),
                 })
             }
@@ -1061,26 +1050,17 @@ pub fn generate_value_to_option_field(
     if is_decimal_type(inner_type) {
         return quote! {
             match value {
-                sea_query::Value::String(Some(v)) => {
-                    match v.parse::<rust_decimal::Decimal>() {
-                        Ok(dec) => {
-                            self.#field_name = Some(dec);
-                            Ok(())
-                        }
-                        Err(e) => Err(lifeguard::ActiveModelError::InvalidValueType {
-                            column: stringify!(#column_variant).to_string(),
-                            expected: "String containing valid Decimal".to_string(),
-                            actual: format!("String({}) - parse error: {}", v, e),
-                        })
-                    }
+                sea_query::Value::Decimal(Some(v)) => {
+                    self.#field_name = Some(v);
+                    Ok(())
                 }
-                sea_query::Value::String(None) => {
+                sea_query::Value::Decimal(None) => {
                     self.#field_name = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
                     column: stringify!(#column_variant).to_string(),
-                    expected: "String".to_string(),
+                    expected: "Decimal".to_string(),
                     actual: format!("{:?}", value),
                 })
             }

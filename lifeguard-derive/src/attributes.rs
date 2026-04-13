@@ -1,6 +1,11 @@
 //! Attribute parsing utilities
 
+use std::collections::HashSet;
+
+use proc_macro2::Span;
 use syn::{Attribute, ExprLit, Field, Lit};
+
+use crate::utils;
 
 /// Extract table name from struct attributes
 pub fn extract_table_name(attrs: &[Attribute]) -> Option<String> {
@@ -409,15 +414,62 @@ pub enum TableValidationStrategy {
     Aggregate,
 }
 
+/// Btree sort / nulls order parsed from `#[index]` (maps to `lifeguard::IndexBtree*` in codegen).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParsedBtreeSort {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParsedBtreeNulls {
+    First,
+    Last,
+}
+
+/// One key segment after full `#[index]` parse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ParsedIndexKeyPart {
+    Column {
+        name: String,
+        opclass: Option<String>,
+        collate: Option<String>,
+        sort: Option<ParsedBtreeSort>,
+        nulls: Option<ParsedBtreeNulls>,
+    },
+    Expression {
+        sql: String,
+        coverage_columns: Vec<String>,
+        opclass: Option<String>,
+        collate: Option<String>,
+        sort: Option<ParsedBtreeSort>,
+        nulls: Option<ParsedBtreeNulls>,
+    },
+}
+
+/// Parsed `#[index = "..."]` before codegen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedIndexSpec {
+    pub name: String,
+    pub columns: Vec<String>,
+    /// Legacy verbatim key list when [`Self::key_parts`] is empty.
+    pub key_list_sql: Option<String>,
+    pub key_parts: Vec<ParsedIndexKeyPart>,
+    pub unique: bool,
+    pub partial_where: Option<String>,
+    pub include_columns: Vec<String>,
+}
+
 /// Table-level attributes for entity definitions
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_excessive_bools)] // Independent `#[derive(LifeModel)]` attribute flags, not a state machine
 pub struct TableAttributes {
     /// Table comment/documentation
     pub table_comment: Option<String>,
     /// Composite unique constraints (each entry is a vector of column names)
     pub composite_unique: Vec<Vec<String>>,
-    /// Index definitions (name, columns, unique, `partial_where`)
-    pub indexes: Vec<(String, Vec<String>, bool, Option<String>)>,
+    /// Index definitions
+    pub indexes: Vec<ParsedIndexSpec>,
     /// Table-level CHECK constraints
     /// Each entry is a tuple of (`constraint_name`, expression)
     /// If `constraint_name` is None, a default name will be generated from the table name
@@ -443,6 +495,13 @@ pub struct TableAttributes {
     /// When set, the derived `LifeRecord` implements `ActiveModelBehavior::validation_strategy`
     /// so `validate_fields` matches `run_validators` for that strategy.
     pub validation_strategy: Option<TableValidationStrategy>,
+    /// When true, every database column on the struct must appear in at least one of: `#[primary_key]`,
+    /// `#[indexed]`, a table-level `#[index = "..."]` key or INCLUDE list, or `#[composite_unique = "..."]`.
+    pub require_index_coverage: bool,
+    /// Whether the entity represents a `PostgreSQL` VIEW instead of a BASE TABLE
+    pub is_view: bool,
+    /// The select query backing the view (used for generation)
+    pub view_query: Option<String>,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -510,21 +569,29 @@ pub fn parse_table_attributes(
                 {
                     let index_def = parse_index_definition(&s.value())?;
                     // Validate that all columns in the index exist
-                    let (name, columns, unique, where_clause) = index_def;
-                    for col in &columns {
+                    for col in &index_def.columns {
                         if !valid_columns.contains(col) {
                             return Err(syn::Error::new_spanned(
                                 attr,
                                 format!("Column '{}' in index '{}' does not exist on this struct. Available columns: {}",
                                     col,
-                                    name,
+                                    index_def.name,
                                     valid_columns.iter().map(String::as_str).collect::<Vec<_>>().join(", "))
                             ));
                         }
                     }
-                    table_attrs
-                        .indexes
-                        .push((name, columns, unique, where_clause));
+                    for col in &index_def.include_columns {
+                        if !valid_columns.contains(col) {
+                            return Err(syn::Error::new_spanned(
+                                attr,
+                                format!("INCLUDE column '{}' in index '{}' does not exist on this struct. Available columns: {}",
+                                    col,
+                                    index_def.name,
+                                    valid_columns.iter().map(String::as_str).collect::<Vec<_>>().join(", "))
+                            ));
+                        }
+                    }
+                    table_attrs.indexes.push(index_def);
                 }
             }
         } else if attr.path().is_ident("check") {
@@ -643,19 +710,421 @@ pub fn parse_table_attributes(
                     });
                 }
             }
+        } else if attr.path().is_ident("require_index_coverage") {
+            match &attr.meta {
+                syn::Meta::Path(_) => table_attrs.require_index_coverage = true,
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "require_index_coverage must be a unit attribute: #[require_index_coverage]",
+                    ));
+                }
+            }
+        } else if attr.path().is_ident("view") {
+            table_attrs.is_view = true;
+            if let Ok(meta) = attr.meta.require_list() {
+                // Parse #[view(query = "SELECT ...")]
+                let nested = meta.parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+                )?;
+                for nested_meta in nested {
+                    if let syn::Meta::NameValue(nv) = nested_meta {
+                        if nv.path.is_ident("query") {
+                            if let syn::Expr::Lit(ExprLit {
+                                lit: Lit::Str(s), ..
+                            }) = &nv.value {
+                                table_attrs.view_query = Some(s.value());
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     Ok(table_attrs)
 }
 
+/// Enforces [`TableAttributes::require_index_coverage`] after table attributes are parsed.
+pub fn validate_require_index_coverage(
+    fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
+    valid_columns: &HashSet<String>,
+    table_attrs: &TableAttributes,
+    span: proc_macro2::Span,
+) -> syn::Result<()> {
+    if !table_attrs.require_index_coverage {
+        return Ok(());
+    }
+    let mut covered: HashSet<String> = HashSet::new();
+    for field in fields {
+        let Some(field_name) = &field.ident else {
+            continue;
+        };
+        if has_attribute(field, "skip") || has_attribute(field, "ignore") {
+            continue;
+        }
+        let col = extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&field_name.to_string()));
+        let col_attrs = parse_column_attributes(field)?;
+        if col_attrs.is_primary_key || col_attrs.is_indexed {
+            covered.insert(col);
+        }
+    }
+    for idx in &table_attrs.indexes {
+        for c in &idx.columns {
+            covered.insert(c.clone());
+        }
+        for c in &idx.include_columns {
+            covered.insert(c.clone());
+        }
+    }
+    for group in &table_attrs.composite_unique {
+        for c in group {
+            covered.insert(c.clone());
+        }
+    }
+    let mut missing: Vec<String> = valid_columns.difference(&covered).cloned().collect();
+    missing.sort();
+    if !missing.is_empty() {
+        return Err(syn::Error::new(
+            span,
+            format!(
+                "require_index_coverage: column(s) not covered by #[primary_key], #[indexed], #[index], or #[composite_unique]: {}",
+                missing.join(", ")
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn index_simple_ident(segment: &str) -> bool {
+    let s = segment.trim();
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Split `expr | col1, col2` (space-pipe-space) into key text and coverage column list text.
+fn split_index_expr_and_coverage(inner: &str) -> Result<(&str, Option<&str>), syn::Error> {
+    let inner = inner.trim();
+    if let Some(pos) = inner.find(" | ") {
+        let left = inner[..pos].trim();
+        let right = inner[pos + 3..].trim();
+        if left.is_empty() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "Invalid index definition: missing expression before ` | ` in index key list",
+            ));
+        }
+        if right.is_empty() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "Invalid index definition: after ` | ` list at least one table column for validation (e.g. \"lower(email) | email\")",
+            ));
+        }
+        Ok((left, Some(right)))
+    } else {
+        Ok((inner, None))
+    }
+}
+
+fn strip_suffix_ci<'a>(s: &'a str, suffix: &str) -> Option<&'a str> {
+    let ls = s.len();
+    let lu = suffix.len();
+    if ls >= lu && s[ls - lu..].eq_ignore_ascii_case(suffix) {
+        Some(s[..ls - lu].trim_end())
+    } else {
+        None
+    }
+}
+
+fn parse_coverage_column_list(cov: &str) -> Result<Vec<String>, syn::Error> {
+    let columns: Vec<String> = cov
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if columns.is_empty() {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "Invalid index definition: column list after ` | ` is empty",
+        ));
+    }
+    for c in &columns {
+        if !index_simple_ident(c) {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                format!(
+                    "Invalid index definition: coverage column `{c}` must be a simple identifier"
+                ),
+            ));
+        }
+    }
+    Ok(columns)
+}
+
+fn parse_quoted_or_ident_collate(tail: &str) -> Result<(String, String), syn::Error> {
+    let tail = tail.trim_start();
+    if tail.is_empty() {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "Invalid index definition: missing collation after COLLATE",
+        ));
+    }
+    if tail.starts_with('"') {
+        let bytes = tail.as_bytes();
+        let mut i = 1usize;
+        let mut out = String::new();
+        while i < bytes.len() {
+            if bytes[i] == b'"' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                    out.push('"');
+                    i += 2;
+                    continue;
+                }
+                let rest = tail[i + 1..].trim_start().to_string();
+                return Ok((out, rest));
+            }
+            out.push(char::from(bytes[i]));
+            i += 1;
+        }
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "Invalid index definition: unterminated quoted collation",
+        ));
+    }
+    let mut it = tail.split_whitespace();
+    let c = it.next().ok_or_else(|| {
+        syn::Error::new(Span::call_site(), "Invalid index definition: empty collation")
+    })?;
+    let rest = it.collect::<Vec<_>>().join(" ");
+    Ok((c.to_string(), rest))
+}
+
+fn split_column_collate_opclass(s: &str) -> Result<(String, Option<String>, Option<String>), syn::Error> {
+    let s = s.trim();
+    let lower = s.to_ascii_lowercase();
+    if let Some(pos) = lower.find(" collate ") {
+        let head = s[..pos].trim();
+        if head.split_whitespace().nth(1).is_some() {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "Invalid index definition: only a single column name may appear before COLLATE",
+            ));
+        }
+        if !index_simple_ident(head) {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                format!("Invalid index definition: invalid column name `{head}` before COLLATE"),
+            ));
+        }
+        let tail = s[pos + " COLLATE ".len()..].trim_start();
+        let (coll, rest) = parse_quoted_or_ident_collate(tail)?;
+        let rest = rest.trim();
+        let opclass = if rest.is_empty() {
+            None
+        } else {
+            Some(rest.to_string())
+        };
+        return Ok((head.to_string(), Some(coll), opclass));
+    }
+    let mut it = s.split_whitespace();
+    let col = it.next().ok_or_else(|| {
+        syn::Error::new(Span::call_site(), "Invalid index definition: empty key segment")
+    })?;
+    if !index_simple_ident(col) {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            format!(
+                "Invalid index definition: `{col}` is not a simple column name; use `expr | cols` for expressions"
+            ),
+        ));
+    }
+    let rest: String = it.collect::<Vec<_>>().join(" ");
+    let opclass = if rest.is_empty() {
+        None
+    } else {
+        Some(rest)
+    };
+    Ok((col.to_string(), None, opclass))
+}
+
+fn strip_trailing_sort_nulls(mut s: &str) -> (&str, Option<ParsedBtreeSort>, Option<ParsedBtreeNulls>) {
+    let mut nulls = None;
+    if let Some(r) = strip_suffix_ci(s, " NULLS FIRST") {
+        nulls = Some(ParsedBtreeNulls::First);
+        s = r.trim_end();
+    } else if let Some(r) = strip_suffix_ci(s, " NULLS LAST") {
+        nulls = Some(ParsedBtreeNulls::Last);
+        s = r.trim_end();
+    }
+    let mut sort = None;
+    if let Some(r) = strip_suffix_ci(s, " ASC") {
+        sort = Some(ParsedBtreeSort::Asc);
+        s = r.trim_end();
+    } else if let Some(r) = strip_suffix_ci(s, " DESC") {
+        sort = Some(ParsedBtreeSort::Desc);
+        s = r.trim_end();
+    }
+    (s, sort, nulls)
+}
+
+fn parse_structured_column_segment(seg: &str) -> Result<ParsedIndexKeyPart, syn::Error> {
+    let (core, sort, nulls) = strip_trailing_sort_nulls(seg.trim());
+    let (name, collate, opclass) = split_column_collate_opclass(core)?;
+    Ok(ParsedIndexKeyPart::Column {
+        name,
+        opclass,
+        collate,
+        sort,
+        nulls,
+    })
+}
+
+fn peel_trailing_opclass_from_expr(sql: &str) -> (String, Option<String>) {
+    let sql = sql.trim();
+    let words: Vec<&str> = sql.split_whitespace().collect();
+    if words.len() < 2 {
+        return (sql.to_string(), None);
+    }
+    let last = words[words.len() - 1];
+    if last.contains("_ops") || last.ends_with("_ops") {
+        let opc = last.to_string();
+        let head = words[..words.len() - 1].join(" ");
+        return (head, Some(opc));
+    }
+    (sql.to_string(), None)
+}
+
+fn parse_expression_left(left: &str) -> (String, Option<String>, Option<String>, Option<ParsedBtreeSort>, Option<ParsedBtreeNulls>) {
+    let (core, sort, nulls) = strip_trailing_sort_nulls(left);
+    let lower = core.to_ascii_lowercase();
+    if let Some(pos) = lower.find(" collate ") {
+        let head = core[..pos].trim().to_string();
+        let tail = core[pos + " COLLATE ".len()..].trim_start();
+        if let Ok((coll, rest)) = parse_quoted_or_ident_collate(tail) {
+            let rest = rest.trim();
+            let opclass = if rest.is_empty() {
+                None
+            } else {
+                Some(rest.to_string())
+            };
+            return (head, Some(coll), opclass, sort, nulls);
+        }
+    }
+    let (sql, opclass) = peel_trailing_opclass_from_expr(core);
+    (sql, None, opclass, sort, nulls)
+}
+
+fn parse_expression_key_segment(seg: &str) -> Result<ParsedIndexKeyPart, syn::Error> {
+    let (left, cov_opt) = split_index_expr_and_coverage(seg)?;
+    let cov = cov_opt.ok_or_else(|| {
+        syn::Error::new(
+            Span::call_site(),
+            "Invalid index definition: expression segment must use \"expr | col1, col2\"",
+        )
+    })?;
+    let coverage_columns = parse_coverage_column_list(cov)?;
+    let (sql, collate, opclass, sort, nulls) = parse_expression_left(left);
+    if sql.is_empty() {
+        return Err(syn::Error::new(
+            Span::call_site(),
+            "Invalid index definition: empty expression before ` | `",
+        ));
+    }
+    Ok(ParsedIndexKeyPart::Expression {
+        sql,
+        coverage_columns,
+        opclass,
+        collate,
+        sort,
+        nulls,
+    })
+}
+
+fn split_index_key_segments(inner: &str) -> Vec<String> {
+    let inner = inner.trim();
+    if inner.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    for (i, c) in inner.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                let chunk = inner[start..i].trim();
+                if !chunk.is_empty() {
+                    out.push(chunk.to_string());
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let chunk = inner[start..].trim();
+    if !chunk.is_empty() {
+        out.push(chunk.to_string());
+    }
+    out
+}
+
+fn merge_columns_from_key_parts(parts: &[ParsedIndexKeyPart]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for p in parts {
+        let names: Vec<String> = match p {
+            ParsedIndexKeyPart::Column { name, .. } => vec![name.clone()],
+            ParsedIndexKeyPart::Expression {
+                coverage_columns, ..
+            } => coverage_columns.clone(),
+        };
+        for c in names {
+            if seen.insert(c.clone()) {
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+fn classify_index_key_list(inner: &str) -> Result<(Vec<ParsedIndexKeyPart>, Vec<String>), syn::Error> {
+    let segments = split_index_key_segments(inner);
+    if segments.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let mut key_parts = Vec::with_capacity(segments.len());
+    for seg in segments {
+        let seg = seg.trim();
+        let (_, cov) = split_index_expr_and_coverage(seg)?;
+        let part = if cov.is_some() {
+            parse_expression_key_segment(seg)?
+        } else if seg.contains('(') || seg.contains(')') {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "Invalid index definition: expression or parenthesized keys must use \"expr | col1, col2\" — right side lists table columns for validation (example: \"lower(email) | email\")",
+            ));
+        } else {
+            parse_structured_column_segment(seg)?
+        };
+        key_parts.push(part);
+    }
+    let columns = merge_columns_from_key_parts(&key_parts);
+    Ok((key_parts, columns))
+}
+
 /// Parse index definition string
-/// Format: "`idx_name(col1`, col2) WHERE col1 IS NOT NULL"
-/// Returns: (name, columns, unique, `partial_where`)
+/// Formats: `idx_name(col1, col2)`, `idx_name(col1) INCLUDE (col3) WHERE …`, `UNIQUE idx …`,
+/// expression keys: `idx(lower(email) | email)`, opclass: `idx(slug text_pattern_ops | slug)`.
 #[allow(dead_code)] // Used by parse_table_attributes
-fn parse_index_definition(
-    def: &str,
-) -> Result<(String, Vec<String>, bool, Option<String>), syn::Error> {
+fn parse_index_definition(def: &str) -> Result<ParsedIndexSpec, syn::Error> {
     let def = def.trim();
     let mut unique = false;
 
@@ -667,32 +1136,145 @@ fn parse_index_definition(
         def
     };
 
-    // Parse: "idx_name(col1, col2) WHERE condition"
+    // Parse: "… WHERE condition"
     let where_pos = def.find(" WHERE ");
-    let (index_part, where_clause) = if let Some(pos) = where_pos {
+    let (main_part, where_clause) = if let Some(pos) = where_pos {
         (def[..pos].trim(), Some(def[pos + 7..].trim().to_string()))
     } else {
         (def, None)
     };
 
-    // Parse: "idx_name(col1, col2)"
-    let paren_pos = index_part.find('(');
-    if let Some(pos) = paren_pos {
-        let name = index_part[..pos].trim().to_string();
-        let columns_str = &index_part[pos + 1..];
-        let columns_str = columns_str.strip_suffix(')').ok_or_else(|| {
-            syn::Error::new_spanned(def, "Invalid index definition: missing closing parenthesis")
+    // Optional: "key_part INCLUDE (a, b)"
+    let main_lower = main_part.to_ascii_lowercase();
+    let include_idx = main_lower.find(" include ");
+    let (key_part, include_columns) = if let Some(i) = include_idx {
+        let kp = main_part[..i].trim();
+        let after = main_part[i + " include ".len()..].trim();
+        let inner = after.strip_prefix('(').and_then(|s| s.strip_suffix(')')).ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "Invalid index definition: INCLUDE must be followed by (col1, col2, ...)",
+            )
         })?;
-
-        let columns: Vec<String> = columns_str
+        let inc: Vec<String> = inner
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
+        (kp, inc)
+    } else {
+        (main_part, Vec::new())
+    };
 
-        Ok((name, columns, unique, where_clause))
+    // Parse: "idx_name(col1, col2)"
+    let paren_pos = key_part.find('(');
+    if let Some(pos) = paren_pos {
+        let name = key_part[..pos].trim().to_string();
+        let columns_str = &key_part[pos + 1..];
+        let columns_str = columns_str.strip_suffix(')').ok_or_else(|| {
+            syn::Error::new(
+                Span::call_site(),
+                "Invalid index definition: missing closing parenthesis",
+            )
+        })?;
+
+        let (key_parts, columns) = classify_index_key_list(columns_str)?;
+
+        Ok(ParsedIndexSpec {
+            name,
+            columns,
+            key_list_sql: None,
+            key_parts,
+            unique,
+            partial_where: where_clause,
+            include_columns,
+        })
     } else {
         // No columns specified - single column index
-        Ok((index_part.to_string(), Vec::new(), unique, where_clause))
+        Ok(ParsedIndexSpec {
+            name: key_part.to_string(),
+            columns: Vec::new(),
+            key_list_sql: None,
+            key_parts: Vec::new(),
+            unique,
+            partial_where: where_clause,
+            include_columns,
+        })
+    }
+}
+
+#[cfg(test)]
+mod index_definition_parse_tests {
+    use super::*;
+
+    #[test]
+    fn parse_simple_composite_columns() {
+        let p = parse_index_definition("idx_a_b(a, b)").expect("parse");
+        assert_eq!(p.name, "idx_a_b");
+        assert_eq!(p.columns, vec!["a", "b"]);
+        assert!(p.key_list_sql.is_none());
+        assert_eq!(p.key_parts.len(), 2);
+    }
+
+    #[test]
+    fn parse_expression_with_coverage() {
+        let p = parse_index_definition("idx(lower(email) | email)").expect("parse");
+        assert_eq!(p.name, "idx");
+        assert!(p.key_list_sql.is_none());
+        assert_eq!(p.columns, vec!["email"]);
+        assert!(matches!(
+            &p.key_parts[0],
+            ParsedIndexKeyPart::Expression { sql, coverage_columns, .. }
+            if sql == "lower(email)" && coverage_columns == &["email".to_string()]
+        ));
+    }
+
+    #[test]
+    fn parse_opclass_column_without_pipe() {
+        let p = parse_index_definition("idx_slug(slug text_pattern_ops)").expect("parse");
+        assert_eq!(p.name, "idx_slug");
+        assert_eq!(p.columns, vec!["slug"]);
+        assert!(matches!(
+            &p.key_parts[0],
+            ParsedIndexKeyPart::Column { name, opclass, .. }
+            if name == "slug" && opclass.as_deref() == Some("text_pattern_ops")
+        ));
+    }
+
+    #[test]
+    fn parse_column_desc_nulls_first() {
+        let p = parse_index_definition("idx_t(x DESC NULLS FIRST)").expect("parse");
+        assert_eq!(p.columns, vec!["x"]);
+        assert!(matches!(
+            &p.key_parts[0],
+            ParsedIndexKeyPart::Column { name, sort, nulls, .. }
+            if name == "x"
+                && *sort == Some(ParsedBtreeSort::Desc)
+                && *nulls == Some(ParsedBtreeNulls::First)
+        ));
+    }
+
+    #[test]
+    fn parse_unique_include_where() {
+        let p = parse_index_definition(
+            "UNIQUE idx_t(title) INCLUDE (body) WHERE active = true",
+        )
+        .expect("parse");
+        assert!(p.unique);
+        assert_eq!(p.columns, vec!["title"]);
+        assert_eq!(p.include_columns, vec!["body"]);
+        assert_eq!(p.partial_where.as_deref(), Some("active = true"));
+        assert_eq!(p.key_parts.len(), 1);
+    }
+
+    #[test]
+    fn rejects_expression_without_coverage() {
+        let err = parse_index_definition("idx(lower(email))")
+            .expect_err("expression index without coverage should fail");
+        assert!(
+            err.to_string().contains("expression or parenthesized keys"),
+            "{}",
+            err
+        );
     }
 }

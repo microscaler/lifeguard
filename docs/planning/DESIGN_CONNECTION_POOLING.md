@@ -7,6 +7,7 @@
 
 - **Fixed-size worker tiers:** one OS thread per primary (and optional replica) slot; each owns one [`may_postgres::Client`].
 - **Dispatch:** [`crossbeam_channel::bounded`](https://docs.rs/crossbeam-channel) per worker; producers use [`send_timeout`](https://docs.rs/crossbeam-channel/latest/crossbeam_channel/struct.Sender.html#method.send_timeout) bounded by [`LifeguardPoolSettings::acquire_timeout`](../../src/pool/config.rs). Failure → [`LifeError::PoolAcquireTimeout`](../../src/executor.rs).
+- **Replies (Cooperative Yielding):** The underlying request flow originates from cooperative `may` coroutines mapping to `WorkerJob`s. Because HTTP service coroutines multiplex over a small set of OS scheduler threads, worker responses flow through a decoupled, unbounded `may::sync::mpsc::channel()` instead of OS-locking channels (like `std::sync::mpsc::sync_channel`). This protects the core `may` scheduler from halting/deadlocking when large concurrent web tier requests wait on PostgreSQL replies.
 - **Reads:** [`LifeguardPool`](../../src/pool/pooled.rs) chooses **replica** workers when a replica tier exists and [`WalLagMonitor`](../../src/pool/wal.rs) reports acceptable lag; otherwise **primary**.
 
 ## Queue policy (PRD §9.2)

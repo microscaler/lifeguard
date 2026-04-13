@@ -1,11 +1,31 @@
 //! SQL migration generator for entity-driven migrations.
 //!
-//! This module generates SQL CREATE TABLE statements from Lifeguard entity metadata.
-//! It reads ColumnDefinition and TableDefinition to produce PostgreSQL-compatible SQL.
+//! This module generates SQL from Lifeguard entity metadata for PostgreSQL.
+//!
+//! ## Idempotent / replay-safe DDL (bootstrap & `ON_ERROR_STOP` re-runs)
+//!
+//! - **`CREATE TABLE IF NOT EXISTS`** — skips if the table exists (already present).
+//! - **`CREATE [UNIQUE] INDEX IF NOT EXISTS`** — skips if that index name exists.
+//! - **Column `CHECK` constraints** — emitted as **`DROP CONSTRAINT IF EXISTS`** then
+//!   **`ADD CONSTRAINT`** so re-applying the same file does not fail on duplicate constraint names.
+//!   (PostgreSQL has no `ADD CONSTRAINT … IF NOT EXISTS` in core SQL.)
+//!
+//! ## Caveats (why not “IF NOT EXISTS everything”)
+//!
+//! - **`CREATE TABLE IF NOT EXISTS`** does **not** update an existing table: if the table was created
+//!   from an older definition (missing columns), this statement is a no-op and **schema drift**
+//!   remains. Evolving schema still needs **`ALTER TABLE … ADD COLUMN IF NOT EXISTS`** (deltas) or
+//!   a proper migration ledger — not repeated full `CREATE TABLE` bodies alone.
+//! - **`CREATE INDEX IF NOT EXISTS`** only matches on **index name**: an existing index with the same
+//!   name but a **different definition** is left as-is; drift detection is a separate concern
+//!   (e.g. `schema_migration_compare`).
+//! - **Inline `UNIQUE` / composite `UNIQUE` / `REFERENCES` inside `CREATE TABLE`** are only applied
+//!   when the table is first created; they are **not** re-evaluated when `IF NOT EXISTS` skips.
+//! - **`COMMENT ON`** is naturally re-runnable (replaces the comment).
 
 use lifeguard::{
-    query::column::column_trait::ColumnDefHelper, ColumnTrait, LifeEntityName, LifeModelTrait,
-    TableDefinition,
+    index_key_parts_coverage_columns, query::column::column_trait::ColumnDefHelper, ColumnTrait,
+    LifeEntityName, LifeModelTrait, TableDefinition,
 };
 use sea_query::IdenStatic;
 use std::fmt::Write;
@@ -45,6 +65,18 @@ where
     };
 
     let mut sql = String::new();
+
+    // Early exit for Views
+    if table_def.is_view {
+        let view_query = table_def.view_query.as_deref().unwrap_or("SELECT 1; -- View Query Missing");
+        writeln!(sql, "CREATE OR REPLACE VIEW {} AS", full_table_name)
+            .map_err(|e| format!("Failed to write SQL: {}", e))?;
+        writeln!(sql, "{};", view_query)
+            .map_err(|e| format!("Failed to write SQL: {}", e))?;
+        
+        // Return without columns, checks, index logic etc., since Views don't map to tables
+        return Ok(sql);
+    }
 
     // Generate CREATE TABLE statement
     writeln!(sql, "CREATE TABLE IF NOT EXISTS {} (", full_table_name)
@@ -129,7 +161,7 @@ where
             let already_covered = table_def
                 .indexes
                 .iter()
-                .any(|idx| idx.columns.len() == 1 && idx.columns[0] == col_name);
+                .any(|idx| index_covers_only_column(idx, col_name));
             if !already_covered {
                 single_column_indexes.push(col_name.to_string());
             }
@@ -226,6 +258,11 @@ where
                 missing_columns.push(col_name.clone());
             }
         }
+        for col_name in &index.include_columns {
+            if !all_column_names.contains(col_name) {
+                missing_columns.push(col_name.clone());
+            }
+        }
 
         // Skip index if any columns don't exist
         if !missing_columns.is_empty() {
@@ -236,18 +273,26 @@ where
 
         let mut index_sql = String::new();
 
+        // IF NOT EXISTS: safe when the same migration file is re-applied (e.g. psql + ON_ERROR_STOP
+        // with CREATE TABLE IF NOT EXISTS but indexes that already exist from a prior run).
         if index.unique {
-            index_sql.push_str("CREATE UNIQUE INDEX ");
+            index_sql.push_str("CREATE UNIQUE INDEX IF NOT EXISTS ");
         } else {
-            index_sql.push_str("CREATE INDEX ");
+            index_sql.push_str("CREATE INDEX IF NOT EXISTS ");
         }
 
         index_sql.push_str(&index.name);
         index_sql.push_str(" ON ");
         index_sql.push_str(&full_table_name);
-        index_sql.push_str("(");
-        index_sql.push_str(&index.columns.join(", "));
-        index_sql.push_str(")");
+        index_sql.push('(');
+        index_sql.push_str(&index_key_body_sql(index));
+        index_sql.push(')');
+
+        if !index.include_columns.is_empty() {
+            index_sql.push_str(" INCLUDE (");
+            index_sql.push_str(&index.include_columns.join(", "));
+            index_sql.push_str(")");
+        }
 
         if let Some(ref where_clause) = index.partial_where {
             index_sql.push_str(" WHERE ");
@@ -261,15 +306,24 @@ where
     // Foreign keys are now added inline in column definitions
     // No need for separate ALTER TABLE statements
 
-    // Generate column-level CHECK constraints as ALTER TABLE
+    // Column-level CHECK: DROP IF EXISTS + ADD so the same migration file can be re-applied
+    // (ADD CONSTRAINT alone fails if the constraint name already exists).
     for (col_name, check_expr) in &check_constraints {
+        let cname = format!(
+            "check_{}_{}",
+            sanitize_constraint_name(table_name),
+            sanitize_constraint_name(col_name)
+        );
         writeln!(
             sql,
-            "ALTER TABLE {} ADD CONSTRAINT check_{}_{} CHECK ({});",
-            full_table_name,
-            sanitize_constraint_name(table_name),
-            sanitize_constraint_name(col_name),
-            check_expr
+            "ALTER TABLE {} DROP CONSTRAINT IF EXISTS {};",
+            full_table_name, cname
+        )
+        .map_err(|e| format!("Failed to write SQL: {}", e))?;
+        writeln!(
+            sql,
+            "ALTER TABLE {} ADD CONSTRAINT {} CHECK ({});",
+            full_table_name, cname, check_expr
         )
         .map_err(|e| format!("Failed to write SQL: {}", e))?;
     }
@@ -283,7 +337,7 @@ where
         );
         writeln!(
             sql,
-            "CREATE INDEX {} ON {}({});",
+            "CREATE INDEX IF NOT EXISTS {} ON {}({});",
             index_name, full_table_name, col_name
         )
         .map_err(|e| format!("Failed to write SQL: {}", e))?;
@@ -312,6 +366,28 @@ where
     }
 
     Ok(sql)
+}
+
+fn index_covers_only_column(
+    index: &lifeguard::IndexDefinition,
+    col_name: &str,
+) -> bool {
+    let cov = if !index.key_parts.is_empty() {
+        index_key_parts_coverage_columns(&index.key_parts)
+    } else {
+        index.columns.clone()
+    };
+    cov.len() == 1 && cov[0] == col_name
+}
+
+fn index_key_body_sql(index: &lifeguard::IndexDefinition) -> String {
+    if !index.key_parts.is_empty() {
+        lifeguard::format_index_key_list_sql(&index.key_parts)
+    } else if let Some(ref k) = index.key_list_sql {
+        k.clone()
+    } else {
+        index.columns.join(", ")
+    }
 }
 
 /// Sanitize a name for use in constraint names

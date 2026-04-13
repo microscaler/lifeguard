@@ -225,6 +225,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         Ok(attrs) => attrs,
         Err(e) => return e.to_compile_error().into(),
     };
+    if let Err(e) = attributes::validate_require_index_coverage(
+        fields,
+        &valid_columns,
+        &table_attrs,
+        struct_name.span(),
+    ) {
+        return e.to_compile_error().into();
+    }
 
     // Generate Model name
     let model_name = Ident::new(&format!("{struct_name}Model"), struct_name.span());
@@ -283,27 +291,165 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         let index_defs: Vec<_> = table_attrs
             .indexes
             .iter()
-            .map(|(name, cols, unique, where_clause)| {
-                let name_lit = syn::LitStr::new(name, struct_name.span());
-                let col_lits: Vec<_> = cols
+            .map(|idx| {
+                let name_lit = syn::LitStr::new(&idx.name, struct_name.span());
+                let col_lits: Vec<_> = idx
+                    .columns
                     .iter()
                     .map(|c| {
                         let c_lit = syn::LitStr::new(c, struct_name.span());
                         quote! { #c_lit.to_string() }
                     })
                     .collect();
-                let unique_lit = syn::LitBool::new(*unique, struct_name.span());
-                let where_expr = where_clause.as_ref().map_or_else(
+                let inc_lits: Vec<_> = idx
+                    .include_columns
+                    .iter()
+                    .map(|c| {
+                        let c_lit = syn::LitStr::new(c, struct_name.span());
+                        quote! { #c_lit.to_string() }
+                    })
+                    .collect();
+                let unique_lit = syn::LitBool::new(idx.unique, struct_name.span());
+                let where_expr = idx.partial_where.as_ref().map_or_else(
                     || quote! { None },
                     |w| {
                         let w_lit = syn::LitStr::new(w, struct_name.span());
                         quote! { Some(#w_lit.to_string()) }
                     },
                 );
+                let key_list_expr = idx.key_list_sql.as_ref().map_or_else(
+                    || quote! { None },
+                    |k| {
+                        let k_lit = syn::LitStr::new(k, struct_name.span());
+                        quote! { Some(#k_lit.to_string()) }
+                    },
+                );
+                let key_parts_expr = if idx.key_parts.is_empty() {
+                    quote! { Vec::new() }
+                } else {
+                    use crate::attributes::{ParsedBtreeNulls, ParsedBtreeSort, ParsedIndexKeyPart};
+                    let parts: Vec<_> = idx.key_parts.iter().map(|p| {
+                        match p {
+                            ParsedIndexKeyPart::Column {
+                                name,
+                                opclass,
+                                collate,
+                                sort,
+                                nulls,
+                            } => {
+                                let nl = syn::LitStr::new(name, struct_name.span());
+                                let opc = opclass.as_ref().map_or_else(
+                                    || quote! { None },
+                                    |o| {
+                                        let ol = syn::LitStr::new(o, struct_name.span());
+                                        quote! { Some(#ol.to_string()) }
+                                    },
+                                );
+                                let col = collate.as_ref().map_or_else(
+                                    || quote! { None },
+                                    |c| {
+                                        let cl = syn::LitStr::new(c, struct_name.span());
+                                        quote! { Some(#cl.to_string()) }
+                                    },
+                                );
+                                let sort_ts = match sort {
+                                    None => quote! { None },
+                                    Some(ParsedBtreeSort::Asc) => {
+                                        quote! { Some(lifeguard::IndexBtreeSort::Asc) }
+                                    }
+                                    Some(ParsedBtreeSort::Desc) => {
+                                        quote! { Some(lifeguard::IndexBtreeSort::Desc) }
+                                    }
+                                };
+                                let nulls_ts = match nulls {
+                                    None => quote! { None },
+                                    Some(ParsedBtreeNulls::First) => {
+                                        quote! { Some(lifeguard::IndexBtreeNulls::First) }
+                                    }
+                                    Some(ParsedBtreeNulls::Last) => {
+                                        quote! { Some(lifeguard::IndexBtreeNulls::Last) }
+                                    }
+                                };
+                                quote! {
+                                    lifeguard::IndexKeyPart::Column {
+                                        name: #nl.to_string(),
+                                        opclass: #opc,
+                                        collate: #col,
+                                        sort: #sort_ts,
+                                        nulls: #nulls_ts,
+                                    }
+                                }
+                            }
+                            ParsedIndexKeyPart::Expression {
+                                sql,
+                                coverage_columns,
+                                opclass,
+                                collate,
+                                sort,
+                                nulls,
+                            } => {
+                                let sl = syn::LitStr::new(sql, struct_name.span());
+                                let expression_coverage_lits: Vec<_> = coverage_columns
+                                    .iter()
+                                    .map(|c| {
+                                        let cl = syn::LitStr::new(c, struct_name.span());
+                                        quote! { #cl.to_string() }
+                                    })
+                                    .collect();
+                                let opc = opclass.as_ref().map_or_else(
+                                    || quote! { None },
+                                    |o| {
+                                        let ol = syn::LitStr::new(o, struct_name.span());
+                                        quote! { Some(#ol.to_string()) }
+                                    },
+                                );
+                                let col = collate.as_ref().map_or_else(
+                                    || quote! { None },
+                                    |c| {
+                                        let cl = syn::LitStr::new(c, struct_name.span());
+                                        quote! { Some(#cl.to_string()) }
+                                    },
+                                );
+                                let sort_ts = match sort {
+                                    None => quote! { None },
+                                    Some(ParsedBtreeSort::Asc) => {
+                                        quote! { Some(lifeguard::IndexBtreeSort::Asc) }
+                                    }
+                                    Some(ParsedBtreeSort::Desc) => {
+                                        quote! { Some(lifeguard::IndexBtreeSort::Desc) }
+                                    }
+                                };
+                                let nulls_ts = match nulls {
+                                    None => quote! { None },
+                                    Some(ParsedBtreeNulls::First) => {
+                                        quote! { Some(lifeguard::IndexBtreeNulls::First) }
+                                    }
+                                    Some(ParsedBtreeNulls::Last) => {
+                                        quote! { Some(lifeguard::IndexBtreeNulls::Last) }
+                                    }
+                                };
+                                quote! {
+                                    lifeguard::IndexKeyPart::Expression {
+                                        sql: #sl.to_string(),
+                                        coverage_columns: vec![#(#expression_coverage_lits),*],
+                                        opclass: #opc,
+                                        collate: #col,
+                                        sort: #sort_ts,
+                                        nulls: #nulls_ts,
+                                    }
+                                }
+                            }
+                        }
+                    }).collect();
+                    quote! { vec![#(#parts),*] }
+                };
                 quote! {
                     lifeguard::IndexDefinition {
                         name: #name_lit.to_string(),
                         columns: vec![#(#col_lits),*],
+                        key_list_sql: #key_list_expr,
+                        key_parts: #key_parts_expr,
+                        include_columns: vec![#(#inc_lits),*],
                         unique: #unique_lit,
                         partial_where: #where_expr,
                     }
@@ -335,12 +481,23 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         quote! { vec![#(#check_tuples),*] }
     };
 
+    let is_view_expr = syn::LitBool::new(table_attrs.is_view, struct_name.span());
+    let view_query_expr = table_attrs.view_query.as_ref().map_or_else(
+        || quote! { None },
+        |q| {
+            let q_lit = syn::LitStr::new(q, struct_name.span());
+            quote! { Some(#q_lit.to_string()) }
+        },
+    );
+
     let table_definition_expr = quote! {
         lifeguard::TableDefinition {
             table_comment: #table_comment_expr,
             composite_unique: #composite_unique_expr,
             indexes: #indexes_expr,
             check_constraints: #check_constraints_expr,
+            is_view: #is_view_expr,
+            view_query: #view_query_expr,
         }
     };
     let mut model_get_match_arms = Vec::new();

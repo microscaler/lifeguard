@@ -16,6 +16,7 @@ use lifeguard::migration::{MigrationError, Migrator};
 use lifeguard::{connect, LifeExecutor, MayPostgresExecutor};
 use std::path::PathBuf;
 use std::process;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 #[command(name = "lifeguard-migrate")]
@@ -100,6 +101,14 @@ enum Commands {
         /// Only include these tables (repeatable). If empty, all tables in the schema are emitted.
         #[arg(long = "table", value_name = "TABLE")]
         tables: Vec<String>,
+
+        /// Poll the database and re-run introspection; print when output changes (Phase A — PRD §5.7a).
+        #[arg(long)]
+        watch: bool,
+
+        /// Seconds between polls when `--watch` is set (minimum 1).
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..))]
+        watch_interval_secs: u64,
     },
 
     /// Compare live database to merged **`*_generated_from_entities.sql`** baselines (`-- Table:` sections).
@@ -169,11 +178,22 @@ fn main() {
             }
         }
         Commands::Generate { name } => handle_generate(&cli.migrations_dir, &name),
-        Commands::InferSchema { schema, tables } => {
+        Commands::InferSchema {
+            schema,
+            tables,
+            watch,
+            watch_interval_secs,
+        } => {
             let db_url = database_url
                 .as_ref()
                 .expect("database URL validated when command requires DB");
-            handle_infer_schema(db_url, schema, tables)
+            handle_infer_schema(
+                db_url,
+                schema,
+                tables,
+                watch,
+                watch_interval_secs,
+            )
         }
         Commands::CompareSchema {
             schema,
@@ -251,30 +271,67 @@ fn handle_compare_schema(
     print!("{report}");
     if report.has_drift() {
         return Err(MigrationError::InvalidFormat(
-            "compare-schema: live database does not match merged generated migration baseline (tables and/or column names — see above)."
+            "compare-schema: live database does not match merged generated migration baseline (tables, column names, index keys, index definitions, index presence, btree operator classes, expression vs simple index keys, normalized expression slot parity, explicit ordering/collation, and/or index access methods — see above)."
                 .to_string(),
         ));
     }
     Ok(())
 }
 
-fn handle_infer_schema(
+fn infer_schema_once(
     database_url: &str,
-    schema: String,
-    tables: Vec<String>,
-) -> Result<(), MigrationError> {
+    schema: &str,
+    tables: &[String],
+) -> Result<String, MigrationError> {
     use lifeguard_migrate::schema_infer::{infer_schema_rust, InferOptions};
 
     let client = connect(database_url).map_err(|e| {
         MigrationError::InvalidFormat(format!("infer-schema: database connect failed: {e}"))
     })?;
     let executor = MayPostgresExecutor::new(client);
-    let opts = InferOptions { schema, tables };
-    let out = infer_schema_rust(&executor, &opts).map_err(|e| {
+    let opts = InferOptions {
+        schema: schema.to_string(),
+        tables: tables.to_vec(),
+    };
+    infer_schema_rust(&executor, &opts).map_err(|e| {
         MigrationError::InvalidFormat(format!("infer-schema: {e}"))
-    })?;
-    print!("{out}");
-    Ok(())
+    })
+}
+
+fn handle_infer_schema(
+    database_url: &str,
+    schema: String,
+    tables: Vec<String>,
+    watch: bool,
+    watch_interval_secs: u64,
+) -> Result<(), MigrationError> {
+    if !watch {
+        let out = infer_schema_once(database_url, &schema, &tables)?;
+        print!("{out}");
+        return Ok(());
+    }
+
+    let interval = Duration::from_secs(watch_interval_secs);
+    let mut last: Option<String> = None;
+    loop {
+        match infer_schema_once(database_url, &schema, &tables) {
+            Ok(out) => {
+                if last.as_deref() != Some(out.as_str()) {
+                    if last.is_some() {
+                        let secs = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        eprintln!("[infer-schema --watch] output changed at unix timestamp {secs}s");
+                    }
+                    print!("{out}");
+                    last = Some(out);
+                }
+            }
+            Err(e) => eprintln!("[infer-schema --watch] {e}"),
+        }
+        std::thread::sleep(interval);
+    }
 }
 
 fn handle_status(migrator: &Migrator, executor: &dyn LifeExecutor) -> Result<(), MigrationError> {
@@ -744,8 +801,57 @@ fn handle_info(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn infer_schema_watch_cli_parses() {
+        let cli = Cli::parse_from([
+            "lifeguard-migrate",
+            "--database-url",
+            "postgres://localhost/db",
+            "infer-schema",
+            "--watch",
+            "--watch-interval-secs",
+            "12",
+        ]);
+        match cli.command {
+            Commands::InferSchema {
+                watch,
+                watch_interval_secs,
+                schema,
+                tables,
+            } => {
+                assert!(watch);
+                assert_eq!(watch_interval_secs, 12);
+                assert_eq!(schema, "public");
+                assert!(tables.is_empty());
+            }
+            _ => panic!("expected InferSchema"),
+        }
+    }
+
+    #[test]
+    fn infer_schema_defaults_no_watch() {
+        let cli = Cli::parse_from([
+            "lifeguard-migrate",
+            "--database-url",
+            "postgres://localhost/db",
+            "infer-schema",
+        ]);
+        match cli.command {
+            Commands::InferSchema {
+                watch,
+                watch_interval_secs,
+                ..
+            } => {
+                assert!(!watch);
+                assert_eq!(watch_interval_secs, 5);
+            }
+            _ => panic!("expected InferSchema"),
+        }
+    }
 
     #[test]
     fn test_handle_generate_creates_file() {

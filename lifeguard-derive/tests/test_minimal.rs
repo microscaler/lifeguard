@@ -57,7 +57,7 @@ pub mod column_name_tests {
 pub mod scope_attr_tests {
     use lifeguard::ColumnTrait;
     use lifeguard::LifeModelTrait;
-    use lifeguard::scope;
+    use lifeguard::{scope, scope_bundle};
     use lifeguard_derive::{LifeModel, LifeRecord};
     use sea_query::IntoCondition;
 
@@ -74,11 +74,25 @@ pub mod scope_attr_tests {
         fn active() -> impl IntoCondition {
             Column::Active.eq(true)
         }
+
+        #[scope]
+        fn min_id() -> impl IntoCondition {
+            Column::Id.gt(0)
+        }
+
+        /// AND of `scope_active` and `scope_min_id` (PRD Phase C scope lists / bundles).
+        #[scope_bundle(active, min_id)]
+        fn active_and_min_id() {}
     }
 
     #[test]
     fn scope_attr_renames_to_scope_active_and_chains() {
         let _q = Entity::find().scope(Entity::scope_active());
+    }
+
+    #[test]
+    fn scope_bundle_and_chains() {
+        let _q = Entity::find().scope(Entity::scope_active_and_min_id());
     }
 }
 

@@ -63,3 +63,31 @@ Adding validation in **lifeguard-derive** (at macro expand time) or in **lifegua
 ---
 
 *This document is maintained for agentic AI systems working on Lifeguard.*
+
+---
+
+## Case Study: "Ghost In The Router" API Response Empty Mismatches
+
+During the formalization of the fleet tracking service architecture, an intricate chain of silent failures resulted in `[]` API responses masking catastrophic DB and Routing logic bugs. 
+Agents debugging "missing data" or "returns empty array" in BRRTRouter + Lifeguard stacks should actively verify these two constraints:
+
+### 1. Lifeguard/Database `UUID` vs `String` Translation Panics
+If you map a PostgreSQL `UUID` field to a `pub id: String` inside a struct (e.g. `models/vehicle.rs`), the underlying database binding (via `sea-query`) will fail silently with a `TypeErr` while executing `.all()`.
+If the microservice logic gracefully degrades to returning an `Err()` branch populated with custom debug objects (`status: "ERROR"`), **BRRTRouter will silent strip out these debug objects** if their fields fall out of bounds of the strict `openapi.yaml` schemas (e.g. `enum: [ACTIVE, ... ]`).
+This returns a completely flawless `200 OK` response with a `[]` payload back to the browser UI, completely masking the fact that the underlying ORM panics entirely on the primitive mismatch.
+
+* **Prevention**: Ensure that all DB `UUID` configurations explicitly enforce `uuid::Uuid` primitives inside `#[derive(LifeModel)]` definitions, and handle conversion to `.to_string()` directly before serializing out to the endpoints.
+
+### 2. Startup Handler Sweeping (`registry.rs` vs `main.rs`)
+If you manually register concrete controllers in `main.rs` to overwrite `gen/.../controllers`, you must register your hooks strictly **after** invoking the auto-generated macro `registry::register_from_spec(&mut dispatcher, &routes);`. 
+The macro inherently begins its startup sequence by running `dispatcher.handlers.clear();` to avoid memory accumulation during live reloads. Any manual overriding of channels registered before this line will be summarily obliterated from the dispatcher block. 
+When this occurs, the API seamlessly falls back onto `brrtrouter-gen`'s generated mock stubs (which are hardcoded to natively return `Response(vec![])`), completely dropping your underlying controller logic logic inside `impl/src/`.
+
+* **Prevention**: `register_from_spec` MUST be the very first initialization step in the controller bindings process inside `impl/.../main.rs`. All custom `brrtrouter::typed::spawn_typed_with_stack_size_and_name` hooks MUST sequentially follow it to cleanly overwrite the stub routing pointers.
+
+### Historical Postmortems and ADRs
+To trace the specific histories of these failures mapped across active branches, review these formal documents:
+- [Consignments Postmortem: `list_jobs` UUID Failure](../hauliage/docs/postmortem-consignments-list-jobs-empty-2026-04.md)
+- [Fleet Postmortem: `list_vehicles` Routing Mask](../hauliage/docs/postmortem-fleet-api-response-mismatch-2026-04.md)
+- [Fleet Postmortem: Migration Desynchronization via Manual Patching](../hauliage/docs/postmortem-lifeguard-migration-sync-failures-2026-04.md)
+- [Architecture Decision Record: BRRTRouter Routing Strategy (ADR 0001)](../hauliage/docs/0001-brrtrouter-controller-routing-strategy.md)

@@ -6,11 +6,19 @@
 //! Test relationships:
 //! - User `has_many` Posts (one-to-many)
 //! - Post `belongs_to` User (many-to-one)
+//!
+//! **`find_related` + scopes (PRD §7.7):** parent `User::find().scope(…)` predicates are **not**
+//! merged into `find_related` SQL — chain [`SelectQuery::scope`](lifeguard::SelectQuery::scope) (or
+//! [`filter`](lifeguard::SelectQuery::filter)) on the query returned by
+//! [`FindRelated::find_related`](lifeguard::FindRelated::find_related). See
+//! [`DESIGN_FIND_RELATED_SCOPES.md`](../../docs/planning/DESIGN_FIND_RELATED_SCOPES.md),
+//! [`FindRelated::find_related_scoped`](lifeguard::FindRelated::find_related_scoped), and
+//! `test_find_related_chains_scope_on_related_query` / `test_find_related_scoped_matches_chained_scope` below.
 
 use lifeguard::relation::identity::Identity;
 use lifeguard::{
-    test_helpers::TestDatabase, ActiveModelTrait, FindRelated, LifeExecutor, MayPostgresExecutor,
-    ModelTrait, Related, RelationDef, RelationType,
+    test_helpers::TestDatabase, ActiveModelTrait, ColumnTrait, FindRelated, LifeExecutor,
+    MayPostgresExecutor, ModelTrait, Related, RelationDef, RelationType,
 };
 use sea_query::{ConditionType, IntoIden, TableName, TableRef};
 
@@ -52,8 +60,10 @@ pub mod posts {
     }
 }
 
+use posts::Column as PostColumn;
 use posts::Entity as PostEntity;
 use posts::TestPostRecord;
+use users::Column as UserColumn;
 use users::Entity as UserEntity;
 use users::{TestUserModel, TestUserRecord};
 
@@ -396,6 +406,143 @@ fn test_find_related_with_query_modifications() {
         .expect("Failed to query related posts");
 
     assert_eq!(posts.len(), 1, "Should return only 1 post when limit is 1");
+}
+
+/// Parent scopes are not inherited: constrain the **related** row set by chaining `.scope` on the
+/// `SelectQuery` from `find_related` (PRD Phase C / [`DESIGN_FIND_RELATED_SCOPES.md`](../../docs/planning/DESIGN_FIND_RELATED_SCOPES.md)).
+#[test]
+fn test_find_related_chains_scope_on_related_query() {
+    let mut test_db = get_db();
+    let _client = test_db.connect().expect("Failed to connect to database");
+
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    let mut user_record = TestUserRecord::new();
+    user_record.set_name("Scope User".to_string());
+    user_record.set_email("scope@example.com".to_string());
+    let user = user_record
+        .insert(&executor)
+        .expect("Failed to insert user");
+
+    let mut post_keep = TestPostRecord::new();
+    post_keep.set_title("Keep".to_string());
+    post_keep.set_content("c1".to_string());
+    post_keep.set_user_id(user.id);
+    post_keep.insert(&executor).expect("insert post keep");
+
+    let mut post_drop = TestPostRecord::new();
+    post_drop.set_title("Drop".to_string());
+    post_drop.set_content("c2".to_string());
+    post_drop.set_user_id(user.id);
+    post_drop.insert(&executor).expect("insert post drop");
+
+    let posts = user
+        .find_related::<PostEntity>()
+        .expect("find_related")
+        .scope(ColumnTrait::eq(PostColumn::Title, "Keep"))
+        .all(&executor)
+        .expect("query");
+
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0].title, "Keep");
+}
+
+/// [`FindRelated::find_related_scoped`] is equivalent to `find_related()?.scope(…)`.
+#[test]
+fn test_find_related_scoped_matches_chained_scope() {
+    let mut test_db = get_db();
+    let _client = test_db.connect().expect("Failed to connect to database");
+
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    let mut user_record = TestUserRecord::new();
+    user_record.set_name("Scoped User".to_string());
+    user_record.set_email("scoped2@example.com".to_string());
+    let user = user_record
+        .insert(&executor)
+        .expect("Failed to insert user");
+
+    let mut post_keep = TestPostRecord::new();
+    post_keep.set_title("Keep2".to_string());
+    post_keep.set_content("c1".to_string());
+    post_keep.set_user_id(user.id);
+    post_keep.insert(&executor).expect("insert post keep");
+
+    let mut post_drop = TestPostRecord::new();
+    post_drop.set_title("Drop2".to_string());
+    post_drop.set_content("c2".to_string());
+    post_drop.set_user_id(user.id);
+    post_drop.insert(&executor).expect("insert post drop");
+
+    let via_helper = user
+        .find_related_scoped(ColumnTrait::eq(PostColumn::Title, "Keep2"))
+        .expect("find_related_scoped")
+        .all(&executor)
+        .expect("query");
+
+    let via_chain = user
+        .find_related::<PostEntity>()
+        .expect("find_related")
+        .scope(ColumnTrait::eq(PostColumn::Title, "Keep2"))
+        .all(&executor)
+        .expect("query");
+
+    assert_eq!(via_helper.len(), 1);
+    assert_eq!(via_chain.len(), 1);
+    assert_eq!(via_helper[0].title, via_chain[0].title);
+}
+
+/// Opt-in **caller-side** scope: [`FindRelated::find_related_parent_scoped`] joins `from_tbl` and
+/// ANDs a predicate on **`Self::Entity`** (PRD §7.7).
+#[test]
+fn test_find_related_parent_scoped_joins_from_table() {
+    let mut test_db = get_db();
+    let _client = test_db.connect().expect("Failed to connect to database");
+
+    let executor = test_db.executor().expect("Failed to create executor");
+    setup_test_schema(&executor).expect("Failed to setup schema");
+    cleanup_test_data(&executor).expect("Failed to cleanup");
+
+    let mut user_record = TestUserRecord::new();
+    user_record.set_name("Parent Scoped".to_string());
+    user_record.set_email("parent_scoped@example.com".to_string());
+    let user = user_record
+        .insert(&executor)
+        .expect("Failed to insert user");
+
+    let mut post = TestPostRecord::new();
+    post.set_title("P1".to_string());
+    post.set_content("c".to_string());
+    post.set_user_id(user.id);
+    post.insert(&executor).expect("insert post");
+
+    let wrong_email = user
+        .find_related_parent_scoped(ColumnTrait::eq(
+            UserColumn::Email,
+            "other@example.com",
+        ))
+        .expect("find_related_parent_scoped")
+        .all(&executor)
+        .expect("query");
+    assert!(
+        wrong_email.is_empty(),
+        "parent scope on users.email should exclude this user’s posts when email mismatches"
+    );
+
+    let ok = user
+        .find_related_parent_scoped(ColumnTrait::eq(
+            UserColumn::Email,
+            "parent_scoped@example.com",
+        ))
+        .expect("find_related_parent_scoped")
+        .all(&executor)
+        .expect("query");
+    assert_eq!(ok.len(), 1);
+    assert_eq!(ok[0].title, "P1");
 }
 
 // ============================================================================

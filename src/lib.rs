@@ -45,6 +45,15 @@
 //! implied by normal [`SelectQuery`] usage — you chain the methods documented in
 //! [`crate::query::select`]. For connection pools, [`ReadPreference`] overrides where **reads** go
 //! ([`PooledLifeExecutor::with_read_preference`]); writes stay on the primary tier.
+//!
+//! ## PostgreSQL `UUID` columns
+//!
+//! Columns with SQL type **`UUID`** must use the Rust type [`uuid::Uuid`] (or `Option<uuid::Uuid>`)
+//! on `LifeModel` / `LifeRecord` fields. Using `String` with `#[column_type = "UUID"]` causes
+//! **runtime** row deserialization failures (`String` vs Postgres `uuid`), not a compile-time error.
+//!
+//! See **[UUID and Postgres scalar types](https://github.com/microscaler/lifeguard/blob/main/docs/UUID_AND_POSTGRES_TYPES.md)**
+//! (in-tree: `docs/UUID_AND_POSTGRES_TYPES.md`).
 
 pub mod config;
 
@@ -89,7 +98,7 @@ pub use pool::{
 };
 
 #[doc(inline)]
-pub use lifeguard_derive::scope;
+pub use lifeguard_derive::{scope, scope_bundle};
 
 // Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
 // Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
@@ -110,9 +119,12 @@ pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor};
 // Query builder - Epic 02 Story 03
 pub mod query;
 pub use query::{
-    from_row_unsigned_try_from_failed, ColumnDefinition, ColumnTrait, FromRow, IndexDefinition,
-    IntoScope, LifeEntityName, LifeModelTrait, ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait,
-    PrimaryKeyToColumn, PrimaryKeyTrait, SelectModel, SelectQuery, StoredProcedure, TableDefinition,
+    format_index_key_list_derive_value, format_index_key_list_sql,
+    from_row_unsigned_try_from_failed, index_definition_to_derive_index_value,
+    index_key_parts_coverage_columns, ColumnDefinition, ColumnTrait, FromRow, IndexBtreeNulls,
+    IndexBtreeSort, IndexDefinition, IndexKeyPart, IntoScope, LifeEntityName, LifeModelTrait,
+    ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn, PrimaryKeyTrait,
+    SelectModel, SelectQuery, StoredProcedure, TableDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules
@@ -129,6 +141,9 @@ pub use active_model::{
 pub mod model;
 pub use model::{ModelError, ModelTrait, TryIntoModel};
 
+// Export sea_query types that are required by the external Lifeguard API
+pub use sea_query::Order;
+
 // Session / identity map (PRD Phase E v0)
 pub mod session;
 pub use session::{
@@ -139,9 +154,9 @@ pub use session::{
 // Relation trait - Epic 02 Story 08
 pub mod relation;
 pub use relation::{
-    build_where_condition, join_condition, join_tbl_on_condition, BorrowedIdentityIter,
-    FindRelated, Identity, IntoIdentity, Related, RelationBuilder, RelationDef, RelationMetadata,
-    RelationTrait, RelationType,
+    build_where_condition, join_condition, join_tbl_on_condition, join_tbl_on_expr,
+    BorrowedIdentityIter, FindRelated, Identity, IntoIdentity, Related, RelationBuilder,
+    RelationDef, RelationMetadata, RelationTrait, RelationType,
 };
 
 // Partial Model trait - Epic 02 Story 09

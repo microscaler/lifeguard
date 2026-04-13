@@ -20,6 +20,7 @@ use sea_query::{ColumnDef, Index, IndexCreateStatement, Table, TableCreateStatem
 pub fn create_state_table() -> TableCreateStatement {
     Table::create()
         .table("lifeguard_migrations")
+        .if_not_exists()
         .col(
             ColumnDef::new("version")
                 .big_integer()

@@ -20,7 +20,11 @@
 # ====================
 
 # Restrict to kind cluster
-allow_k8s_contexts(['kind-lifeguard-test'])
+# Shared default cluster: kind-kind. Legacy: kind-lifeguard-test.
+allow_k8s_contexts(['kind-kind', 'kind-lifeguard-test'])
+
+# BRRTRouter paths: this Tiltfile does not invoke BRRTRouter. Expected layout is microscaler/lifeguard next to
+# microscaler/BRRTRouter. From repo root use ../BRRTRouter; from docs/ use ../../BRRTRouter (see OBSERVABILITY_APP_INTEGRATION.md).
 
 # Configure default registry for Kind cluster
 # Tilt will automatically push docker_build images to this registry

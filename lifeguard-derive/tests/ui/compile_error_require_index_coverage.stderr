@@ -1,0 +1,5 @@
+error[E0000]: require_index_coverage: column(s) not covered by #[primary_key], #[indexed], #[index], or #[composite_unique]: email
+ --> $DIR/compile_error_require_index_coverage.rs:8:1
+  |
+8 | #[index = "idx_cov_name(name)"]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

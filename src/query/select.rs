@@ -841,14 +841,13 @@ where
     /// and returns an `AggregateQuery` that resolves to a single i64 value.
     #[must_use]
     pub fn count(mut self) -> crate::query::aggregate::AggregateQuery<E, i64> {
-        use sea_query::ExprTrait;
+        
         // Clear existing selects and orders
         self.query.clear_selects();
         self.query.clear_order_by();
 
-        // Add COUNT(*)
-        self.query
-            .expr(sea_query::Expr::col(sea_query::Alias::new("*")).count());
+        // Add COUNT(*) using a custom expression to avoid quoting '*' as a literal column name
+        self.query.expr(sea_query::Expr::cust("COUNT(*)"));
 
         crate::query::aggregate::AggregateQuery::new(self.apply_soft_delete())
     }
@@ -1155,5 +1154,22 @@ mod tests {
         let upper = sql.to_uppercase();
         assert!(upper.contains("WINDOW"), "SQL: {sql}");
         assert!(upper.contains("OVER"), "SQL: {sql}");
+    }
+
+    #[test]
+    fn test_count_query_asterisk_syntax() {
+        use sea_query::PostgresQueryBuilder;
+
+        // Ensure that calling .count() on a query correctly builds the generic COUNT(*) block
+        // Without literal `"table"."*"` quoting that throws `column does not exist`.
+        let q = SelectQuery::<TestSelectAsEntity>::new();
+        let count_agg = q.count();
+        
+        let (sql, _) = count_agg.query.build(PostgresQueryBuilder);
+        
+        // Assert it explicitly does not have individual columns anymore
+        assert!(!sql.contains("id"), "SQL: {sql}");
+        // Assert Asterisk literal formulation 
+        assert!(sql.contains("COUNT(*)"), "SQL should have raw unquoted asterisk. SQL: {sql}");
     }
 }

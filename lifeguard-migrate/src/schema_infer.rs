@@ -1,11 +1,15 @@
 //! PostgreSQL → Rust `LifeModel` / `LifeRecord` sketch generation (PRD Phase A).
 //!
 //! Introspects `information_schema` and emits conservative Rust types. Unknown types are
-//! omitted with a comment line (SI-2).
+//! omitted with a comment line (SI-2). Secondary **btree** indexes (non-primary `pg_index` rows)
+//! are read from catalog and emitted as `#[index = "..."]` when expression coverage can be inferred.
 
-use lifeguard::LifeExecutor;
-use lifeguard::LifeError;
+use lifeguard::{
+    index_definition_to_derive_index_value, index_key_parts_coverage_columns, IndexBtreeNulls,
+    IndexBtreeSort, IndexDefinition, IndexKeyPart, LifeExecutor, LifeError,
+};
 use may_postgres::Row;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
@@ -44,7 +48,25 @@ pub fn infer_schema_rust(
 ) -> Result<String, LifeError> {
     let columns = fetch_columns(executor, &options.schema)?;
     let pks = fetch_primary_keys(executor, &options.schema)?;
-    Ok(emit_inferred_rust(options, columns, pks))
+    let table_columns = table_column_sets_for_infer(&columns, options);
+    let indexes = fetch_btree_indexes(executor, &options.schema, options, &table_columns)?;
+    Ok(emit_inferred_rust(options, columns, pks, &indexes))
+}
+
+fn table_column_sets_for_infer(
+    columns: &[ColumnMeta],
+    options: &InferOptions,
+) -> HashMap<String, HashSet<String>> {
+    let mut m: HashMap<String, HashSet<String>> = HashMap::new();
+    for c in columns {
+        if !options.tables.is_empty() && !options.tables.iter().any(|t| t == &c.table_name) {
+            continue;
+        }
+        m.entry(c.table_name.clone())
+            .or_default()
+            .insert(c.column_name.clone());
+    }
+    m
 }
 
 /// Build Rust source from introspection results (used by [`infer_schema_rust`] and golden tests).
@@ -52,6 +74,7 @@ pub(crate) fn emit_inferred_rust(
     options: &InferOptions,
     columns: Vec<ColumnMeta>,
     pks: HashMap<String, Vec<String>>,
+    indexes_by_table: &HashMap<String, Vec<IndexDefinition>>,
 ) -> String {
     let mut by_table: HashMap<String, Vec<ColumnMeta>> = HashMap::new();
     for c in columns {
@@ -145,6 +168,17 @@ pub(crate) fn emit_inferred_rust(
         )
         .unwrap();
         writeln!(out, "#[table_name = \"{}\"]", table).unwrap();
+        if let Some(idxs) = indexes_by_table.get(&table) {
+            for idx in idxs {
+                let mut v = String::new();
+                if idx.unique {
+                    v.push_str("UNIQUE ");
+                }
+                v.push_str(&index_definition_to_derive_index_value(idx));
+                let esc = v.replace('\\', "\\\\").replace('"', "\\\"");
+                writeln!(out, "#[index = \"{esc}\"]").unwrap();
+            }
+        }
         writeln!(out, "pub struct {} {{", struct_name).unwrap();
 
         for col in &cols {
@@ -172,6 +206,270 @@ pub(crate) fn emit_inferred_rust(
     }
 
     out
+}
+
+fn catalog_nulls_to_option(ord_desc: bool, nulls_first: bool) -> Option<IndexBtreeNulls> {
+    if ord_desc {
+        if nulls_first {
+            None
+        } else {
+            Some(IndexBtreeNulls::Last)
+        }
+    } else if nulls_first {
+        Some(IndexBtreeNulls::First)
+    } else {
+        None
+    }
+}
+
+fn infer_expr_coverage_tokens(sql: &str, table_cols: &HashSet<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for ch in sql.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            cur.push(ch);
+        } else {
+            if !cur.is_empty() && table_cols.contains(&cur) && !out.contains(&cur) {
+                out.push(cur.clone());
+            }
+            cur.clear();
+        }
+    }
+    if !cur.is_empty() && table_cols.contains(&cur) && !out.contains(&cur) {
+        out.push(cur);
+    }
+    out
+}
+
+fn parse_indexdef_include_where(def: &str) -> (Vec<String>, Option<String>) {
+    let re = Regex::new(r"(?i)\bINCLUDE\s*\(([^)]*)\)").expect("INCLUDE regex");
+    let include = re
+        .captures(def)
+        .and_then(|c| c.get(1))
+        .map(|m| {
+            m.as_str()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let lower = def.to_ascii_lowercase();
+    let where_clause = lower.rfind(" where ").map(|p| {
+        def[p + 7..]
+            .trim()
+            .trim_end_matches(|c: char| c == ';' || c.is_whitespace())
+            .to_string()
+    });
+    (include, where_clause)
+}
+
+fn fetch_pg_indexdef_map(
+    executor: &dyn LifeExecutor,
+    schema: &str,
+) -> Result<HashMap<(String, String), String>, LifeError> {
+    let sql = "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = $1";
+    let rows = executor.query_all(sql, &[&schema])?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let table: String = row
+            .try_get(0)
+            .map_err(|e| LifeError::Other(format!("infer pg_indexes table: {e}")))?;
+        let index: String = row
+            .try_get(1)
+            .map_err(|e| LifeError::Other(format!("infer pg_indexes index: {e}")))?;
+        let def: String = row
+            .try_get(2)
+            .map_err(|e| LifeError::Other(format!("infer pg_indexes def: {e}")))?;
+        map.insert((table, index), def);
+    }
+    Ok(map)
+}
+
+fn build_index_key_part_from_catalog_row(
+    attnum: i32,
+    ord_desc: bool,
+    nulls_first: bool,
+    collname: Option<String>,
+    opcname: Option<String>,
+    attname: Option<String>,
+    keydef: String,
+    table_cols: &HashSet<String>,
+) -> IndexKeyPart {
+    let sort = if ord_desc {
+        Some(IndexBtreeSort::Desc)
+    } else {
+        None
+    };
+    let nulls = catalog_nulls_to_option(ord_desc, nulls_first);
+    let collate = collname.filter(|n| !n.is_empty());
+    let opcn = opcname.filter(|n| !n.is_empty());
+    if attnum == 0 || attname.as_ref().map_or(true, |a| a.is_empty()) {
+        let coverage_columns = infer_expr_coverage_tokens(&keydef, table_cols);
+        return IndexKeyPart::Expression {
+            sql: keydef.trim().to_string(),
+            coverage_columns,
+            opclass: opcn,
+            collate,
+            sort,
+            nulls,
+        };
+    }
+    IndexKeyPart::Column {
+        name: attname.unwrap_or_default(),
+        opclass: opcn,
+        collate,
+        sort,
+        nulls,
+    }
+}
+
+fn fetch_btree_indexes(
+    executor: &dyn LifeExecutor,
+    schema: &str,
+    options: &InferOptions,
+    table_cols: &HashMap<String, HashSet<String>>,
+) -> Result<HashMap<String, Vec<IndexDefinition>>, LifeError> {
+    let indexdef_map = fetch_pg_indexdef_map(executor, schema)?;
+    let sql = r#"
+        SELECT
+            t.relname::text AS table_name,
+            ic.relname::text AS index_name,
+            ix.indisunique,
+            u.key_ord::int AS key_ord,
+            u.attnum::int AS attnum,
+            ((((
+                (ix.indoption::int2[])[array_lower(ix.indkey::int2[], 1) + u.key_ord - 1]
+            )::int) & 1) <> 0 AS ord_desc,
+            ((((
+                (ix.indoption::int2[])[array_lower(ix.indkey::int2[], 1) + u.key_ord - 1]
+            )::int) & 2) <> 0 AS nulls_first,
+            coll.collname::text AS collname,
+            opc.opcname::text AS opcname,
+            a.attname::text AS attname,
+            pg_get_indexdef(ic.oid, u.key_ord::int, true) AS keydef
+        FROM pg_index ix
+        JOIN pg_class ic ON ic.oid = ix.indexrelid
+        JOIN pg_class t ON t.oid = ix.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace AND n.nspname = $1
+        JOIN pg_am am ON am.oid = ic.relam AND am.amname = 'btree'
+        CROSS JOIN LATERAL unnest(ix.indkey::int2[]) WITH ORDINALITY AS u(attnum, key_ord)
+        LEFT JOIN pg_collation coll ON coll.oid = NULLIF(
+            (ix.indcollation::oid[])[array_lower(ix.indkey::int2[], 1) + u.key_ord - 1],
+            0::oid
+        )
+        LEFT JOIN pg_attribute a ON a.attrelid = ix.indrelid
+            AND a.attnum = u.attnum
+            AND u.attnum <> 0
+        LEFT JOIN pg_opclass opc ON opc.oid = (ix.indclass::oid[])[
+            array_lower(ix.indkey::int2[], 1) + u.key_ord - 1
+        ]
+        WHERE NOT ix.indisprimary
+          AND ix.indisvalid
+          AND t.relkind = 'r'
+        ORDER BY t.relname, ic.relname, u.key_ord
+    "#;
+    let rows = executor.query_all(sql, &[&schema]).map_err(|e| {
+        LifeError::Other(format!(
+            "infer-schema: btree index catalog query failed (requires PostgreSQL pg_index): {e}"
+        ))
+    })?;
+    #[derive(Default)]
+    struct Acc {
+        unique: bool,
+        parts: Vec<(i32, IndexKeyPart)>,
+    }
+    let mut grouped: HashMap<(String, String), Acc> = HashMap::new();
+    for row in rows {
+        let table_name: String = row
+            .try_get(0)
+            .map_err(|e| LifeError::Other(format!("infer index table: {e}")))?;
+        if !options.tables.is_empty() && !options.tables.iter().any(|t| t == &table_name) {
+            continue;
+        }
+        let index_name: String = row
+            .try_get(1)
+            .map_err(|e| LifeError::Other(format!("infer index name: {e}")))?;
+        let indisunique: bool = row
+            .try_get(2)
+            .map_err(|e| LifeError::Other(format!("infer index unique: {e}")))?;
+        let key_ord: i32 = row
+            .try_get(3)
+            .map_err(|e| LifeError::Other(format!("infer index ord: {e}")))?;
+        let attnum: i32 = row
+            .try_get(4)
+            .map_err(|e| LifeError::Other(format!("infer index attnum: {e}")))?;
+        let ord_desc: bool = row
+            .try_get(5)
+            .map_err(|e| LifeError::Other(format!("infer index ord_desc: {e}")))?;
+        let nulls_first: bool = row
+            .try_get(6)
+            .map_err(|e| LifeError::Other(format!("infer index nulls_first: {e}")))?;
+        let collname: Option<String> = row.try_get(7).ok();
+        let opcname: Option<String> = row.try_get(8).ok();
+        let attname: Option<String> = row.try_get(9).ok();
+        let keydef: String = row
+            .try_get(10)
+            .map_err(|e| LifeError::Other(format!("infer index keydef: {e}")))?;
+        let cols_hint = table_cols
+            .get(&table_name)
+            .cloned()
+            .unwrap_or_default();
+        let part = build_index_key_part_from_catalog_row(
+            attnum,
+            ord_desc,
+            nulls_first,
+            collname,
+            opcname,
+            attname,
+            keydef,
+            &cols_hint,
+        );
+        let e = grouped
+            .entry((table_name, index_name))
+            .or_insert_with(|| Acc {
+                unique: indisunique,
+                parts: Vec::new(),
+            });
+        e.parts.push((key_ord, part));
+    }
+    for acc in grouped.values_mut() {
+        acc.parts.sort_by_key(|(o, _)| *o);
+    }
+    let mut out: HashMap<String, Vec<IndexDefinition>> = HashMap::new();
+    for ((table_name, index_name), mut acc) in grouped {
+        let parts: Vec<IndexKeyPart> = acc.parts.drain(..).map(|(_, p)| p).collect();
+        if parts.iter().any(|p| {
+            matches!(
+                p,
+                IndexKeyPart::Expression {
+                    coverage_columns,
+                    ..
+                } if coverage_columns.is_empty()
+            )
+        }) {
+            continue;
+        }
+        let columns = index_key_parts_coverage_columns(&parts);
+        let (include_columns, partial_where) = indexdef_map
+            .get(&(table_name.clone(), index_name.clone()))
+            .map(|d| parse_indexdef_include_where(d))
+            .unwrap_or((Vec::new(), None));
+        let def = IndexDefinition {
+            name: index_name,
+            columns,
+            key_list_sql: None,
+            key_parts: parts,
+            include_columns,
+            unique: acc.unique,
+            partial_where,
+        };
+        out.entry(table_name).or_default().push(def);
+    }
+    for v in out.values_mut() {
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    Ok(out)
 }
 
 fn fetch_columns(
@@ -325,6 +623,21 @@ mod tests {
         )
     }
 
+    /// When **`LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1`**, overwrites the golden file with `got`
+    /// (maintainer workflow after intentional emitter changes). Otherwise asserts equality.
+    fn assert_infer_schema_golden(rel_path: &str, got: &str) {
+        let path = golden_path(rel_path);
+        if std::env::var("LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
+            std::fs::write(&path, got).unwrap_or_else(|e| panic!("bless write {path}: {e}"));
+            return;
+        }
+        let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        assert_eq!(got, expected);
+    }
+
     #[test]
     fn golden_emit_single_table_widgets() {
         let columns = vec![
@@ -347,10 +660,8 @@ mod tests {
         ];
         let mut pks = HashMap::new();
         pks.insert("widgets".into(), vec!["id".into()]);
-        let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_widgets.expected.rs"))
-            .expect("read infer_widgets golden");
-        assert_eq!(got, expected);
+        let got = emit_inferred_rust(&InferOptions::default(), columns, pks, &HashMap::new());
+        assert_infer_schema_golden("infer_widgets.expected.rs", &got);
     }
 
     #[test]
@@ -383,10 +694,8 @@ mod tests {
         ];
         let mut pks = HashMap::new();
         pks.insert("widgets".into(), vec!["id".into()]);
-        let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_omitted_column.expected.rs"))
-            .expect("read infer_omitted_column golden");
-        assert_eq!(got, expected);
+        let got = emit_inferred_rust(&InferOptions::default(), columns, pks, &HashMap::new());
+        assert_infer_schema_golden("infer_omitted_column.expected.rs", &got);
     }
 
     #[test]
@@ -414,10 +723,8 @@ mod tests {
             "pair_keys".into(),
             vec!["site_id".into(), "item_id".into()],
         );
-        let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_composite_pk.expected.rs"))
-            .expect("read infer_composite_pk golden");
-        assert_eq!(got, expected);
+        let got = emit_inferred_rust(&InferOptions::default(), columns, pks, &HashMap::new());
+        assert_infer_schema_golden("infer_composite_pk.expected.rs", &got);
     }
 
     #[test]
@@ -455,10 +762,8 @@ mod tests {
             schema: "public".into(),
             tables: vec!["widgets".into()],
         };
-        let got = emit_inferred_rust(&opts, columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_widgets.expected.rs"))
-            .expect("read infer_widgets golden");
-        assert_eq!(got, expected);
+        let got = emit_inferred_rust(&opts, columns, pks, &HashMap::new());
+        assert_infer_schema_golden("infer_widgets.expected.rs", &got);
     }
 
     #[test]
@@ -483,10 +788,55 @@ mod tests {
         ];
         let mut pks = HashMap::new();
         pks.insert("kind_rows".into(), vec!["id".into()]);
-        let got = emit_inferred_rust(&InferOptions::default(), columns, pks);
-        let expected = std::fs::read_to_string(golden_path("infer_sql_keyword_field.expected.rs"))
-            .expect("read infer_sql_keyword_field golden");
-        assert_eq!(got, expected);
+        let got = emit_inferred_rust(&InferOptions::default(), columns, pks, &HashMap::new());
+        assert_infer_schema_golden("infer_sql_keyword_field.expected.rs", &got);
+    }
+
+    #[test]
+    fn emit_inferred_rust_emits_index_attributes() {
+        let columns = vec![
+            ColumnMeta {
+                table_name: "widgets".into(),
+                column_name: "id".into(),
+                ordinal: 1,
+                data_type: "integer".into(),
+                udt_name: "int4".into(),
+                is_nullable: false,
+            },
+            ColumnMeta {
+                table_name: "widgets".into(),
+                column_name: "email".into(),
+                ordinal: 2,
+                data_type: "text".into(),
+                udt_name: "text".into(),
+                is_nullable: true,
+            },
+        ];
+        let mut pks = HashMap::new();
+        pks.insert("widgets".into(), vec!["id".into()]);
+        let idx = IndexDefinition {
+            name: "idx_widgets_lower_email".into(),
+            columns: vec!["email".into()],
+            key_list_sql: None,
+            key_parts: vec![IndexKeyPart::Expression {
+                sql: "lower(email)".into(),
+                coverage_columns: vec!["email".into()],
+                opclass: None,
+                collate: None,
+                sort: None,
+                nulls: None,
+            }],
+            include_columns: vec![],
+            unique: false,
+            partial_where: None,
+        };
+        let mut idx_map = HashMap::new();
+        idx_map.insert("widgets".into(), vec![idx]);
+        let got = emit_inferred_rust(&InferOptions::default(), columns, pks, &idx_map);
+        assert!(
+            got.contains("#[index = \"idx_widgets_lower_email(lower(email) | email)\"]"),
+            "got:\n{got}"
+        );
     }
 
     #[test]
