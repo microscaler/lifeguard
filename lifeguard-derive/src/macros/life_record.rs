@@ -903,7 +903,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             let mut query = Query::update();
             let entity = #entity_name::default();
-            query.table(entity.clone());
+            if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                query.table((sea_query::Alias::new(schema), entity.clone()));
+            } else {
+                query.table(entity.clone());
+            }
 
             // Soft delete: set deleted_at to current timestamp
             query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc()));
@@ -915,7 +919,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             let mut query = Query::delete();
             let entity = #entity_name::default();
-            query.from_table(entity.clone());
+            if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                query.from_table((sea_query::Alias::new(schema), entity.clone()));
+            } else {
+                query.from_table(entity.clone());
+            }
 
             #(#delete_where_clauses)*
         }
@@ -1202,7 +1210,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build INSERT statement
                 let mut query = Query::insert();
                 let entity = #entity_name::default();
-                query.into_table(entity);
+                if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                    query.into_table((sea_query::Alias::new(schema), entity.clone()));
+                } else {
+                    query.into_table(entity.clone());
+                }
 
                 // Collect columns and expressions (skip auto-increment PKs if not set)
                 // Use Expr instead of Value to support save_as custom expressions
@@ -1324,7 +1336,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build UPDATE statement
                 let mut query = Query::update();
                 let entity = #entity_name::default();
-                query.table(entity);
+                if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                    query.table((sea_query::Alias::new(schema), entity.clone()));
+                } else {
+                    query.table(entity.clone());
+                }
 
                 // Add SET clauses for dirty fields (skip primary keys)
                 // Use record_for_hooks to include any changes made in before_update()
