@@ -7,6 +7,7 @@
 //! ## Two-pass invariant
 //!
 //! 1. **Pass 1** walks `values` **in order** and appends into typed storage (`strings`, `ints`,
+//!    `small_ints` (`INT2` / `Value::SmallInt` & tiny/small unsigned), `json_values` (`serde_json::Value`),
 //!    `null_chrono_datetimes_utc`, …).
 //! 2. **Pass 2** walks the **same `values` slice in the same order** and, for each element, takes
 //!    the next `&dyn ToSql` from the **matching** bucket (`string_idx`, `chrono_datetime_utc_null_idx`, …).
@@ -37,8 +38,12 @@ where
 {
     let mut bools: Vec<bool> = Vec::new();
     let mut ints: Vec<i32> = Vec::new();
+    // `sea_query::Value::TinyInt` / `SmallInt` / small unsigned — PostgreSQL `INT2`, not `INT4`.
+    let mut small_ints: Vec<i16> = Vec::new();
     let mut big_ints: Vec<i64> = Vec::new();
     let mut strings: Vec<String> = Vec::new();
+    let mut json_values: Vec<serde_json::Value> = Vec::new();
+    let mut null_json_values: Vec<Option<serde_json::Value>> = Vec::new();
     let mut bytes: Vec<Vec<u8>> = Vec::new();
     let mut nulls: Vec<Option<i32>> = Vec::new();
     let mut floats: Vec<f32> = Vec::new();
@@ -70,10 +75,15 @@ where
             Value::BigInt(Some(i)) => big_ints.push(*i),
             Value::String(Some(s)) => strings.push(s.clone()),
             Value::Bytes(Some(b)) => bytes.push(b.clone()),
-            Value::TinyInt(Some(i)) => ints.push(i32::from(*i)),
-            Value::SmallInt(Some(i)) => ints.push(i32::from(*i)),
-            Value::TinyUnsigned(Some(u)) => ints.push(i32::from(*u)),
-            Value::SmallUnsigned(Some(u)) => ints.push(i32::from(*u)),
+            Value::TinyInt(Some(i)) => small_ints.push(i16::from(*i)),
+            Value::SmallInt(Some(i)) => small_ints.push(*i),
+            Value::TinyUnsigned(Some(u)) => small_ints.push(i16::from(*u)),
+            Value::SmallUnsigned(Some(u)) => {
+                #[allow(clippy::cast_possible_wrap)]
+                {
+                    small_ints.push(*u as i16);
+                }
+            }
             Value::Unsigned(Some(u)) => big_ints.push(i64::from(*u)),
             Value::BigUnsigned(Some(u)) => {
                 #[allow(clippy::cast_sign_loss)]
@@ -123,13 +133,8 @@ where
             Value::ChronoDateTimeLocal(None) => null_chrono_datetimes_local.push(None),
             Value::Uuid(None) => null_uuids.push(None),
 
-            Value::Json(Some(j)) => {
-                strings.push(
-                    serde_json::to_string(&**j)
-                        .map_err(|e| into_err(format!("Failed to serialize JSON: {e}")))?,
-                );
-            }
-            Value::Json(None) => nulls.push(None),
+            Value::Json(Some(j)) => json_values.push((**j).clone()),
+            Value::Json(None) => null_json_values.push(None),
 
             _ => {
                 return Err(into_err(format!(
@@ -141,6 +146,7 @@ where
 
     let mut bool_idx = 0;
     let mut int_idx = 0;
+    let mut small_int_idx = 0;
     let mut big_int_idx = 0;
     let mut string_idx = 0;
     let mut byte_idx = 0;
@@ -155,6 +161,9 @@ where
     let mut chrono_datetime_local_idx = 0;
 
     let mut uuid_idx = 0;
+
+    let mut json_idx = 0;
+    let mut json_null_idx = 0;
 
     let mut uuid_null_idx = 0;
     let mut chrono_date_null_idx = 0;
@@ -229,8 +238,8 @@ where
             | Value::SmallInt(Some(_))
             | Value::TinyUnsigned(Some(_))
             | Value::SmallUnsigned(Some(_)) => {
-                params.push(&ints[int_idx] as &dyn ToSql);
-                int_idx += 1;
+                params.push(&small_ints[small_int_idx] as &dyn ToSql);
+                small_int_idx += 1;
             }
             Value::Unsigned(Some(_)) | Value::BigUnsigned(Some(_)) => {
                 params.push(&big_ints[big_int_idx] as &dyn ToSql);
@@ -288,12 +297,12 @@ where
             }
 
             Value::Json(Some(_)) => {
-                params.push(&strings[string_idx] as &dyn ToSql);
-                string_idx += 1;
+                params.push(&json_values[json_idx] as &dyn ToSql);
+                json_idx += 1;
             }
             Value::Json(None) => {
-                params.push(&nulls[null_idx] as &dyn ToSql);
-                null_idx += 1;
+                params.push(&null_json_values[json_null_idx] as &dyn ToSql);
+                json_null_idx += 1;
             }
             Value::Uuid(None) => {
                 params.push(&null_uuids[uuid_null_idx] as &dyn ToSql);
@@ -373,5 +382,19 @@ mod tests {
             "Decimal conversion failed with error: {:?}",
             result.err()
         );
+    }
+
+    #[test]
+    fn small_int_and_int_preserve_order_and_distinct_buckets() {
+        let values = vec![
+            Value::Int(Some(1)),
+            Value::SmallInt(Some(-2)),
+            Value::Int(Some(3)),
+        ];
+        let result = with_converted_value_slice(&values, |e| e, |params| {
+            assert_eq!(params.len(), 3);
+            Ok::<(), String>(())
+        });
+        assert!(result.is_ok(), "{:?}", result.err());
     }
 }

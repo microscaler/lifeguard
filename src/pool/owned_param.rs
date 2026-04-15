@@ -14,6 +14,8 @@ use sea_query::Value;
 pub enum OwnedParam {
     Bool(bool),
     Int(Option<i32>),
+    /// PostgreSQL `INT2` (`Value::TinyInt` / `SmallInt` / small unsigned).
+    SmallInt(Option<i16>),
     BigInt(Option<i64>),
     Float(Option<f32>),
     Double(Option<f64>),
@@ -39,6 +41,7 @@ impl OwnedParam {
         match self {
             OwnedParam::Bool(b) => b as &dyn ToSql,
             OwnedParam::Int(i) => i as &dyn ToSql,
+            OwnedParam::SmallInt(i) => i as &dyn ToSql,
             OwnedParam::BigInt(i) => i as &dyn ToSql,
             OwnedParam::Float(f) => f as &dyn ToSql,
             OwnedParam::Double(d) => d as &dyn ToSql,
@@ -80,10 +83,10 @@ impl TryFrom<&Value> for OwnedParam {
             Value::Bytes(Some(b)) => Ok(OwnedParam::Bytes(Some(b.clone()))),
             Value::Bytes(None) => Ok(OwnedParam::GenericNull),
 
-            Value::TinyInt(Some(i)) => Ok(OwnedParam::Int(Some(i32::from(*i)))),
-            Value::SmallInt(Some(i)) => Ok(OwnedParam::Int(Some(i32::from(*i)))),
-            Value::TinyUnsigned(Some(u)) => Ok(OwnedParam::Int(Some(i32::from(*u)))),
-            Value::SmallUnsigned(Some(u)) => Ok(OwnedParam::Int(Some(i32::from(*u)))),
+            Value::TinyInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(i16::from(*i)))),
+            Value::SmallInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(*i))),
+            Value::TinyUnsigned(Some(u)) => Ok(OwnedParam::SmallInt(Some(i16::from(*u)))),
+            Value::SmallUnsigned(Some(u)) => Ok(OwnedParam::SmallInt(Some(*u as i16))),
             Value::Unsigned(Some(u)) => Ok(OwnedParam::BigInt(Some(i64::from(*u)))),
             Value::BigUnsigned(Some(u)) => {
                 if *u > i64::MAX as u64 {
@@ -98,7 +101,7 @@ impl TryFrom<&Value> for OwnedParam {
             Value::TinyInt(None)
             | Value::SmallInt(None)
             | Value::TinyUnsigned(None)
-            | Value::SmallUnsigned(None) => Ok(OwnedParam::GenericNull),
+            | Value::SmallUnsigned(None) => Ok(OwnedParam::SmallInt(None)),
             Value::Unsigned(None) | Value::BigUnsigned(None) => Ok(OwnedParam::GenericNull),
 
             Value::Float(Some(f)) => Ok(OwnedParam::Float(Some(*f))),
@@ -165,6 +168,32 @@ mod tests {
             OwnedParam::try_from(&Value::Int(None)),
             Ok(OwnedParam::GenericNull)
         ));
+    }
+
+    #[test]
+    fn try_from_smallint_maps_to_int2_path() {
+        assert!(
+            matches!(
+                OwnedParam::try_from(&Value::SmallInt(Some(-9i16))),
+                Ok(OwnedParam::SmallInt(Some(v))) if v == -9i16
+            ),
+            "SmallInt(Some(-9)) should map to OwnedParam::SmallInt"
+        );
+        assert!(matches!(
+            OwnedParam::try_from(&Value::SmallInt(None)),
+            Ok(OwnedParam::SmallInt(None))
+        ));
+    }
+
+    #[test]
+    fn as_sql_ref_smallint_encodes_for_int2() {
+        use bytes::BytesMut;
+        use postgres_types::{IsNull, Type};
+
+        let p = OwnedParam::SmallInt(Some(40));
+        let mut buf = BytesMut::new();
+        let got = p.as_sql_ref().to_sql_checked(&Type::INT2, &mut buf);
+        assert!(matches!(got, Ok(IsNull::No)));
     }
 
     #[test]

@@ -102,9 +102,9 @@
 | T1 | `timestamptz` / `DateTime<Utc>` insert + select | B–C | [x] |
 | T2 | `Option<DateTime<Utc>>` NULL + Some | B–D | [x] |
 | T3 | `timestamp` / `NaiveDateTime` regression | A–C | [x] |
-| T4 | `date` / `NaiveDate` regression | existing | [ ] |
-| T5 | `DateTime<Local>` (if in scope) | A–B | [ ] |
-| T6 | Mixed UUID + JSON + `DateTime<Utc>` + `i16` | C–D | [ ] |
+| T4 | `date` / `NaiveDate` regression | existing | [x] |
+| T5 | `DateTime<Local>` (if in scope) | A–B | [x] |
+| T6 | Mixed UUID + JSON + `DateTime<Utc>` + `i16` | C–D | [x] |
 
 ---
 

@@ -872,6 +872,14 @@ mod tests {
     }
 
     #[test]
+    fn map_pg_date_matches_naive_date() {
+        let (t, _) = map_pg_to_rust("date", "date", false).unwrap();
+        assert_eq!(t, "chrono::NaiveDate");
+        let (t_opt, _) = map_pg_to_rust("date", "date", true).unwrap();
+        assert_eq!(t_opt, "Option<chrono::NaiveDate>");
+    }
+
+    #[test]
     fn sanitize_field_ident_raw_keyword() {
         assert_eq!(sanitize_field_ident("type"), "r#type");
         assert_eq!(sanitize_field_ident("email"), "email");
