@@ -1,0 +1,23 @@
+# Dependabot — version updates (security alerts are separate in repo Settings → Security).
+# Cargo workspace root is the repository root (see root Cargo.toml).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 15
+    labels:
+      - dependencies
+      - rust
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - github-actions
