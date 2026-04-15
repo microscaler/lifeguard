@@ -96,9 +96,7 @@ impl LifeguardMetrics {
                 .with_registry(reg_for_provider)
                 .build()
                 .expect("failed to build prometheus exporter");
-            let provider = SdkMeterProvider::builder()
-                .with_reader(exporter)
-                .build();
+            let provider = SdkMeterProvider::builder().with_reader(exporter).build();
             global::set_meter_provider(provider);
         });
         let meter = global::meter("lifeguard");
@@ -175,11 +173,7 @@ impl LifeguardMetrics {
     }
 
     /// Record query execution duration. Use `pool_tier` for pooled queries (`primary` / `replica`).
-    pub fn record_query_duration(
-        &self,
-        duration: std::time::Duration,
-        pool_tier: Option<&str>,
-    ) {
+    pub fn record_query_duration(&self, duration: std::time::Duration, pool_tier: Option<&str>) {
         match pool_tier {
             Some(t) => self
                 .query_duration
@@ -197,11 +191,7 @@ impl LifeguardMetrics {
     }
 
     /// Record time waiting for a pool slot or direct connection setup.
-    pub fn record_connection_wait(
-        &self,
-        duration: std::time::Duration,
-        pool_tier: Option<&str>,
-    ) {
+    pub fn record_connection_wait(&self, duration: std::time::Duration, pool_tier: Option<&str>) {
         match pool_tier {
             Some(t) => self
                 .connection_wait_time
@@ -235,8 +225,7 @@ impl LifeguardMetrics {
     }
 
     pub fn record_pool_acquire_timeout(&self, tier: &str) {
-        self.pool_acquire_timeout_total
-            .add(1, &Self::tier_kv(tier));
+        self.pool_acquire_timeout_total.add(1, &Self::tier_kv(tier));
     }
 
     pub fn record_pool_slot_heal(&self, tier: &str) {
@@ -276,18 +265,9 @@ impl LifeguardMetrics {
         Self
     }
 
-    pub fn record_query_duration(
-        &self,
-        _duration: std::time::Duration,
-        _pool_tier: Option<&str>,
-    ) {
-    }
+    pub fn record_query_duration(&self, _duration: std::time::Duration, _pool_tier: Option<&str>) {}
     pub fn record_query_error(&self, _pool_tier: Option<&str>) {}
-    pub fn record_connection_wait(
-        &self,
-        _duration: std::time::Duration,
-        _pool_tier: Option<&str>,
-    ) {
+    pub fn record_connection_wait(&self, _duration: std::time::Duration, _pool_tier: Option<&str>) {
     }
     pub fn set_pool_size(&self, _size: u64) {}
     pub fn set_pool_workers_by_tier(&self, _primary_slots: u64, _replica_slots: u64) {}

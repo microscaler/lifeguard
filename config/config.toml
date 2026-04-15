@@ -1,7 +1,7 @@
 [database]
 # Postgres connection URL
-url = "postgres://postgres:postgres@localhost:6543/postgres"
-default_db_url = "postgres://postgres:postgres@localhost:6543/postgres"
+url = "postgres://postgres:postgres@localhost:5432/postgres?options=-c%20search_path%3Dlifeguard"
+default_db_url = "postgres://postgres:postgres@localhost:5432/postgres?options=-c%20search_path%3Dlifeguard"
 default_max_connections = 10
 # Max number of concurrent DB connections in the pool
 max_connections = 10

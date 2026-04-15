@@ -1,12 +1,12 @@
 #!/bin/bash
 # Setup Kind cluster for Lifeguard test infrastructure.
-# Uses the shared microscaler Kind cluster (default name: kind → context kind-kind).
+# Reuses an existing cluster named `kind` (kubectl context `kind-kind`) when present — does not delete it.
+# Creates the cluster only if missing. Apply platform namespaces + shared stack from microscaler/shared-kind-cluster.
 # kind-config.yaml is a symlink to ../../shared-kind-cluster/kind-config.yaml.
 
 set -euo pipefail
 
 CLUSTER_NAME="kind"
-NAMESPACE="lifeguard-test"
 
 echo "🔧 Setting up Kind cluster for Lifeguard tests..."
 
@@ -38,16 +38,11 @@ fi
 echo "⏳ Waiting for cluster to be ready..."
 kubectl wait --for=condition=Ready nodes --all --timeout=120s
 
-# Namespace only — Postgres primary/replicas/Redis PVCs come from kustomize via Tilt
-echo "📦 Creating namespace..."
-kubectl apply -f config/k8s/test-infrastructure/namespace.yaml
-
 echo ""
 echo "✅ Kind cluster setup complete!"
 echo ""
 echo "📋 Cluster details:"
 echo "   Cluster: ${CLUSTER_NAME} (kubectl context: kind-kind)"
-echo "   Namespace: ${NAMESPACE}"
 echo ""
-echo "💡 Stack (Bitnami primary + 2 replicas + Redis) is applied by Tilt: just dev-up"
+echo "💡 Platform stack: microscaler/shared-kind-cluster (just dev-up / tilt up there). Lifeguard Tilt is builds/tests only."
 echo ""

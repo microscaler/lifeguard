@@ -372,8 +372,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
 
         if !is_primary_key {
-            let expr_setter_name =
-                Ident::new(&format!("{setter_name}_expr"), field_name.span());
+            let expr_setter_name = Ident::new(&format!("{setter_name}_expr"), field_name.span());
             let expr_session_notify = if has_primary_keys {
                 quote! { self.__lg_session_notify_dirty(); }
             } else {

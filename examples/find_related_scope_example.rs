@@ -57,8 +57,14 @@ impl Related<UserEntity> for PostEntity {
     fn to() -> RelationDef {
         RelationDef {
             rel_type: RelationType::BelongsTo,
-            from_tbl: TableRef::Table(TableName(None, "example_scope_demo_posts".into_iden()), None),
-            to_tbl: TableRef::Table(TableName(None, "example_scope_demo_users".into_iden()), None),
+            from_tbl: TableRef::Table(
+                TableName(None, "example_scope_demo_posts".into_iden()),
+                None,
+            ),
+            to_tbl: TableRef::Table(
+                TableName(None, "example_scope_demo_users".into_iden()),
+                None,
+            ),
             from_col: Identity::Unary("user_id".into()),
             to_col: Identity::Unary("id".into()),
             through_tbl: None,
@@ -76,8 +82,14 @@ impl Related<PostEntity> for UserEntity {
     fn to() -> RelationDef {
         RelationDef {
             rel_type: RelationType::HasMany,
-            from_tbl: TableRef::Table(TableName(None, "example_scope_demo_users".into_iden()), None),
-            to_tbl: TableRef::Table(TableName(None, "example_scope_demo_posts".into_iden()), None),
+            from_tbl: TableRef::Table(
+                TableName(None, "example_scope_demo_users".into_iden()),
+                None,
+            ),
+            to_tbl: TableRef::Table(
+                TableName(None, "example_scope_demo_posts".into_iden()),
+                None,
+            ),
             from_col: Identity::Unary("id".into()),
             to_col: Identity::Unary("user_id".into()),
             through_tbl: None,

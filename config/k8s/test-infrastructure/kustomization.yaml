@@ -22,5 +22,6 @@ configMapGenerator:
   - name: postgres-pact-init
     files:
       - 10-pact-role.sql=postgres-pact-role.sql
+      - 11-lifeguard-schema.sql=postgres-lifeguard-schema.sql
     options:
       disableNameSuffixHash: true

@@ -21,9 +21,7 @@ fn generate_sql_emits_expression_index_key_list() {
         .expect("sql");
 
     assert!(
-        sql.contains(
-            "CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users(lower(email));",
-        ),
+        sql.contains("CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users(lower(email));",),
         "expected expression key in CREATE INDEX, got:\n{sql}"
     );
 }

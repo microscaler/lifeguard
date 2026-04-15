@@ -180,7 +180,11 @@ mod validate_multi_fail_fast {
         let err = run_validators(&r, ValidateOp::Insert).expect_err("first field fails");
         match err {
             lifeguard::ActiveModelError::Validation(v) => {
-                assert_eq!(v.len(), 1, "FailFast should stop after first failing field validator");
+                assert_eq!(
+                    v.len(),
+                    1,
+                    "FailFast should stop after first failing field validator"
+                );
                 assert_eq!(v[0].field.as_deref(), Some("email"));
             }
             e => panic!("expected Validation error, got {:?}", e),

@@ -2,13 +2,10 @@
 """
 Development environment shutdown script.
 
-Stops Tilt, Kind cluster for local development.
-Replaces embedded shell script in justfile.
+Stops Tilt. Does not delete the Kind cluster (shared `kind` / context `kind-kind`).
 """
 
 import subprocess
-import sys
-from pathlib import Path
 
 
 def log_info(msg):
@@ -49,36 +46,19 @@ def stop_tilt():
             log_warn("No Tilt processes found (or already stopped)")
 
 
-def stop_kind():
-    """Stop Kind cluster."""
-    log_info("Stopping Kind cluster...")
-    result = run_command(
-        ["kind", "delete", "cluster", "--name", "lifeguard-test"],
-        check=False,
-        capture_output=True
-    )
-    if result.returncode == 0:
-        log_info("✅ Kind cluster deleted")
-    else:
-        # Check if cluster exists
-        cluster_check = run_command("kind get clusters", check=False, capture_output=True)
-        if "lifeguard-test" in cluster_check.stdout:
-            log_warn("Cluster deletion had issues, but continuing with cleanup")
-        else:
-            log_info("Cluster already deleted or does not exist")
-
-
 def main():
     """Main development environment shutdown."""
     log_info("🛑 Stopping Lifeguard development environment...")
-    
-    # Stop Tilt
+
+    # Stop Tilt only — the Kind cluster is shared (default name `kind`, context `kind-kind`).
+    # Deleting the cluster is a separate, destructive step: `kind delete cluster --name kind`.
     stop_tilt()
-    
-    # Stop Kind cluster
-    stop_kind()
-    
-    log_info("✅ Development environment stopped and cleaned up")
+
+    log_info(
+        "ℹ️  Kind cluster was not deleted (reusable shared cluster). "
+        "Use `kind delete cluster --name kind` only if you intend to remove it."
+    )
+    log_info("✅ Development environment stopped")
 
 
 if __name__ == "__main__":

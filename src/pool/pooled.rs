@@ -745,37 +745,35 @@ fn run_worker(w: WorkerThreadStart) {
                 );
             }
         }
-        Some(interval) => {
-            loop {
-                match job_rx.recv_timeout(interval) {
-                    Ok(job) => {
-                        dispatch_worker_job(tier, &connection_string, &mut client, job);
-                        maybe_rotate_for_max_lifetime(
-                            &connection_string,
-                            &mut client,
-                            &mut opened_at,
-                            max_connection_lifetime,
-                            max_connection_lifetime_jitter,
-                            slot,
-                            tier,
-                        );
-                    }
-                    Err(RecvTimeoutError::Timeout) => {
-                        idle_liveness_probe(&connection_string, &mut client, tier);
-                        maybe_rotate_for_max_lifetime(
-                            &connection_string,
-                            &mut client,
-                            &mut opened_at,
-                            max_connection_lifetime,
-                            max_connection_lifetime_jitter,
-                            slot,
-                            tier,
-                        );
-                    }
-                    Err(RecvTimeoutError::Disconnected) => break,
+        Some(interval) => loop {
+            match job_rx.recv_timeout(interval) {
+                Ok(job) => {
+                    dispatch_worker_job(tier, &connection_string, &mut client, job);
+                    maybe_rotate_for_max_lifetime(
+                        &connection_string,
+                        &mut client,
+                        &mut opened_at,
+                        max_connection_lifetime,
+                        max_connection_lifetime_jitter,
+                        slot,
+                        tier,
+                    );
                 }
+                Err(RecvTimeoutError::Timeout) => {
+                    idle_liveness_probe(&connection_string, &mut client, tier);
+                    maybe_rotate_for_max_lifetime(
+                        &connection_string,
+                        &mut client,
+                        &mut opened_at,
+                        max_connection_lifetime,
+                        max_connection_lifetime_jitter,
+                        slot,
+                        tier,
+                    );
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
             }
-        }
+        },
     }
 }
 
@@ -784,11 +782,7 @@ fn run_worker(w: WorkerThreadStart) {
 /// `salt` must be **stable** for the lifetime of a connection (we use the worker `slot` index).
 /// Do not mix in time-varying values: the limit is compared on every job/idle tick, and an unstable
 /// salt would change the threshold each call and break rotation timing.
-fn connection_lifetime_effective_limit(
-    base: Duration,
-    jitter: Duration,
-    salt: usize,
-) -> Duration {
+fn connection_lifetime_effective_limit(base: Duration, jitter: Duration, salt: usize) -> Duration {
     if jitter.is_zero() {
         return base;
     }
@@ -1081,7 +1075,10 @@ mod lifetime_effective_limit_tests {
         let jitter = Duration::from_millis(500);
         let a = connection_lifetime_effective_limit(base, jitter, 2);
         let b = connection_lifetime_effective_limit(base, jitter, 2);
-        assert_eq!(a, b, "salt must not depend on time; limit must be stable per slot");
+        assert_eq!(
+            a, b,
+            "salt must not depend on time; limit must be stable per slot"
+        );
     }
 
     #[test]

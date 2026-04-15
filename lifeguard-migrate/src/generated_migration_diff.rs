@@ -230,11 +230,7 @@ fn try_parse_create_index_statement(line: &str) -> Option<(String, String, Strin
     if !after_keys.starts_with('(') {
         return None;
     }
-    let table_unqual = _qtable
-        .rsplit('.')
-        .next()?
-        .trim_matches('"')
-        .to_string();
+    let table_unqual = _qtable.rsplit('.').next()?.trim_matches('"').to_string();
     Some((idx_name, table_unqual, stmt.to_string()))
 }
 
@@ -564,21 +560,20 @@ fn non_empty_sql_lines(blob: &str) -> Vec<String> {
 }
 
 fn tail_lines_not_in_old(old_section: &str, new_tail: &str) -> String {
-    let old_set: std::collections::HashSet<String> = non_empty_sql_lines(old_section)
-        .into_iter()
-        .collect();
+    let old_set: std::collections::HashSet<String> =
+        non_empty_sql_lines(old_section).into_iter().collect();
     let mut out = String::new();
     for line in non_empty_sql_lines(new_tail) {
         if old_set.contains(&line) {
             continue;
         }
         let upper = line.to_ascii_uppercase();
-        let patched = if upper.starts_with("CREATE INDEX ") || upper.starts_with("CREATE UNIQUE INDEX ")
-        {
-            index_line_with_if_not_exists(&line)
-        } else {
-            line
-        };
+        let patched =
+            if upper.starts_with("CREATE INDEX ") || upper.starts_with("CREATE UNIQUE INDEX ") {
+                index_line_with_if_not_exists(&line)
+            } else {
+                line
+            };
         out.push_str(&patched);
         if !patched.ends_with(';') {
             out.push(';');
@@ -626,10 +621,7 @@ pub fn normalize_table_sql_blob(s: &str) -> String {
 /// `-- Table: name` sections participate. For multiple files on disk, use
 /// [`build_service_migration_body_from_service_dir`] and [`service_migration_is_empty`] instead.
 #[must_use]
-pub fn generated_tables_match_baseline(
-    previous_file: &str,
-    tables: &[(String, String)],
-) -> bool {
+pub fn generated_tables_match_baseline(previous_file: &str, tables: &[(String, String)]) -> bool {
     let old_sections = extract_table_sections(previous_file);
     if old_sections.len() != tables.len() {
         return false;
@@ -660,9 +652,7 @@ CREATE INDEX idx_widgets_name ON widgets(name);
 
     #[test]
     fn delta_adds_column_and_index() {
-        let old = format!(
-            "-- Table: widgets\n{WIDGETS_CREATE}\n"
-        );
+        let old = format!("-- Table: widgets\n{WIDGETS_CREATE}\n");
         let new = r"CREATE TABLE IF NOT EXISTS widgets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
@@ -688,7 +678,8 @@ CREATE INDEX idx_widgets_sku ON widgets(sku);
     #[test]
     fn identical_schema_produces_empty() {
         let s = format!("-- Table: widgets\n{WIDGETS_CREATE}\n");
-        let body = build_service_migration_body(Some(&s), &[("widgets".into(), WIDGETS_CREATE.into())]);
+        let body =
+            build_service_migration_body(Some(&s), &[("widgets".into(), WIDGETS_CREATE.into())]);
         assert!(service_migration_is_empty(&body));
     }
 
@@ -730,26 +721,27 @@ COMMENT ON TABLE categories IS 'Product categories';
     #[test]
     fn find_latest_skips_non_numeric_prefix_files() {
         let dir = tempfile::tempdir().unwrap();
-        let good = dir.path().join("20260101000002_generated_from_entities.sql");
+        let good = dir
+            .path()
+            .join("20260101000002_generated_from_entities.sql");
         let bad = dir.path().join("manual_backup_generated_from_entities.sql");
         fs::write(&good, "-- x").unwrap();
         fs::write(&bad, "-- y").unwrap();
-        assert_eq!(
-            find_latest_generated_migration(dir.path()),
-            Some(good)
-        );
+        assert_eq!(find_latest_generated_migration(dir.path()), Some(good));
     }
 
     #[test]
     fn list_chronological_skips_non_numeric_prefix_files() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
-            dir.path().join("20260101000001_generated_from_entities.sql"),
+            dir.path()
+                .join("20260101000001_generated_from_entities.sql"),
             "a",
         )
         .unwrap();
         fs::write(
-            dir.path().join("not_a_timestamp_generated_from_entities.sql"),
+            dir.path()
+                .join("not_a_timestamp_generated_from_entities.sql"),
             "b",
         )
         .unwrap();
@@ -770,11 +762,7 @@ COMMENT ON TABLE categories IS 'Product categories';
 CREATE INDEX idx_widgets_name ON widgets(name);
 ";
         let delta = "-- Table: widgets\nALTER TABLE widgets ADD COLUMN IF NOT EXISTS sku VARCHAR(50) NOT NULL DEFAULT '';\n\n";
-        fs::write(
-            inv.join("20260101000000_generated_from_entities.sql"),
-            full,
-        )
-        .unwrap();
+        fs::write(inv.join("20260101000000_generated_from_entities.sql"), full).unwrap();
         fs::write(
             inv.join("20260101000001_generated_from_entities.sql"),
             delta,

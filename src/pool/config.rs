@@ -202,7 +202,8 @@ impl LifeguardPoolSettings {
             Some(Duration::from_secs(secs))
         };
         let wal_lag_max_bytes = cfg.wal_lag_max_bytes.min(1 << 40);
-        let wal_lag_monitor_max_connect_retries = cfg.wal_lag_monitor_max_connect_retries.min(100_000);
+        let wal_lag_monitor_max_connect_retries =
+            cfg.wal_lag_monitor_max_connect_retries.min(100_000);
         let max_connection_lifetime = if cfg.max_connection_lifetime_seconds == 0 {
             None
         } else {
@@ -266,10 +267,7 @@ mod tests {
         clear_lifeguard_env();
         std::env::set_var("LIFEGUARD__DATABASE__POOL_TIMEOUT_SECONDS", "88");
         std::env::set_var("LIFEGUARD__DATABASE__MAX_CONNECTIONS", "7");
-        std::env::set_var(
-            "LIFEGUARD__DATABASE__POOL_JOB_QUEUE_DEPTH_PER_WORKER",
-            "4",
-        );
+        std::env::set_var("LIFEGUARD__DATABASE__POOL_JOB_QUEUE_DEPTH_PER_WORKER", "4");
         std::env::set_var("LIFEGUARD__DATABASE__WAL_LAG_POLL_INTERVAL_MS", "333");
         let cfg = DatabaseConfig::load().expect("load with env overlay");
         assert_eq!(cfg.pool_timeout_seconds, 88);

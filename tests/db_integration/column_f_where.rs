@@ -22,10 +22,7 @@ fn setup(executor: &dyn lifeguard::LifeExecutor) -> Result<(), LifeError> {
         "CREATE TABLE lg_f_where_counter (id SERIAL PRIMARY KEY, n INTEGER NOT NULL)",
         &[],
     )?;
-    executor.execute(
-        "INSERT INTO lg_f_where_counter (n) VALUES (4), (6)",
-        &[],
-    )?;
+    executor.execute("INSERT INTO lg_f_where_counter (n) VALUES (4), (6)", &[])?;
     Ok(())
 }
 
@@ -42,9 +39,7 @@ fn f_add_in_where_and_order_by_on_postgres() {
     q_where
         .column(<Entity as LifeModelTrait>::Column::Id)
         .from(Entity)
-        .and_where(
-            Expr::expr(<Entity as LifeModelTrait>::Column::N.f_add(1i32)).gt(5i32),
-        );
+        .and_where(Expr::expr(<Entity as LifeModelTrait>::Column::N.f_add(1i32)).gt(5i32));
 
     let (sql, values) = q_where.build(PostgresQueryBuilder);
     let row = executor

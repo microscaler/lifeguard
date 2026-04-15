@@ -32,13 +32,13 @@
 //! Worker threads may replace a dead [`may_postgres::Client`] when errors match the connectivity-class
 //! heuristic (see `connectivity` in this module) — not on ordinary SQL failures.
 
-mod connectivity;
 pub mod config;
+mod connectivity;
 pub mod owned_param;
 pub mod pooled;
 pub mod wal;
 
 pub use config::{DatabaseConfig, LifeguardPoolSettings};
-pub use wal::WalLagPolicy;
 pub use owned_param::OwnedParam;
 pub use pooled::{ExclusivePrimaryLifeExecutor, LifeguardPool, PooledLifeExecutor, ReadPreference};
+pub use wal::WalLagPolicy;

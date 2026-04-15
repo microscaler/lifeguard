@@ -6,7 +6,7 @@
 
 use lifeguard::{
     index_definition_to_derive_index_value, index_key_parts_coverage_columns, IndexBtreeNulls,
-    IndexBtreeSort, IndexDefinition, IndexKeyPart, LifeExecutor, LifeError,
+    IndexBtreeSort, IndexDefinition, IndexKeyPart, LifeError, LifeExecutor,
 };
 use may_postgres::Row;
 use regex::Regex;
@@ -81,10 +81,7 @@ pub(crate) fn emit_inferred_rust(
         if !options.tables.is_empty() && !options.tables.iter().any(|t| t == &c.table_name) {
             continue;
         }
-        by_table
-            .entry(c.table_name.clone())
-            .or_default()
-            .push(c);
+        by_table.entry(c.table_name.clone()).or_default().push(c);
     }
 
     for cols in by_table.values_mut() {
@@ -104,9 +101,7 @@ pub(crate) fn emit_inferred_rust(
             let udt = c.udt_name.as_str();
             if matches!(
                 dt,
-                "timestamp without time zone"
-                    | "timestamp with time zone"
-                    | "date"
+                "timestamp without time zone" | "timestamp with time zone" | "date"
             ) || matches!(udt, "timestamptz" | "timestamp")
             {
                 need_chrono = true;
@@ -130,11 +125,7 @@ pub(crate) fn emit_inferred_rust(
          // PRD: docs/planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md\n"
     )
     .unwrap();
-    writeln!(
-        out,
-        "use lifeguard_derive::{{LifeModel, LifeRecord}};"
-    )
-    .unwrap();
+    writeln!(out, "use lifeguard_derive::{{LifeModel, LifeRecord}};").unwrap();
     if need_chrono {
         writeln!(
             out,
@@ -338,10 +329,10 @@ fn fetch_btree_indexes(
             ix.indisunique,
             u.key_ord::int AS key_ord,
             u.attnum::int AS attnum,
-            ((((
+            (((
                 (ix.indoption::int2[])[array_lower(ix.indkey::int2[], 1) + u.key_ord - 1]
             )::int) & 1) <> 0 AS ord_desc,
-            ((((
+            (((
                 (ix.indoption::int2[])[array_lower(ix.indkey::int2[], 1) + u.key_ord - 1]
             )::int) & 2) <> 0 AS nulls_first,
             coll.collname::text AS collname,
@@ -353,7 +344,12 @@ fn fetch_btree_indexes(
         JOIN pg_class t ON t.oid = ix.indrelid
         JOIN pg_namespace n ON n.oid = t.relnamespace AND n.nspname = $1
         JOIN pg_am am ON am.oid = ic.relam AND am.amname = 'btree'
-        CROSS JOIN LATERAL unnest(ix.indkey::int2[]) WITH ORDINALITY AS u(attnum, key_ord)
+        CROSS JOIN LATERAL (
+            SELECT
+                slot.attnum::int AS attnum,
+                row_number() OVER ()::int AS key_ord
+            FROM unnest(ix.indkey::int2[]) AS slot(attnum)
+        ) u
         LEFT JOIN pg_collation coll ON coll.oid = NULLIF(
             (ix.indcollation::oid[])[array_lower(ix.indkey::int2[], 1) + u.key_ord - 1],
             0::oid
@@ -411,10 +407,7 @@ fn fetch_btree_indexes(
         let keydef: String = row
             .try_get(10)
             .map_err(|e| LifeError::Other(format!("infer index keydef: {e}")))?;
-        let cols_hint = table_cols
-            .get(&table_name)
-            .cloned()
-            .unwrap_or_default();
+        let cols_hint = table_cols.get(&table_name).cloned().unwrap_or_default();
         let part = build_index_key_part_from_catalog_row(
             attnum,
             ord_desc,
@@ -472,10 +465,7 @@ fn fetch_btree_indexes(
     Ok(out)
 }
 
-fn fetch_columns(
-    executor: &dyn LifeExecutor,
-    schema: &str,
-) -> Result<Vec<ColumnMeta>, LifeError> {
+fn fetch_columns(executor: &dyn LifeExecutor, schema: &str) -> Result<Vec<ColumnMeta>, LifeError> {
     let sql = r"
         SELECT table_name, column_name, ordinal_position, data_type, udt_name, is_nullable
         FROM information_schema.columns
@@ -550,13 +540,19 @@ fn fetch_primary_keys(
 }
 
 /// Returns `(type_str, extra_attr_lines)` or `None` if unsupported.
-fn map_pg_to_rust(data_type: &str, udt_name: &str, nullable: bool) -> Option<(String, Vec<String>)> {
+fn map_pg_to_rust(
+    data_type: &str,
+    udt_name: &str,
+    nullable: bool,
+) -> Option<(String, Vec<String>)> {
     let base = match data_type {
         "integer" | "int4" => "i32".to_string(),
         "bigint" | "int8" => "i64".to_string(),
         "smallint" | "int2" => "i16".to_string(),
         "boolean" | "bool" => "bool".to_string(),
-        "text" | "character varying" | "varchar" | "character" | "char" | "name" => "String".to_string(),
+        "text" | "character varying" | "varchar" | "character" | "char" | "name" => {
+            "String".to_string()
+        }
         "timestamp without time zone" => "chrono::NaiveDateTime".to_string(),
         "timestamp with time zone" => "chrono::DateTime<chrono::Utc>".to_string(),
         "date" => "chrono::NaiveDate".to_string(),
@@ -617,10 +613,7 @@ mod tests {
     use super::*;
 
     fn golden_path(name: &str) -> String {
-        format!(
-            "{}/tests/golden/{name}",
-            env!("CARGO_MANIFEST_DIR")
-        )
+        format!("{}/tests/golden/{name}", env!("CARGO_MANIFEST_DIR"))
     }
 
     /// When **`LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1`**, overwrites the golden file with `got`
@@ -634,7 +627,8 @@ mod tests {
             std::fs::write(&path, got).unwrap_or_else(|e| panic!("bless write {path}: {e}"));
             return;
         }
-        let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+        let expected =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"));
         assert_eq!(got, expected);
     }
 
@@ -719,10 +713,7 @@ mod tests {
             },
         ];
         let mut pks = HashMap::new();
-        pks.insert(
-            "pair_keys".into(),
-            vec!["site_id".into(), "item_id".into()],
-        );
+        pks.insert("pair_keys".into(), vec!["site_id".into(), "item_id".into()]);
         let got = emit_inferred_rust(&InferOptions::default(), columns, pks, &HashMap::new());
         assert_infer_schema_golden("infer_composite_pk.expected.rs", &got);
     }

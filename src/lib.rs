@@ -147,8 +147,8 @@ pub use sea_query::Order;
 // Session / identity map (PRD Phase E v0)
 pub mod session;
 pub use session::{
-    fingerprint_pk_values, is_pending_insert_key, ModelIdentityMap, PENDING_INSERT_KEY_PREFIX,
-    Session, SessionDirtyNotifier, SessionIdentityModelCell,
+    fingerprint_pk_values, is_pending_insert_key, ModelIdentityMap, Session, SessionDirtyNotifier,
+    SessionIdentityModelCell, PENDING_INSERT_KEY_PREFIX,
 };
 
 // Relation trait - Epic 02 Story 08

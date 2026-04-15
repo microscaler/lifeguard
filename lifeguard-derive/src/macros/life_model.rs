@@ -327,9 +327,13 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 let key_parts_expr = if idx.key_parts.is_empty() {
                     quote! { Vec::new() }
                 } else {
-                    use crate::attributes::{ParsedBtreeNulls, ParsedBtreeSort, ParsedIndexKeyPart};
-                    let parts: Vec<_> = idx.key_parts.iter().map(|p| {
-                        match p {
+                    use crate::attributes::{
+                        ParsedBtreeNulls, ParsedBtreeSort, ParsedIndexKeyPart,
+                    };
+                    let parts: Vec<_> = idx
+                        .key_parts
+                        .iter()
+                        .map(|p| match p {
                             ParsedIndexKeyPart::Column {
                                 name,
                                 opclass,
@@ -439,8 +443,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                     }
                                 }
                             }
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     quote! { vec![#(#parts),*] }
                 };
                 quote! {

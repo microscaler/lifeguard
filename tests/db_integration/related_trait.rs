@@ -521,10 +521,7 @@ fn test_find_related_parent_scoped_joins_from_table() {
     post.insert(&executor).expect("insert post");
 
     let wrong_email = user
-        .find_related_parent_scoped(ColumnTrait::eq(
-            UserColumn::Email,
-            "other@example.com",
-        ))
+        .find_related_parent_scoped(ColumnTrait::eq(UserColumn::Email, "other@example.com"))
         .expect("find_related_parent_scoped")
         .all(&executor)
         .expect("query");

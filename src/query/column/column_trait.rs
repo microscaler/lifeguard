@@ -112,7 +112,6 @@ pub trait ColumnTrait: IntoColumnRef {
         Expr::col(self).binary(sea_query::BinOper::Custom("<@"), Expr::val(value.into()))
     }
 
-
     /// Database-side **add** for this column: `column + rhs` ([`sea_query::SimpleExpr`]).
     ///
     /// Use with `UPDATE ... SET col = col + $1` by passing the result to

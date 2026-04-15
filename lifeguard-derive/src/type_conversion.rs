@@ -67,10 +67,7 @@ pub fn is_naive_datetime_type(ty: &Type) -> bool {
 /// `chrono::NaiveDate` / `Value::ChronoDate` — Postgres `DATE`, distinct from `NaiveDateTime`.
 pub fn is_naive_date_type(ty: &Type) -> bool {
     if let Type::Path(TypePath { path, .. }) = ty {
-        return path
-            .segments
-            .last()
-            .is_some_and(|s| s.ident == "NaiveDate");
+        return path.segments.last().is_some_and(|s| s.ident == "NaiveDate");
     }
     false
 }

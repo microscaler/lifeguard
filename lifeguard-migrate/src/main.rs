@@ -23,8 +23,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[command(about = "Migration management tool for Lifeguard ORM")]
 #[command(version = "0.1.0")]
 struct Cli {
-    /// Database connection URL
-    #[arg(long)]
+    /// Database connection URL (global: allowed after subcommands, e.g. `infer-schema --database-url …`)
+    #[arg(long, global = true)]
     database_url: Option<String>,
 
     /// Migrations directory path
@@ -187,13 +187,7 @@ fn main() {
             let db_url = database_url
                 .as_ref()
                 .expect("database URL validated when command requires DB");
-            handle_infer_schema(
-                db_url,
-                schema,
-                tables,
-                watch,
-                watch_interval_secs,
-            )
+            handle_infer_schema(db_url, schema, tables, watch, watch_interval_secs)
         }
         Commands::CompareSchema {
             schema,
@@ -265,9 +259,8 @@ fn handle_compare_schema(
         MigrationError::InvalidFormat(format!("compare-schema: database connect failed: {e}"))
     })?;
     let executor = MayPostgresExecutor::new(client);
-    let report = compare_generated_dir_to_live_db(&executor, &schema, generated_dir).map_err(
-        |e| MigrationError::InvalidFormat(format!("compare-schema: {e}")),
-    )?;
+    let report = compare_generated_dir_to_live_db(&executor, &schema, generated_dir)
+        .map_err(|e| MigrationError::InvalidFormat(format!("compare-schema: {e}")))?;
     print!("{report}");
     if report.has_drift() {
         return Err(MigrationError::InvalidFormat(
@@ -293,9 +286,8 @@ fn infer_schema_once(
         schema: schema.to_string(),
         tables: tables.to_vec(),
     };
-    infer_schema_rust(&executor, &opts).map_err(|e| {
-        MigrationError::InvalidFormat(format!("infer-schema: {e}"))
-    })
+    infer_schema_rust(&executor, &opts)
+        .map_err(|e| MigrationError::InvalidFormat(format!("infer-schema: {e}")))
 }
 
 fn handle_infer_schema(
@@ -322,7 +314,9 @@ fn handle_infer_schema(
                             .duration_since(UNIX_EPOCH)
                             .map(|d| d.as_secs())
                             .unwrap_or(0);
-                        eprintln!("[infer-schema --watch] output changed at unix timestamp {secs}s");
+                        eprintln!(
+                            "[infer-schema --watch] output changed at unix timestamp {secs}s"
+                        );
                     }
                     print!("{out}");
                     last = Some(out);

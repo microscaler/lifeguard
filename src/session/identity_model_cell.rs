@@ -60,9 +60,7 @@ unsafe impl<M: ModelTrait + Send> Send for SessionIdentityModelCell<M> {}
 impl<M: ModelTrait> SessionIdentityModelCell<M> {
     #[must_use]
     pub fn new(rc: &Rc<RefCell<M>>) -> Self {
-        Self {
-            rc: Rc::clone(rc),
-        }
+        Self { rc: Rc::clone(rc) }
     }
 
     pub fn replace_with(&self, model: M) -> Result<(), BorrowMutError> {

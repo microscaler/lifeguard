@@ -49,7 +49,8 @@ pub struct SessionDirtyNotifier {
 
 impl fmt::Debug for SessionDirtyNotifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SessionDirtyNotifier").finish_non_exhaustive()
+        f.debug_struct("SessionDirtyNotifier")
+            .finish_non_exhaustive()
     }
 }
 
@@ -165,7 +166,9 @@ where
         pending_key: &str,
         model: E::Model,
     ) -> Result<Rc<RefCell<E::Model>>, ActiveModelError> {
-        self.inner.borrow_mut().promote_pending_to_loaded(pending_key, model)
+        self.inner
+            .borrow_mut()
+            .promote_pending_to_loaded(pending_key, model)
     }
 
     #[must_use]
@@ -216,12 +219,18 @@ where
     }
 
     /// Like [`Self::flush_dirty`], but passes each row’s internal map key (see [`super::ModelIdentityMap::flush_dirty_with_map_key`](super::ModelIdentityMap::flush_dirty_with_map_key)).
-    pub fn flush_dirty_with_map_key<F>(&self, executor: &dyn LifeExecutor, f: F) -> Result<(), ActiveModelError>
+    pub fn flush_dirty_with_map_key<F>(
+        &self,
+        executor: &dyn LifeExecutor,
+        f: F,
+    ) -> Result<(), ActiveModelError>
     where
         F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>, &str) -> Result<(), ActiveModelError>,
     {
         self.drain_pending_into_map();
-        self.inner.borrow_mut().flush_dirty_with_map_key(executor, f)
+        self.inner
+            .borrow_mut()
+            .flush_dirty_with_map_key(executor, f)
     }
 
     /// Like [`Self::flush_dirty`], but runs all persistence callbacks inside **one** PostgreSQL
@@ -238,14 +247,14 @@ where
     where
         F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
     {
-        let tx = executor.begin().map_err(|e| {
-            ActiveModelError::DatabaseError(format!("begin transaction: {e}"))
-        })?;
+        let tx = executor
+            .begin()
+            .map_err(|e| ActiveModelError::DatabaseError(format!("begin transaction: {e}")))?;
         let ex: &dyn LifeExecutor = &tx;
         match self.flush_dirty(ex, |e, m| f(e, m)) {
-            Ok(()) => tx.commit().map_err(|e| {
-                ActiveModelError::DatabaseError(format!("commit: {e}"))
-            }),
+            Ok(()) => tx
+                .commit()
+                .map_err(|e| ActiveModelError::DatabaseError(format!("commit: {e}"))),
             Err(e) => {
                 if let Err(rb_err) = tx.rollback() {
                     return Err(ActiveModelError::DatabaseError(format!(
@@ -266,14 +275,14 @@ where
     where
         F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>, &str) -> Result<(), ActiveModelError>,
     {
-        let tx = executor.begin().map_err(|e| {
-            ActiveModelError::DatabaseError(format!("begin transaction: {e}"))
-        })?;
+        let tx = executor
+            .begin()
+            .map_err(|e| ActiveModelError::DatabaseError(format!("begin transaction: {e}")))?;
         let ex: &dyn LifeExecutor = &tx;
         match self.flush_dirty_with_map_key(ex, |e, m, k| f(e, m, k)) {
-            Ok(()) => tx.commit().map_err(|e| {
-                ActiveModelError::DatabaseError(format!("commit: {e}"))
-            }),
+            Ok(()) => tx
+                .commit()
+                .map_err(|e| ActiveModelError::DatabaseError(format!("commit: {e}"))),
             Err(e) => {
                 if let Err(rb_err) = tx.rollback() {
                     return Err(ActiveModelError::DatabaseError(format!(
@@ -328,10 +337,10 @@ where
     where
         F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
     {
-        let mut g =
-            |e: &dyn LifeExecutor, m: Rc<RefCell<E::Model>>, _k: &str| -> Result<(), ActiveModelError> {
-                f(e, m)
-            };
+        let mut g = |e: &dyn LifeExecutor,
+                     m: Rc<RefCell<E::Model>>,
+                     _k: &str|
+         -> Result<(), ActiveModelError> { f(e, m) };
         Self::flush_dirty_with_begin_commit_sql_map_key(session, executor, &mut g)
     }
 
@@ -343,14 +352,14 @@ where
     where
         F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>, &str) -> Result<(), ActiveModelError>,
     {
-        executor.execute("BEGIN", &[]).map_err(|e| {
-            ActiveModelError::DatabaseError(format!("begin transaction: {e}"))
-        })?;
+        executor
+            .execute("BEGIN", &[])
+            .map_err(|e| ActiveModelError::DatabaseError(format!("begin transaction: {e}")))?;
         match session.flush_dirty_with_map_key(executor, |e, m, k| f(e, m, k)) {
             Ok(()) => {
-                executor.execute("COMMIT", &[]).map_err(|e| {
-                    ActiveModelError::DatabaseError(format!("commit: {e}"))
-                })?;
+                executor
+                    .execute("COMMIT", &[])
+                    .map_err(|e| ActiveModelError::DatabaseError(format!("commit: {e}")))?;
                 Ok(())
             }
             Err(e) => {
@@ -378,7 +387,11 @@ mod tests {
     struct NopExecutor;
 
     impl LifeExecutor for NopExecutor {
-        fn execute(&self, _query: &str, _params: &[&dyn may_postgres::types::ToSql]) -> Result<u64, LifeError> {
+        fn execute(
+            &self,
+            _query: &str,
+            _params: &[&dyn may_postgres::types::ToSql],
+        ) -> Result<u64, LifeError> {
             Ok(0)
         }
 

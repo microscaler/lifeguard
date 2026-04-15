@@ -14,6 +14,9 @@ use std::env;
 use std::process::Command;
 use std::time::Duration;
 
+/// libpq `options` for dedicated dev schema `lifeguard` (see `justfile`, `postgres-lifeguard-schema.sql`).
+const PG_URL_SEARCH_PATH: &str = "?options=-c%20search_path%3Dlifeguard";
+
 /// Test database configuration
 pub struct TestDatabase {
     connection_string: String,
@@ -90,8 +93,10 @@ impl TestDatabase {
             return Ok(url);
         }
 
-        // Priority 4: Default localhost
-        Ok("postgresql://postgres:postgres@localhost:6543/postgres".to_string())
+        // Priority 4: Default localhost (Kind/Tilt port-forward primary)
+        Ok(format!(
+            "postgresql://postgres:postgres@localhost:5432/postgres{PG_URL_SEARCH_PATH}"
+        ))
     }
 
     /// Get connection string from Kubernetes service
@@ -123,10 +128,12 @@ impl TestDatabase {
 
         if cluster_ip.is_empty() || cluster_ip == "None" {
             // Use service DNS name instead
-            Ok("postgresql://postgres:postgres@postgresql-primary.lifeguard-test.svc.cluster.local:5432/postgres".to_string())
+            Ok(format!(
+                "postgresql://postgres:postgres@postgresql-primary.lifeguard-test.svc.cluster.local:5432/postgres{PG_URL_SEARCH_PATH}"
+            ))
         } else {
             Ok(format!(
-                "postgresql://postgres:postgres@{cluster_ip}:5432/postgres"
+                "postgresql://postgres:postgres@{cluster_ip}:5432/postgres{PG_URL_SEARCH_PATH}"
             ))
         }
     }

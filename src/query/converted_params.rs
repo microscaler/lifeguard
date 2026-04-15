@@ -293,24 +293,29 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_query::Value;
     use rust_decimal::Decimal;
+    use sea_query::Value;
     use std::str::FromStr;
 
     #[test]
     fn test_converted_params_decimal() {
         let dec = Decimal::from_str("123.45").unwrap();
-        
-        let values = vec![
-            Value::Decimal(Some(dec)),
-            Value::Decimal(None),
-        ];
 
-        let result = with_converted_value_slice(&values, |e| e, |params| {
-            assert_eq!(params.len(), 2, "Should bind 2 parameters");
-            Ok::<(), String>(())
-        });
+        let values = vec![Value::Decimal(Some(dec)), Value::Decimal(None)];
 
-        assert!(result.is_ok(), "Decimal conversion failed with error: {:?}", result.err());
+        let result = with_converted_value_slice(
+            &values,
+            |e| e,
+            |params| {
+                assert_eq!(params.len(), 2, "Should bind 2 parameters");
+                Ok::<(), String>(())
+            },
+        );
+
+        assert!(
+            result.is_ok(),
+            "Decimal conversion failed with error: {:?}",
+            result.err()
+        );
     }
 }

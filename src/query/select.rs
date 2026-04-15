@@ -841,7 +841,6 @@ where
     /// and returns an `AggregateQuery` that resolves to a single i64 value.
     #[must_use]
     pub fn count(mut self) -> crate::query::aggregate::AggregateQuery<E, i64> {
-        
         // Clear existing selects and orders
         self.query.clear_selects();
         self.query.clear_order_by();
@@ -1104,9 +1103,7 @@ mod tests {
 
     #[test]
     fn with_cte_prepends_with_clause() {
-        use sea_query::{
-            CommonTableExpression, PostgresQueryBuilder, SelectStatement, WithClause,
-        };
+        use sea_query::{CommonTableExpression, PostgresQueryBuilder, SelectStatement, WithClause};
 
         let mut inner = SelectStatement::default();
         inner.column(sea_query::Asterisk).from("cte_source");
@@ -1164,12 +1161,15 @@ mod tests {
         // Without literal `"table"."*"` quoting that throws `column does not exist`.
         let q = SelectQuery::<TestSelectAsEntity>::new();
         let count_agg = q.count();
-        
+
         let (sql, _) = count_agg.query.build(PostgresQueryBuilder);
-        
+
         // Assert it explicitly does not have individual columns anymore
         assert!(!sql.contains("id"), "SQL: {sql}");
-        // Assert Asterisk literal formulation 
-        assert!(sql.contains("COUNT(*)"), "SQL should have raw unquoted asterisk. SQL: {sql}");
+        // Assert Asterisk literal formulation
+        assert!(
+            sql.contains("COUNT(*)"),
+            "SQL should have raw unquoted asterisk. SQL: {sql}"
+        );
     }
 }

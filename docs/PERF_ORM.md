@@ -38,6 +38,8 @@ export PERF_OUTPUT=/tmp/perf-results.json   # default: print JSON to stdout
 cargo run --release --bin perf-orm
 ```
 
+**Tilt:** **`idam-perf-run`** sets `PERF_DATABASE_URL` from `scripts/get_test_connection_string.sh` and runs **primary-only** (no replica URL). **`idam-perf-run-replica`** also sets `PERF_REPLICA_URL` via `scripts/get_replica_connection_string.sh` (localhost **6544** by default). With **microscaler/shared-kind-cluster** `tilt up`, replica-0 and Redis are already port-forwarded on **6544** and **6545** (see that repo’s `Tiltfile`); no extra `kubectl port-forward` is required.
+
 Connection URL: **`PERF_DATABASE_URL`**, else **`TEST_DATABASE_URL`**. Generic **`DATABASE_URL` is ignored** so a shell-level app database is never targeted. **`PERF_RESET`** must be truthy (`1`, `true`, `yes`, `on`) before the harness runs destructive DDL.
 
 Replica URL: **`PERF_REPLICA_URL`**, else **`TEST_REPLICA_URL`** (optional). When set, the pool uses **`PERF_REPLICA_POOL_SIZE`** replica-tier slots (default: same as **`PERF_POOL_SIZE`**, minimum 1).

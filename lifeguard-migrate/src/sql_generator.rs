@@ -68,12 +68,14 @@ where
 
     // Early exit for Views
     if table_def.is_view {
-        let view_query = table_def.view_query.as_deref().unwrap_or("SELECT 1; -- View Query Missing");
+        let view_query = table_def
+            .view_query
+            .as_deref()
+            .unwrap_or("SELECT 1; -- View Query Missing");
         writeln!(sql, "CREATE OR REPLACE VIEW {} AS", full_table_name)
             .map_err(|e| format!("Failed to write SQL: {}", e))?;
-        writeln!(sql, "{};", view_query)
-            .map_err(|e| format!("Failed to write SQL: {}", e))?;
-        
+        writeln!(sql, "{};", view_query).map_err(|e| format!("Failed to write SQL: {}", e))?;
+
         // Return without columns, checks, index logic etc., since Views don't map to tables
         return Ok(sql);
     }
@@ -368,10 +370,7 @@ where
     Ok(sql)
 }
 
-fn index_covers_only_column(
-    index: &lifeguard::IndexDefinition,
-    col_name: &str,
-) -> bool {
+fn index_covers_only_column(index: &lifeguard::IndexDefinition, col_name: &str) -> bool {
     let cov = if !index.key_parts.is_empty() {
         index_key_parts_coverage_columns(&index.key_parts)
     } else {

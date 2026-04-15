@@ -21,7 +21,11 @@ pub fn api_base_from_env() -> Option<String> {
 }
 
 fn join(base: &str, path: &str) -> String {
-    format!("{}/{}", base.trim_end_matches('/'), path.trim_start_matches('/'))
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
 }
 
 /// `POST /reset` — enable all proxies and remove all toxics ([Toxiproxy HTTP API](https://github.com/Shopify/toxiproxy#http-api)).

@@ -34,8 +34,8 @@
 //! `indoption`) on simple keys → [`IndexBtreeKeyOrderingCollationDrift`]. See
 //! [`MigrationDbCompareReport`] and **`compare-schema`** limits in `lifeguard-migrate/README.md`.
 
-use lifeguard::LifeExecutor;
 use lifeguard::LifeError;
+use lifeguard::LifeExecutor;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
@@ -252,7 +252,8 @@ pub struct MigrationDbCompareReport {
     /// btree-oriented; PRD §5.7a / **T2** partial).
     pub index_access_method_drifts: Vec<IndexAccessMethodDrift>,
     /// **T3 (partial):** live btree index has expression key(s); merged migration lists simple columns only.
-    pub index_expression_key_vs_simple_migration_drifts: Vec<IndexExpressionKeyVsSimpleMigrationDrift>,
+    pub index_expression_key_vs_simple_migration_drifts:
+        Vec<IndexExpressionKeyVsSimpleMigrationDrift>,
     /// **T3 v2:** normalized per-key slot text differs (both sides have comparable key lists).
     pub index_key_normalized_slots_mismatch_drifts: Vec<IndexKeyNormalizedSlotsMismatchDrift>,
     /// **T1:** normalized full `CREATE INDEX` text differs for the same index name.
@@ -277,7 +278,9 @@ impl MigrationDbCompareReport {
             || !self.column_drifts.is_empty()
             || !self.index_column_drifts.is_empty()
             || !self.index_access_method_drifts.is_empty()
-            || !self.index_expression_key_vs_simple_migration_drifts.is_empty()
+            || !self
+                .index_expression_key_vs_simple_migration_drifts
+                .is_empty()
             || !self.index_key_normalized_slots_mismatch_drifts.is_empty()
             || !self.index_definition_text_drifts.is_empty()
             || !self.index_only_in_database.is_empty()
@@ -410,19 +413,20 @@ pub fn compare_generated_dir_to_live_db(
         let Some(parts) = acc.get(row.table_name.as_str()) else {
             continue;
         };
-        let index_by_name =
-            index_statements_for_table_from_merged_baseline(parts, &row.table_name);
+        let index_by_name = index_statements_for_table_from_merged_baseline(parts, &row.table_name);
         let mig_stmt = index_by_name.get(&row.index_name);
 
         if let Some(mig) = mig_stmt {
             let idx_key = (row.table_name.clone(), row.index_name.clone());
             if let Some(cat_rows) = catalog_slots_by_index.get(&idx_key) {
-                index_btree_key_ordering_collation_drifts.extend(collect_ordering_collation_drifts(
-                    &row.table_name,
-                    &row.index_name,
-                    mig,
-                    cat_rows.as_slice(),
-                ));
+                index_btree_key_ordering_collation_drifts.extend(
+                    collect_ordering_collation_drifts(
+                        &row.table_name,
+                        &row.index_name,
+                        mig,
+                        cat_rows.as_slice(),
+                    ),
+                );
             }
             if let Some(slots) = expr_slots_by_index.get(&idx_key) {
                 if !slots.is_empty() {
@@ -700,11 +704,10 @@ pub fn fetch_live_pg_indexes(
 /// base tables in `schema`. Uses `indkey::int2[]` / `indclass::oid[]` (PostgreSQL 12+). Expression keys
 /// (`indkey` slot `0`) return `column_name = None` and `is_non_default_opclass = false`.
 ///
-/// Key ordinals use **`unnest(indkey::int2[]) WITH ORDINALITY`** (1-based `key_ord` for `pg_get_indexdef`),
-/// not `generate_subscripts`: `indkey::int2[]` can have a non-1 lower bound, so passing a raw subscript **0**
-/// into `pg_get_indexdef(oid, n, …)` returns the **entire** `CREATE INDEX`. Parallel `indcollation` /
-/// `indoption` / `indclass` slots are read with **`[array_lower(indkey::int2[], 1) + key_ord - 1]`** so we
-/// never rely on multi-array `unnest` + `LATERAL` (some PostgreSQL builds reject that near `WITH ORDINALITY AS`).
+/// Key ordinals use **`row_number() OVER ()`** over **`unnest(indkey::int2[])`** (same order as
+/// **`WITH ORDINALITY`**, 1-based `key_ord` for `pg_get_indexdef`). We avoid **`WITH ORDINALITY`** because
+/// some PostgreSQL-compatible servers misparse **`... WITH ORDINALITY AS ...`** near **`AS`**. Parallel
+/// `indcollation` / `indoption` / `indclass` slots use **`[array_lower(indkey::int2[], 1) + key_ord - 1]`**.
 #[must_use]
 pub fn fetch_live_btree_index_key_opclasses(
     executor: &dyn LifeExecutor,
@@ -732,7 +735,12 @@ pub fn fetch_live_btree_index_key_opclasses(
         JOIN pg_class t ON t.oid = xi.indrelid
         JOIN pg_namespace n ON n.oid = t.relnamespace
         JOIN pg_am am ON am.oid = ic.relam
-        CROSS JOIN LATERAL unnest(xi.indkey::int2[]) WITH ORDINALITY AS u(attnum, key_ord)
+        CROSS JOIN LATERAL (
+            SELECT
+                slot.attnum::int2 AS attnum,
+                row_number() OVER ()::int AS key_ord
+            FROM unnest(xi.indkey::int2[]) AS slot(attnum)
+        ) u
         JOIN pg_opclass opc ON opc.oid = (xi.indclass::oid[])[
             array_lower(xi.indkey::int2[], 1) + u.key_ord - 1
         ]
@@ -766,18 +774,18 @@ pub fn fetch_live_btree_index_key_opclasses(
         let index_name: String = row.try_get(1).map_err(|e| {
             LifeError::Other(format!("compare-schema btree opclass indexname: {e}"))
         })?;
-        let key_ordinal: i32 = row.try_get(2).map_err(|e| {
-            LifeError::Other(format!("compare-schema btree opclass key_ord: {e}"))
-        })?;
+        let key_ordinal: i32 = row
+            .try_get(2)
+            .map_err(|e| LifeError::Other(format!("compare-schema btree opclass key_ord: {e}")))?;
         let column_name: Option<String> = row.try_get(3).map_err(|e| {
             LifeError::Other(format!("compare-schema btree opclass column_name: {e}"))
         })?;
-        let opclass_name: String = row.try_get(4).map_err(|e| {
-            LifeError::Other(format!("compare-schema btree opclass opcname: {e}"))
-        })?;
-        let access_method: String = row.try_get(5).map_err(|e| {
-            LifeError::Other(format!("compare-schema btree opclass amname: {e}"))
-        })?;
+        let opclass_name: String = row
+            .try_get(4)
+            .map_err(|e| LifeError::Other(format!("compare-schema btree opclass opcname: {e}")))?;
+        let access_method: String = row
+            .try_get(5)
+            .map_err(|e| LifeError::Other(format!("compare-schema btree opclass amname: {e}")))?;
         let default_opclass_name: Option<String> = row.try_get(6).map_err(|e| {
             LifeError::Other(format!("compare-schema btree opclass default_opcname: {e}"))
         })?;
@@ -809,8 +817,8 @@ pub struct LiveBtreeExpressionKeyRow {
 
 /// Btree index key slots where **`pg_index.indkey`** is zero — i.e. **expression** keys (catalog **T3**).
 ///
-/// Uses `pg_get_indexdef(index_oid, key_ord, false)` for each slot (**`key_ord` is 1-based**, from
-/// `WITH ORDINALITY`). Restricted like [`fetch_live_btree_index_key_opclasses`]: valid non-primary btree
+/// Uses `pg_get_indexdef(index_oid, key_ord, false)` for each slot (**`key_ord` is 1-based**, same order as
+/// `unnest(indkey)` + `row_number()`). Restricted like [`fetch_live_btree_index_key_opclasses`]: valid non-primary btree
 /// indexes on base tables in `schema`.
 #[must_use]
 pub fn fetch_live_btree_expression_index_key_slots(
@@ -828,7 +836,12 @@ pub fn fetch_live_btree_expression_index_key_slots(
         JOIN pg_class t ON t.oid = xi.indrelid
         JOIN pg_namespace n ON n.oid = t.relnamespace
         JOIN pg_am am ON am.oid = ic.relam
-        CROSS JOIN LATERAL unnest(xi.indkey::int2[]) WITH ORDINALITY AS u(attnum, key_ord)
+        CROSS JOIN LATERAL (
+            SELECT
+                slot.attnum::int2 AS attnum,
+                row_number() OVER ()::int AS key_ord
+            FROM unnest(xi.indkey::int2[]) AS slot(attnum)
+        ) u
         WHERE n.nspname = $1
             AND t.relkind IN ('r', 'p')
             AND ic.relkind = 'i'
@@ -847,12 +860,12 @@ pub fn fetch_live_btree_expression_index_key_slots(
         let index_name: String = row.try_get(1).map_err(|e| {
             LifeError::Other(format!("compare-schema btree expr key indexname: {e}"))
         })?;
-        let key_ordinal: i32 = row.try_get(2).map_err(|e| {
-            LifeError::Other(format!("compare-schema btree expr key key_ord: {e}"))
-        })?;
-        let key_def: String = row.try_get(3).map_err(|e| {
-            LifeError::Other(format!("compare-schema btree expr key key_def: {e}"))
-        })?;
+        let key_ordinal: i32 = row
+            .try_get(2)
+            .map_err(|e| LifeError::Other(format!("compare-schema btree expr key key_ord: {e}")))?;
+        let key_def: String = row
+            .try_get(3)
+            .map_err(|e| LifeError::Other(format!("compare-schema btree expr key key_def: {e}")))?;
         out.push(LiveBtreeExpressionKeyRow {
             table_name,
             index_name,
@@ -891,10 +904,10 @@ pub fn fetch_live_btree_index_key_catalog_slots(
             u.attnum::int AS attnum,
             pg_get_indexdef(ic.oid, u.key_ord::int, false)::text AS key_def,
             co.collname::text AS collname,
-            ((((
+            (((
                 (xi.indoption::int2[])[array_lower(xi.indkey::int2[], 1) + u.key_ord - 1]
             )::int) & 1) <> 0 AS inddesc,
-            ((((
+            (((
                 (xi.indoption::int2[])[array_lower(xi.indkey::int2[], 1) + u.key_ord - 1]
             )::int) & 2) <> 0 AS indnullsfirst
         FROM pg_index xi
@@ -902,7 +915,12 @@ pub fn fetch_live_btree_index_key_catalog_slots(
         JOIN pg_class t ON t.oid = xi.indrelid
         JOIN pg_namespace n ON n.oid = t.relnamespace
         JOIN pg_am am ON am.oid = ic.relam
-        CROSS JOIN LATERAL unnest(xi.indkey::int2[]) WITH ORDINALITY AS u(attnum, key_ord)
+        CROSS JOIN LATERAL (
+            SELECT
+                slot.attnum::int AS attnum,
+                row_number() OVER ()::int AS key_ord
+            FROM unnest(xi.indkey::int2[]) AS slot(attnum)
+        ) u
         LEFT JOIN pg_collation co ON co.oid = NULLIF(
             (xi.indcollation::oid[])[array_lower(xi.indkey::int2[], 1) + u.key_ord - 1],
             0::oid
@@ -1357,9 +1375,7 @@ fn take_leading_column_name(seg: &str) -> Option<(String, &str)> {
         let end = rest.find('"')?;
         return Some((rest[..end].to_string(), rest[end + 1..].trim_start()));
     }
-    let cut = seg
-        .find(|c: char| c.is_whitespace())
-        .unwrap_or(seg.len());
+    let cut = seg.find(|c: char| c.is_whitespace()).unwrap_or(seg.len());
     if cut == 0 {
         return None;
     }
@@ -1373,9 +1389,7 @@ fn take_collate_name(s: &str) -> Option<(String, &str)> {
         let end = rest.find('"')?;
         return Some((rest[..end].to_string(), rest[end + 1..].trim_start()));
     }
-    let cut = s
-        .find(|c: char| c.is_whitespace())
-        .unwrap_or(s.len());
+    let cut = s.find(|c: char| c.is_whitespace()).unwrap_or(s.len());
     if cut == 0 {
         return None;
     }
@@ -1409,9 +1423,7 @@ fn peek_one_ident_token(s: &str) -> Option<(&str, &str)> {
         let end = rest.find('"')?;
         return Some((&rest[..end], rest[end + 1..].trim_start()));
     }
-    let cut = s
-        .find(|c: char| c.is_whitespace())
-        .unwrap_or(s.len());
+    let cut = s.find(|c: char| c.is_whitespace()).unwrap_or(s.len());
     if cut == 0 {
         return None;
     }
@@ -1452,14 +1464,20 @@ fn strip_asc_desc<'a>(rest: &'a str, tail: &mut ParsedSimpleKeyTail) -> Option<&
 fn strip_nulls_clause<'a>(rest: &'a str, tail: &mut ParsedSimpleKeyTail) -> Option<&'a str> {
     let r = rest.trim_start();
     if r.len() >= 12 && r[..12].eq_ignore_ascii_case("nulls first") {
-        let ok = r.len() == 12 || r.as_bytes().get(12).is_some_and(|b| b.is_ascii_whitespace());
+        let ok = r.len() == 12
+            || r.as_bytes()
+                .get(12)
+                .is_some_and(|b| b.is_ascii_whitespace());
         if ok {
             tail.explicit_nulls_first = Some(true);
             return Some(r[12..].trim_start());
         }
     }
     if r.len() >= 11 && r[..11].eq_ignore_ascii_case("nulls last") {
-        let ok = r.len() == 11 || r.as_bytes().get(11).is_some_and(|b| b.is_ascii_whitespace());
+        let ok = r.len() == 11
+            || r.as_bytes()
+                .get(11)
+                .is_some_and(|b| b.is_ascii_whitespace());
         if ok {
             tail.explicit_nulls_first = Some(false);
             return Some(r[11..].trim_start());
@@ -1630,9 +1648,7 @@ fn collect_ordering_collation_drifts(
                     table: table.to_string(),
                     index_name: index_name.to_string(),
                     key_ordinal: ord,
-                    detail: format!(
-                        "COLLATE: migration `{mc}` vs live `{live_c}`"
-                    ),
+                    detail: format!("COLLATE: migration `{mc}` vs live `{live_c}`"),
                 });
             }
         }
@@ -1763,7 +1779,10 @@ impl fmt::Display for MigrationDbCompareReport {
                 )?;
             }
         }
-        if !self.index_expression_key_vs_simple_migration_drifts.is_empty() {
+        if !self
+            .index_expression_key_vs_simple_migration_drifts
+            .is_empty()
+        {
             writeln!(
                 f,
                 "  Live btree index uses expression key(s); merged migration lists simple columns only (pg_catalog T3; T1 suppressed for these indexes; shared tables only; primary key indexes skipped):"
@@ -1808,11 +1827,7 @@ impl fmt::Display for MigrationDbCompareReport {
                 "  Index definition text differs (normalized CREATE INDEX vs live pg_indexes.indexdef; shared tables only; primary key indexes skipped):"
             )?;
             for d in &self.index_definition_text_drifts {
-                writeln!(
-                    f,
-                    "    Table `{}` index `{}`:",
-                    d.table, d.index_name
-                )?;
+                writeln!(f, "    Table `{}` index `{}`:", d.table, d.index_name)?;
                 writeln!(f, "      migration: {}", d.normalized_migration)?;
                 writeln!(f, "      live:      {}", d.normalized_live)?;
             }
@@ -1858,16 +1873,11 @@ impl fmt::Display for MigrationDbCompareReport {
                     .column_name
                     .as_deref()
                     .map_or("(expression key not evaluated)".to_string(), str::to_string);
-                let def = d
-                    .default_opclass_name
-                    .as_deref()
-                    .unwrap_or("?");
-                let mig_note = d
-                    .migration_explicit_opclass
-                    .as_deref()
-                    .map_or_else(|| format!("(migration omitted; type default `{def}`)"), |m| {
-                        format!("(migration specified `{m}`)")
-                    });
+                let def = d.default_opclass_name.as_deref().unwrap_or("?");
+                let mig_note = d.migration_explicit_opclass.as_deref().map_or_else(
+                    || format!("(migration omitted; type default `{def}`)"),
+                    |m| format!("(migration specified `{m}`)"),
+                );
                 writeln!(
                     f,
                     "    Table `{}` index `{}` key #{} column `{}`: live opclass `{}` vs expected {} [catalog default for type: `{}`]",

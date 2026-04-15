@@ -290,10 +290,7 @@ mod tests {
                 nulls: None,
             },
         ];
-        assert_eq!(
-            format_index_key_list_sql(&parts),
-            "lower(email), id DESC"
-        );
+        assert_eq!(format_index_key_list_sql(&parts), "lower(email), id DESC");
     }
 
     #[test]
@@ -306,7 +303,10 @@ mod tests {
             sort: None,
             nulls: None,
         }];
-        assert_eq!(format_index_key_list_derive_value(&parts), "lower(email) | email");
+        assert_eq!(
+            format_index_key_list_derive_value(&parts),
+            "lower(email) | email"
+        );
         assert_eq!(format_index_key_list_sql(&parts), "lower(email)");
     }
 

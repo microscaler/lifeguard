@@ -65,25 +65,28 @@ def start_kind():
 
 
 def set_kubeconfig_context():
-    """Set kubeconfig context to kind cluster."""
+    """Use the shared Kind cluster context (kind-kind) or legacy kind-lifeguard-test."""
     log_info("Setting kubeconfig context...")
-    result = subprocess.run(
-        ["kubectl", "config", "use-context", "kind-lifeguard-test"],
-        capture_output=True,
-        text=True
+    for ctx in ("kind-kind", "kind-lifeguard-test"):
+        result = subprocess.run(
+            ["kubectl", "config", "use-context", ctx],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            log_info(f"✅ Context set to {ctx}")
+            return
+    log_info(
+        "⚠️  Warning: Neither kind-kind nor kind-lifeguard-test is available; "
+        "using current kubectl context"
     )
-    if result.returncode != 0:
-        log_info("⚠️  Warning: Could not set kind context, using current context")
-    else:
-        log_info("✅ Context set to kind-lifeguard-test")
 
 
 def start_tilt():
     """Start Tilt development environment."""
-    log_info("🎯 Starting Tilt...")
+    log_info("🎯 Starting Lifeguard Tilt (cargo builds/tests — no DB manifests here)...")
     log_info("   Tilt UI: http://localhost:10350")
-    log_info("   Postgres primary :6543 | replica-0 :6544 | Redis :6545 | replica-1 :6546 (CI-parity ports)")
-    log_info("   Observability: Grafana :3000 | Prometheus :9090 | Loki :3100 | OTEL :4317 gRPC / :4318 HTTP / :9464 metrics")
+    log_info("   Postgres/Redis/Grafana: run shared-kind-cluster `tilt up` (UI often :10348), context kind-kind")
     # Run tilt up in foreground (will block until user stops it)
     # KeyboardInterrupt will be caught by main() handler
     subprocess.run(["tilt", "up"], check=False)

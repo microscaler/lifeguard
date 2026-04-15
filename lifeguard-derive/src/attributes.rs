@@ -732,7 +732,8 @@ pub fn parse_table_attributes(
                         if nv.path.is_ident("query") {
                             if let syn::Expr::Lit(ExprLit {
                                 lit: Lit::Str(s), ..
-                            }) = &nv.value {
+                            }) = &nv.value
+                            {
                                 table_attrs.view_query = Some(s.value());
                             }
                         }
@@ -900,13 +901,18 @@ fn parse_quoted_or_ident_collate(tail: &str) -> Result<(String, String), syn::Er
     }
     let mut it = tail.split_whitespace();
     let c = it.next().ok_or_else(|| {
-        syn::Error::new(Span::call_site(), "Invalid index definition: empty collation")
+        syn::Error::new(
+            Span::call_site(),
+            "Invalid index definition: empty collation",
+        )
     })?;
     let rest = it.collect::<Vec<_>>().join(" ");
     Ok((c.to_string(), rest))
 }
 
-fn split_column_collate_opclass(s: &str) -> Result<(String, Option<String>, Option<String>), syn::Error> {
+fn split_column_collate_opclass(
+    s: &str,
+) -> Result<(String, Option<String>, Option<String>), syn::Error> {
     let s = s.trim();
     let lower = s.to_ascii_lowercase();
     if let Some(pos) = lower.find(" collate ") {
@@ -935,7 +941,10 @@ fn split_column_collate_opclass(s: &str) -> Result<(String, Option<String>, Opti
     }
     let mut it = s.split_whitespace();
     let col = it.next().ok_or_else(|| {
-        syn::Error::new(Span::call_site(), "Invalid index definition: empty key segment")
+        syn::Error::new(
+            Span::call_site(),
+            "Invalid index definition: empty key segment",
+        )
     })?;
     if !index_simple_ident(col) {
         return Err(syn::Error::new(
@@ -946,15 +955,13 @@ fn split_column_collate_opclass(s: &str) -> Result<(String, Option<String>, Opti
         ));
     }
     let rest: String = it.collect::<Vec<_>>().join(" ");
-    let opclass = if rest.is_empty() {
-        None
-    } else {
-        Some(rest)
-    };
+    let opclass = if rest.is_empty() { None } else { Some(rest) };
     Ok((col.to_string(), None, opclass))
 }
 
-fn strip_trailing_sort_nulls(mut s: &str) -> (&str, Option<ParsedBtreeSort>, Option<ParsedBtreeNulls>) {
+fn strip_trailing_sort_nulls(
+    mut s: &str,
+) -> (&str, Option<ParsedBtreeSort>, Option<ParsedBtreeNulls>) {
     let mut nulls = None;
     if let Some(r) = strip_suffix_ci(s, " NULLS FIRST") {
         nulls = Some(ParsedBtreeNulls::First);
@@ -1001,7 +1008,15 @@ fn peel_trailing_opclass_from_expr(sql: &str) -> (String, Option<String>) {
     (sql.to_string(), None)
 }
 
-fn parse_expression_left(left: &str) -> (String, Option<String>, Option<String>, Option<ParsedBtreeSort>, Option<ParsedBtreeNulls>) {
+fn parse_expression_left(
+    left: &str,
+) -> (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<ParsedBtreeSort>,
+    Option<ParsedBtreeNulls>,
+) {
     let (core, sort, nulls) = strip_trailing_sort_nulls(left);
     let lower = core.to_ascii_lowercase();
     if let Some(pos) = lower.find(" collate ") {
@@ -1095,7 +1110,9 @@ fn merge_columns_from_key_parts(parts: &[ParsedIndexKeyPart]) -> Vec<String> {
     out
 }
 
-fn classify_index_key_list(inner: &str) -> Result<(Vec<ParsedIndexKeyPart>, Vec<String>), syn::Error> {
+fn classify_index_key_list(
+    inner: &str,
+) -> Result<(Vec<ParsedIndexKeyPart>, Vec<String>), syn::Error> {
     let segments = split_index_key_segments(inner);
     if segments.is_empty() {
         return Ok((Vec::new(), Vec::new()));
@@ -1150,12 +1167,15 @@ fn parse_index_definition(def: &str) -> Result<ParsedIndexSpec, syn::Error> {
     let (key_part, include_columns) = if let Some(i) = include_idx {
         let kp = main_part[..i].trim();
         let after = main_part[i + " include ".len()..].trim();
-        let inner = after.strip_prefix('(').and_then(|s| s.strip_suffix(')')).ok_or_else(|| {
-            syn::Error::new(
-                Span::call_site(),
-                "Invalid index definition: INCLUDE must be followed by (col1, col2, ...)",
-            )
-        })?;
+        let inner = after
+            .strip_prefix('(')
+            .and_then(|s| s.strip_suffix(')'))
+            .ok_or_else(|| {
+                syn::Error::new(
+                    Span::call_site(),
+                    "Invalid index definition: INCLUDE must be followed by (col1, col2, ...)",
+                )
+            })?;
         let inc: Vec<String> = inner
             .split(',')
             .map(|s| s.trim().to_string())
@@ -1256,10 +1276,8 @@ mod index_definition_parse_tests {
 
     #[test]
     fn parse_unique_include_where() {
-        let p = parse_index_definition(
-            "UNIQUE idx_t(title) INCLUDE (body) WHERE active = true",
-        )
-        .expect("parse");
+        let p = parse_index_definition("UNIQUE idx_t(title) INCLUDE (body) WHERE active = true")
+            .expect("parse");
         assert!(p.unique);
         assert_eq!(p.columns, vec!["title"]);
         assert_eq!(p.include_columns, vec!["body"]);

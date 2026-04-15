@@ -50,8 +50,7 @@ spec:
             - name: data
               mountPath: /bitnami/postgresql
             - name: pact-init
-              mountPath: /pact/10-pact-role.sql
-              subPath: 10-pact-role.sql
+              mountPath: /pact
               readOnly: true
           lifecycle:
             postStart:
@@ -68,6 +67,7 @@ spec:
                     done
                     export PGPASSWORD="$POSTGRESQL_PASSWORD"
                     psql -U postgres -d postgres -h 127.0.0.1 -v ON_ERROR_STOP=1 -f /pact/10-pact-role.sql
+                    psql -U postgres -d postgres -h 127.0.0.1 -v ON_ERROR_STOP=1 -f /pact/11-lifeguard-schema.sql
           livenessProbe:
             exec:
               command:

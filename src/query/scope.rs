@@ -309,7 +309,9 @@ mod tests {
     #[test]
     fn scope_any_empty_is_noop() {
         let q = SelectQuery::<ScopeTestEntity>::new();
-        let q2 = q.clone().scope_any(std::iter::empty::<sea_query::SimpleExpr>());
+        let q2 = q
+            .clone()
+            .scope_any(std::iter::empty::<sea_query::SimpleExpr>());
         let (s1, _) = q.query.build(PostgresQueryBuilder);
         let (s2, _) = q2.query.build(PostgresQueryBuilder);
         assert_eq!(s1, s2);
@@ -324,6 +326,9 @@ mod tests {
         ]);
         let (sql, _) = q.query.build(PostgresQueryBuilder);
         let upper = sql.to_uppercase();
-        assert!(upper.matches(" OR ").count() >= 2, "expected multiple OR: {sql}");
+        assert!(
+            upper.matches(" OR ").count() >= 2,
+            "expected multiple OR: {sql}"
+        );
     }
 }

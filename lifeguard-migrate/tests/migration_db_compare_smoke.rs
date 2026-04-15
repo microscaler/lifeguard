@@ -67,10 +67,7 @@ fn compare_generated_dir_matches_live_table_set() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -86,10 +83,7 @@ fn compare_generated_dir_matches_live_table_set() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     assert!(
@@ -121,10 +115,7 @@ fn compare_reports_column_and_index_drift_when_live_has_extra_indexed_column() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -139,9 +130,7 @@ fn compare_reports_column_and_index_drift_when_live_has_extra_indexed_column() {
         .expect("create scratch table");
     executor
         .execute(
-            &format!(
-                "CREATE INDEX {TABLE}_extra_idx ON {schema}.{TABLE} ({EXTRA_COL})"
-            ),
+            &format!("CREATE INDEX {TABLE}_extra_idx ON {schema}.{TABLE} ({EXTRA_COL})"),
             &[],
         )
         .expect("create index on extra column");
@@ -150,10 +139,7 @@ fn compare_reports_column_and_index_drift_when_live_has_extra_indexed_column() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     assert!(report.has_drift(), "expected drift");
@@ -193,10 +179,7 @@ fn compare_reports_access_method_drift_when_live_uses_non_btree_index() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -222,10 +205,7 @@ fn compare_reports_access_method_drift_when_live_uses_non_btree_index() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     assert!(report.has_drift(), "expected access-method drift");
@@ -250,7 +230,9 @@ fn compare_reports_access_method_drift_when_live_uses_non_btree_index() {
 #[test]
 fn fetch_live_btree_index_key_opclasses_lists_text_pattern_ops() {
     let Some(url) = postgres_url() else {
-        eprintln!("fetch_live_btree_index_key_opclasses_lists_text_pattern_ops: skipped (no DB URL)");
+        eprintln!(
+            "fetch_live_btree_index_key_opclasses_lists_text_pattern_ops: skipped (no DB URL)"
+        );
         return;
     };
 
@@ -259,10 +241,7 @@ fn fetch_live_btree_index_key_opclasses_lists_text_pattern_ops() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -286,10 +265,7 @@ fn fetch_live_btree_index_key_opclasses_lists_text_pattern_ops() {
 
     let rows = fetch_live_btree_index_key_opclasses(&executor, &schema).expect("catalog query");
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     let hit = rows.iter().find(|r| {
@@ -330,10 +306,7 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_text_pattern_ops() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -359,10 +332,7 @@ fn compare_reports_btree_non_default_opclass_when_live_uses_text_pattern_ops() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     let d = report
@@ -399,10 +369,7 @@ fn compare_no_opclass_drift_when_migration_explicit_matches_live() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -428,10 +395,7 @@ fn compare_no_opclass_drift_when_migration_explicit_matches_live() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     assert!(
@@ -471,10 +435,7 @@ fn compare_t3_v2_skips_t1_when_expression_indexdefs_normalize_equal() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -489,9 +450,7 @@ fn compare_t3_v2_skips_t1_when_expression_indexdefs_normalize_equal() {
         .expect("create table");
     executor
         .execute(
-            &format!(
-                "CREATE INDEX {T3V2_IDX} ON {schema}.{T3V2_TABLE} ((lower(email)))"
-            ),
+            &format!("CREATE INDEX {T3V2_IDX} ON {schema}.{T3V2_TABLE} ((lower(email)))"),
             &[],
         )
         .expect("create expression index");
@@ -500,10 +459,7 @@ fn compare_t3_v2_skips_t1_when_expression_indexdefs_normalize_equal() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     assert!(
@@ -522,7 +478,9 @@ fn compare_t3_v2_skips_t1_when_expression_indexdefs_normalize_equal() {
 #[test]
 fn compare_reports_ordering_drift_when_migration_desc_not_live_asc() {
     let Some(url) = postgres_url() else {
-        eprintln!("compare_reports_ordering_drift_when_migration_desc_not_live_asc: skipped (no DB URL)");
+        eprintln!(
+            "compare_reports_ordering_drift_when_migration_desc_not_live_asc: skipped (no DB URL)"
+        );
         return;
     };
 
@@ -539,10 +497,7 @@ fn compare_reports_ordering_drift_when_migration_desc_not_live_asc() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -564,10 +519,7 @@ fn compare_reports_ordering_drift_when_migration_desc_not_live_asc() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     let od = report
@@ -598,10 +550,7 @@ fn fetch_live_btree_expression_index_key_slots_lists_lower_email() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -616,22 +565,19 @@ fn fetch_live_btree_expression_index_key_slots_lists_lower_email() {
         .expect("create table");
     executor
         .execute(
-            &format!(
-                "CREATE INDEX {EXPR_IDX} ON {schema}.{EXPR_TABLE} ((lower(email)))"
-            ),
+            &format!("CREATE INDEX {EXPR_IDX} ON {schema}.{EXPR_TABLE} ((lower(email)))"),
             &[],
         )
         .expect("create expression index");
 
     let rows = fetch_live_btree_expression_index_key_slots(&executor, &schema).expect("catalog");
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
-    let hit = rows.iter().find(|r| r.table_name == EXPR_TABLE && r.index_name == EXPR_IDX);
+    let hit = rows
+        .iter()
+        .find(|r| r.table_name == EXPR_TABLE && r.index_name == EXPR_IDX);
     let Some(hit) = hit else {
         panic!("expected expression key row for {EXPR_TABLE}/{EXPR_IDX}, got: {rows:?}");
     };
@@ -665,10 +611,7 @@ fn compare_reports_expression_key_when_migration_lists_simple_columns_only() {
     let executor = MayPostgresExecutor::new(client);
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -683,9 +626,7 @@ fn compare_reports_expression_key_when_migration_lists_simple_columns_only() {
         .expect("create table");
     executor
         .execute(
-            &format!(
-                "CREATE INDEX {EXPR_IDX} ON {schema}.{EXPR_TABLE} ((lower(email)))"
-            ),
+            &format!("CREATE INDEX {EXPR_IDX} ON {schema}.{EXPR_TABLE} ((lower(email)))"),
             &[],
         )
         .expect("create expression index");
@@ -694,10 +635,7 @@ fn compare_reports_expression_key_when_migration_lists_simple_columns_only() {
         .expect("compare_generated_dir_to_live_db");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     let d = report
@@ -749,10 +687,7 @@ fn compare_schema_cli_succeeds_when_no_drift() {
     let client = connect(&url).expect("connect");
     let executor = MayPostgresExecutor::new(client);
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -778,10 +713,7 @@ fn compare_schema_cli_succeeds_when_no_drift() {
         .expect("spawn compare-schema");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     assert!(
@@ -790,16 +722,15 @@ fn compare_schema_cli_succeeds_when_no_drift() {
         stderr = String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        stdout.contains("No drift"),
-        "unexpected output: {stdout}"
-    );
+    assert!(stdout.contains("No drift"), "unexpected output: {stdout}");
 }
 
 #[test]
 fn compare_schema_cli_fails_when_live_has_extra_indexed_column() {
     let Some(url) = postgres_url() else {
-        eprintln!("compare_schema_cli_fails_when_live_has_extra_indexed_column: skipped (no DB URL)");
+        eprintln!(
+            "compare_schema_cli_fails_when_live_has_extra_indexed_column: skipped (no DB URL)"
+        );
         return;
     };
 
@@ -821,10 +752,7 @@ fn compare_schema_cli_fails_when_live_has_extra_indexed_column() {
     let client = connect(&url).expect("connect");
     let executor = MayPostgresExecutor::new(client);
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
     executor
         .execute(&format!("CREATE SCHEMA {schema}"), &[])
@@ -839,9 +767,7 @@ fn compare_schema_cli_fails_when_live_has_extra_indexed_column() {
         .expect("create scratch table");
     executor
         .execute(
-            &format!(
-                "CREATE INDEX {TABLE}_extra_idx ON {schema}.{TABLE} ({EXTRA_COL})"
-            ),
+            &format!("CREATE INDEX {TABLE}_extra_idx ON {schema}.{TABLE} ({EXTRA_COL})"),
             &[],
         )
         .expect("create index");
@@ -860,10 +786,7 @@ fn compare_schema_cli_fails_when_live_has_extra_indexed_column() {
         .expect("spawn compare-schema");
 
     executor
-        .execute(
-            &format!("DROP SCHEMA IF EXISTS {schema} CASCADE"),
-            &[],
-        )
+        .execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"), &[])
         .ok();
 
     assert!(
@@ -877,7 +800,7 @@ fn compare_schema_cli_fails_when_live_has_extra_indexed_column() {
         "expected column drift in stdout: {stdout}"
     );
     assert!(
-        stdout.contains("Index key columns") && stdout.contains(EXTRA_COL),
+        stdout.contains("Index key / INCLUDE columns") && stdout.contains(EXTRA_COL),
         "expected index drift in stdout: {stdout}"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);

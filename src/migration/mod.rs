@@ -43,9 +43,9 @@ pub mod checksum;
 pub mod error;
 pub mod file;
 pub mod lock;
-pub mod migration_name;
 #[allow(clippy::module_inception)]
 pub mod migration;
+pub mod migration_name;
 pub mod migrator;
 pub mod record;
 pub mod registry;
