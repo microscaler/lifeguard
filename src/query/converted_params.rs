@@ -17,11 +17,18 @@
 //!
 //! ## Typed NULLs vs generic `nulls`
 //!
-//! `Value::{String,Json}(None)` and several other variants share the **`nulls: Vec<Option<i32>>`**
-//! bucket because `postgres-types` accepts that representation for those OIDs. **Do not** route
-//! `ChronoDateTimeUtc(None)`, `Uuid(None)`, or other typed NULLs through that generic bucket —
-//! they use `Option<T>` vectors with the correct `T` so `ToSql::accepts` matches the column (see
-//! `docs/CHRONO_AND_POSTGRES_TYPES.md` and PRD §5.2).
+//! The generic **`nulls: Vec<Option<i32>>`** bucket is only for NULLs whose PostgreSQL scalar
+//! matches `INT`/`BOOL`/etc. via that placeholder (see `postgres-types` compatibility).
+//!
+//! **Do not** route these through the generic bucket — each uses **`Option<T>`** storage so
+//! `ToSql::accepts` matches the target column OID:
+//!
+//! - `String(None)` → `null_strings: Vec<Option<String>>`
+//! - `Bytes(None)` → `null_bytes: Vec<Option<Vec<u8>>>`
+//! - `Json(None)` → `null_json_values: Vec<Option<serde_json::Value>>`
+//! - Chrono / `Uuid` variants → their existing typed-null vectors
+//!
+//! See `docs/CHRONO_AND_POSTGRES_TYPES.md` and PRD §5.2 / Iteration D4.
 
 use may_postgres::types::ToSql;
 use sea_query::Value;
@@ -44,6 +51,8 @@ where
     let mut strings: Vec<String> = Vec::new();
     let mut json_values: Vec<serde_json::Value> = Vec::new();
     let mut null_json_values: Vec<Option<serde_json::Value>> = Vec::new();
+    let mut null_strings: Vec<Option<String>> = Vec::new();
+    let mut null_bytes: Vec<Option<Vec<u8>>> = Vec::new();
     let mut bytes: Vec<Vec<u8>> = Vec::new();
     let mut nulls: Vec<Option<i32>> = Vec::new();
     let mut floats: Vec<f32> = Vec::new();
@@ -109,12 +118,13 @@ where
 
             Value::Uuid(Some(u)) => uuids.push(*u),
 
+            Value::String(None) => null_strings.push(None),
+            Value::Bytes(None) => null_bytes.push(None),
+
             #[allow(clippy::match_same_arms)]
             Value::Bool(None)
             | Value::Int(None)
             | Value::BigInt(None)
-            | Value::String(None)
-            | Value::Bytes(None)
             | Value::TinyInt(None)
             | Value::SmallInt(None)
             | Value::TinyUnsigned(None)
@@ -164,6 +174,8 @@ where
 
     let mut json_idx = 0;
     let mut json_null_idx = 0;
+    let mut string_null_idx = 0;
+    let mut bytes_null_idx = 0;
 
     let mut uuid_null_idx = 0;
     let mut chrono_date_null_idx = 0;
@@ -226,13 +238,17 @@ where
                 uuid_idx += 1;
             }
 
-            Value::Bool(None)
-            | Value::Int(None)
-            | Value::BigInt(None)
-            | Value::String(None)
-            | Value::Bytes(None) => {
+            Value::Bool(None) | Value::Int(None) | Value::BigInt(None) => {
                 params.push(&nulls[null_idx] as &dyn ToSql);
                 null_idx += 1;
+            }
+            Value::String(None) => {
+                params.push(&null_strings[string_null_idx] as &dyn ToSql);
+                string_null_idx += 1;
+            }
+            Value::Bytes(None) => {
+                params.push(&null_bytes[bytes_null_idx] as &dyn ToSql);
+                bytes_null_idx += 1;
             }
             Value::TinyInt(Some(_))
             | Value::SmallInt(Some(_))
@@ -393,6 +409,42 @@ mod tests {
         ];
         let result = with_converted_value_slice(&values, |e| e, |params| {
             assert_eq!(params.len(), 3);
+            Ok::<(), String>(())
+        });
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn string_none_bytea_none_json_none_use_typed_null_buckets() {
+        use bytes::BytesMut;
+        use postgres_types::{IsNull, Type};
+
+        let values = vec![
+            Value::String(None),
+            Value::Bytes(None),
+            Value::Json(None),
+        ];
+        let result = with_converted_value_slice(&values, |e| e, |params| {
+            assert_eq!(params.len(), 3);
+
+            let mut b = BytesMut::new();
+            assert!(matches!(
+                params[0].to_sql_checked(&Type::TEXT, &mut b),
+                Ok(IsNull::Yes)
+            ));
+
+            let mut b = BytesMut::new();
+            assert!(matches!(
+                params[1].to_sql_checked(&Type::BYTEA, &mut b),
+                Ok(IsNull::Yes)
+            ));
+
+            let mut b = BytesMut::new();
+            assert!(matches!(
+                params[2].to_sql_checked(&Type::JSONB, &mut b),
+                Ok(IsNull::Yes)
+            ));
+
             Ok::<(), String>(())
         });
         assert!(result.is_ok(), "{:?}", result.err());

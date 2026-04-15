@@ -91,7 +91,7 @@ Implement **end-to-end** support for the chrono types Lifeguard should officiall
 ### 3.4 `lifeguard` runtime — `converted_params.rs`
 
 - **No change required** for UTC/local **if** derives emit correct `Value` variants.
-- **Optional hardening (later iteration):** audit generic `**nulls` (`Option<i32>`)** usage for `String(None)` / `Json(None)` vs typed null buckets — orthogonal but related to optional columns (see [§5.2](#52-null-handling-generic-vs-typed)).
+- **Hardening (Iteration D4):** `String(None)` / `Bytes(None)` / `Json(None)` use typed null buckets in `converted_params`; pool [`OwnedParam`](../src/pool/owned_param.rs) mirrors the same for `TEXT` / `BYTEA` / JSON (see [§5.2](#52-null-handling-generic-vs-typed)).
 
 ### 3.5 `lifeguard-migrate`
 
@@ -204,7 +204,7 @@ Per existing comment in `type_conversion.rs`, `**generate_field_to_value`**, `**
 
 ### 5.2 NULL handling (generic vs typed)
 
-Downstream observed failures when `**Value::String(None)**` / `**Json(None)**` routed through the **generic `nulls`** bucket (`Option<i32>` placeholders). Full chrono support must not repeat that pattern for `**ChronoDateTimeUtc(None)**`: use **typed** null slots already present in `**converted_params.rs`**.
+Downstream observed failures when `**Value::String(None)**` / `**Json(None)**` were routed through the **generic `nulls`** bucket (`Option<i32>` placeholders). **Iteration D4** adds typed buckets for `**String(None)**`, `**Bytes(None)**`, and `**Json(None)**` in `**converted_params.rs**`, and matching `**OwnedParam**` variants for the pool. For chrono and UUID, use **typed** null slots (`**ChronoDateTimeUtc(None)**`, etc.) — do not use `**String(None)**` for `timestamptz` columns.
 
 ### 5.3 Backward compatibility
 

@@ -32,6 +32,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **`Value::SmallInt` / `TinyInt` (and small unsigned) → `ToSql`:** `converted_params` and pool [`OwnedParam`](./src/pool/owned_param.rs) now keep PostgreSQL **`INT2`** (`i16`) binds distinct from `INT4` (`i32`). Previously, `SMALLINT` columns could fail with “cannot convert between the Rust type `i32` and the Postgres type `int2`” on insert/update.
 - **`Value::Json` → `ToSql`:** `converted_params` now binds `serde_json::Value` directly (JSON/JSONB), not a serialized string, so `JSONB` columns accept ORM inserts/updates.
+- **Iteration D4 — typed SQL NULLs:** `String(None)`, `Bytes(None)`, and `Json(None)` no longer share the generic `Option<i32>` NULL placeholder in `converted_params`; pool `OwnedParam` uses `String`/`Bytes`/`Json(Option<…>)` for the same. Avoids OID / `accepts` mismatches on `TEXT`, `BYTEA`, and JSON/JSONB nullable columns.
+
+### Changed
+
+- **`OwnedParam::Json`:** is now `Json(Option<serde_json::Value>)` (SQL NULL = `None`) instead of routing JSON null through `GenericNull`. Update exhaustive matches if you branch on `OwnedParam` outside the crate.
 - **`DatabaseConfig::load`:** Correctly reads `config/config.toml` `[database]` by deserializing a `database` key (nested TOML). Previously, `[database]` values were not applied to the flat struct, so defaults (e.g. 30s pool timeout) could mask TOML. Environment overrides use **`LIFEGUARD__DATABASE__*`** (e.g. `LIFEGUARD__DATABASE__POOL_TIMEOUT_SECONDS`) so they match the file layout (PRD R2.2).
 
 ### Changed

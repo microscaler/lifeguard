@@ -13,9 +13,11 @@ This document complements [`UUID_AND_POSTGRES_TYPES.md`](./UUID_AND_POSTGRES_TYP
 
 **Nullable columns:** use `Option<T>`; SQL NULL is represented as typed null variants, e.g. `ChronoDateTimeUtc(None)`, not `String(None)` for a `timestamptz` column.
 
+For **text**, **bytea**, and **json/jsonb** columns, SQL NULL must use `Value::String(None)`, `Value::Bytes(None)`, and `Value::Json(None)` respectively — the runtime maps each to a typed `Option<T>::None` bind, not the legacy generic `INT`-shaped NULL placeholder (Iteration D4).
+
 ## Runtime binding (`converted_params`)
 
-[`with_converted_value_slice`](../src/query/converted_params.rs) converts a slice of `Value` into `&[&dyn ToSql]` in **two passes** while preserving order. Typed NULLs for UUID and chrono **must** use dedicated `Option<T>` buckets so PostgreSQL receives the correct OID / `ToSql` implementation (see module docs on that file).
+[`with_converted_value_slice`](../src/query/converted_params.rs) converts a slice of `Value` into `&[&dyn ToSql]` in **two passes** while preserving order. Typed NULLs (UUID, chrono, **String**, **Bytes**, **Json**) **must** use dedicated `Option<T>` buckets so PostgreSQL receives the correct OID / `ToSql` implementation (see module docs on that file).
 
 ## Derive and migrations
 

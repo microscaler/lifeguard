@@ -29,9 +29,9 @@ pub enum OwnedParam {
     Uuid(Option<uuid::Uuid>),
     /// `NUMERIC` / `rust_decimal::Decimal` (from `Value::Decimal`).
     Decimal(Option<rust_decimal::Decimal>),
-    /// JSON / JSONB (`serde_json::Value`); binds as PostgreSQL JSON types (not plain text).
-    Json(serde_json::Value),
-    /// `sea_query::Value` nulls that bind as `Option<i32>::None` (see `converted_params`).
+    /// JSON / JSONB; `None` is SQL NULL (typed JSON null, not `GenericNull`).
+    Json(Option<serde_json::Value>),
+    /// Legacy bucket for `Value` variants that still map to a shared placeholder (see `converted_params`).
     GenericNull,
 }
 
@@ -78,10 +78,10 @@ impl TryFrom<&Value> for OwnedParam {
             Value::BigInt(None) => Ok(OwnedParam::GenericNull),
 
             Value::String(Some(s)) => Ok(OwnedParam::String(Some(s.clone()))),
-            Value::String(None) => Ok(OwnedParam::GenericNull),
+            Value::String(None) => Ok(OwnedParam::String(None)),
 
             Value::Bytes(Some(b)) => Ok(OwnedParam::Bytes(Some(b.clone()))),
-            Value::Bytes(None) => Ok(OwnedParam::GenericNull),
+            Value::Bytes(None) => Ok(OwnedParam::Bytes(None)),
 
             Value::TinyInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(i16::from(*i)))),
             Value::SmallInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(*i))),
@@ -126,8 +126,8 @@ impl TryFrom<&Value> for OwnedParam {
             Value::Decimal(Some(d)) => Ok(OwnedParam::Decimal(Some(*d))),
             Value::Decimal(None) => Ok(OwnedParam::Decimal(None)),
 
-            Value::Json(Some(j)) => Ok(OwnedParam::Json((**j).clone())),
-            Value::Json(None) => Ok(OwnedParam::GenericNull),
+            Value::Json(Some(j)) => Ok(OwnedParam::Json(Some((**j).clone()))),
+            Value::Json(None) => Ok(OwnedParam::Json(None)),
 
             _ => Err(LifeError::Other(format!(
                 "Unsupported value type for pool parameter: {value:?}"
@@ -225,5 +225,28 @@ mod tests {
         let got2 = p.as_sql_ref().to_sql_checked(&Type::JSONB, &mut buf2);
         assert!(matches!(got2, Ok(IsNull::No)));
         assert!(buf2.len() > 1);
+    }
+
+    #[test]
+    fn try_from_string_none_and_json_none_use_typed_nulls() {
+        use bytes::BytesMut;
+        use postgres_types::{IsNull, Type};
+        use sea_query::Value;
+
+        let s = OwnedParam::try_from(&Value::String(None));
+        assert!(matches!(s, Ok(OwnedParam::String(None))));
+        let mut buf = BytesMut::new();
+        assert!(matches!(
+            s.expect("string null").as_sql_ref().to_sql_checked(&Type::TEXT, &mut buf),
+            Ok(IsNull::Yes)
+        ));
+
+        let j = OwnedParam::try_from(&Value::Json(None));
+        assert!(matches!(j, Ok(OwnedParam::Json(None))));
+        let mut buf = BytesMut::new();
+        assert!(matches!(
+            j.expect("json null").as_sql_ref().to_sql_checked(&Type::JSONB, &mut buf),
+            Ok(IsNull::Yes)
+        ));
     }
 }

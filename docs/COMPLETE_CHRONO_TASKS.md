@@ -75,7 +75,7 @@
 | D1 | Audit `generate_option_field_to_value`: `None` for `Option<DateTime<Utc>>` → `ChronoDateTimeUtc(None)` not ambiguous fallback | `lifeguard-derive/src/type_conversion.rs` | [x] |
 | D2 | Review `converted_params.rs` first + second pass: comment any invariant about order / bucket per `Value` variant | `lifeguard/src/query/converted_params.rs` | [x] |
 | D3 | Unit tests: mixed `String` / `Json` / `ChronoDateTimeUtc` NULLs in one `Values` slice (Hauliage-style) | `lifeguard/src/query/converted_params.rs` `#[cfg(test)]` | [x] |
-| D4 | Optional follow-up: separate issue for `String(None)`/`Json(None)` vs typed nulls if out of scope for D | issue / PRD note | [ ] |
+| D4 | Typed NULLs for `String(None)` / `Bytes(None)` / `Json(None)` (converted_params + `OwnedParam`) | `src/query/converted_params.rs`, `src/pool/owned_param.rs` | [x] |
 
 **Exit:** PRD Iteration D exit criteria met.
 
