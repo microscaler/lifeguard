@@ -112,8 +112,8 @@
 
 | # | Task | Primary files | Done |
 |---|------|---------------|------|
-| M1 | Confirm `map_pg_to_rust` timestamptz → `DateTime<Utc>` still matches derive after Iteration B | `lifeguard-migrate/src/schema_infer.rs` | [ ] |
-| M2 | Golden / unit test: inferred Rust type string for `timestamptz` | `lifeguard-migrate/tests/` or `schema_infer.rs` tests | [ ] |
+| M1 | Confirm `map_pg_to_rust` timestamptz → `DateTime<Utc>` still matches derive after Iteration B | `lifeguard-migrate/src/schema_infer.rs` | [x] |
+| M2 | Golden / unit test: inferred Rust type string for `timestamptz` | `lifeguard-migrate/tests/` or `schema_infer.rs` tests | [x] |
 
 ---
 

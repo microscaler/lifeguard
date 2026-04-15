@@ -540,6 +540,9 @@ fn fetch_primary_keys(
 }
 
 /// Returns `(type_str, extra_attr_lines)` or `None` if unsupported.
+///
+/// **Chrono alignment:** `timestamptz` / `timestamp with time zone` → `chrono::DateTime<chrono::Utc>`
+/// must stay in sync with `lifeguard-derive` inference and [`docs/CHRONO_AND_POSTGRES_TYPES.md`](../../docs/CHRONO_AND_POSTGRES_TYPES.md).
 fn map_pg_to_rust(
     data_type: &str,
     udt_name: &str,
@@ -843,6 +846,29 @@ mod tests {
         let (t, _) = map_pg_to_rust("integer", "int4", true).unwrap();
         assert_eq!(t, "Option<i32>");
         assert!(map_pg_to_rust("unknown_type_xyz", "bad", false).is_none());
+    }
+
+    #[test]
+    fn map_pg_timestamptz_matches_lifeguard_derive_datetime_utc() {
+        let (t, extra) = map_pg_to_rust("timestamp with time zone", "timestamptz", false).unwrap();
+        assert_eq!(t, "chrono::DateTime<chrono::Utc>");
+        assert!(extra.is_empty());
+        let (t_opt, _) = map_pg_to_rust("timestamp with time zone", "timestamptz", true).unwrap();
+        assert_eq!(t_opt, "Option<chrono::DateTime<chrono::Utc>>");
+    }
+
+    #[test]
+    fn map_pg_timestamptz_via_udt_name_when_data_type_is_user_defined() {
+        // `information_schema.columns.data_type` is often `USER-DEFINED` for some installs;
+        // `udt_name` remains `timestamptz`.
+        let (t, _) = map_pg_to_rust("USER-DEFINED", "timestamptz", false).unwrap();
+        assert_eq!(t, "chrono::DateTime<chrono::Utc>");
+    }
+
+    #[test]
+    fn map_pg_timestamp_without_time_zone_stays_naive() {
+        let (t, _) = map_pg_to_rust("timestamp without time zone", "timestamp", false).unwrap();
+        assert_eq!(t, "chrono::NaiveDateTime");
     }
 
     #[test]
