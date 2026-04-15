@@ -178,7 +178,7 @@ jobs:
           cargo run --release --locked --bin perf-orm
 
       - name: Upload perf JSON
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-results
           path: examples/perf-idam/perf-results.json
