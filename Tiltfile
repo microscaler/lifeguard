@@ -13,8 +13,8 @@
 # - 'tests' — unit, nextest (CI + fast), db_integration_suite, derive/codegen; `test-migration` is also under 'tests'
 # - 'examples' / 'inventory_entities' — as named
 #
-# DB-heavy nextest targets are **manual** (`auto_init=False`) so `tilt up` stays green; trigger after
-# shared-kind-cluster + port-forwards. See `test-nextest`, `test-nextest-fast`, `test-db-suite` (and `just nt-*`).
+# DB-heavy nextest targets are **manual** (`auto_init=False`; `test-db-suite` also `TRIGGER_MODE_MANUAL`) so `tilt up` stays green; trigger after
+# shared-kind-cluster + port-forwards. See `test-nextest`, `test-nextest-fast`, `test-db-suite` (= `just nt-db-suite` / `cargo nextest run -p lifeguard … db-serial … db_integration_suite`).
 
 # ====================
 # Configuration
@@ -317,7 +317,7 @@ local_resource(
     auto_init=False,
 )
 
-# `tests/db_integration_suite.rs` — serial profile (CI second step). Same env as `just nt-db-suite`.
+# `tests/db_integration_suite.rs` — serial profile (CI second step). Same env + command as `just nt-db-suite` / `just db-integration-suite`.
 local_resource(
     'test-db-suite',
     cmd=(
@@ -349,6 +349,7 @@ local_resource(
     labels=['tests'],
     allow_parallel=False,
     auto_init=False,
+    trigger_mode=TRIGGER_MODE_MANUAL,
 )
 
 # `tests-integration` crate (package `lifeguard-integration-tests`) — nextest; overlaps with `test-nextest` workspace.

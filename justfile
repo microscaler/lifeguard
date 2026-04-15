@@ -109,7 +109,8 @@ check:
 # Nextest quick reference (see docs/TEST_INFRASTRUCTURE.md):
 #   nt / nextest-test  — workspace nextest; excludes lifeguard-integration-tests + db_integration_suite binary (fast loop)
 #   nt-workspace       — CI-parity workspace (includes lifeguard-integration-tests); still excludes db_suite
-#   nt-db-suite        — lifeguard db_integration_suite only, serial (shared Postgres safe)
+#   nt-db-suite        — lifeguard db_integration_suite only, serial (shared Postgres safe); same as:
+#                        cargo nextest run -p lifeguard --all-features --profile db-serial --config-file .config/nextest.toml -E 'binary(db_integration_suite)'
 #   nt-complete        — nextest-test then nt-db-suite (typical local: all workspace members except integration crate, plus DB suite)
 #   nt-ci-parity / nt-full — nt-workspace then nt-db-suite (matches CI: integration crate + DB suite)
 #   nt-integration       — lifeguard-integration-tests only (cluster URL from script)
@@ -177,17 +178,20 @@ nt-codegen:
     @echo "🧪 Running lifeguard-codegen tests..."
     @cd lifeguard-codegen && cargo test --no-fail-fast
 
-# Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB
+# Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB.
+# Tilt UI: `test-db-suite` (same command + `LG_NEXTTEST_ENV`).
 nt-db-suite:
     @echo "🧪 Running lifeguard db_integration_suite (serial profile; Kind/Tilt: TEST_* from justfile)..."
-    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --config-file .config/nextest.toml -E 'binary(db_integration_suite)'
 
 alias nt-db := nt-db-suite
+# Same as `nt-db-suite` (CI step name / copy-paste alias)
+alias db-integration-suite := nt-db-suite
 
 # Verbose output for db suite only
 nt-db-suite-verbose:
     @echo "🧪 Running lifeguard db_integration_suite (serial, no-capture)..."
-    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --no-capture -E 'binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --config-file .config/nextest.toml --no-capture -E 'binary(db_integration_suite)'
 
 # Typical local run: fast workspace (no cluster integration crate) + serial DB suite
 nt-complete: nextest-test nt-db-suite
