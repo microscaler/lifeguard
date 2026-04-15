@@ -1,0 +1,32 @@
+# Dependabot — version updates (security alerts are separate in repo Settings → Security).
+# Cargo workspace root is the repository root (see root Cargo.toml).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 15
+    labels:
+      - dependencies
+      - rust
+    # Pinned to 1.0.0-rc.29 — do not auto-PR sea-query into rc.30 … rc.33 (known churn).
+    # When ready (e.g. 1.0.0 stable or a chosen RC), remove entries or add new ignores.
+    ignore:
+      - dependency-name: "sea-query"
+        versions:
+          - "1.0.0-rc.30"
+          - "1.0.0-rc.31"
+          - "1.0.0-rc.32"
+          - "1.0.0-rc.33"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - github-actions
