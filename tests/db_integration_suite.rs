@@ -51,6 +51,9 @@ mod related_trait;
 #[path = "db_integration/json_value_from_row.rs"]
 mod json_value_from_row;
 
+#[path = "db_integration/chrono_timestamptz_from_row.rs"]
+mod chrono_timestamptz_from_row;
+
 #[path = "db_integration/pool_read_replica.rs"]
 mod pool_read_replica;
 

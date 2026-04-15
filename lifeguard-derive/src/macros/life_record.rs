@@ -469,7 +469,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
         // Generate INSERT column/value collection
         // Skip auto-increment primary keys if not set
-        // NOTE: These checks use record_for_hooks.get() to include modifications made by before_insert() hook
+        // NOTE: Uses `record_for_hooks.get()` (includes `before_insert()` changes). Values come from
+        // `type_conversion` → `Expr::val` (e.g. `DateTime<Utc>` → `ChronoDateTimeUtc`), matching `get()`.
         if is_primary_key && is_auto_increment {
             // Auto-increment PK: include only if set
             // NOTE: If save_as is used on an auto-increment PK:
