@@ -41,7 +41,7 @@ sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
 # Path manipulation for relative paths
 pathdiff = "0.2"
 # Regex for pattern matching
-regex = "1.10"
+regex = "1.12"
 # Lifeguard derive (needed for entities)
 lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
 # Postgres driver (needed for macro expansion - FromRow uses may_postgres::Row)
