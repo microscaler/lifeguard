@@ -1500,6 +1500,7 @@ name = "lifeguard-derive"
 version = "0.1.0"
 dependencies = [
  "async-graphql",
+ "chrono",
  "lazy_static",
  "lifeguard",
  "may_postgres",

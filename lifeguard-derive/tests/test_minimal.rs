@@ -6377,3 +6377,64 @@ mod active_model_trait_tests {
         assert!(unset.is_unset());
     }
 }
+
+/// `DateTime<Utc>` / `DateTime<Local>` map to typed `sea_query::Value` variants (CHRONO Iteration A).
+mod chrono_datetime_utc_local_tests {
+    mod utc {
+        use chrono::{DateTime, Utc};
+        use lifeguard::ModelTrait;
+        use lifeguard_derive::{LifeModel, LifeRecord};
+        use sea_query::Value;
+
+        #[derive(LifeModel, LifeRecord)]
+        #[table_name = "chrono_dt_integration_utc"]
+        pub struct EventWithUtc {
+            #[primary_key]
+            pub id: i32,
+            pub created_at: DateTime<Utc>,
+        }
+
+        #[test]
+        fn model_get_maps_datetime_utc_to_chrono_datetime_utc() {
+            let dt = Utc::now();
+            let model = EventWithUtcModel {
+                id: 1,
+                created_at: dt,
+            };
+            let v = model.get(Column::CreatedAt);
+            match v {
+                Value::ChronoDateTimeUtc(Some(got)) => assert_eq!(got, dt),
+                other => panic!("expected ChronoDateTimeUtc(Some(..)), got {:?}", other),
+            }
+        }
+    }
+
+    mod local {
+        use chrono::{DateTime, Local};
+        use lifeguard::ModelTrait;
+        use lifeguard_derive::{LifeModel, LifeRecord};
+        use sea_query::Value;
+
+        #[derive(LifeModel, LifeRecord)]
+        #[table_name = "chrono_dt_integration_local"]
+        pub struct EventWithLocal {
+            #[primary_key]
+            pub id: i32,
+            pub created_at: DateTime<Local>,
+        }
+
+        #[test]
+        fn model_get_maps_datetime_local_to_chrono_datetime_local() {
+            let dt = Local::now();
+            let model = EventWithLocalModel {
+                id: 1,
+                created_at: dt,
+            };
+            let v = model.get(Column::CreatedAt);
+            match v {
+                Value::ChronoDateTimeLocal(Some(got)) => assert_eq!(got, dt),
+                other => panic!("expected ChronoDateTimeLocal(Some(..)), got {:?}", other),
+            }
+        }
+    }
+}

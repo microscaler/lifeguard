@@ -14,6 +14,8 @@
 //! - JSON: `serde_json::Value`
 //! - Option<T> for all above types
 //! - `uuid::Uuid` (via `sea_query::Value::Uuid`)
+//! - `chrono::DateTime<Utc>` (via `sea_query::Value::ChronoDateTimeUtc`) — Postgres `timestamptz`
+//! - `chrono::DateTime<Local>` (via `sea_query::Value::ChronoDateTimeLocal`)
 //! - `chrono::NaiveDateTime` (via `sea_query::Value::ChronoDateTime`)
 //! - `chrono::NaiveDate` (via `sea_query::Value::ChronoDate`) — Postgres `DATE`
 //!
@@ -70,6 +72,48 @@ pub fn is_naive_date_type(ty: &Type) -> bool {
         return path.segments.last().is_some_and(|s| s.ident == "NaiveDate");
     }
     false
+}
+
+/// If `ty` is `...::DateTime<Tz>`, returns `Some(true)` when `Tz` resolves to `Utc`, `Some(false)` for `Local`.
+///
+/// Matches `DateTime<Utc>`, `chrono::DateTime<chrono::Utc>`, etc., by taking the last path segment of the
+/// first type argument (`Utc` / `Local`).
+fn datetime_timezone_as_utc_flag(ty: &Type) -> Option<bool> {
+    let Type::Path(TypePath { path, .. }) = ty else {
+        return None;
+    };
+    let seg = path.segments.last()?;
+    if seg.ident != "DateTime" {
+        return None;
+    }
+    let PathArguments::AngleBracketed(args) = &seg.arguments else {
+        return None;
+    };
+    let first_ty = args.args.iter().find_map(|arg| {
+        if let GenericArgument::Type(t) = arg {
+            Some(t)
+        } else {
+            None
+        }
+    })?;
+    let Type::Path(TypePath { path: tz_path, .. }) = first_ty else {
+        return None;
+    };
+    match tz_path.segments.last()?.ident.to_string().as_str() {
+        "Utc" => Some(true),
+        "Local" => Some(false),
+        _ => None,
+    }
+}
+
+/// `chrono::DateTime<Utc>` / `Value::ChronoDateTimeUtc`.
+pub fn is_datetime_utc_type(ty: &Type) -> bool {
+    datetime_timezone_as_utc_flag(ty) == Some(true)
+}
+
+/// `chrono::DateTime<Local>` / `Value::ChronoDateTimeLocal`.
+pub fn is_datetime_local_type(ty: &Type) -> bool {
+    datetime_timezone_as_utc_flag(ty) == Some(false)
 }
 
 /// Check if a type is `Vec<u8>` (binary data)
@@ -300,6 +344,18 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
         };
     }
 
+    if is_datetime_utc_type(field_type) {
+        return quote! {
+            sea_query::Value::ChronoDateTimeUtc(Some(self.#field_name))
+        };
+    }
+
+    if is_datetime_local_type(field_type) {
+        return quote! {
+            sea_query::Value::ChronoDateTimeLocal(Some(self.#field_name))
+        };
+    }
+
     if is_naive_datetime_type(field_type) {
         return quote! {
             sea_query::Value::ChronoDateTime(Some(self.#field_name))
@@ -392,6 +448,18 @@ pub fn generate_option_field_to_value_with_default(
     if is_uuid_type(inner_type) {
         return quote! {
             self.#field_name.map(|v| sea_query::Value::Uuid(Some(v))).unwrap_or(sea_query::Value::Uuid(None))
+        };
+    }
+
+    if is_datetime_utc_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeUtc(Some(v))).unwrap_or(sea_query::Value::ChronoDateTimeUtc(None))
+        };
+    }
+
+    if is_datetime_local_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeLocal(Some(v))).unwrap_or(sea_query::Value::ChronoDateTimeLocal(None))
         };
     }
 
@@ -512,6 +580,18 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
     if is_uuid_type(inner_type) {
         return quote! {
             self.#field_name.map(|v| sea_query::Value::Uuid(Some(v)))
+        };
+    }
+
+    if is_datetime_utc_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeUtc(Some(v)))
+        };
+    }
+
+    if is_datetime_local_type(inner_type) {
+        return quote! {
+            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeLocal(Some(v)))
         };
     }
 
@@ -675,6 +755,121 @@ pub fn generate_value_to_field(
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
                     column: stringify!(#column_variant).to_string(),
                     expected: "Decimal".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_uuid_type(field_type) {
+        return quote! {
+            match value {
+                sea_query::Value::Uuid(Some(v)) => {
+                    self.#field_name = v;
+                    Ok(())
+                }
+                sea_query::Value::Uuid(None) => {
+                    return Err(lifeguard::ActiveModelError::InvalidValueType {
+                        column: stringify!(#column_variant).to_string(),
+                        expected: "Uuid (non-null)".to_string(),
+                        actual: format!("{:?}", value),
+                    });
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "Uuid".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_datetime_utc_type(field_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDateTimeUtc(Some(v)) => {
+                    self.#field_name = v;
+                    Ok(())
+                }
+                sea_query::Value::ChronoDateTimeUtc(None) => {
+                    return Err(lifeguard::ActiveModelError::InvalidValueType {
+                        column: stringify!(#column_variant).to_string(),
+                        expected: "ChronoDateTimeUtc (non-null)".to_string(),
+                        actual: format!("{:?}", value),
+                    });
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDateTimeUtc".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_datetime_local_type(field_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDateTimeLocal(Some(v)) => {
+                    self.#field_name = v;
+                    Ok(())
+                }
+                sea_query::Value::ChronoDateTimeLocal(None) => {
+                    return Err(lifeguard::ActiveModelError::InvalidValueType {
+                        column: stringify!(#column_variant).to_string(),
+                        expected: "ChronoDateTimeLocal (non-null)".to_string(),
+                        actual: format!("{:?}", value),
+                    });
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDateTimeLocal".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_naive_datetime_type(field_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDateTime(Some(v)) => {
+                    self.#field_name = v;
+                    Ok(())
+                }
+                sea_query::Value::ChronoDateTime(None) => {
+                    return Err(lifeguard::ActiveModelError::InvalidValueType {
+                        column: stringify!(#column_variant).to_string(),
+                        expected: "ChronoDateTime (non-null)".to_string(),
+                        actual: format!("{:?}", value),
+                    });
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDateTime".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_naive_date_type(field_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDate(Some(v)) => {
+                    self.#field_name = v;
+                    Ok(())
+                }
+                sea_query::Value::ChronoDate(None) => {
+                    return Err(lifeguard::ActiveModelError::InvalidValueType {
+                        column: stringify!(#column_variant).to_string(),
+                        expected: "ChronoDate (non-null)".to_string(),
+                        actual: format!("{:?}", value),
+                    });
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDate".to_string(),
                     actual: format!("{:?}", value),
                 })
             }
@@ -1088,6 +1283,66 @@ pub fn generate_value_to_option_field(
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
                     column: stringify!(#column_variant).to_string(),
                     expected: "Decimal".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_uuid_type(inner_type) {
+        return quote! {
+            match value {
+                sea_query::Value::Uuid(Some(v)) => {
+                    self.#field_name = Some(v);
+                    Ok(())
+                }
+                sea_query::Value::Uuid(None) => {
+                    self.#field_name = None;
+                    Ok(())
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "Uuid".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_datetime_utc_type(inner_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDateTimeUtc(Some(v)) => {
+                    self.#field_name = Some(v);
+                    Ok(())
+                }
+                sea_query::Value::ChronoDateTimeUtc(None) => {
+                    self.#field_name = None;
+                    Ok(())
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDateTimeUtc (DateTime<Utc>)".to_string(),
+                    actual: format!("{:?}", value),
+                })
+            }
+        };
+    }
+
+    if is_datetime_local_type(inner_type) {
+        return quote! {
+            match value {
+                sea_query::Value::ChronoDateTimeLocal(Some(v)) => {
+                    self.#field_name = Some(v);
+                    Ok(())
+                }
+                sea_query::Value::ChronoDateTimeLocal(None) => {
+                    self.#field_name = None;
+                    Ok(())
+                }
+                _ => Err(lifeguard::ActiveModelError::InvalidValueType {
+                    column: stringify!(#column_variant).to_string(),
+                    expected: "ChronoDateTimeLocal (DateTime<Local>)".to_string(),
                     actual: format!("{:?}", value),
                 })
             }
@@ -1695,5 +1950,25 @@ mod tests {
         assert!(is_naive_date_type(&qualified));
         assert!(!is_naive_date_type(&parse_str("NaiveDateTime").unwrap()));
         assert!(!is_naive_date_type(&parse_str("String").unwrap()));
+    }
+
+    #[test]
+    fn datetime_utc_and_local_type_detection() {
+        assert!(is_datetime_utc_type(
+            &parse_str("chrono::DateTime<chrono::Utc>").unwrap()
+        ));
+        assert!(is_datetime_utc_type(&parse_str("chrono::DateTime<Utc>").unwrap()));
+        assert!(!is_datetime_utc_type(
+            &parse_str("chrono::DateTime<chrono::Local>").unwrap()
+        ));
+        assert!(!is_datetime_utc_type(&parse_str("chrono::NaiveDateTime").unwrap()));
+
+        assert!(is_datetime_local_type(
+            &parse_str("chrono::DateTime<chrono::Local>").unwrap()
+        ));
+        assert!(is_datetime_local_type(&parse_str("chrono::DateTime<Local>").unwrap()));
+        assert!(!is_datetime_local_type(
+            &parse_str("chrono::DateTime<chrono::Utc>").unwrap()
+        ));
     }
 }
