@@ -45,8 +45,9 @@ LG_NEXTTEST_ENV = (
     + 'export TEST_REDIS_URL=redis://127.0.0.1:6545 && '
 )
 
-# `local_resource` exits non-zero → Tilt shows "Update error". DB / perf / full nextest are **manual** (`auto_init=False`)
-# so `tilt up` stays green; trigger them after shared-kind-cluster is up (see docs/TEST_INFRASTRUCTURE.md).
+# `local_resource` exits non-zero → Tilt shows "Update error". DB / perf / full nextest are **manual**
+# (`auto_init=False`, and **perf** uses `trigger_mode=TRIGGER_MODE_MANUAL` so deps/file watches do not auto-run).
+# Trigger them after shared-kind-cluster is up (see docs/TEST_INFRASTRUCTURE.md).
 
 # **microscaler/shared-kind-cluster** Tiltfile port-forwards: primary **5432**, replica-0 **6544**, replica-1 **6546**, redis **6545**
 # (see that repo’s `Tiltfile`). Only if you are **not** using that stack do you need manual `kubectl port-forward`.
@@ -486,6 +487,7 @@ local_resource(
 # See docs/PERF_ORM.md. With **shared-kind-cluster** Tilt up, localhost **6544** / **6545** reach replica-0 / Redis.
 #
 # `idam-perf-run` is **primary-only** (no `PERF_REPLICA_URL`). `idam-perf-run-replica` sets `PERF_REPLICA_URL` to **6544** (see `get_replica_connection_string.sh`).
+# Manual-only: do not auto-run on `tilt up`, on file changes, or when `build-lifeguard` updates.
 
 local_resource(
     'idam-perf',
@@ -502,6 +504,7 @@ local_resource(
     labels=['perf'],
     allow_parallel=False,
     auto_init=False,
+    trigger_mode=TRIGGER_MODE_MANUAL,
 )
 
 local_resource(
@@ -529,6 +532,7 @@ local_resource(
     labels=['perf'],
     allow_parallel=False,
     auto_init=False,
+    trigger_mode=TRIGGER_MODE_MANUAL,
 )
 
 local_resource(
@@ -558,6 +562,7 @@ local_resource(
     labels=['perf'],
     allow_parallel=False,
     auto_init=False,
+    trigger_mode=TRIGGER_MODE_MANUAL,
 )
 
 # ====================
