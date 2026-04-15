@@ -18,6 +18,14 @@ fn get_db() -> TestDatabase {
     TestDatabase::with_url(&ctx.pg_url)
 }
 
+/// PostgreSQL `timestamptz` is microsecond-precision; `chrono::DateTime<Utc>::now()` has nanoseconds.
+/// Truncate so insert / select round-trips match in CI and locally (driver + PG agree on whole µs).
+fn truncate_subsec_to_timestamptz_pg(dt: DateTime<Utc>) -> DateTime<Utc> {
+    let n = dt.timestamp_subsec_nanos();
+    let ns = (n / 1000) * 1000;
+    DateTime::from_timestamp(dt.timestamp(), ns).expect("subsecond nanos in range")
+}
+
 pub mod chrono_ts_read {
     use super::*;
 
@@ -139,7 +147,7 @@ fn timestamptz_insert_via_record_round_trip() {
     setup_insert(&executor).expect("setup");
     cleanup_insert(&executor).expect("cleanup");
 
-    let t = Utc::now();
+    let t = truncate_subsec_to_timestamptz_pg(Utc::now());
     let mut rec = chrono_ts_insert::TsUtcRowRecord::new();
     rec.set_id(42);
     rec.set_ts(t);
