@@ -13,4 +13,4 @@ path = "migration_test.rs"
 lifeguard = { path = "../", version = "0.1.0", features = ["graphql"] }
 async-graphql.workspace = true
 # SQL query builder
-sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
+sea-query = { version = "1.0.0-rc.33", features = ["with-json"] }

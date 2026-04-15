@@ -37,7 +37,7 @@ serde_json = "1.0"
 # Decimal support (needed for entities)
 rust_decimal = "1.41"
 # SQL query builder (for IdenStatic)
-sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
+sea-query = { version = "1.0.0-rc.33", features = ["with-json"] }
 # Path manipulation for relative paths
 pathdiff = "0.2"
 # Regex for pattern matching
