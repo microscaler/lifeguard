@@ -11,7 +11,7 @@ use lifeguard::{connect, LifeError, LifeExecutor, MayPostgresExecutor};
 fn main() -> Result<(), LifeError> {
     // Connect to database
     let connection_string = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:6543/postgres".to_string());
+        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres?options=-c%20search_path%3Dlifeguard".to_string());
 
     let client = connect(&connection_string)
         .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;

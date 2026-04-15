@@ -5,9 +5,7 @@ use std::sync::Mutex;
 use crate::context::get_test_context;
 use lifeguard::executor::LifeError;
 use lifeguard::test_helpers::TestDatabase;
-use lifeguard::{
-    ActiveModelError, ActiveModelTrait, ColumnTrait, LifeExecutor, LifeModelTrait,
-};
+use lifeguard::{ActiveModelError, ActiveModelTrait, ColumnTrait, LifeExecutor, LifeModelTrait};
 use lifeguard_derive::{LifeModel, LifeRecord};
 use sea_query::{PostgresQueryBuilder, Query};
 
@@ -112,7 +110,9 @@ fn insert_rejects_when_set_expr_pending() {
     let mut rec = CounterRecord::new();
     rec.set_n_expr(<Entity as LifeModelTrait>::Column::N.f_add(1i32));
 
-    let err = rec.insert(&executor).expect_err("insert must reject pending __update_exprs");
+    let err = rec
+        .insert(&executor)
+        .expect_err("insert must reject pending __update_exprs");
     match err {
         ActiveModelError::Other(msg) => {
             assert!(

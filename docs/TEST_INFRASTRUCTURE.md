@@ -4,30 +4,24 @@ This document describes the test infrastructure setup for Lifeguard using Kind (
 
 ## Overview
 
-Lifeguard uses Kind (Kubernetes in Docker) for local development. The manifests under `config/k8s/test-infrastructure/` mirror **CI’s** [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml): **Bitnami legacy PostgreSQL 15** primary, **streaming replicas**, and **Redis 7** (same images/env shape as Compose). **Host replica ports differ:** CI Compose exposes the standby through **Toxiproxy** on **6547**; Kind/Tilt exposes replicas on **6544** / **6546** directly.
+**Local Kubernetes:** use the shared Kind cluster from **microscaler/shared-kind-cluster** (kubectl context **`kind-kind`**). That repo’s Tilt applies Postgres (primary + replicas), Redis, observability, and other platform workloads into namespaces such as **`data`** and **`observability`**. See the README in that repo (sibling checkout next to Lifeguard).
 
-This provides:
-- Isolated test environments
-- Kubernetes-native service discovery
-- **Host ports aligned with CI** when using Tilt (see table below)
-- **Kind Postgres primary** also provisions a **`pact`** login role (password `pact`, `pg_monitor` granted) via `postgres-pact-role.sql` so borrowed observability snippets do not fail with `FATAL: role "pact" does not exist`.
+**This Lifeguard repo does not deploy those workloads.** Its Tiltfile runs **cargo builds and tests only** (UI often `http://localhost:10350`). Run **shared-kind-cluster** `just dev-up` / `tilt up` first (UI often `:10348`), then Lifeguard `just dev-up` / `tilt up`.
 
-### Tilt port-forwards (localhost → Kind)
+**CI** still uses [`.github/docker/docker-compose.yml`](../.github/docker/docker-compose.yml) (host **6543** primary, Toxiproxy replica **6547**, Redis **6545**). For local `just` against that Compose stack, set **`LIFEGUARD_PG_PORT=6543`** (and matching replica/Redis ports if needed).
 
-| Host port | Service | Notes |
-|-----------|---------|-------|
-| **6543** | `postgresql-primary` | Primary Postgres (CI Compose and Kind both use this host port). |
-| **6544** | `postgresql-replica-0` | First replica (**Kind/Tilt** direct to standby). |
-| **6545** | `redis` | Redis |
-| **6546** | `postgresql-replica-1` | Second Kind replica (not in single-replica CI Compose). |
-| **6547** | Toxiproxy → `postgresql-replica` | **CI Compose only:** streaming replica through [Toxiproxy](https://github.com/Shopify/toxiproxy) (avoids clashing with Kind’s replica-0 on **6544**). |
-| **8474** | Toxiproxy HTTP API | **CI Compose:** `TOXIPROXY_API=http://127.0.0.1:8474` — disable proxy / toxics for `pooled_read_falls_back_to_primary_when_replica_lagging`. |
+**Dedicated schema `lifeguard`:** URLs use `search_path=lifeguard`. On shared Postgres, create once: `CREATE SCHEMA IF NOT EXISTS lifeguard;` (superuser/`postgres`). CI Compose applies `postgres-lifeguard-schema.sql` on first init; optional manifests under `config/k8s/test-infrastructure/` remain for reference or manual `kubectl apply` — they are **not** applied by Lifeguard Tilt.
 
-For **Kind/Tilt**, use `TEST_REPLICA_URL` on **6544** (or **6546** for the second replica). For **CI Docker Compose** on your machine, use **`TEST_REPLICA_URL` on :6547** (replica via Toxiproxy) and set `TOXIPROXY_API` as in the table — not :6544, which would collide with Kind’s replica-0 when Tilt is running.
+### Host ports (typical)
 
-**Important:** If **Tilt** is forwarding **6543** / **6544** / … on localhost **and** you start **Compose**, both may bind the same host ports; connections to `127.0.0.1:6543` can hit **Kind’s primary** while `127.0.0.1:6547` hits **Compose’s replica**, producing impossible replication waits. **Stop Tilt** (`tilt down`) or avoid overlapping port-forwards before running Compose-backed tests locally.
+| Context | Primary | Replica | Redis | Notes |
+|---------|---------|---------|-------|--------|
+| **Shared cluster Tilt** (`data/postgres`) | **5432** | **6544** | **6545** | **microscaler/shared-kind-cluster** `Tiltfile` port-forwards: primary **5432**, streaming replica-0 **6544**, replica-1 **6546**, Redis **6545** → pod ports. App repos (e.g. Lifeguard) assume these host ports when `TEST_REPLICA_URL` / `TEST_REDIS_URL` use `127.0.0.1`. If you use a different stack, set URLs manually or run `kubectl port-forward` yourself. |
+| **CI / local Compose** | **6543** | **6547** (Toxiproxy) | **6545** | Set `LIFEGUARD_PG_PORT=6543` when using `just` against Compose. |
 
-Passwords match `config/k8s/test-infrastructure/postgresql-credentials-secret.yaml` (default `postgres` for local dev). The **`justfile`** defines Kind-style `TEST_*` values; run **`just kind-test-env`** to print `export …` lines, or use recipes like **`just nt-db-suite`** / **`just nt-workspace`** which set these automatically (Compose users should export `TOXIPROXY_API` and `TEST_REPLICA_URL` :6547 themselves when exercising the full `pool_read_replica` suite).
+The **`justfile`** defaults to **`LIFEGUARD_PG_PORT=5432`** for shared-cluster dev. Run **`just kind-test-env`** for `export …` lines.
+
+**Lifeguard Tilt:** targets that need Postgres (`test-nextest`, `test-nextest-fast`, `test-db-suite`, `test-migration`, perf, examples) use **`auto_init=False`** so a plain `tilt up` does not run them automatically (avoids red **Update error** when the DB is down or tests fail). The **`perf`** label (`idam-perf`, `idam-perf-run`, `idam-perf-run-replica`) also uses **`trigger_mode=TRIGGER_MODE_MANUAL`** so dependency updates and file watches do not auto-run them—only the UI trigger button does. Open the Tilt UI and **trigger** those resources after shared infra is ready. **`test-nextest`** matches CI’s workspace nextest (includes `lifeguard-integration-tests`); **`test-nextest-fast`** matches **`just nt`** (excludes that crate). **`test-db-suite`** runs **`db_integration_suite`** (serial profile); pair with **`test-nextest`** for full CI parity or use **`just nt-ci-parity`** from a shell (see **`just kind-test-env`**).
 
 ## Prerequisites
 
@@ -60,12 +54,14 @@ sudo mv kubectl /usr/local/bin/kubectl
 ### Setup Test Infrastructure
 
 ```bash
-# Setup Kind cluster and deploy PostgreSQL (full setup)
-just dev-up
+# 1) Shared platform (Postgres, Redis, …) — from microscaler/shared-kind-cluster
+cd ../shared-kind-cluster && just dev-up   # or: tilt up
 
-# Or step by step:
-just dev-up          # Create cluster, deploy, and wait for database
-just dev-wait-db     # Wait for PostgreSQL to be ready (if already deployed)
+# 2) Lifeguard builds/tests Tilt (same Kind context kind-kind)
+cd ../lifeguard && just dev-up
+
+# Wait for shared data plane pods (namespace data)
+just dev-wait-db
 ```
 
 ### Get Connection String
@@ -232,8 +228,8 @@ cd /path/to/lifeguard
 # Set PGPASSWORD in your shell to match your DB (CI uses the repository secret of the same name; do not commit values).
 docker compose -f .github/docker/docker-compose.yml up -d --wait
 
-export TEST_DATABASE_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6543/postgres"
-export TEST_REPLICA_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6547/postgres"
+export TEST_DATABASE_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6543/postgres?options=-c%20search_path%3Dlifeguard"
+export TEST_REPLICA_URL="postgres://postgres:${PGPASSWORD}@127.0.0.1:6547/postgres?options=-c%20search_path%3Dlifeguard"
 export TEST_REDIS_URL="${TEST_REDIS_URL:-redis://127.0.0.1:6545}"
 export TOXIPROXY_API="http://127.0.0.1:8474"
 
@@ -250,7 +246,7 @@ Product requirements: [`docs/planning/PRD_READ_REPLICA_TESTING.md`](planning/PRD
 
 ### Cluster Configuration
 
-- **Cluster Name:** `lifeguard-test`
+- **Kind cluster name:** `kind` (kubectl context **`kind-kind`**; created by `scripts/setup_kind_cluster.sh` if missing)
 - **Namespace:** `lifeguard-test`
 - **Pod Subnet:** `10.206.0.0/16` (unique to avoid conflicts)
 - **Service Subnet:** `10.207.0.0/16` (unique to avoid conflicts)

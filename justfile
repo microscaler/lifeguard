@@ -8,13 +8,20 @@ set shell := ["bash", "-uc"]
 set dotenv-load := true
 
 # Variables
-# Kind/Tilt port-forwards (see `config/k8s/test-infrastructure` + Tiltfile): 6543 primary, 6544 replica-0, 6545 redis, 6546 replica-1.
-# Passwords match `config/k8s/test-infrastructure/postgresql-credentials-secret.yaml` (default `postgres`).
-TEST_DATABASE_URL := "postgres://postgres:postgres@127.0.0.1:6543/postgres"
-TEST_REPLICA_URL := "postgres://postgres:postgres@127.0.0.1:6544/postgres"
-TEST_REDIS_URL := "redis://127.0.0.1:6545"
+# **Local dev:** use microscaler/shared-kind-cluster (`tilt up` there); it port-forwards Postgres primary to **localhost:5432**.
+# **shared-kind-cluster** Tilt port-forwards replica-0 **6544** and Redis **6545** (see that repo’s `Tiltfile`). Manual `kubectl port-forward` only if you use another stack.
+# **CI / docker-compose** uses host **6543** — set `LIFEGUARD_PG_PORT=6543` when running `just` against that stack only.
+# libpq `options`: `search_path=lifeguard` (create schema once: `CREATE SCHEMA IF NOT EXISTS lifeguard;` on shared Postgres).
+LG_PG_SEARCH_PATH := "?options=-c%20search_path%3Dlifeguard"
+LIFEGUARD_PG_PORT := env_var_or_default("LIFEGUARD_PG_PORT", "5432")
+LIFEGUARD_REPLICA_PORT := env_var_or_default("LIFEGUARD_REPLICA_PORT", "6544")
+LIFEGUARD_REDIS_PORT := env_var_or_default("LIFEGUARD_REDIS_PORT", "6545")
+LIFEGUARD_REPLICA2_PORT := env_var_or_default("LIFEGUARD_REPLICA2_PORT", "6546")
+TEST_DATABASE_URL := "postgres://postgres:postgres@127.0.0.1:" + LIFEGUARD_PG_PORT + "/postgres" + LG_PG_SEARCH_PATH
+TEST_REPLICA_URL := "postgres://postgres:postgres@127.0.0.1:" + LIFEGUARD_REPLICA_PORT + "/postgres" + LG_PG_SEARCH_PATH
+TEST_REDIS_URL := "redis://127.0.0.1:" + LIFEGUARD_REDIS_PORT
 # Optional second streaming replica (pool tests that target a specific standby)
-TEST_REPLICA_URL_SECOND := "postgres://postgres:postgres@127.0.0.1:6546/postgres"
+TEST_REPLICA_URL_SECOND := "postgres://postgres:postgres@127.0.0.1:" + LIFEGUARD_REPLICA2_PORT + "/postgres" + LG_PG_SEARCH_PATH
 # Primary URL for app code + migrate CLIs (same as TEST_DATABASE_URL for Kind)
 DATABASE_URL := TEST_DATABASE_URL
 ENTITY_DIR := "src/entity"
@@ -35,34 +42,37 @@ dev-up:
 dev-down:
     @python3 scripts/dev_down.py
 
-# Wait for database to be ready
+# Wait for shared **data** plane (microscaler/shared-kind-cluster) — namespace `data`
 dev-wait-db:
-    @echo "⏳ Waiting for Postgres primary + replicas + Redis..."
-    @kubectl wait --for=condition=available --timeout=300s deployment/postgresql-primary deployment/postgresql-replica-0 deployment/postgresql-replica-1 deployment/redis -n lifeguard-test || \
-        (echo "⚠️  Stack not ready. Check status:" && kubectl get pods -n lifeguard-test && exit 1)
+    @echo "⏳ Waiting for Postgres primary + replicas + Redis (namespace data)..."
+    @kubectl wait --for=condition=available --timeout=300s deployment/postgres-primary deployment/postgres-replica-0 deployment/postgres-replica-1 deployment/redis -n data || \
+        (echo "⚠️  Stack not ready. Is shared-kind-cluster Tilt up? kubectl get pods -n data" && kubectl get pods -n data && exit 1)
 
 # Get test database connection string
 dev-connection-string:
     @./scripts/get_test_connection_string.sh
 
+# Replica URL for host dev (port-forward the Service `kubectl get svc -n data` shows — usually `postgres-replica-0`)
+dev-replica-connection-string:
+    @./scripts/get_replica_connection_string.sh
+
 # Print `export ...` lines for manual cargo runs (same URLs as `nt-db-suite` / `nt-workspace`)
 kind-test-env:
     @echo "export DATABASE_URL='{{DATABASE_URL}}'"
     @echo "export TEST_DATABASE_URL='{{TEST_DATABASE_URL}}'"
-    @echo "export TEST_REPLICA_URL='{{TEST_REPLICA_URL}}'"
+    @echo "export TEST_REPLICA_URL='$(./scripts/get_replica_connection_string.sh)'"
     @echo "export TEST_REDIS_URL='{{TEST_REDIS_URL}}'"
     @echo "# optional: use second replica instead — export TEST_REPLICA_URL='{{TEST_REPLICA_URL_SECOND}}'"
 
-# Port-forward PostgreSQL service for local access
+# Port-forward shared primary (only if shared Tilt is not already forwarding :5432)
 dev-port-forward:
-    @echo "🔌 Primary Postgres only on 6543:5432 (use \`tilt up\` for full stack: primary 6543, replica-0 6544, redis 6545, replica-1 6546)."
-    @kubectl port-forward -n lifeguard-test svc/postgresql-primary 6543:5432
+    @echo "🔌 kubectl port-forward -n data svc/postgres 5432:5432  (shared-kind-cluster; skip if that Tilt already binds :5432)"
+    @kubectl port-forward -n data svc/postgres 5432:5432
 
 # Start Tilt (assumes cluster is already running)
 tilt-up:
-    @echo "🎯 Starting Tilt..."
+    @echo "🎯 Starting Lifeguard Tilt (builds/tests only — infra is shared-kind-cluster)..."
     @echo "   Tilt UI: http://localhost:10350"
-    @echo "   Postgres primary: localhost:6543 | replica-0: 6544 | replica-1: 6546 | Redis: 6545"
     @tilt up
 
 # Stop Tilt
@@ -93,15 +103,27 @@ check:
 # Testing
 # ============================================================================
 #
+# Plain `cargo test` does **not** match what CI / this repo calls the "workspace suite": it ignores
+# `cargo nextest`, `.config/nextest.toml` (timeouts, `db_integration_suite` mutex), and the filters below.
+#
 # Nextest quick reference (see docs/TEST_INFRASTRUCTURE.md):
-#   nt / nextest-test  — workspace, excludes lifeguard-integration-tests + db_integration_suite binary
+#   nt / nextest-test  — workspace nextest; excludes lifeguard-integration-tests + db_integration_suite binary (fast loop)
 #   nt-workspace       — CI-parity workspace (includes lifeguard-integration-tests); still excludes db_suite
-#   nt-db-suite        — lifeguard db_integration_suite only, serial (shared Postgres safe)
-#   nt-complete        — nt then nt-db-suite (typical local DB run)
-#   nt-ci-parity         — nt-workspace then nt-db-suite (matches CI test steps)
+#   nt-db-suite        — lifeguard db_integration_suite only, serial (shared Postgres safe); same as:
+#                        cargo nextest run -p lifeguard --all-features --profile db-serial --config-file .config/nextest.toml -E 'binary(db_integration_suite)'
+#   nt-complete        — nextest-test then nt-db-suite (typical local: all workspace members except integration crate, plus DB suite)
+#   nt-ci-parity / nt-full — nt-workspace then nt-db-suite (matches CI: integration crate + DB suite)
 #   nt-integration       — lifeguard-integration-tests only (cluster URL from script)
+#
+# Coverage ladder (pick one path):
+#   • Fast loop (~`just nt`):                    `just nt` or `just nextest-test` — skips `lifeguard-integration-tests` + `db_integration_suite`
+#   • CI workspace step only:                    `just nt-workspace` — full workspace except `db_integration_suite`
+#   • Serial ORM/DB integration (`db_integration_suite`): `just nt-db-suite`
+#   • Typical “all Rust tests” locally:           `just nt-complete` (= `nt` + `nt-db-suite`)
+#   • **Full CI parity** (workspace + db suite): `just nt-ci-parity` or `just nt-full`
+# Tilt UI: `test-nextest` ≈ `nt-workspace`; `test-nextest-fast` ≈ `nt`; `test-db-suite` ≈ `nt-db-suite`; `test-migration` = integration crate only.
 
-# Run all tests
+# Library unit tests only (`cargo test --lib`). For broad coverage use `just nt`, `just nt-complete`, or `just nt-ci-parity`.
 test: test-unit
 
 # Run unit tests
@@ -122,6 +144,9 @@ nextest-test:
     @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run --workspace --all-features --fail-fast --retries 1 --exclude lifeguard-integration-tests -E 'not binary(db_integration_suite)'
 
 alias nt := nextest-test
+
+# Broadest automated suite aligned with CI (workspace including lifeguard-integration-tests + db_integration_suite).
+alias nt-full := nt-ci-parity
 
 # CI-parity workspace nextest (same filter as .github/workflows/ci.yaml "Run workspace tests").
 # Includes lifeguard-integration-tests; requires DATABASE_URL (and any deps those tests need).
@@ -153,17 +178,20 @@ nt-codegen:
     @echo "🧪 Running lifeguard-codegen tests..."
     @cd lifeguard-codegen && cargo test --no-fail-fast
 
-# Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB
+# Lifeguard `tests/db_integration_suite.rs`: Postgres + optional Redis; must run serially on a shared DB.
+# Tilt UI: `test-db-suite` (same command + `LG_NEXTTEST_ENV`).
 nt-db-suite:
     @echo "🧪 Running lifeguard db_integration_suite (serial profile; Kind/Tilt: TEST_* from justfile)..."
-    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial -E 'binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --config-file .config/nextest.toml -E 'binary(db_integration_suite)'
 
 alias nt-db := nt-db-suite
+# Same as `nt-db-suite` (CI step name / copy-paste alias)
+alias db-integration-suite := nt-db-suite
 
 # Verbose output for db suite only
 nt-db-suite-verbose:
     @echo "🧪 Running lifeguard db_integration_suite (serial, no-capture)..."
-    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --no-capture -E 'binary(db_integration_suite)'
+    @DATABASE_URL={{DATABASE_URL}} TEST_DATABASE_URL={{TEST_DATABASE_URL}} TEST_REPLICA_URL={{TEST_REPLICA_URL}} TEST_REDIS_URL={{TEST_REDIS_URL}} cargo nextest run -p lifeguard --all-features --profile db-serial --config-file .config/nextest.toml --no-capture -E 'binary(db_integration_suite)'
 
 # Typical local run: fast workspace (no cluster integration crate) + serial DB suite
 nt-complete: nextest-test nt-db-suite
@@ -213,6 +241,12 @@ test-coverage-check:
     @echo "📊 Checking test coverage (minimum 65%)..."
     @cargo install cargo-llvm-cov --locked 2>/dev/null || true
     @cargo llvm-cov --lib --summary-only | grep -E "^\s*Total\s+\|\s+[0-9]+\s+\|\s+[0-9]+\s+\|\s+([0-9]+)%" || echo "⚠️  Could not parse coverage, run 'just test-coverage' for full report"
+
+# Rewrite `lifeguard-migrate/tests/golden/*.expected.rs` from current `emit_inferred_rust` (no DB). Set only when changing the emitter; review `git diff` before commit. CI must not set `LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS`.
+bless-infer-schema-goldens:
+    @echo "📝 Blessing infer-schema goldens (LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1)..."
+    LIFEGUARD_BLESS_INFER_SCHEMA_GOLDENS=1 cargo test -p lifeguard-migrate golden_ -- --nocapture
+    @echo "✅ Done. Review changes under lifeguard-migrate/tests/golden/"
 
 # ============================================================================
 # Code Quality
@@ -327,12 +361,12 @@ clean:
 status:
     @echo "📊 Cluster Status..."
     @kubectl get nodes 2>/dev/null || echo "⚠️  No Kind cluster running"
-    @kubectl get pods -n lifeguard-test 2>/dev/null || echo "⚠️  No pods in lifeguard-test namespace"
+    @kubectl get pods -n data 2>/dev/null || echo "⚠️  No pods in data namespace (start shared-kind-cluster Tilt)"
 
 # Show PostgreSQL logs
 logs-db:
-    @echo "📜 PostgreSQL primary logs..."
-    @kubectl logs -n lifeguard-test deployment/postgresql-primary --tail=100 -f
+    @echo "📜 PostgreSQL primary logs (namespace data)..."
+    @kubectl logs -n data deployment/postgres-primary --tail=100 -f
 
 # ============================================================================
 # Documentation

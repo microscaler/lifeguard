@@ -10,7 +10,7 @@
 #   docker compose -f .github/docker/docker-compose.yml up -d --wait
 #
 # JDBC-style URLs use the same value (percent-encode reserved characters in the secret):
-#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6543/postgres
+#   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6543/postgres?options=-c%20search_path%3Dlifeguard
 #   postgresql://postgres:<value-from-PGPASSWORD-env>@127.0.0.1:6547/postgres  (Toxiproxy → streaming replica; avoids clashing with Kind/Tilt replica-0 on :6544)
 #   Redis:    redis://127.0.0.1:6545
 #   Toxiproxy API: http://127.0.0.1:8474 (optional; enables `pooled_read_falls_back_to_primary_when_replica_lagging` in db_integration_suite)
@@ -27,6 +27,9 @@ services:
     image: docker.io/bitnamilegacy/postgresql:15
     ports:
       - "6543:5432"
+    volumes:
+      # Dedicated `lifeguard` schema (parity with Kind postStart); runs on first empty PGDATA only.
+      - ../../config/k8s/test-infrastructure/postgres-lifeguard-schema.sql:/docker-entrypoint-initdb.d/11-lifeguard-schema.sql:ro
     environment:
       POSTGRESQL_REPLICATION_MODE: master
       POSTGRESQL_REPLICATION_USER: replicator

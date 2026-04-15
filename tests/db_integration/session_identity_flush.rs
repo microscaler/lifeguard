@@ -7,7 +7,9 @@ use crate::context::get_test_context;
 use lifeguard::executor::LifeError;
 use lifeguard::session::{ModelIdentityMap, Session};
 use lifeguard::test_helpers::TestDatabase;
-use lifeguard::{ActiveModelTrait, LifeExecutor, LifeguardPool, LifeModelTrait, PooledLifeExecutor};
+use lifeguard::{
+    ActiveModelTrait, LifeExecutor, LifeModelTrait, LifeguardPool, PooledLifeExecutor,
+};
 use lifeguard_derive::{LifeModel, LifeRecord};
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -208,10 +210,7 @@ fn identity_map_pending_insert_flush_and_promote_persists_on_postgres() {
     setup(&executor).expect("setup");
 
     let mut map = ModelIdentityMap::<Entity>::new();
-    let (pending_key, rc) = map.register_pending_insert(CounterModel {
-        id: 0,
-        n: 33,
-    });
+    let (pending_key, rc) = map.register_pending_insert(CounterModel { id: 0, n: 33 });
 
     map.flush_dirty_with_map_key(&executor, |ex, mrc, key| {
         assert!(lifeguard::is_pending_insert_key(key));
@@ -235,9 +234,7 @@ fn identity_map_pending_insert_flush_and_promote_persists_on_postgres() {
     assert_eq!(n, 33);
 
     assert_eq!(map.dirty_len(), 0);
-    assert!(map
-        .get_existing(&CounterModel { id: 2, n: 0 })
-        .is_some());
+    assert!(map.get_existing(&CounterModel { id: 2, n: 0 }).is_some());
 }
 
 #[test]
@@ -251,10 +248,7 @@ fn session_pending_insert_flush_in_transaction_with_map_key_persists_on_postgres
     setup(&executor).expect("setup");
 
     let session = Session::<Entity>::new();
-    let (pending_key, rc) = session.register_pending_insert(CounterModel {
-        id: 0,
-        n: 44,
-    });
+    let (pending_key, rc) = session.register_pending_insert(CounterModel { id: 0, n: 44 });
 
     session
         .flush_dirty_in_transaction_with_map_key(&executor, |ex, mrc, key| {
@@ -292,10 +286,7 @@ fn session_pending_insert_flush_in_transaction_pooled_with_map_key_persists_on_p
     setup(&setup_ex).expect("setup");
 
     let session = Session::<Entity>::new();
-    let (pending_key, rc) = session.register_pending_insert(CounterModel {
-        id: 0,
-        n: 55,
-    });
+    let (pending_key, rc) = session.register_pending_insert(CounterModel { id: 0, n: 55 });
 
     session
         .flush_dirty_in_transaction_pooled_with_map_key(&pool, |ex, mrc, key| {

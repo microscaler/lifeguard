@@ -18,9 +18,9 @@ jobs:
     # Repository secret `PGPASSWORD`: exported to steps; Compose file interpolates `${PGPASSWORD}`; URLs / `psql` use the same. Not available to workflows from fork PRs.
     env:
       PGPASSWORD: ${{ secrets.PGPASSWORD }}
-      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
-      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres
-      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6547/postgres
+      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres?options=-c%20search_path%3Dlifeguard
+      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres?options=-c%20search_path%3Dlifeguard
+      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6547/postgres?options=-c%20search_path%3Dlifeguard
       TOXIPROXY_API: http://127.0.0.1:8474
       REDIS_URL: redis://127.0.0.1:6545
       TEST_REDIS_URL: redis://127.0.0.1:6545
@@ -62,6 +62,8 @@ jobs:
       - name: Regenerate entity migrations and apply to Postgres
         run: |
           set -euo pipefail
+          # Align with DATABASE_URL search_path (dedicated `lifeguard` schema).
+          export PGOPTIONS='-c search_path=lifeguard'
           rm -rf migrations/generated
           (cd examples/entities && cargo run --bin generate-migrations)
           gen="migrations/generated"
@@ -158,8 +160,8 @@ jobs:
       # perf-orm: Compose host ports :6543 / :6547 (replica via Toxiproxy) / :6545 (see `.github/docker/docker-compose.yml`).
       - name: Run perf-orm
         env:
-          PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6543/postgres
-          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6547/postgres
+          PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6543/postgres?options=-c%20search_path%3Dlifeguard
+          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6547/postgres?options=-c%20search_path%3Dlifeguard
           REDIS_URL: redis://127.0.0.1:6545
           TEST_REDIS_URL: redis://127.0.0.1:6545
           PERF_RESET: "1" # destructive DDL on perf_* tables

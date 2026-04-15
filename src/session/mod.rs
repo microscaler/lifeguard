@@ -253,7 +253,11 @@ where
     /// Flush every dirty row in **lexicographic order of map key** by calling `f` with the executor
     /// and the shared [`Rc`]. On success for a row, its dirty flag is cleared. On the first error,
     /// remaining dirty keys are left unchanged (including the failing key).
-    pub fn flush_dirty<F>(&mut self, executor: &dyn LifeExecutor, mut f: F) -> Result<(), ActiveModelError>
+    pub fn flush_dirty<F>(
+        &mut self,
+        executor: &dyn LifeExecutor,
+        mut f: F,
+    ) -> Result<(), ActiveModelError>
     where
         F: FnMut(&dyn LifeExecutor, Rc<RefCell<E::Model>>) -> Result<(), ActiveModelError>,
     {
@@ -287,7 +291,11 @@ mod tests {
     struct NopExecutor;
 
     impl LifeExecutor for NopExecutor {
-        fn execute(&self, _query: &str, _params: &[&dyn may_postgres::types::ToSql]) -> Result<u64, LifeError> {
+        fn execute(
+            &self,
+            _query: &str,
+            _params: &[&dyn may_postgres::types::ToSql],
+        ) -> Result<u64, LifeError> {
             Ok(0)
         }
 
@@ -406,20 +414,14 @@ mod tests {
     fn identity_map_explicit_new_not_global() {
         let mut a = ModelIdentityMap::<SessEntity>::new();
         let b = ModelIdentityMap::<SessEntity>::new();
-        let _ = a.register_loaded(SessModel {
-            id: 1,
-            label: "a",
-        });
+        let _ = a.register_loaded(SessModel { id: 1, label: "a" });
         assert!(b.is_empty());
     }
 
     #[test]
     fn get_existing_finds_registered() {
         let mut map = ModelIdentityMap::<SessEntity>::new();
-        let m = SessModel {
-            id: 7,
-            label: "x",
-        };
+        let m = SessModel { id: 7, label: "x" };
         let r1 = map.register_loaded(m.clone());
         let probe = SessModel {
             id: 7,
@@ -433,10 +435,7 @@ mod tests {
     #[test]
     fn mark_dirty_ignores_unregistered_pk() {
         let mut map = ModelIdentityMap::<SessEntity>::new();
-        let orphan = SessModel {
-            id: 99,
-            label: "n",
-        };
+        let orphan = SessModel { id: 99, label: "n" };
         map.mark_dirty(&orphan);
         assert_eq!(map.dirty_len(), 0);
     }
@@ -444,38 +443,20 @@ mod tests {
     #[test]
     fn mark_dirty_key_matches_fingerprint() {
         let mut map = ModelIdentityMap::<SessEntity>::new();
-        let _ = map.register_loaded(SessModel {
-            id: 5,
-            label: "a",
-        });
+        let _ = map.register_loaded(SessModel { id: 5, label: "a" });
         let key = fingerprint_pk_values(&[Value::Int(Some(5))]);
         map.mark_dirty_key(&key);
         assert_eq!(map.dirty_len(), 1);
-        assert!(map.is_marked_dirty(&SessModel {
-            id: 5,
-            label: "x",
-        }));
+        assert!(map.is_marked_dirty(&SessModel { id: 5, label: "x" }));
     }
 
     #[test]
     fn flush_dirty_lexicographic_order() {
         let mut map = ModelIdentityMap::<SessEntity>::new();
-        let _ = map.register_loaded(SessModel {
-            id: 10,
-            label: "a",
-        });
-        let _ = map.register_loaded(SessModel {
-            id: 2,
-            label: "b",
-        });
-        map.mark_dirty(&SessModel {
-            id: 10,
-            label: "a",
-        });
-        map.mark_dirty(&SessModel {
-            id: 2,
-            label: "b",
-        });
+        let _ = map.register_loaded(SessModel { id: 10, label: "a" });
+        let _ = map.register_loaded(SessModel { id: 2, label: "b" });
+        map.mark_dirty(&SessModel { id: 10, label: "a" });
+        map.mark_dirty(&SessModel { id: 2, label: "b" });
         let order = RefCell::new(Vec::new());
         let ex = NopExecutor;
         let ex_ref: &dyn LifeExecutor = &ex;
@@ -492,22 +473,10 @@ mod tests {
     #[test]
     fn flush_dirty_error_leaves_failed_key_dirty() {
         let mut map = ModelIdentityMap::<SessEntity>::new();
-        let _ = map.register_loaded(SessModel {
-            id: 10,
-            label: "a",
-        });
-        let _ = map.register_loaded(SessModel {
-            id: 2,
-            label: "b",
-        });
-        map.mark_dirty(&SessModel {
-            id: 10,
-            label: "a",
-        });
-        map.mark_dirty(&SessModel {
-            id: 2,
-            label: "b",
-        });
+        let _ = map.register_loaded(SessModel { id: 10, label: "a" });
+        let _ = map.register_loaded(SessModel { id: 2, label: "b" });
+        map.mark_dirty(&SessModel { id: 10, label: "a" });
+        map.mark_dirty(&SessModel { id: 2, label: "b" });
         let ex = NopExecutor;
         let ex_ref: &dyn LifeExecutor = &ex;
         let flush_result = map.flush_dirty(ex_ref, |_, rc| {
@@ -517,18 +486,9 @@ mod tests {
                 Ok(())
             }
         });
-        assert_eq!(
-            flush_result,
-            Err(ActiveModelError::Other("fail".into()))
-        );
-        assert!(!map.is_marked_dirty(&SessModel {
-            id: 10,
-            label: "x",
-        }));
-        assert!(map.is_marked_dirty(&SessModel {
-            id: 2,
-            label: "x",
-        }));
+        assert_eq!(flush_result, Err(ActiveModelError::Other("fail".into())));
+        assert!(!map.is_marked_dirty(&SessModel { id: 10, label: "x" }));
+        assert!(map.is_marked_dirty(&SessModel { id: 2, label: "x" }));
     }
 
     #[test]
@@ -551,10 +511,13 @@ mod tests {
         assert_eq!(map.dirty_len(), 0);
         assert_eq!(map.len(), 1);
         let r2 = map
-            .promote_pending_to_loaded(&k, SessModel {
-                id: 42,
-                label: "saved",
-            })
+            .promote_pending_to_loaded(
+                &k,
+                SessModel {
+                    id: 42,
+                    label: "saved",
+                },
+            )
             .expect("promote");
         assert_eq!(r2.borrow().id, 42);
         assert_eq!(map.len(), 1);
@@ -569,19 +532,9 @@ mod tests {
     #[test]
     fn session_identity_model_cell_replace_with_updates_rc() {
         let mut map = ModelIdentityMap::<SessEntity>::new();
-        let rc = map.register_loaded(SessModel {
-            id: 1,
-            label: "a",
-        });
+        let rc = map.register_loaded(SessModel { id: 1, label: "a" });
         let cell = SessionIdentityModelCell::new(&rc);
-        assert!(
-            cell
-                .replace_with(SessModel {
-                    id: 1,
-                    label: "b",
-                })
-                .is_ok()
-        );
+        assert!(cell.replace_with(SessModel { id: 1, label: "b" }).is_ok());
         assert_eq!(rc.borrow().label, "b");
     }
 }

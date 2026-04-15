@@ -77,16 +77,16 @@ mod tests {
 
     #[test]
     fn query_error_is_not_heal_candidate() {
-        assert!(!life_error_is_connectivity_heal_candidate(&LifeError::QueryError(
-            "syntax".into(),
-        )));
+        assert!(!life_error_is_connectivity_heal_candidate(
+            &LifeError::QueryError("syntax".into(),)
+        ));
     }
 
     #[test]
     fn other_error_is_not_heal_candidate() {
-        assert!(!life_error_is_connectivity_heal_candidate(&LifeError::Other(
-            "oops".into(),
-        )));
+        assert!(!life_error_is_connectivity_heal_candidate(
+            &LifeError::Other("oops".into(),)
+        ));
     }
 
     #[test]

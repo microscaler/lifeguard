@@ -206,6 +206,12 @@ fn compile_error_index_nonexistent_column() {
 }
 
 #[test]
+fn compile_error_index_expression_requires_coverage_columns() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_index_expression_requires_coverage_columns.rs");
+}
+
+#[test]
 fn compile_error_index_parent_table_column() {
     let t = TEST_CASES.lock().unwrap();
     t.compile_fail("tests/ui/compile_error_index_parent_table_column.rs");
@@ -233,6 +239,12 @@ fn compile_error_index_skipped_field() {
 fn compile_error_index_ignored_field() {
     let t = TEST_CASES.lock().unwrap();
     t.compile_fail("tests/ui/compile_error_index_ignored_field.rs");
+}
+
+#[test]
+fn compile_error_require_index_coverage() {
+    let t = TEST_CASES.lock().unwrap();
+    t.compile_fail("tests/ui/compile_error_require_index_coverage.rs");
 }
 
 #[test]

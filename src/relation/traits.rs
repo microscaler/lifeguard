@@ -5,9 +5,10 @@
 
 use crate::executor::LifeError;
 use crate::model::ModelTrait;
+use crate::query::scope::IntoScope;
 use crate::query::{LifeEntityName, LifeModelTrait, SelectQuery};
-use crate::relation::def::{build_where_condition, RelationDef};
-use sea_query::{Expr, Iden};
+use crate::relation::def::{build_where_condition, join_tbl_on_expr, RelationDef};
+use sea_query::{Expr, Iden, IntoCondition};
 
 /// Trait for defining entity relationships
 ///
@@ -404,9 +405,13 @@ where
 /// [`crate::SelectQuery::scope`] applies only to queries you build on a given root entity.
 /// `find_related` returns a [`SelectQuery`] for the **related** table with a `WHERE` from the
 /// relation metadata only—it does **not** inherit scopes from a separate `Parent::find().scope(…)`
-/// query. Chain [`.scope`](crate::SelectQuery::scope) or [`.filter`](crate::SelectQuery::filter) on
-/// the returned query to narrow related rows. See `docs/planning/DESIGN_FIND_RELATED_SCOPES.md` in
-/// the repository.
+/// query, and it does **not** implicitly merge with eager loaders. Chain
+/// [`.scope`](crate::SelectQuery::scope) or [`.filter`](crate::SelectQuery::filter) on
+/// the returned query to narrow related rows, or call [`FindRelated::find_related_scoped`] for the
+/// same effect in one step (**related-side** scope only). For caller-side / **parent-table**
+/// predicates in the same SQL as the related load, use [`FindRelated::find_related_parent_scoped`]
+/// (direct edges only; non-`None` [`RelationDef::through_tbl`](crate::RelationDef::through_tbl) is
+/// rejected until supported). See `docs/planning/DESIGN_FIND_RELATED_SCOPES.md` (appendix: deferred behavior).
 ///
 /// ## Example
 ///
@@ -436,6 +441,10 @@ pub trait FindRelated: ModelTrait {
     ///
     /// Do not assume you can qualify the filter with the source table unless that table is also
     /// part of the query’s `FROM`/`JOIN` list.
+    ///
+    /// Parent-side scopes (`Self::Entity::find().scope(…)`) are **not** applied here; compose
+    /// explicitly or use [`find_related_parent_scoped`](Self::find_related_parent_scoped) when you
+    /// need the source table joined.
     ///
     /// # Type Parameters
     ///
@@ -476,6 +485,66 @@ pub trait FindRelated: ModelTrait {
     where
         R: LifeModelTrait,
         Self::Entity: Related<R>;
+
+    /// Like [`find_related`](Self::find_related), then [`.scope`](SelectQuery::scope) on the
+    /// **related** entity query — explicit opt-in for **related-table** predicates only.
+    ///
+    /// This does **not** merge scopes from `Parent::find().scope(…)`; it only applies `related_scope`
+    /// to the `SelectQuery<R>` returned from `find_related` (same as
+    /// `find_related()?.scope(related_scope)`). For predicates on **`Self::Entity`**’s table in the
+    /// same query, use [`find_related_parent_scoped`](Self::find_related_parent_scoped) instead.
+    fn find_related_scoped<R, S>(&self, related_scope: S) -> Result<SelectQuery<R>, LifeError>
+    where
+        R: LifeModelTrait,
+        Self::Entity: Related<R>,
+        S: IntoScope<R>,
+    {
+        self.find_related::<R>().map(|q| q.scope(related_scope))
+    }
+
+    /// [`find_related`](Self::find_related) with an extra **`INNER JOIN`** on the **source** side
+    /// of the relation ([`RelationDef::from_tbl`](crate::RelationDef::from_tbl)) so predicates on
+    /// **`Self::Entity`**’s table (e.g. from [`SelectQuery::scope`](SelectQuery::scope) helpers) can be
+    /// applied in the same query as the relation filter from [`build_where_condition`](crate::build_where_condition).
+    ///
+    /// Use this when you need **caller-side** / **from-table** conditions alongside the related load
+    /// (PRD §7.7; `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`). This is **not** the same as
+    /// [`find_related_scoped`](Self::find_related_scoped) (which applies a scope only on the **related**
+    /// entity). It is also **not** an automatic merge of a separate `Parent::find().scope(…)` query;
+    /// you pass the parent predicate explicitly as `parent_scope`.
+    ///
+    /// **Many-to-many:** if [`RelationDef::through_tbl`](crate::RelationDef::through_tbl) is set,
+    /// this method returns an error (`has_many_through` not supported yet). Until then, use
+    /// [`find_related`](Self::find_related) / [`find_related_scoped`](Self::find_related_scoped) on the
+    /// entity that is actually in `FROM`, or build a [`SelectQuery`] with explicit joins on the join
+    /// table ([`join_tbl_on_expr`](crate::join_tbl_on_expr) and relation metadata).
+    ///
+    /// `parent_scope` must qualify columns on **`Self::Entity`**’s table (same as
+    /// `Self::Entity::find().scope(…)`).
+    fn find_related_parent_scoped<R, S>(&self, parent_scope: S) -> Result<SelectQuery<R>, LifeError>
+    where
+        R: LifeModelTrait,
+        Self::Entity: Related<R> + Default + Iden,
+        S: IntoCondition,
+    {
+        let rel_def = <Self::Entity as Related<R>>::to();
+        if rel_def.through_tbl.is_some() {
+            return Err(LifeError::Other(
+                "find_related_parent_scoped: has_many_through is not supported yet".to_string(),
+            ));
+        }
+        let join_on = join_tbl_on_expr(
+            &rel_def.from_tbl,
+            &rel_def.to_tbl,
+            &rel_def.from_col,
+            &rel_def.to_col,
+        );
+        let mut q = SelectQuery::<R>::new();
+        q = q.inner_join(Self::Entity::default(), join_on);
+        q = q.filter(build_where_condition(&rel_def, self)?);
+        q = q.filter(parent_scope.into_condition());
+        Ok(q)
+    }
 }
 
 // Implement FindRelated for all ModelTrait types

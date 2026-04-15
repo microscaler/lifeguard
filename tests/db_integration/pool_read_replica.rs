@@ -125,16 +125,9 @@ fn assert_pooled_pg_is_in_recovery(exec: &PooledLifeExecutor, expect_standby: bo
     );
 }
 
-fn setup_schema_on_primary(
-    executor: &lifeguard::MayPostgresExecutor,
-    schema: &str,
-    table: &str,
-) {
+fn setup_schema_on_primary(executor: &lifeguard::MayPostgresExecutor, schema: &str, table: &str) {
     executor
-        .execute(
-            &format!("CREATE SCHEMA IF NOT EXISTS {schema}"),
-            &[],
-        )
+        .execute(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"), &[])
         .expect("create schema");
     executor
         .execute(
@@ -391,13 +384,8 @@ fn pooled_read_preference_primary_forces_primary_tier() {
         "default ReadPreference routes to replica tier when healthy",
     );
 
-    let exec_primary = exec
-        .clone()
-        .with_read_preference(ReadPreference::Primary);
-    assert_eq!(
-        exec_primary.read_preference(),
-        ReadPreference::Primary
-    );
+    let exec_primary = exec.clone().with_read_preference(ReadPreference::Primary);
+    assert_eq!(exec_primary.read_preference(), ReadPreference::Primary);
     assert_pooled_pg_is_in_recovery(
         &exec_primary,
         false,

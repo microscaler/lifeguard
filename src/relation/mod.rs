@@ -25,7 +25,9 @@ pub use identity::{BorrowedIdentityIter, Identity, IntoIdentity};
 // Relation definitions
 pub mod def;
 #[doc(inline)]
-pub use def::{build_where_condition, join_tbl_on_condition, RelationDef, RelationType};
+pub use def::{
+    build_where_condition, join_tbl_on_condition, join_tbl_on_expr, RelationDef, RelationType,
+};
 
 // Core traits
 pub mod traits;

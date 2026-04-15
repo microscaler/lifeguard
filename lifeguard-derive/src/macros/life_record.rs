@@ -30,6 +30,24 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
     None
 }
 
+fn field_rust_type_for_column_name<'a>(
+    fields: &'a syn::punctuated::Punctuated<syn::Field, syn::Token![,]>,
+    column_snake: &str,
+) -> Option<&'a Type> {
+    for field in fields.iter() {
+        if attributes::has_attribute(field, "skip") || attributes::has_attribute(field, "ignore") {
+            continue;
+        }
+        let ident = field.ident.as_ref()?;
+        let db_col = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&ident.to_string()));
+        if db_col == column_snake {
+            return Some(&field.ty);
+        }
+    }
+    None
+}
+
 /// Derive macro for `LifeRecord` - generates mutable change-set objects
 ///
 /// This macro generates:
@@ -372,8 +390,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
 
         if !is_primary_key {
-            let expr_setter_name =
-                Ident::new(&format!("{setter_name}_expr"), field_name.span());
+            let expr_setter_name = Ident::new(&format!("{setter_name}_expr"), field_name.span());
             let expr_session_notify = if has_primary_keys {
                 quote! { self.__lg_session_notify_dirty(); }
             } else {
@@ -470,7 +487,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
         // Generate INSERT column/value collection
         // Skip auto-increment primary keys if not set
-        // NOTE: These checks use record_for_hooks.get() to include modifications made by before_insert() hook
+        // NOTE: Uses `record_for_hooks.get()` (includes `before_insert()` changes). Values come from
+        // `type_conversion` → `Expr::val` (e.g. `DateTime<Utc>` → `ChronoDateTimeUtc`), matching `get()`.
         if is_primary_key && is_auto_increment {
             // Auto-increment PK: include only if set
             // NOTE: If save_as is used on an auto-increment PK:
@@ -891,10 +909,18 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         },
     };
 
+    let default_naive_now_expr = quote! {
+        sea_query::Expr::val(chrono::Utc::now().naive_utc())
+    };
+    let soft_delete_deleted_at_expr = field_rust_type_for_column_name(fields, "deleted_at")
+        .map_or_else(|| default_naive_now_expr.clone(), type_conversion::generate_expr_val_now_for_field_type);
+    let soft_delete_updated_at_expr = field_rust_type_for_column_name(fields, "updated_at")
+        .map_or_else(|| default_naive_now_expr.clone(), type_conversion::generate_expr_val_now_for_field_type);
+
     let build_delete_query_ts = if table_attrs.soft_delete {
         let set_updated_at = if table_attrs.auto_timestamp {
             quote! {
-                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::UpdatedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc()));
+                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::UpdatedAt, #soft_delete_updated_at_expr);
             }
         } else {
             quote! {}
@@ -903,10 +929,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             let mut query = Query::update();
             let entity = #entity_name::default();
-            query.table(entity.clone());
+            if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                query.table((sea_query::Alias::new(schema), entity.clone()));
+            } else {
+                query.table(entity.clone());
+            }
 
-            // Soft delete: set deleted_at to current timestamp
-            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc()));
+            // Soft delete: set deleted_at to current timestamp (typed `Value` matches model field)
+            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, #soft_delete_deleted_at_expr);
             #set_updated_at
 
             #(#delete_where_clauses)*
@@ -915,7 +945,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             let mut query = Query::delete();
             let entity = #entity_name::default();
-            query.from_table(entity.clone());
+            if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                query.from_table((sea_query::Alias::new(schema), entity.clone()));
+            } else {
+                query.from_table(entity.clone());
+            }
 
             #(#delete_where_clauses)*
         }
@@ -1202,7 +1236,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build INSERT statement
                 let mut query = Query::insert();
                 let entity = #entity_name::default();
-                query.into_table(entity);
+                if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                    query.into_table((sea_query::Alias::new(schema), entity.clone()));
+                } else {
+                    query.into_table(entity.clone());
+                }
 
                 // Collect columns and expressions (skip auto-increment PKs if not set)
                 // Use Expr instead of Value to support save_as custom expressions
@@ -1324,7 +1362,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build UPDATE statement
                 let mut query = Query::update();
                 let entity = #entity_name::default();
-                query.table(entity);
+                if let Some(schema) = lifeguard::LifeEntityName::schema_name(&entity) {
+                    query.table((sea_query::Alias::new(schema), entity.clone()));
+                } else {
+                    query.table(entity.clone());
+                }
 
                 // Add SET clauses for dirty fields (skip primary keys)
                 // Use record_for_hooks to include any changes made in before_update()

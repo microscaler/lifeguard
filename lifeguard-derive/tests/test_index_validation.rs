@@ -83,6 +83,24 @@ fn test_valid_multiple_indexes() {
 }
 
 #[test]
+fn test_valid_index_with_include_columns() {
+    #[derive(LifeModel)]
+    #[table_name = "test_valid_index_include"]
+    #[index = "idx_test_include_title(title) INCLUDE (body)"]
+    pub struct TestValidIndexInclude {
+        #[primary_key]
+        pub id: i32,
+        pub title: String,
+        pub body: String,
+    }
+
+    let table_def = Entity::table_definition();
+    assert_eq!(table_def.indexes.len(), 1);
+    assert_eq!(table_def.indexes[0].columns, vec!["title"]);
+    assert_eq!(table_def.indexes[0].include_columns, vec!["body"]);
+}
+
+#[test]
 fn test_valid_index_with_where_clause() {
     #[derive(LifeModel)]
     #[table_name = "test_valid_index_where"]
@@ -263,6 +281,47 @@ fn test_valid_composite_unique_with_multiple_constraints() {
     assert_eq!(table_def.composite_unique.len(), 2);
 }
 
+#[test]
+fn test_valid_expression_index_with_coverage_columns() {
+    #[derive(LifeModel)]
+    #[table_name = "test_expr_index_ok"]
+    #[index = "idx_lower_email(lower(email) | email)"]
+    pub struct TestExprIndexOk {
+        #[primary_key]
+        pub id: i32,
+        pub email: String,
+    }
+
+    let table_def = Entity::table_definition();
+    assert_eq!(table_def.indexes.len(), 1);
+    assert_eq!(table_def.indexes[0].name, "idx_lower_email");
+    assert!(table_def.indexes[0].key_list_sql.is_none());
+    assert_eq!(table_def.indexes[0].columns, vec!["email"]);
+    assert!(matches!(
+        &table_def.indexes[0].key_parts[0],
+        lifeguard::IndexKeyPart::Expression { sql, .. } if sql == "lower(email)"
+    ));
+}
+
+#[test]
+fn test_valid_opclass_index_structured_column() {
+    #[derive(LifeModel)]
+    #[table_name = "test_opclass_index_ok"]
+    #[index = "idx_slug_pattern(slug text_pattern_ops)"]
+    pub struct TestOpclassIndexOk {
+        #[primary_key]
+        pub id: i32,
+        #[column_type = "TEXT"]
+        pub slug: String,
+    }
+
+    let table_def = Entity::table_definition();
+    assert_eq!(table_def.indexes.len(), 1);
+    assert!(table_def.indexes[0].key_list_sql.is_none());
+    assert_eq!(table_def.indexes[0].columns, vec!["slug"]);
+    assert_eq!(table_def.indexes[0].key_parts.len(), 1);
+}
+
 // ============================================================================
 // Note: Negative test cases (compile errors) are in tests/ui/
 // ============================================================================
@@ -271,3 +330,4 @@ fn test_valid_composite_unique_with_multiple_constraints() {
 // - test_compile_error_index_parent_table_column.rs
 // - test_compile_error_composite_unique_nonexistent_column.rs
 // - test_compile_error_index_multiple_nonexistent_columns.rs
+// - compile_error_index_expression_requires_coverage_columns.rs

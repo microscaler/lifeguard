@@ -6,12 +6,15 @@
 //! [`sea_query::IntoCondition`] (e.g. [`sea_query::Expr`] from [`crate::ColumnTrait`]),
 //! then chain with [`SelectQuery::scope`] (or [`SelectQuery::filter`]). Prefer the
 //! [`crate::scope`] attribute on `impl Entity` so `fn active()` becomes `scope_active()`
-//! (see `lifeguard-derive` / PRD Phase C).
+//! (see `lifeguard-derive` / PRD Phase C). To **AND** several existing `scope_*` helpers without
+//! repeating `.scope` at every call site, use [`crate::scope_bundle`] on `impl Entity`:
+//! `#[scope_bundle(active, published)] fn storefront() {}` → `scope_storefront() -> Condition`.
 //!
 //! ```ignore
 //! User::find()
 //!     .scope(UserEntity::scope_active())
 //!     .scope(UserEntity::scope_published())
+//! // or: User::find().scope(UserEntity::scope_storefront())
 //! ```
 //!
 //! # Composition
@@ -32,10 +35,15 @@
 //!
 //! Scopes apply to the **root** entity of the [`SelectQuery`] you are building. They are **not**
 //! automatically merged into [`crate::FindRelated::find_related`] SQL, which selects from the **related**
-//! table and applies only the relation `WHERE` from [`crate::build_where_condition`]. Chain
+//! table and applies only the relation `WHERE` from [`crate::build_where_condition`]. There is **no**
+//! implicit merge from a separate parent `SelectQuery` or from eager loaders—repeat the predicate on
+//! the returned query, or use an explicit API. Chain
 //! [`.scope`](crate::SelectQuery::scope) / [`.filter`](crate::SelectQuery::filter) on the query returned
-//! by `find_related` to filter related rows. Design note (repository):
-//! `docs/planning/DESIGN_FIND_RELATED_SCOPES.md`.
+//! by `find_related` to filter related rows; use [`crate::FindRelated::find_related_scoped`] for
+//! **related-side** scopes in one call; use [`crate::FindRelated::find_related_parent_scoped`] when you
+//! need an **`INNER JOIN`** on the relation’s **source** table plus caller-side predicates (direct
+//! edges only; `has_many_through` is not supported yet). Design note (repository):
+//! `docs/planning/DESIGN_FIND_RELATED_SCOPES.md` (including appendix **Deferred behavior and how it would be used**).
 
 use crate::query::select::SelectQuery;
 use crate::query::traits::LifeModelTrait;
@@ -301,7 +309,9 @@ mod tests {
     #[test]
     fn scope_any_empty_is_noop() {
         let q = SelectQuery::<ScopeTestEntity>::new();
-        let q2 = q.clone().scope_any(std::iter::empty::<sea_query::SimpleExpr>());
+        let q2 = q
+            .clone()
+            .scope_any(std::iter::empty::<sea_query::SimpleExpr>());
         let (s1, _) = q.query.build(PostgresQueryBuilder);
         let (s2, _) = q2.query.build(PostgresQueryBuilder);
         assert_eq!(s1, s2);
@@ -316,6 +326,9 @@ mod tests {
         ]);
         let (sql, _) = q.query.build(PostgresQueryBuilder);
         let upper = sql.to_uppercase();
-        assert!(upper.matches(" OR ").count() >= 2, "expected multiple OR: {sql}");
+        assert!(
+            upper.matches(" OR ").count() >= 2,
+            "expected multiple OR: {sql}"
+        );
     }
 }

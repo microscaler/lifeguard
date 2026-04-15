@@ -14,6 +14,8 @@ use sea_query::Value;
 pub enum OwnedParam {
     Bool(bool),
     Int(Option<i32>),
+    /// PostgreSQL `INT2` (`Value::TinyInt` / `SmallInt` / small unsigned).
+    SmallInt(Option<i16>),
     BigInt(Option<i64>),
     Float(Option<f32>),
     Double(Option<f64>),
@@ -27,9 +29,9 @@ pub enum OwnedParam {
     Uuid(Option<uuid::Uuid>),
     /// `NUMERIC` / `rust_decimal::Decimal` (from `Value::Decimal`).
     Decimal(Option<rust_decimal::Decimal>),
-    /// JSON / JSONB (`serde_json::Value`); binds as PostgreSQL JSON types (not plain text).
-    Json(serde_json::Value),
-    /// `sea_query::Value` nulls that bind as `Option<i32>::None` (see `converted_params`).
+    /// JSON / JSONB; `None` is SQL NULL (typed JSON null, not `GenericNull`).
+    Json(Option<serde_json::Value>),
+    /// Legacy bucket for `Value` variants that still map to a shared placeholder (see `converted_params`).
     GenericNull,
 }
 
@@ -39,6 +41,7 @@ impl OwnedParam {
         match self {
             OwnedParam::Bool(b) => b as &dyn ToSql,
             OwnedParam::Int(i) => i as &dyn ToSql,
+            OwnedParam::SmallInt(i) => i as &dyn ToSql,
             OwnedParam::BigInt(i) => i as &dyn ToSql,
             OwnedParam::Float(f) => f as &dyn ToSql,
             OwnedParam::Double(d) => d as &dyn ToSql,
@@ -75,15 +78,15 @@ impl TryFrom<&Value> for OwnedParam {
             Value::BigInt(None) => Ok(OwnedParam::GenericNull),
 
             Value::String(Some(s)) => Ok(OwnedParam::String(Some(s.clone()))),
-            Value::String(None) => Ok(OwnedParam::GenericNull),
+            Value::String(None) => Ok(OwnedParam::String(None)),
 
             Value::Bytes(Some(b)) => Ok(OwnedParam::Bytes(Some(b.clone()))),
-            Value::Bytes(None) => Ok(OwnedParam::GenericNull),
+            Value::Bytes(None) => Ok(OwnedParam::Bytes(None)),
 
-            Value::TinyInt(Some(i)) => Ok(OwnedParam::Int(Some(i32::from(*i)))),
-            Value::SmallInt(Some(i)) => Ok(OwnedParam::Int(Some(i32::from(*i)))),
-            Value::TinyUnsigned(Some(u)) => Ok(OwnedParam::Int(Some(i32::from(*u)))),
-            Value::SmallUnsigned(Some(u)) => Ok(OwnedParam::Int(Some(i32::from(*u)))),
+            Value::TinyInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(i16::from(*i)))),
+            Value::SmallInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(*i))),
+            Value::TinyUnsigned(Some(u)) => Ok(OwnedParam::SmallInt(Some(i16::from(*u)))),
+            Value::SmallUnsigned(Some(u)) => Ok(OwnedParam::SmallInt(Some(*u as i16))),
             Value::Unsigned(Some(u)) => Ok(OwnedParam::BigInt(Some(i64::from(*u)))),
             Value::BigUnsigned(Some(u)) => {
                 if *u > i64::MAX as u64 {
@@ -98,7 +101,7 @@ impl TryFrom<&Value> for OwnedParam {
             Value::TinyInt(None)
             | Value::SmallInt(None)
             | Value::TinyUnsigned(None)
-            | Value::SmallUnsigned(None) => Ok(OwnedParam::GenericNull),
+            | Value::SmallUnsigned(None) => Ok(OwnedParam::SmallInt(None)),
             Value::Unsigned(None) | Value::BigUnsigned(None) => Ok(OwnedParam::GenericNull),
 
             Value::Float(Some(f)) => Ok(OwnedParam::Float(Some(*f))),
@@ -123,8 +126,8 @@ impl TryFrom<&Value> for OwnedParam {
             Value::Decimal(Some(d)) => Ok(OwnedParam::Decimal(Some(*d))),
             Value::Decimal(None) => Ok(OwnedParam::Decimal(None)),
 
-            Value::Json(Some(j)) => Ok(OwnedParam::Json((**j).clone())),
-            Value::Json(None) => Ok(OwnedParam::GenericNull),
+            Value::Json(Some(j)) => Ok(OwnedParam::Json(Some((**j).clone()))),
+            Value::Json(None) => Ok(OwnedParam::Json(None)),
 
             _ => Err(LifeError::Other(format!(
                 "Unsupported value type for pool parameter: {value:?}"
@@ -168,6 +171,32 @@ mod tests {
     }
 
     #[test]
+    fn try_from_smallint_maps_to_int2_path() {
+        assert!(
+            matches!(
+                OwnedParam::try_from(&Value::SmallInt(Some(-9i16))),
+                Ok(OwnedParam::SmallInt(Some(v))) if v == -9i16
+            ),
+            "SmallInt(Some(-9)) should map to OwnedParam::SmallInt"
+        );
+        assert!(matches!(
+            OwnedParam::try_from(&Value::SmallInt(None)),
+            Ok(OwnedParam::SmallInt(None))
+        ));
+    }
+
+    #[test]
+    fn as_sql_ref_smallint_encodes_for_int2() {
+        use bytes::BytesMut;
+        use postgres_types::{IsNull, Type};
+
+        let p = OwnedParam::SmallInt(Some(40));
+        let mut buf = BytesMut::new();
+        let got = p.as_sql_ref().to_sql_checked(&Type::INT2, &mut buf);
+        assert!(matches!(got, Ok(IsNull::No)));
+    }
+
+    #[test]
     fn as_sql_ref_uuid_none_roundtrip_encoding() {
         use bytes::BytesMut;
         use postgres_types::{IsNull, Type};
@@ -196,5 +225,28 @@ mod tests {
         let got2 = p.as_sql_ref().to_sql_checked(&Type::JSONB, &mut buf2);
         assert!(matches!(got2, Ok(IsNull::No)));
         assert!(buf2.len() > 1);
+    }
+
+    #[test]
+    fn try_from_string_none_and_json_none_use_typed_nulls() {
+        use bytes::BytesMut;
+        use postgres_types::{IsNull, Type};
+        use sea_query::Value;
+
+        let s = OwnedParam::try_from(&Value::String(None));
+        assert!(matches!(s, Ok(OwnedParam::String(None))));
+        let mut buf = BytesMut::new();
+        assert!(matches!(
+            s.expect("string null").as_sql_ref().to_sql_checked(&Type::TEXT, &mut buf),
+            Ok(IsNull::Yes)
+        ));
+
+        let j = OwnedParam::try_from(&Value::Json(None));
+        assert!(matches!(j, Ok(OwnedParam::Json(None))));
+        let mut buf = BytesMut::new();
+        assert!(matches!(
+            j.expect("json null").as_sql_ref().to_sql_checked(&Type::JSONB, &mut buf),
+            Ok(IsNull::Yes)
+        ));
     }
 }

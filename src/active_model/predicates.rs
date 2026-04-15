@@ -28,7 +28,9 @@ pub fn string_utf8_chars_in_range(value: &Value, min: usize, max: usize) -> Resu
         Value::String(Some(s)) => {
             let n = s.chars().count();
             if n < min || n > max {
-                Err(format!("must be between {min} and {max} characters (got {n})"))
+                Err(format!(
+                    "must be between {min} and {max} characters (got {n})"
+                ))
             } else {
                 Ok(())
             }
@@ -41,14 +43,12 @@ pub fn string_utf8_chars_in_range(value: &Value, min: usize, max: usize) -> Resu
 /// Maximum **byte** length for `String` or `Bytes` payloads.
 pub fn blob_or_string_byte_len_max(value: &Value, max: usize) -> Result<(), String> {
     match value {
-        Value::String(Some(s)) if s.len() > max => Err(format!(
-            "must be at most {max} bytes (got {})",
-            s.len()
-        )),
-        Value::Bytes(Some(b)) if b.len() > max => Err(format!(
-            "must be at most {max} bytes (got {})",
-            b.len()
-        )),
+        Value::String(Some(s)) if s.len() > max => {
+            Err(format!("must be at most {max} bytes (got {})", s.len()))
+        }
+        Value::Bytes(Some(b)) if b.len() > max => {
+            Err(format!("must be at most {max} bytes (got {})", b.len()))
+        }
         Value::String(Some(_))
         | Value::String(None)
         | Value::Bytes(Some(_))

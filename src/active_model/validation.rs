@@ -7,7 +7,10 @@ use super::validate_op::{ValidateOp, ValidationStrategy};
 
 /// Run field-level then model-level validation using [`ActiveModelBehavior::validation_strategy`].
 #[inline]
-pub fn run_validators<R: ActiveModelBehavior>(record: &R, op: ValidateOp) -> Result<(), ActiveModelError> {
+pub fn run_validators<R: ActiveModelBehavior>(
+    record: &R,
+    op: ValidateOp,
+) -> Result<(), ActiveModelError> {
     run_validators_with_strategy(record, op, record.validation_strategy(op))
 }
 
@@ -220,10 +223,7 @@ mod tests {
             fail_model: false,
             strategy: ValidationStrategy::FailFast,
         };
-        assert!(matches!(
-            run_validators(&r, ValidateOp::Insert),
-            Ok(())
-        ));
+        assert!(matches!(run_validators(&r, ValidateOp::Insert), Ok(())));
         assert_eq!(&*r.order.borrow(), &["validate_fields", "validate_model"]);
     }
 
@@ -261,10 +261,7 @@ mod tests {
             ),
             "unexpected result: {res:?}"
         );
-        assert_eq!(
-            &*r.order.borrow(),
-            &["validate_fields", "validate_model"]
-        );
+        assert_eq!(&*r.order.borrow(), &["validate_fields", "validate_model"]);
     }
 
     #[test]
@@ -275,15 +272,13 @@ mod tests {
             fail_model: true,
             strategy: ValidationStrategy::FailFast,
         };
-        let err = run_validators_with_strategy(&r, ValidateOp::Insert, ValidationStrategy::Aggregate);
+        let err =
+            run_validators_with_strategy(&r, ValidateOp::Insert, ValidationStrategy::Aggregate);
         assert!(
             matches!(err, Err(ActiveModelError::Validation(ref v)) if v.len() == 2),
             "expected Validation with 2 errors, got {err:?}"
         );
-        assert_eq!(
-            &*r.order.borrow(),
-            &["validate_fields", "validate_model"]
-        );
+        assert_eq!(&*r.order.borrow(), &["validate_fields", "validate_model"]);
     }
 
     #[test]

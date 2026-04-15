@@ -10,14 +10,24 @@
 use lifeguard::transaction::IsolationLevel;
 use lifeguard::{connect, LifeError, LifeExecutor, MayPostgresExecutor};
 
+/// App tables for this example live in schema `lifeguard` (same as shared Kind / `get_test_connection_string.sh`).
+/// URI `?options=-c search_path=lifeguard` is not always honored by the driver; ensure schema exists and set
+/// `search_path` for this session so unqualified `CREATE TABLE` succeeds.
+fn ensure_lifeguard_schema(executor: &MayPostgresExecutor) -> Result<(), LifeError> {
+    executor.execute("CREATE SCHEMA IF NOT EXISTS lifeguard", &[])?;
+    executor.execute("SET search_path TO lifeguard, public", &[])?;
+    Ok(())
+}
+
 fn main() -> Result<(), LifeError> {
     // Connect to database
     let connection_string = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:6543/postgres".to_string());
+        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres?options=-c%20search_path%3Dlifeguard".to_string());
 
     let client = connect(&connection_string)
         .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
     let executor = MayPostgresExecutor::new(client);
+    ensure_lifeguard_schema(&executor)?;
 
     // Example 1: Basic transaction with commit
     println!("Example 1: Basic transaction with commit");

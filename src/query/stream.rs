@@ -15,6 +15,15 @@ use sea_query::Values;
 
 static UUID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/// `sea_query::Values` is not always `Send` (e.g. `Value` may hold `Rc<str>`), but `may::go!` requires a
+/// `Send` closure. Streaming passes this through **once** into a single coroutine that consumes it
+/// sequentially — no concurrent access from multiple OS threads.
+struct StreamCursorValues(sea_query::Values);
+
+// SAFETY: Only constructed immediately before `may::go!`; the inner `Values` is not shared across
+// threads while live. Required for `may::go!`'s `Send` bound; see module comment on `stream_all`.
+unsafe impl Send for StreamCursorValues {}
+
 /// Rolls back the streaming cursor transaction on panic or if the caller forgets to [`take`](Option::take) it.
 ///
 /// Successful paths must [`Option::take`] the [`Transaction`] and [`commit`](Transaction::commit); error paths
@@ -36,6 +45,57 @@ fn next_cursor_id() -> usize {
     UUID_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
+/// Runs `DECLARE … CURSOR` + `FETCH` loop.
+///
+/// Implemented as a plain function (not a nested `|| { … }` inside `may::go!`): a non-`move` inner
+/// closure would capture `&StreamCursorValues`, and `&StreamCursorValues` is not `Send` because
+/// `sea_query::Values` may contain `Rc<str>` (`StreamCursorValues` is `Send` but not `Sync`).
+fn run_stream_cursor_body<E>(
+    guard: &mut StreamingTxnGuard,
+    cursor_name: &str,
+    sql: &str,
+    batch_size: usize,
+    values: &StreamCursorValues,
+    tx: &may::sync::mpsc::Sender<Result<Vec<E::Model>, LifeError>>,
+) -> Result<(), LifeError>
+where
+    E: LifeModelTrait + 'static,
+    E::Model: FromRow + Send + Sync + 'static,
+{
+    let Some(txn) = guard.txn.as_mut() else {
+        return Err(LifeError::Other(
+            "streaming transaction: internal guard state missing transaction".into(),
+        ));
+    };
+
+    let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
+    txn.execute_values(&declare_statement, &values.0)?;
+
+    let fetch_statement = format!("FETCH FORWARD {batch_size} FROM {cursor_name}");
+    let empty = Values(Vec::new());
+
+    loop {
+        let rows = txn.query_all_values(&fetch_statement, &empty)?;
+        if rows.is_empty() {
+            break;
+        }
+
+        let mut chunk: Vec<E::Model> = Vec::with_capacity(rows.len());
+        for row in rows {
+            let inner_model = <E::Model as FromRow>::from_row(&row).map_err(|e| {
+                LifeError::ParseError(format!("Failed to parse streamed row: {e}"))
+            })?;
+            chunk.push(inner_model);
+        }
+
+        if tx.send(Ok(chunk)).is_err() {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 /// A streaming extension over `SelectQuery` yielding `may::sync::mpsc::Receiver` endpoints.
 pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     /// Boot a bounded coroutine streaming loop opening a `PostgreSQL` Cursor safely.
@@ -54,6 +114,9 @@ pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     /// For massive analytics processing, extracting standard `Vec` arrays reduces channel iteration
     /// locking by yielding data packets representing exactly 1 network poll payload. In real world
     /// workloads, pushing arrays yields a 15-20% throughput benefit locally without breaking memory limits.
+    ///
+    /// **Note:** `sea_query::Values` is wrapped (`StreamCursorValues`) so the coroutine closure is `Send`
+    /// for `may::go!` despite `Rc` inside newer `sea_query::Value` variants.
     fn stream_all(
         self,
         executor: &MayPostgresExecutor,
@@ -77,12 +140,13 @@ where
 
         // Match `SelectQuery::all` / `one`: apply soft-delete filter unless `with_trashed()`.
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
+        let values = StreamCursorValues(values);
 
         // Executors explicitly clone connection handlers intrinsically representing identical PG states.
         let local_exec = MayPostgresExecutor::new(executor.client().clone());
 
         // `may::coroutine::spawn` is `unsafe` in the `may` crate; `may::go!` is the supported wrapper.
-        // The closure only captures `Send` + `'static` values (`MayPostgresExecutor`, channel `tx`, etc.).
+        // `StreamCursorValues` satisfies the `Send` bound for `Values` (see struct + `unsafe impl`).
         let _stream_co = may::go!(move || {
             // Establish the dedicated transactional socket mapping the Cursor boundaries.
             let txn = match local_exec.begin() {
@@ -97,40 +161,14 @@ where
 
             let mut guard = StreamingTxnGuard { txn: Some(txn) };
 
-            let stream_result: Result<(), LifeError> = (|| {
-                let Some(txn) = guard.txn.as_mut() else {
-                    return Err(LifeError::Other(
-                        "streaming transaction: internal guard state missing transaction".into(),
-                    ));
-                };
-
-                let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
-                txn.execute_values(&declare_statement, &values)?;
-
-                let fetch_statement = format!("FETCH FORWARD {batch_size} FROM {cursor_name}");
-                let empty = Values(Vec::new());
-
-                loop {
-                    let rows = txn.query_all_values(&fetch_statement, &empty)?;
-                    if rows.is_empty() {
-                        break;
-                    }
-
-                    let mut chunk: Vec<E::Model> = Vec::with_capacity(rows.len());
-                    for row in rows {
-                        let inner_model = <E::Model as FromRow>::from_row(&row).map_err(|e| {
-                            LifeError::ParseError(format!("Failed to parse streamed row: {e}"))
-                        })?;
-                        chunk.push(inner_model);
-                    }
-
-                    if tx.send(Ok(chunk)).is_err() {
-                        return Ok(());
-                    }
-                }
-
-                Ok(())
-            })();
+            let stream_result: Result<(), LifeError> = run_stream_cursor_body::<E>(
+                &mut guard,
+                &cursor_name,
+                &sql,
+                batch_size,
+                &values,
+                &tx,
+            );
 
             // Standardize any parsing boundary crashes outwards; end the transaction explicitly so
             // `StreamingTxnGuard` does not double-rollback after a successful commit.

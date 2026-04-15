@@ -65,6 +65,14 @@ pub struct TableBaselineParts {
     pub delta_section_fragments: Vec<String>,
 }
 
+impl TableBaselineParts {
+    /// True if the merged parts represent a PostgreSQL VIEW rather than a table
+    pub fn is_view(&self) -> bool {
+        let combined = combined_old_section(self);
+        combined.contains("CREATE OR REPLACE VIEW ")
+    }
+}
+
 /// Column names → definition tail (everything after the column name) from a merged table baseline:
 /// `CREATE TABLE` column lines plus `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` from merged deltas.
 ///
@@ -116,6 +124,135 @@ pub fn combined_old_section(parts: &TableBaselineParts) -> String {
         s.push_str(frag);
     }
     s
+}
+
+/// After `ON`, optional **`USING`** *method*, require `(` for the btree key list.
+fn tail_after_qualified_table_for_create_index(after_table: &str) -> Option<&str> {
+    let mut t = after_table.trim_start();
+    if t.starts_with('(') {
+        return Some(t);
+    }
+    if t.len() < 6 || !t[..6].eq_ignore_ascii_case("using ") {
+        return None;
+    }
+    t = t[6..].trim_start();
+    let end = t
+        .find(|c: char| c.is_whitespace() || c == '(')
+        .unwrap_or(t.len());
+    if t.as_bytes().get(end) == Some(&b'(') {
+        return Some(&t[end..]);
+    }
+    t = t[end..].trim_start();
+    t.starts_with('(').then_some(t)
+}
+
+/// Split `schema.table` / `"schema"."table"` / `table` from the start of `s`; remainder is key list / `INCLUDE` / `WHERE`.
+fn split_qualified_table_prefix(s: &str) -> Option<(&str, &str)> {
+    let s = s.trim_start();
+    if s.is_empty() {
+        return None;
+    }
+    let mut i = 0usize;
+    loop {
+        let rest = &s[i..];
+        if rest.is_empty() {
+            return None;
+        }
+        if rest.starts_with('"') {
+            let end = rest[1..].find('"')?;
+            i += 1 + end + 2;
+        } else {
+            let seg_end = rest
+                .find(|c: char| c == '.' || c.is_whitespace() || c == '(')
+                .unwrap_or(rest.len());
+            if seg_end == 0 {
+                return None;
+            }
+            i += seg_end;
+        }
+        let after = &s[i..];
+        if after.starts_with('.') {
+            i += 1;
+            continue;
+        }
+        break;
+    }
+    Some((&s[..i], &s[i..]))
+}
+
+fn split_first_ident_token(s: &str) -> Option<(String, &str)> {
+    let s = s.trim_start();
+    if s.is_empty() {
+        return None;
+    }
+    if s.starts_with('"') {
+        let end = s[1..].find('"')?;
+        return Some((s[1..end + 1].to_string(), &s[end + 2..]));
+    }
+    let end = s
+        .find(|c: char| c.is_whitespace() || c == '(')
+        .unwrap_or(s.len());
+    if end == 0 {
+        return None;
+    }
+    Some((s[..end].to_string(), &s[end..]))
+}
+
+/// Parse a single-line `CREATE [UNIQUE] INDEX … ON …` from merged migration text.
+///
+/// Returns `(index_name, unqualified_table_name, statement_without_trailing_semicolon)` when the
+/// line matches; `None` otherwise. Hand-written deltas may use **`USING`** before the key list.
+fn try_parse_create_index_statement(line: &str) -> Option<(String, String, String)> {
+    let stmt = line.trim().trim_end_matches(';').trim();
+    let upper = stmt.to_ascii_uppercase();
+    let rest = if upper.starts_with("CREATE UNIQUE INDEX ") {
+        &stmt["CREATE UNIQUE INDEX ".len()..]
+    } else if upper.starts_with("CREATE INDEX ") {
+        &stmt["CREATE INDEX ".len()..]
+    } else {
+        return None;
+    };
+    let mut r = rest.trim_start();
+    while r.len() >= 13 && r[..13].eq_ignore_ascii_case("CONCURRENTLY ") {
+        r = r[13..].trim_start();
+    }
+    while r.len() >= 14 && r[..14].eq_ignore_ascii_case("IF NOT EXISTS ") {
+        r = r[14..].trim_start();
+    }
+    let (idx_name, after_idx) = split_first_ident_token(r)?;
+    let mut after = after_idx.trim_start();
+    if after.len() < 3 || !after[..3].eq_ignore_ascii_case("ON ") {
+        return None;
+    }
+    after = after[3..].trim_start();
+    let (_qtable, after_tbl) = split_qualified_table_prefix(after)?;
+    let after_keys = tail_after_qualified_table_for_create_index(after_tbl)?;
+    if !after_keys.starts_with('(') {
+        return None;
+    }
+    let table_unqual = _qtable.rsplit('.').next()?.trim_matches('"').to_string();
+    Some((idx_name, table_unqual, stmt.to_string()))
+}
+
+/// `CREATE INDEX` / `CREATE UNIQUE INDEX` lines from a merged table baseline, keyed by index name.
+///
+/// Later lines in [`combined_old_section`] win when the same index name appears more than once.
+#[must_use]
+pub fn index_statements_for_table_from_merged_baseline(
+    parts: &TableBaselineParts,
+    table: &str,
+) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    let combined = combined_old_section(parts);
+    for line in combined.lines() {
+        let Some((idx, tbl, stmt)) = try_parse_create_index_statement(line) else {
+            continue;
+        };
+        if tbl == table {
+            map.insert(idx, stmt);
+        }
+    }
+    map
 }
 
 /// True if `dir` contains at least one `*_generated_from_entities.sql`.
@@ -423,21 +560,20 @@ fn non_empty_sql_lines(blob: &str) -> Vec<String> {
 }
 
 fn tail_lines_not_in_old(old_section: &str, new_tail: &str) -> String {
-    let old_set: std::collections::HashSet<String> = non_empty_sql_lines(old_section)
-        .into_iter()
-        .collect();
+    let old_set: std::collections::HashSet<String> =
+        non_empty_sql_lines(old_section).into_iter().collect();
     let mut out = String::new();
     for line in non_empty_sql_lines(new_tail) {
         if old_set.contains(&line) {
             continue;
         }
         let upper = line.to_ascii_uppercase();
-        let patched = if upper.starts_with("CREATE INDEX ") || upper.starts_with("CREATE UNIQUE INDEX ")
-        {
-            index_line_with_if_not_exists(&line)
-        } else {
-            line
-        };
+        let patched =
+            if upper.starts_with("CREATE INDEX ") || upper.starts_with("CREATE UNIQUE INDEX ") {
+                index_line_with_if_not_exists(&line)
+            } else {
+                line
+            };
         out.push_str(&patched);
         if !patched.ends_with(';') {
             out.push(';');
@@ -485,10 +621,7 @@ pub fn normalize_table_sql_blob(s: &str) -> String {
 /// `-- Table: name` sections participate. For multiple files on disk, use
 /// [`build_service_migration_body_from_service_dir`] and [`service_migration_is_empty`] instead.
 #[must_use]
-pub fn generated_tables_match_baseline(
-    previous_file: &str,
-    tables: &[(String, String)],
-) -> bool {
+pub fn generated_tables_match_baseline(previous_file: &str, tables: &[(String, String)]) -> bool {
     let old_sections = extract_table_sections(previous_file);
     if old_sections.len() != tables.len() {
         return false;
@@ -519,9 +652,7 @@ CREATE INDEX idx_widgets_name ON widgets(name);
 
     #[test]
     fn delta_adds_column_and_index() {
-        let old = format!(
-            "-- Table: widgets\n{WIDGETS_CREATE}\n"
-        );
+        let old = format!("-- Table: widgets\n{WIDGETS_CREATE}\n");
         let new = r"CREATE TABLE IF NOT EXISTS widgets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
@@ -547,7 +678,8 @@ CREATE INDEX idx_widgets_sku ON widgets(sku);
     #[test]
     fn identical_schema_produces_empty() {
         let s = format!("-- Table: widgets\n{WIDGETS_CREATE}\n");
-        let body = build_service_migration_body(Some(&s), &[("widgets".into(), WIDGETS_CREATE.into())]);
+        let body =
+            build_service_migration_body(Some(&s), &[("widgets".into(), WIDGETS_CREATE.into())]);
         assert!(service_migration_is_empty(&body));
     }
 
@@ -589,26 +721,27 @@ COMMENT ON TABLE categories IS 'Product categories';
     #[test]
     fn find_latest_skips_non_numeric_prefix_files() {
         let dir = tempfile::tempdir().unwrap();
-        let good = dir.path().join("20260101000002_generated_from_entities.sql");
+        let good = dir
+            .path()
+            .join("20260101000002_generated_from_entities.sql");
         let bad = dir.path().join("manual_backup_generated_from_entities.sql");
         fs::write(&good, "-- x").unwrap();
         fs::write(&bad, "-- y").unwrap();
-        assert_eq!(
-            find_latest_generated_migration(dir.path()),
-            Some(good)
-        );
+        assert_eq!(find_latest_generated_migration(dir.path()), Some(good));
     }
 
     #[test]
     fn list_chronological_skips_non_numeric_prefix_files() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
-            dir.path().join("20260101000001_generated_from_entities.sql"),
+            dir.path()
+                .join("20260101000001_generated_from_entities.sql"),
             "a",
         )
         .unwrap();
         fs::write(
-            dir.path().join("not_a_timestamp_generated_from_entities.sql"),
+            dir.path()
+                .join("not_a_timestamp_generated_from_entities.sql"),
             "b",
         )
         .unwrap();
@@ -629,11 +762,7 @@ COMMENT ON TABLE categories IS 'Product categories';
 CREATE INDEX idx_widgets_name ON widgets(name);
 ";
         let delta = "-- Table: widgets\nALTER TABLE widgets ADD COLUMN IF NOT EXISTS sku VARCHAR(50) NOT NULL DEFAULT '';\n\n";
-        fs::write(
-            inv.join("20260101000000_generated_from_entities.sql"),
-            full,
-        )
-        .unwrap();
+        fs::write(inv.join("20260101000000_generated_from_entities.sql"), full).unwrap();
         fs::write(
             inv.join("20260101000001_generated_from_entities.sql"),
             delta,
@@ -698,5 +827,30 @@ CREATE TABLE IF NOT EXISTS widgets (
         assert!(m.contains_key("id"));
         assert!(m.contains_key("name"));
         assert!(m.contains_key("sku"));
+    }
+
+    #[test]
+    fn index_statements_for_table_from_merged_baseline_parses_create_index_lines() {
+        let mut parts = TableBaselineParts::default();
+        parts.last_create_section = Some(
+            "CREATE TABLE IF NOT EXISTS widgets (id INT PRIMARY KEY);\n\
+             CREATE INDEX idx_widgets_name ON widgets(name);\n"
+                .to_string(),
+        );
+        let m = index_statements_for_table_from_merged_baseline(&parts, "widgets");
+        assert_eq!(m.len(), 1);
+        assert!(m.contains_key("idx_widgets_name"));
+    }
+
+    #[test]
+    fn index_statements_merge_delta_if_not_exists_line() {
+        let mut parts = TableBaselineParts::default();
+        parts.last_create_section =
+            Some("CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY);\n".to_string());
+        parts
+            .delta_section_fragments
+            .push("CREATE INDEX IF NOT EXISTS i ON t(id);\n".to_string());
+        let m = index_statements_for_table_from_merged_baseline(&parts, "t");
+        assert!(m.contains_key("i"));
     }
 }

@@ -171,7 +171,7 @@ impl WorkerPool {
     /// sections on shared executor threads.
     fn dispatch<T: Send + 'static>(
         &self,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         let slot = self.pick_worker_index();
         let _slot_guard = self.slot_locks[slot]
@@ -185,7 +185,7 @@ impl WorkerPool {
     fn dispatch_locked<T: Send + 'static>(
         &self,
         slot: usize,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         if slot >= self.pool_size {
             return Err(LifeError::Pool(format!(
@@ -199,14 +199,14 @@ impl WorkerPool {
     fn dispatch_on_sender<T: Send + 'static>(
         &self,
         tx: &crossbeam_channel::Sender<WorkerJob>,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::acquire_connection_span().entered();
 
         let wait_start = Instant::now();
         let deadline = wait_start + self.acquire_timeout;
-        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
+        let (reply_tx, reply_rx) = may::sync::mpsc::channel();
         let job = build(reply_tx);
 
         let mut current_job = job;
@@ -476,7 +476,7 @@ impl LifeguardPool {
 
     fn dispatch_write<T: Send + 'static>(
         &self,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         self.primary.dispatch(build)
     }
@@ -484,7 +484,7 @@ impl LifeguardPool {
     fn dispatch_read_with_preference<T: Send + 'static>(
         &self,
         preference: ReadPreference,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         self.read_pool_for(preference).dispatch(build)
     }
@@ -647,19 +647,19 @@ enum WorkerJob {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
-        reply: std::sync::mpsc::SyncSender<Result<u64, LifeError>>,
+        reply: may::sync::mpsc::Sender<Result<u64, LifeError>>,
     },
     QueryOne {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
-        reply: std::sync::mpsc::SyncSender<Result<Row, LifeError>>,
+        reply: may::sync::mpsc::Sender<Result<Row, LifeError>>,
     },
     QueryAll {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
-        reply: std::sync::mpsc::SyncSender<Result<Vec<Row>, LifeError>>,
+        reply: may::sync::mpsc::Sender<Result<Vec<Row>, LifeError>>,
     },
 }
 
@@ -745,37 +745,35 @@ fn run_worker(w: WorkerThreadStart) {
                 );
             }
         }
-        Some(interval) => {
-            loop {
-                match job_rx.recv_timeout(interval) {
-                    Ok(job) => {
-                        dispatch_worker_job(tier, &connection_string, &mut client, job);
-                        maybe_rotate_for_max_lifetime(
-                            &connection_string,
-                            &mut client,
-                            &mut opened_at,
-                            max_connection_lifetime,
-                            max_connection_lifetime_jitter,
-                            slot,
-                            tier,
-                        );
-                    }
-                    Err(RecvTimeoutError::Timeout) => {
-                        idle_liveness_probe(&connection_string, &mut client, tier);
-                        maybe_rotate_for_max_lifetime(
-                            &connection_string,
-                            &mut client,
-                            &mut opened_at,
-                            max_connection_lifetime,
-                            max_connection_lifetime_jitter,
-                            slot,
-                            tier,
-                        );
-                    }
-                    Err(RecvTimeoutError::Disconnected) => break,
+        Some(interval) => loop {
+            match job_rx.recv_timeout(interval) {
+                Ok(job) => {
+                    dispatch_worker_job(tier, &connection_string, &mut client, job);
+                    maybe_rotate_for_max_lifetime(
+                        &connection_string,
+                        &mut client,
+                        &mut opened_at,
+                        max_connection_lifetime,
+                        max_connection_lifetime_jitter,
+                        slot,
+                        tier,
+                    );
                 }
+                Err(RecvTimeoutError::Timeout) => {
+                    idle_liveness_probe(&connection_string, &mut client, tier);
+                    maybe_rotate_for_max_lifetime(
+                        &connection_string,
+                        &mut client,
+                        &mut opened_at,
+                        max_connection_lifetime,
+                        max_connection_lifetime_jitter,
+                        slot,
+                        tier,
+                    );
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
             }
-        }
+        },
     }
 }
 
@@ -784,11 +782,7 @@ fn run_worker(w: WorkerThreadStart) {
 /// `salt` must be **stable** for the lifetime of a connection (we use the worker `slot` index).
 /// Do not mix in time-varying values: the limit is compared on every job/idle tick, and an unstable
 /// salt would change the threshold each call and break rotation timing.
-fn connection_lifetime_effective_limit(
-    base: Duration,
-    jitter: Duration,
-    salt: usize,
-) -> Duration {
+fn connection_lifetime_effective_limit(base: Duration, jitter: Duration, salt: usize) -> Duration {
     if jitter.is_zero() {
         return base;
     }
@@ -956,7 +950,7 @@ impl PooledLifeExecutor {
 
     fn dispatch_read<T: Send + 'static>(
         &self,
-        build: impl FnOnce(std::sync::mpsc::SyncSender<Result<T, LifeError>>) -> WorkerJob,
+        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         self.pool
             .dispatch_read_with_preference(self.read_preference, build)
@@ -1081,7 +1075,10 @@ mod lifetime_effective_limit_tests {
         let jitter = Duration::from_millis(500);
         let a = connection_lifetime_effective_limit(base, jitter, 2);
         let b = connection_lifetime_effective_limit(base, jitter, 2);
-        assert_eq!(a, b, "salt must not depend on time; limit must be stable per slot");
+        assert_eq!(
+            a, b,
+            "salt must not depend on time; limit must be stable per slot"
+        );
     }
 
     #[test]

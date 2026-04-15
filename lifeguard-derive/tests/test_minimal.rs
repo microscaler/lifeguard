@@ -57,7 +57,7 @@ pub mod column_name_tests {
 pub mod scope_attr_tests {
     use lifeguard::ColumnTrait;
     use lifeguard::LifeModelTrait;
-    use lifeguard::scope;
+    use lifeguard::{scope, scope_bundle};
     use lifeguard_derive::{LifeModel, LifeRecord};
     use sea_query::IntoCondition;
 
@@ -74,11 +74,25 @@ pub mod scope_attr_tests {
         fn active() -> impl IntoCondition {
             Column::Active.eq(true)
         }
+
+        #[scope]
+        fn min_id() -> impl IntoCondition {
+            Column::Id.gt(0)
+        }
+
+        /// AND of `scope_active` and `scope_min_id` (PRD Phase C scope lists / bundles).
+        #[scope_bundle(active, min_id)]
+        fn active_and_min_id() {}
     }
 
     #[test]
     fn scope_attr_renames_to_scope_active_and_chains() {
         let _q = Entity::find().scope(Entity::scope_active());
+    }
+
+    #[test]
+    fn scope_bundle_and_chains() {
+        let _q = Entity::find().scope(Entity::scope_active_and_min_id());
     }
 }
 
@@ -166,7 +180,11 @@ mod validate_multi_fail_fast {
         let err = run_validators(&r, ValidateOp::Insert).expect_err("first field fails");
         match err {
             lifeguard::ActiveModelError::Validation(v) => {
-                assert_eq!(v.len(), 1, "FailFast should stop after first failing field validator");
+                assert_eq!(
+                    v.len(),
+                    1,
+                    "FailFast should stop after first failing field validator"
+                );
                 assert_eq!(v[0].field.as_deref(), Some("email"));
             }
             e => panic!("expected Validation error, got {:?}", e),
@@ -6357,5 +6375,66 @@ mod active_model_trait_tests {
         assert!(set.is_set());
         assert!(not_set.is_not_set());
         assert!(unset.is_unset());
+    }
+}
+
+/// `DateTime<Utc>` / `DateTime<Local>` map to typed `sea_query::Value` variants (CHRONO Iteration A).
+mod chrono_datetime_utc_local_tests {
+    mod utc {
+        use chrono::{DateTime, Utc};
+        use lifeguard::ModelTrait;
+        use lifeguard_derive::{LifeModel, LifeRecord};
+        use sea_query::Value;
+
+        #[derive(LifeModel, LifeRecord)]
+        #[table_name = "chrono_dt_integration_utc"]
+        pub struct EventWithUtc {
+            #[primary_key]
+            pub id: i32,
+            pub created_at: DateTime<Utc>,
+        }
+
+        #[test]
+        fn model_get_maps_datetime_utc_to_chrono_datetime_utc() {
+            let dt = Utc::now();
+            let model = EventWithUtcModel {
+                id: 1,
+                created_at: dt,
+            };
+            let v = model.get(Column::CreatedAt);
+            match v {
+                Value::ChronoDateTimeUtc(Some(got)) => assert_eq!(got, dt),
+                other => panic!("expected ChronoDateTimeUtc(Some(..)), got {:?}", other),
+            }
+        }
+    }
+
+    mod local {
+        use chrono::{DateTime, Local};
+        use lifeguard::ModelTrait;
+        use lifeguard_derive::{LifeModel, LifeRecord};
+        use sea_query::Value;
+
+        #[derive(LifeModel, LifeRecord)]
+        #[table_name = "chrono_dt_integration_local"]
+        pub struct EventWithLocal {
+            #[primary_key]
+            pub id: i32,
+            pub created_at: DateTime<Local>,
+        }
+
+        #[test]
+        fn model_get_maps_datetime_local_to_chrono_datetime_local() {
+            let dt = Local::now();
+            let model = EventWithLocalModel {
+                id: 1,
+                created_at: dt,
+            };
+            let v = model.get(Column::CreatedAt);
+            match v {
+                Value::ChronoDateTimeLocal(Some(got)) => assert_eq!(got, dt),
+                other => panic!("expected ChronoDateTimeLocal(Some(..)), got {:?}", other),
+            }
+        }
     }
 }

@@ -42,4 +42,7 @@ Generated: 2026-01-22
 ## Active PRDs (ORM parity)
 
 - [`PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`](./PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md) — schema inference, validators, scopes, F() expressions, session/UoW (**slug:** `schema_validators_session_and_scopes`).
+- [`PRD_FOLLOWON_NEXT_THREE.md`](./PRD_FOLLOWON_NEXT_THREE.md) — expanded follow-on items (G6, `find_related`+scope example surface, inherited parent+loader).
+- [`DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md`](./DESIGN_INHERITED_PARENT_SCOPES_SPIKE.md) — inherited parent scopes + loaders (**spike completed** — recommendation A + D).
+- [`DESIGN_INDEX_COMPARE_ROADMAP.md`](./DESIGN_INDEX_COMPARE_ROADMAP.md) — `compare-schema` index parity (**T1** / **T2** / **T4** shipped; **T2b** / **T3** backlog). Detailed design: [`DESIGN_INDEX_COMPARE_T2B_T3.md`](./DESIGN_INDEX_COMPARE_T2B_T3.md).
 - [`DEV_RUSTDOC_AND_COVERAGE.md`](./DEV_RUSTDOC_AND_COVERAGE.md) — checklist for rustdoc and tests while building features.

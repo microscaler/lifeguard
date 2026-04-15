@@ -84,7 +84,9 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
         has_one,
         cursor_tiebreak,
         validate,
-        validation_strategy
+        validation_strategy,
+        require_index_coverage,
+        view
     )
 )]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {
@@ -302,4 +304,26 @@ pub fn derive_migration_name(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn scope(attr: TokenStream, item: TokenStream) -> TokenStream {
     macros::scope_attr::scope_attr(attr, item)
+}
+
+/// Combine multiple existing `#[scope]` functions with **AND** (`Condition::all()`).
+///
+/// List the **short names** (`active` → calls `Self::scope_active()`) or full `scope_*` names.
+/// Expands to `pub fn scope_<name>() -> sea_query::Condition`.
+///
+/// ```ignore
+/// impl Entity {
+///     #[lifeguard_derive::scope]
+///     fn active() -> impl sea_query::IntoCondition { Column::Active.eq(true) }
+///     #[lifeguard_derive::scope]
+///     fn published() -> impl sea_query::IntoCondition { Column::Status.eq(1) }
+///
+///     #[lifeguard_derive::scope_bundle(active, published)]
+///     fn live() {}
+/// }
+/// // User::find().scope(Entity::scope_live())
+/// ```
+#[proc_macro_attribute]
+pub fn scope_bundle(attr: TokenStream, item: TokenStream) -> TokenStream {
+    macros::scope_bundle::scope_bundle_attr(attr, item)
 }

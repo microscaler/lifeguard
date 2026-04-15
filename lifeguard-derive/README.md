@@ -10,14 +10,20 @@ Procedural macros for Lifeguard ORM - a coroutine-native PostgreSQL ORM for Rust
 
 ### Core Derive Macros
 
-- **`LifeModel`** - Generates immutable database row representations
-- **`LifeRecord`** - Generates mutable change-set objects for updates
-- **`DeriveEntity`** - Generates entity unit structs and trait implementations
-- **`FromRow`** - Generates `FromRow` trait implementations for converting database rows
-- **`DeriveRelation`** - Generates `Related` trait implementations for entity relationships
-- **`DeriveLinked`** - Generates `Linked` trait implementations for multi-hop relationships
+- `**LifeModel**` - Generates immutable database row representations
+- `**LifeRecord**` - Generates mutable change-set objects for updates
+- `**DeriveEntity**` - Generates entity unit structs and trait implementations
+- `**FromRow**` - Generates `FromRow` trait implementations for converting database rows
+- `**DeriveRelation**` - Generates `Related` trait implementations for entity relationships
+- `**DeriveLinked**` - Generates `Linked` trait implementations for multi-hop relationships
 
 ## Usage
+
+### UUID primary keys and foreign keys
+
+If the PostgreSQL column is `**UUID**`, use `**uuid::Uuid**` in Rust (`Option<uuid::Uuid>` if nullable). `**String**` will fail at **runtime** when reading rows (driver decodes `uuid` as `Uuid`, not text).
+
+See the Lifeguard book doc: **[UUID and Postgres scalar types](../docs/UUID_AND_POSTGRES_TYPES.md)**.
 
 ### Basic Entity Definition
 
@@ -41,6 +47,7 @@ pub struct User {
 ```
 
 This generates:
+
 - `Entity` unit struct
 - `Model` struct (immutable row representation)
 - `Column` enum (all columns)
@@ -64,6 +71,7 @@ pub struct UserRecord {
 ```
 
 This generates:
+
 - `Record` struct with `Option<T>` fields
 - `from_model()` method (create from `LifeModel` for updates)
 - `to_model()` method (convert to `LifeModel`, `None` fields use defaults)
@@ -178,7 +186,7 @@ For detailed usage examples and attribute reference, see:
 
 Licensed under either of:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](../LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](../LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0 ([LICENSE-APACHE](../LICENSE-APACHE) or [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
+- MIT license ([LICENSE-MIT](../LICENSE-MIT) or [http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
 
 at your option.
