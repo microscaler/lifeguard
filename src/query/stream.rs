@@ -45,6 +45,57 @@ fn next_cursor_id() -> usize {
     UUID_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
+/// Runs `DECLARE … CURSOR` + `FETCH` loop.
+///
+/// Implemented as a plain function (not a nested `|| { … }` inside `may::go!`): a non-`move` inner
+/// closure would capture `&StreamCursorValues`, and `&StreamCursorValues` is not `Send` because
+/// `sea_query::Values` may contain `Rc<str>` (`StreamCursorValues` is `Send` but not `Sync`).
+fn run_stream_cursor_body<E>(
+    guard: &mut StreamingTxnGuard,
+    cursor_name: &str,
+    sql: &str,
+    batch_size: usize,
+    values: &StreamCursorValues,
+    tx: &may::sync::mpsc::Sender<Result<Vec<E::Model>, LifeError>>,
+) -> Result<(), LifeError>
+where
+    E: LifeModelTrait + 'static,
+    E::Model: FromRow + Send + Sync + 'static,
+{
+    let Some(txn) = guard.txn.as_mut() else {
+        return Err(LifeError::Other(
+            "streaming transaction: internal guard state missing transaction".into(),
+        ));
+    };
+
+    let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
+    txn.execute_values(&declare_statement, &values.0)?;
+
+    let fetch_statement = format!("FETCH FORWARD {batch_size} FROM {cursor_name}");
+    let empty = Values(Vec::new());
+
+    loop {
+        let rows = txn.query_all_values(&fetch_statement, &empty)?;
+        if rows.is_empty() {
+            break;
+        }
+
+        let mut chunk: Vec<E::Model> = Vec::with_capacity(rows.len());
+        for row in rows {
+            let inner_model = <E::Model as FromRow>::from_row(&row).map_err(|e| {
+                LifeError::ParseError(format!("Failed to parse streamed row: {e}"))
+            })?;
+            chunk.push(inner_model);
+        }
+
+        if tx.send(Ok(chunk)).is_err() {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 /// A streaming extension over `SelectQuery` yielding `may::sync::mpsc::Receiver` endpoints.
 pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     /// Boot a bounded coroutine streaming loop opening a `PostgreSQL` Cursor safely.
@@ -110,40 +161,14 @@ where
 
             let mut guard = StreamingTxnGuard { txn: Some(txn) };
 
-            let stream_result: Result<(), LifeError> = (|| {
-                let Some(txn) = guard.txn.as_mut() else {
-                    return Err(LifeError::Other(
-                        "streaming transaction: internal guard state missing transaction".into(),
-                    ));
-                };
-
-                let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
-                txn.execute_values(&declare_statement, &values.0)?;
-
-                let fetch_statement = format!("FETCH FORWARD {batch_size} FROM {cursor_name}");
-                let empty = Values(Vec::new());
-
-                loop {
-                    let rows = txn.query_all_values(&fetch_statement, &empty)?;
-                    if rows.is_empty() {
-                        break;
-                    }
-
-                    let mut chunk: Vec<E::Model> = Vec::with_capacity(rows.len());
-                    for row in rows {
-                        let inner_model = <E::Model as FromRow>::from_row(&row).map_err(|e| {
-                            LifeError::ParseError(format!("Failed to parse streamed row: {e}"))
-                        })?;
-                        chunk.push(inner_model);
-                    }
-
-                    if tx.send(Ok(chunk)).is_err() {
-                        return Ok(());
-                    }
-                }
-
-                Ok(())
-            })();
+            let stream_result: Result<(), LifeError> = run_stream_cursor_body::<E>(
+                &mut guard,
+                &cursor_name,
+                &sql,
+                batch_size,
+                &values,
+                &tx,
+            );
 
             // Standardize any parsing boundary crashes outwards; end the transaction explicitly so
             // `StreamingTxnGuard` does not double-rollback after a successful commit.
