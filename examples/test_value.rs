@@ -11,6 +11,6 @@ fn main() {
 
     q.and_where(expr);
     let (sql, values) = q.build(PostgresQueryBuilder);
-    println!("SQL: {}", sql);
-    println!("Values: {:?}", values);
+    println!("SQL: {sql}");
+    println!("Values: {values:?}");
 }

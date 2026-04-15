@@ -108,6 +108,7 @@ pub trait ColumnTrait: IntoColumnRef {
     }
 
     /// Check if target JSON element is contained by the supplied JSON structure (`column <@ value`)
+    #[allow(clippy::wrong_self_convention)] // name reads as predicate; mirrors `json_contains`
     fn is_contained_by_json<T: Into<serde_json::Value>>(self, value: T) -> Expr {
         Expr::col(self).binary(sea_query::BinOper::Custom("<@"), Expr::val(value.into()))
     }

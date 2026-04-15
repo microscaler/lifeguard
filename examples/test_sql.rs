@@ -7,11 +7,12 @@ fn main() {
         .expr(Expr::col(Asterisk).count());
 
     let sql = query.to_string(PostgresQueryBuilder);
-    println!("COUNT AST: {}", sql);
+    println!("COUNT AST: {sql}");
 
     let mut query2 = Query::select();
     query2
         .from(Alias::new("dummy"))
         .expr(Expr::cust("COUNT(*)"));
-    println!("CUST: {}", query2.to_string(PostgresQueryBuilder));
+    let s = query2.to_string(PostgresQueryBuilder);
+    println!("CUST: {s}");
 }

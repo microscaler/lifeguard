@@ -298,6 +298,7 @@ mod tests {
     use std::str::FromStr;
 
     #[test]
+    #[allow(clippy::unwrap_used)] // literal decimal string; crate denies unwrap in non-test paths only
     fn test_converted_params_decimal() {
         let dec = Decimal::from_str("123.45").unwrap();
 

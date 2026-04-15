@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn test_metrics_initialization() {
         // Use the singleton so global meter provider is initialized once (matches production).
-        let metrics: &LifeguardMetrics = &*METRICS;
+        let metrics: &LifeguardMetrics = &METRICS;
         // Just verify it doesn't panic
         metrics.record_query_duration(std::time::Duration::from_millis(100), None);
         metrics.record_query_error(None);
