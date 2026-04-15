@@ -544,6 +544,7 @@ pub fn generate_option_field_to_value_with_default(
 ///
 /// Returns `None` when the field is `None`, and `Some(Value::...)` when the field is `Some(v)`.
 /// This allows `get()` to correctly detect unset fields for CRUD operations.
+#[allow(clippy::too_many_lines)]
 pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type) -> TokenStream {
     // Check for serde_json::Value first
     if is_json_value_type(inner_type) {
