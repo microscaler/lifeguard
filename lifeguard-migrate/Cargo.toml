@@ -30,7 +30,7 @@ colored = "2.1"
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }
 # UUID support (needed for entities)
-uuid = { version = "1.0", features = ["v4", "serde"] }
+uuid = { version = "1.23", features = ["v4", "serde"] }
 # Serialization (needed for entities)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -56,7 +56,7 @@ tempfile = "3.10"
 lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
 may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "6c92ef8b1e756741f3726fb94cc49af54f0f8596" }
 serde = { version = "1.0", features = ["derive"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
+uuid = { version = "1.23", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0"
 rust_decimal = "1.33"
