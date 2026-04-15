@@ -58,6 +58,14 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
                 return Some("TIMESTAMP".to_string());
             }
 
+            // `DateTime<Utc>` / `DateTime<Local>` — timestamptz (aligned with `Value::ChronoDateTimeUtc` / `Local`)
+            if last_ident == "DateTime"
+                && (type_conversion::is_datetime_utc_type(inner_type)
+                    || type_conversion::is_datetime_local_type(inner_type))
+            {
+                return Some("TIMESTAMPTZ".to_string());
+            }
+
             // Check for NaiveDate - last segment is "NaiveDate"
             if last_ident == "NaiveDate" {
                 return Some("DATE".to_string());
@@ -1474,6 +1482,8 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
             // Keep detection in sync with `type_conversion` (Record/ActiveModel → `sea_query::Value`).
             let is_uuid = type_conversion::is_uuid_type(inner_type);
+            let is_datetime_utc = type_conversion::is_datetime_utc_type(inner_type);
+            let is_datetime_local = type_conversion::is_datetime_local_type(inner_type);
             let is_naive_datetime = type_conversion::is_naive_datetime_type(inner_type);
             let is_decimal = type_conversion::is_decimal_type(inner_type);
             let is_money = type_conversion::is_money_type(inner_type);
@@ -1487,6 +1497,30 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 } else {
                     quote! {
                         row.try_get::<&str, uuid::Uuid>(#column_name_str)?
+                    }
+                }
+            }
+            // `DateTime<Utc>` — `FromSql` for timestamptz (see `Value::ChronoDateTimeUtc`)
+            else if is_datetime_utc {
+                if is_nullable {
+                    quote! {
+                        row.try_get::<&str, Option<chrono::DateTime<chrono::Utc>>>(#column_name_str)?
+                    }
+                } else {
+                    quote! {
+                        row.try_get::<&str, chrono::DateTime<chrono::Utc>>(#column_name_str)?
+                    }
+                }
+            }
+            // `DateTime<Local>` — `FromSql` (see `Value::ChronoDateTimeLocal`)
+            else if is_datetime_local {
+                if is_nullable {
+                    quote! {
+                        row.try_get::<&str, Option<chrono::DateTime<chrono::Local>>>(#column_name_str)?
+                    }
+                } else {
+                    quote! {
+                        row.try_get::<&str, chrono::DateTime<chrono::Local>>(#column_name_str)?
                     }
                 }
             }
