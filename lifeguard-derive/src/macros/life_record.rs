@@ -30,6 +30,24 @@ fn extract_option_inner_type(ty: &Type) -> Option<&Type> {
     None
 }
 
+fn field_rust_type_for_column_name<'a>(
+    fields: &'a syn::punctuated::Punctuated<syn::Field, syn::Token![,]>,
+    column_snake: &str,
+) -> Option<&'a Type> {
+    for field in fields.iter() {
+        if attributes::has_attribute(field, "skip") || attributes::has_attribute(field, "ignore") {
+            continue;
+        }
+        let ident = field.ident.as_ref()?;
+        let db_col = attributes::extract_column_name(field)
+            .unwrap_or_else(|| utils::snake_case(&ident.to_string()));
+        if db_col == column_snake {
+            return Some(&field.ty);
+        }
+    }
+    None
+}
+
 /// Derive macro for `LifeRecord` - generates mutable change-set objects
 ///
 /// This macro generates:
@@ -891,10 +909,18 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         },
     };
 
+    let default_naive_now_expr = quote! {
+        sea_query::Expr::val(chrono::Utc::now().naive_utc())
+    };
+    let soft_delete_deleted_at_expr = field_rust_type_for_column_name(fields, "deleted_at")
+        .map_or_else(|| default_naive_now_expr.clone(), type_conversion::generate_expr_val_now_for_field_type);
+    let soft_delete_updated_at_expr = field_rust_type_for_column_name(fields, "updated_at")
+        .map_or_else(|| default_naive_now_expr.clone(), type_conversion::generate_expr_val_now_for_field_type);
+
     let build_delete_query_ts = if table_attrs.soft_delete {
         let set_updated_at = if table_attrs.auto_timestamp {
             quote! {
-                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::UpdatedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc()));
+                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::UpdatedAt, #soft_delete_updated_at_expr);
             }
         } else {
             quote! {}
@@ -909,8 +935,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 query.table(entity.clone());
             }
 
-            // Soft delete: set deleted_at to current timestamp
-            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, sea_query::Expr::val(chrono::Utc::now().naive_utc()));
+            // Soft delete: set deleted_at to current timestamp (typed `Value` matches model field)
+            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::DeletedAt, #soft_delete_deleted_at_expr);
             #set_updated_at
 
             #(#delete_where_clauses)*

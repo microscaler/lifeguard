@@ -58,9 +58,9 @@
 | # | Task | Primary files | Done |
 |---|------|---------------|------|
 | C1 | Audit generated `insert` in `life_record.rs`: `Expr::val` / `get()` path uses UTC `Value` when model field is `DateTime<Utc>` | `lifeguard-derive/src/macros/life_record.rs` | [x] |
-| C2 | Soft-delete / `updated_at` / `deleted_at` generated snippets: plan migration from `naive_utc()` only — either column-type aware or document “naive columns only” until model migration | `lifeguard-derive/src/macros/life_record.rs` (~896–912) | [ ] |
-| C3 | Integration test: insert model with `DateTime<Utc>`, select back | tests | [ ] |
-| C4 | Regression: `NaiveDateTime` insert path unchanged (PRD T3) | tests | [ ] |
+| C2 | Soft-delete / `updated_at` / `deleted_at` generated snippets: plan migration from `naive_utc()` only — either column-type aware or document “naive columns only” until model migration | `lifeguard-derive/src/macros/life_record.rs` (~896–912) | [x] |
+| C3 | Integration test: insert model with `DateTime<Utc>`, select back | tests | [x] |
+| C4 | Regression: `NaiveDateTime` insert path unchanged (PRD T3) | tests | [x] |
 
 **Exit:** PRD Iteration C exit criteria met.
 
@@ -101,7 +101,7 @@
 |------|-------------|-----------|------|
 | T1 | `timestamptz` / `DateTime<Utc>` insert + select | B–C | [x] |
 | T2 | `Option<DateTime<Utc>>` NULL + Some | B–D | [x] |
-| T3 | `timestamp` / `NaiveDateTime` regression | A–C | [ ] |
+| T3 | `timestamp` / `NaiveDateTime` regression | A–C | [x] |
 | T4 | `date` / `NaiveDate` regression | existing | [ ] |
 | T5 | `DateTime<Local>` (if in scope) | A–B | [ ] |
 | T6 | Mixed UUID + JSON + `DateTime<Utc>` + `i16` | C–D | [ ] |

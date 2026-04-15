@@ -54,6 +54,9 @@ mod json_value_from_row;
 #[path = "db_integration/chrono_timestamptz_from_row.rs"]
 mod chrono_timestamptz_from_row;
 
+#[path = "db_integration/soft_delete_datetime_utc.rs"]
+mod soft_delete_datetime_utc;
+
 #[path = "db_integration/pool_read_replica.rs"]
 mod pool_read_replica;
 

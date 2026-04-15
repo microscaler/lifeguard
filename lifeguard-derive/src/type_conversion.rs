@@ -116,6 +116,44 @@ pub fn is_datetime_local_type(ty: &Type) -> bool {
     datetime_timezone_as_utc_flag(ty) == Some(false)
 }
 
+/// Inner `T` for `Option<T>`; otherwise returns `ty` (for nullable columns on the model).
+pub fn unwrap_option_inner_type(ty: &Type) -> &Type {
+    if let Type::Path(TypePath { path, .. }) = ty {
+        if let Some(segment) = path.segments.last() {
+            if segment.ident == "Option" {
+                if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                    if let Some(GenericArgument::Type(inner_type)) = args.args.first() {
+                        return inner_type;
+                    }
+                }
+            }
+        }
+    }
+    ty
+}
+
+/// `sea_query::Expr::val(...)` for ORM hooks that set a column to “now” (`deleted_at`, `updated_at`, …).
+///
+/// Aligns with [`generate_field_to_value`](generate_field_to_value): `DateTime<Utc>` → `ChronoDateTimeUtc`,
+/// `NaiveDateTime` → `ChronoDateTime` via `naive_utc()`.
+pub fn generate_expr_val_now_for_field_type(field_type: &Type) -> TokenStream {
+    let inner = unwrap_option_inner_type(field_type);
+    if is_datetime_utc_type(inner) {
+        quote! {
+            sea_query::Expr::val(sea_query::Value::ChronoDateTimeUtc(Some(chrono::Utc::now())))
+        }
+    } else if is_datetime_local_type(inner) {
+        quote! {
+            sea_query::Expr::val(sea_query::Value::ChronoDateTimeLocal(Some(chrono::Local::now())))
+        }
+    } else {
+        // `NaiveDateTime` and unknown types: legacy naive instant (matches pre-PRD hooks).
+        quote! {
+            sea_query::Expr::val(chrono::Utc::now().naive_utc())
+        }
+    }
+}
+
 /// Check if a type is `Vec<u8>` (binary data)
 pub fn is_vec_u8_type(ty: &Type) -> bool {
     if let Type::Path(TypePath { path, .. }) = ty {
@@ -1971,5 +2009,26 @@ mod tests {
         assert!(!is_datetime_local_type(
             &parse_str("chrono::DateTime<chrono::Utc>").unwrap()
         ));
+    }
+
+    #[test]
+    fn unwrap_option_inner_extracts_datetime_utc() {
+        let ty: Type = parse_str("Option<chrono::DateTime<chrono::Utc>>").unwrap();
+        let inner = unwrap_option_inner_type(&ty);
+        assert!(is_datetime_utc_type(inner));
+    }
+
+    #[test]
+    fn expr_val_now_emits_chrono_datetime_utc_for_utc() {
+        let ty: Type = parse_str("chrono::DateTime<chrono::Utc>").unwrap();
+        let s = generate_expr_val_now_for_field_type(&ty).to_string();
+        assert!(s.contains("ChronoDateTimeUtc"), "got {s}");
+    }
+
+    #[test]
+    fn expr_val_now_uses_naive_utc_for_naive_datetime() {
+        let ty: Type = parse_str("chrono::NaiveDateTime").unwrap();
+        let s = generate_expr_val_now_for_field_type(&ty).to_string();
+        assert!(s.contains("naive_utc"), "got {s}");
     }
 }

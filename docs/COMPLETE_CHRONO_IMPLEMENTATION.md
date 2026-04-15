@@ -80,6 +80,8 @@ Implement **end-to-end** support for the chrono types Lifeguard should officiall
 - **`DateTime<Utc>`** and **`DateTime<Local>`** use **direct** `row.try_get` to `chrono::DateTime<chrono::{Utc,Local}>` (nullable: `Option<…>`). This relies on `may_postgres` / `postgres` **chrono** `FromSql` for PostgreSQL `timestamptz` (and compatible timestamp OIDs).
 - **`NaiveDateTime`** remains on the **`SystemTime` → `DateTime::<Utc>::from(st).naive_utc()`** bridge so **`timestamp without time zone`** behavior stays unchanged and does not assume tz-aware Rust types.
 
+**Soft-delete `UPDATE` (implemented):** For `#[soft_delete]` (and optional `auto_timestamp` on the soft-delete update), `deleted_at` / `updated_at` “now” values use `type_conversion::generate_expr_val_now_for_field_type` so **`Option<DateTime<Utc>>`** columns get **`ChronoDateTimeUtc`**, **`NaiveDateTime`** stays **`ChronoDateTime`**. Table-level **`#[auto_timestamp]`** `before_insert` / `before_update` still assign **stringified naive** timestamps when enabled (legacy `Option<String>` pattern); migrate those hooks separately if models use chrono fields.
+
 ### 3.3 `lifeguard-derive` — `life_record.rs`
 
 - Soft-delete / auto `**updated_at` / `deleted_at**` helpers currently use `**Utc::now().naive_utc()**` and thus `**ChronoDateTime**`. Decide per field SQL type:
