@@ -6,6 +6,10 @@ Migration CLI tool for Lifeguard ORM - manage database schema changes with versi
 
 `lifeguard-migrate` is a command-line tool for managing database migrations in Lifeguard applications. It provides a complete migration lifecycle: discovery, validation, application, rollback, and status tracking.
 
+### Schema inference vs Lifeguard versions
+
+`infer-schema` maps PostgreSQL `timestamptz` to `chrono::DateTime<chrono::Utc>`. For matching **derive** and **runtime** support (`sea_query::Value`, `FromRow`, hooks), use a **Lifeguard** release that includes Complete Chrono (see [`docs/CHRONO_AND_POSTGRES_TYPES.md`](../docs/CHRONO_AND_POSTGRES_TYPES.md) in this repo).
+
 ## Features
 
 - ✅ **File-based Migration Discovery** - Automatically discovers migration files from directory structure

@@ -72,9 +72,9 @@
 
 | # | Task | Primary files | Done |
 |---|------|---------------|------|
-| D1 | Audit `generate_option_field_to_value`: `None` for `Option<DateTime<Utc>>` → `ChronoDateTimeUtc(None)` not ambiguous fallback | `lifeguard-derive/src/type_conversion.rs` | [ ] |
-| D2 | Review `converted_params.rs` first + second pass: comment any invariant about order / bucket per `Value` variant | `lifeguard/src/query/converted_params.rs` | [ ] |
-| D3 | Unit tests: mixed `String` / `Json` / `ChronoDateTimeUtc` NULLs in one `Values` slice (Hauliage-style) | `lifeguard/src/query/converted_params.rs` `#[cfg(test)]` | [ ] |
+| D1 | Audit `generate_option_field_to_value`: `None` for `Option<DateTime<Utc>>` → `ChronoDateTimeUtc(None)` not ambiguous fallback | `lifeguard-derive/src/type_conversion.rs` | [x] |
+| D2 | Review `converted_params.rs` first + second pass: comment any invariant about order / bucket per `Value` variant | `lifeguard/src/query/converted_params.rs` | [x] |
+| D3 | Unit tests: mixed `String` / `Json` / `ChronoDateTimeUtc` NULLs in one `Values` slice (Hauliage-style) | `lifeguard/src/query/converted_params.rs` `#[cfg(test)]` | [x] |
 | D4 | Optional follow-up: separate issue for `String(None)`/`Json(None)` vs typed nulls if out of scope for D | issue / PRD note | [ ] |
 
 **Exit:** PRD Iteration D exit criteria met.
@@ -85,11 +85,11 @@
 
 | # | Task | Primary files | Done |
 |---|------|---------------|------|
-| E1 | Add `CHRONO_AND_POSTGRES_TYPES.md` **or** extend `UUID_AND_POSTGRES_TYPES.md` with PRD §2 table + examples | `lifeguard/docs/` | [ ] |
-| E2 | `CHANGELOG.md`: version, additive vs breaking | repo root | [ ] |
-| E3 | `lifeguard-migrate`: README or `schema_infer` doc — infer-schema requires Lifeguard ≥ *version* for full `DateTime<Utc>` support | `lifeguard-migrate/` | [ ] |
-| E4 | `rustdoc` examples compile (`cargo doc --no-deps` if CI uses it) | — | [ ] |
-| E5 | Mark PRD §9 success criteria checkboxes | `COMPLETE_CHRONO_IMPLEMENTATION.md` | [ ] |
+| E1 | Add `CHRONO_AND_POSTGRES_TYPES.md` **or** extend `UUID_AND_POSTGRES_TYPES.md` with PRD §2 table + examples | `lifeguard/docs/` | [x] |
+| E2 | `CHANGELOG.md`: version, additive vs breaking | repo root | [x] |
+| E3 | `lifeguard-migrate`: README or `schema_infer` doc — infer-schema requires Lifeguard ≥ *version* for full `DateTime<Utc>` support | `lifeguard-migrate/` | [x] |
+| E4 | `rustdoc` examples compile (`cargo doc --no-deps` if CI uses it) | — | [x] |
+| E5 | Mark PRD §9 success criteria checkboxes | `COMPLETE_CHRONO_IMPLEMENTATION.md` | [x] |
 
 **Exit:** PRD Iteration E exit criteria met.
 

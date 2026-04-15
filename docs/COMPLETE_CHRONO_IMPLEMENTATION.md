@@ -4,7 +4,7 @@
 > **Status:** Draft — implementation plan  
 > **Audience:** Lifeguard maintainers; downstream (e.g. Hauliage) after library releases  
 > **Task tracker:** `[COMPLETE_CHRONO_TASKS.md](./COMPLETE_CHRONO_TASKS.md)` — actionable checklist (Iterations A–E, test matrix T1–T6, migrate checks)  
-> **Related:** `[UUID_AND_POSTGRES_TYPES.md](./UUID_AND_POSTGRES_TYPES.md)`, `[lifeguard/src/query/converted_params.rs](../src/query/converted_params.rs)`, `[lifeguard-derive/src/type_conversion.rs](../lifeguard-derive/src/type_conversion.rs)`
+> **Related:** [`UUID_AND_POSTGRES_TYPES.md`](./UUID_AND_POSTGRES_TYPES.md), [`CHRONO_AND_POSTGRES_TYPES.md`](./CHRONO_AND_POSTGRES_TYPES.md), [`lifeguard/src/query/converted_params.rs`](../src/query/converted_params.rs), [`lifeguard-derive/src/type_conversion.rs`](../lifeguard-derive/src/type_conversion.rs)
 
 ---
 
@@ -257,10 +257,10 @@ Track as a **separate milestone** (Hauliage repo); this PRD stops at **Lifeguard
 
 ## 9. Success criteria (Lifeguard)
 
-- `chrono::DateTime<chrono::Utc>` and `Option<…>` are **first-class** in derive: correct `**sea_query::Value`**, `**FromRow**`, and **SQL type inference** for TZ-aware columns.
-- `**lifeguard-migrate` infer-schema** output compiles and round-trips against Postgres without manual fixes.
-- Tests cover mapping table in [§6](#6-test-matrix-minimum).
-- Documentation and changelog allow Hauliage to plan the [§8](#8-follow-up-hauliage-consumer-updates) rollout.
+- [x] `chrono::DateTime<chrono::Utc>` and `Option<…>` are **first-class** in derive: correct `**sea_query::Value`**, `**FromRow**`, and **SQL type inference** for TZ-aware columns.
+- [x] `**lifeguard-migrate` infer-schema** output aligns with derive (`timestamptz` → `DateTime<Utc>`); integration tests cover read/insert paths (full Hauliage round-trip is [§8](#8-follow-up-hauliage-consumer-updates)).
+- [x] Tests cover mapping table in [§6](#6-test-matrix-minimum).
+- [x] Documentation and changelog allow Hauliage to plan the [§8](#8-follow-up-hauliage-consumer-updates) rollout.
 
 ---
 

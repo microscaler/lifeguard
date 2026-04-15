@@ -3,6 +3,24 @@
 //! Used by [`super::value_conversion::with_converted_params`] (`LifeError`) and
 //! [`crate::active_model::conversion::with_converted_params`] (`ActiveModelError`) so new
 //! `Value` variants are handled in one place.
+//!
+//! ## Two-pass invariant
+//!
+//! 1. **Pass 1** walks `values` **in order** and appends into typed storage (`strings`, `ints`,
+//!    `null_chrono_datetimes_utc`, …).
+//! 2. **Pass 2** walks the **same `values` slice in the same order** and, for each element, takes
+//!    the next `&dyn ToSql` from the **matching** bucket (`string_idx`, `chrono_datetime_utc_null_idx`, …).
+//!
+//! So the *i*-th input `Value` always becomes the *i*-th bind parameter. When adding a variant,
+//! both passes must stay in lockstep.
+//!
+//! ## Typed NULLs vs generic `nulls`
+//!
+//! `Value::{String,Json}(None)` and several other variants share the **`nulls: Vec<Option<i32>>`**
+//! bucket because `postgres-types` accepts that representation for those OIDs. **Do not** route
+//! `ChronoDateTimeUtc(None)`, `Uuid(None)`, or other typed NULLs through that generic bucket —
+//! they use `Option<T>` vectors with the correct `T` so `ToSql::accepts` matches the column (see
+//! `docs/CHRONO_AND_POSTGRES_TYPES.md` and PRD §5.2).
 
 use may_postgres::types::ToSql;
 use sea_query::Value;
@@ -149,6 +167,7 @@ where
 
     let mut params: Vec<&dyn ToSql> = Vec::new();
 
+    // Second pass: same iteration order as above; index *_idx mirrors consumption from each bucket.
     for value in values {
         match value {
             Value::Bool(Some(_)) => {
@@ -293,9 +312,45 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use rust_decimal::Decimal;
     use sea_query::Value;
     use std::str::FromStr;
+
+    #[test]
+    fn mixed_string_json_and_chrono_utc_nulls_one_slice() {
+        let values = vec![
+            Value::Int(Some(1)),
+            Value::String(None),
+            Value::Json(None),
+            Value::ChronoDateTimeUtc(None),
+            Value::String(Some("x".into())),
+            Value::ChronoDateTimeUtc(Some(Utc::now())),
+        ];
+        let result = with_converted_value_slice(&values, |e| e, |params| {
+            assert_eq!(
+                params.len(),
+                values.len(),
+                "each Value must yield exactly one bind parameter"
+            );
+            Ok::<(), String>(())
+        });
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn typed_uuid_null_separate_from_generic_nulls() {
+        let values = vec![
+            Value::Uuid(None),
+            Value::Int(None),
+            Value::ChronoDateTime(None),
+        ];
+        let result = with_converted_value_slice(&values, |e| e, |params| {
+            assert_eq!(params.len(), 3);
+            Ok::<(), String>(())
+        });
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
 
     #[test]
     #[allow(clippy::unwrap_used)] // literal decimal string; crate denies unwrap in non-test paths only

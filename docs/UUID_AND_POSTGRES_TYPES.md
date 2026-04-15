@@ -77,6 +77,7 @@ Do not rely on “stringly-typed” UUIDs for persisted columns.
 
 ## Related reading
 
+- **Chrono / `timestamp` / `timestamptz`:** [`CHRONO_AND_POSTGRES_TYPES.md`](./CHRONO_AND_POSTGRES_TYPES.md).
 - Hauliage postmortem (real incident): [hauliage — postmortem consignments list_jobs](https://github.com/microscaler/hauliage/blob/main/docs/postmortem-consignments-list-jobs-empty-2026-04.md) (path may differ if the repo is vendored; clone: `hauliage/docs/postmortem-consignments-list-jobs-empty-2026-04.md`).
 - Planning note (type inference): [ISSUE_UUID_NAIVEDATETIME_TYPE_INFERENCE.md](../planning/lifeguard-derive/ISSUE_UUID_NAIVEDATETIME_TYPE_INFERENCE.md)
 
