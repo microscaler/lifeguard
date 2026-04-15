@@ -15,6 +15,15 @@ use sea_query::Values;
 
 static UUID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/// `sea_query::Values` is not always `Send` (e.g. `Value` may hold `Rc<str>`), but `may::go!` requires a
+/// `Send` closure. Streaming passes this through **once** into a single coroutine that consumes it
+/// sequentially — no concurrent access from multiple OS threads.
+struct StreamCursorValues(sea_query::Values);
+
+// SAFETY: Only constructed immediately before `may::go!`; the inner `Values` is not shared across
+// threads while live. Required for `may::go!`'s `Send` bound; see module comment on `stream_all`.
+unsafe impl Send for StreamCursorValues {}
+
 /// Rolls back the streaming cursor transaction on panic or if the caller forgets to [`take`](Option::take) it.
 ///
 /// Successful paths must [`Option::take`] the [`Transaction`] and [`commit`](Transaction::commit); error paths
@@ -54,6 +63,9 @@ pub trait SelectQueryStreamEx<E: LifeModelTrait> {
     /// For massive analytics processing, extracting standard `Vec` arrays reduces channel iteration
     /// locking by yielding data packets representing exactly 1 network poll payload. In real world
     /// workloads, pushing arrays yields a 15-20% throughput benefit locally without breaking memory limits.
+    ///
+    /// **Note:** `sea_query::Values` is wrapped (`StreamCursorValues`) so the coroutine closure is `Send`
+    /// for `may::go!` despite `Rc` inside newer `sea_query::Value` variants.
     fn stream_all(
         self,
         executor: &MayPostgresExecutor,
@@ -77,12 +89,13 @@ where
 
         // Match `SelectQuery::all` / `one`: apply soft-delete filter unless `with_trashed()`.
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
+        let values = StreamCursorValues(values);
 
         // Executors explicitly clone connection handlers intrinsically representing identical PG states.
         let local_exec = MayPostgresExecutor::new(executor.client().clone());
 
         // `may::coroutine::spawn` is `unsafe` in the `may` crate; `may::go!` is the supported wrapper.
-        // The closure only captures `Send` + `'static` values (`MayPostgresExecutor`, channel `tx`, etc.).
+        // `StreamCursorValues` satisfies the `Send` bound for `Values` (see struct + `unsafe impl`).
         let _stream_co = may::go!(move || {
             // Establish the dedicated transactional socket mapping the Cursor boundaries.
             let txn = match local_exec.begin() {
@@ -105,7 +118,7 @@ where
                 };
 
                 let declare_statement = format!("DECLARE {cursor_name} CURSOR FOR {sql}");
-                txn.execute_values(&declare_statement, &values)?;
+                txn.execute_values(&declare_statement, &values.0)?;
 
                 let fetch_statement = format!("FETCH FORWARD {batch_size} FROM {cursor_name}");
                 let empty = Values(Vec::new());
