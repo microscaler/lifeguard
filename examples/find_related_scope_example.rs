@@ -18,6 +18,7 @@ use lifeguard_derive::{LifeModel, LifeRecord};
 use sea_query::{ConditionType, IntoIden, TableName, TableRef};
 
 mod users {
+    #![allow(clippy::wildcard_imports)] // derive-generated code expects parent prelude
     use super::*;
 
     #[derive(LifeModel, LifeRecord)]
@@ -33,6 +34,7 @@ mod users {
 }
 
 mod posts {
+    #![allow(clippy::wildcard_imports)]
     use super::*;
 
     #[derive(LifeModel, LifeRecord)]
