@@ -103,7 +103,7 @@ pub fn accumulate_table_baselines_from_dir(dir: &Path) -> BTreeMap<String, Table
         let sections = extract_table_sections(&content);
         for (table_name, sec) in sections {
             let entry = map.entry(table_name).or_default();
-            if extract_create_and_tail(&sec).is_some() {
+            if extract_create_and_tail(&sec).is_some() || sec.contains("CREATE OR REPLACE VIEW ") {
                 entry.last_create_section = Some(sec);
                 entry.delta_section_fragments.clear();
             } else {
@@ -350,6 +350,10 @@ pub fn build_service_migration_body_from_accumulated(
         }
 
         let combined = combined_old_section(parts);
+        
+        if normalize_table_sql_blob(&combined) == normalize_table_sql_blob(new_sql) {
+            continue;
+        }
 
         let Some((_, new_body, new_tail)) = extract_create_and_tail(new_sql) else {
             out.push_str(&format!("-- Table: {table_name}\n{new_sql}\n\n"));
