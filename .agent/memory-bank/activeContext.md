@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Work
+- **BRRTRouter rebase (2026-04-17, repeat):** `pre_BFF_work` rebased onto fresh `origin/main` again in `microscaler/BRRTRouter` (5 commits replayed, success). Remote still needs `--force-with-lease` if pushing branch. Untracked: `docs/PRD-326-review-remediation.md`.
 - **BRRTRouter rebase (2026-04-17):** `pre_BFF_work` rebased onto `origin/main` in `microscaler/BRRTRouter` (success). Local branch diverged from `origin/pre_BFF_work` — use `git push --force-with-lease origin pre_BFF_work` when updating remote. Untracked: `docs/PRD-326-review-remediation.md`.
 - **AGENT.md raw SQL rule (2026-04-17):** Core rule §5 in `AGENT.md` mirrors wiki policy; `docs/llmwiki/log.md` append. Committed (`farm git commit --no-add`).
 - **Lifeguard llmwiki — raw SQL policy (2026-04-17):** Added `docs/llmwiki/topics/raw-sql-vs-selectquery-policy.md` (raw SQL last resort; human approval; ADR proving idiomatic ORM extension infeasible). Updated `query-select-and-active-model.md`, `workspace-and-module-map.md`, `index.md`, `docs-catalog.md`, `log.md`. Committed (`farm git commit --no-add`).
