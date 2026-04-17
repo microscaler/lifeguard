@@ -18,6 +18,7 @@ Content catalog for the Lifeguard llm-wiki. See [`SCHEMA.md`](./SCHEMA.md).
 - [`entities/life-model-and-life-record.md`](./entities/life-model-and-life-record.md) — `LifeModel` / `LifeRecord`, UUID typing.
 - [`entities/life-executor-pool-and-routing.md`](./entities/life-executor-pool-and-routing.md) — `LifeExecutor`, `LifeguardPool`, WAL / replicas.
 - [`entities/migrate-compare-and-sql-generation.md`](./entities/migrate-compare-and-sql-generation.md) — `lifeguard-migrate`, ordering, compare-schema.
+- [`entities/transaction-boundaries.md`](./entities/transaction-boundaries.md) — `Transaction`, isolation, error type; pointer to rustdoc.
 
 ## Topics (cross-cutting)
 
@@ -33,11 +34,11 @@ Content catalog for the Lifeguard llm-wiki. See [`SCHEMA.md`](./SCHEMA.md).
 - [`topics/integration-testing-and-ci.md`](./topics/integration-testing-and-ci.md) — `TEST_INFRASTRUCTURE`, test helpers.
 - [`topics/index-and-derive-constraints.md`](./topics/index-and-derive-constraints.md) — `#[index]` / `#[indexed]` constraints.
 - [`topics/brrtrouter-integration-pitfalls.md`](./topics/brrtrouter-integration-pitfalls.md) — BRRTRouter + Lifeguard footguns.
+- [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md) — `graphql` feature + `async_graphql` version alignment.
 
 ## Planned (optional next passes)
 
-- [ ] `entities/transaction-boundaries.md` — deeper narrative on `transaction/` + error semantics.
-- [ ] `topics/graphql-feature.md` — `async_graphql` optional feature interplay.
+- [ ] Deeper rustdoc extracts for `stream_all` txn cleanup (if session work expands).
 
 ## Cross-references
 

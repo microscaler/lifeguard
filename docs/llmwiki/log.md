@@ -20,3 +20,7 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 - **`docs-catalog.md`:** added **LLM wiki synthesis index** table mapping pages → coverage
 - **`index.md`:** full catalog replaces the short stub
 - **`documentation-landscape.md`:** links to new reference pages
+
+## [2026-04-17] ingest | transaction + GraphQL wiki pages
+
+- Added [`entities/transaction-boundaries.md`](./entities/transaction-boundaries.md) and [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md); updated [`index.md`](./index.md).
