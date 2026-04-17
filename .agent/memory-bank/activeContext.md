@@ -1,8 +1,7 @@
 # Active Context
 
 ## Current Work
-- **BRRTRouter rebase (2026-04-17, repeat):** `pre_BFF_work` rebased onto fresh `origin/main` again in `microscaler/BRRTRouter` (5 commits replayed, success). Remote still needs `--force-with-lease` if pushing branch. Untracked: `docs/PRD-326-review-remediation.md`.
-- **BRRTRouter rebase (2026-04-17):** `pre_BFF_work` rebased onto `origin/main` in `microscaler/BRRTRouter` (success). Local branch diverged from `origin/pre_BFF_work` — use `git push --force-with-lease origin pre_BFF_work` when updating remote. Untracked: `docs/PRD-326-review-remediation.md`.
+- **BRRTRouter rebase (2026-04-17):** `pre_BFF_work` in `microscaler/BRRTRouter` rebased onto latest `origin/main` (5 topic commits replayed; tip `6083a83`). Diverged from `origin/pre_BFF_work` — push with `--force-with-lease` when ready. Untracked: `docs/PRD-326-review-remediation.md`.
 - **AGENT.md raw SQL rule (2026-04-17):** Core rule §5 in `AGENT.md` mirrors wiki policy; `docs/llmwiki/log.md` append. Committed (`farm git commit --no-add`).
 - **Lifeguard llmwiki — raw SQL policy (2026-04-17):** Added `docs/llmwiki/topics/raw-sql-vs-selectquery-policy.md` (raw SQL last resort; human approval; ADR proving idiomatic ORM extension infeasible). Updated `query-select-and-active-model.md`, `workspace-and-module-map.md`, `index.md`, `docs-catalog.md`, `log.md`. Committed (`farm git commit --no-add`).
 - **GraphQL docs alignment (2026-04-17, Lifeguard):** Recorded platform decision — GraphQL does **not** fit OpenAPI/BRRTRouter BFF; optional `graphql` / `async_graphql` is legacy/frozen. Updated `docs/llmwiki/topics/graphql-optional-feature.md` (top), `index.md`, `docs-catalog.md`, `log.md`; `README.md`, `src/lib.rs` rustdoc block, `Cargo.toml` comments, `LIFEGUARD_GAP_ANALYSIS.md` §6, `SECURITY_PROMPT.md`. Committed on lifeguard (`farm git commit --no-add`).
