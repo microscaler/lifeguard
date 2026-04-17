@@ -25,6 +25,7 @@ Declared in [`src/lib.rs`](../../../src/lib.rs) (non-exhaustive; see file for re
 |--------|---------|
 | `config`, `connection` | Connection strings and health checks. |
 | `executor` | `LifeExecutor`, `MayPostgresExecutor`, `LifeError`. |
+| `raw_sql` | Helpers over `LifeExecutor` (`execute_statement`, `find_by_statement`, …). **Product policy:** prefer `query` / `SelectQuery`; raw SQL only per [`topics/raw-sql-vs-selectquery-policy.md`](../topics/raw-sql-vs-selectquery-policy.md). |
 | `pool` | `LifeguardPool`, `PooledLifeExecutor`, `ReadPreference`, WAL lag routing. |
 | `query` | `SelectQuery`, `ColumnTrait`, `LifeModelTrait`, indexes, scopes. |
 | `active_model` | `ActiveModelTrait`, validators, `ValidateOp`. |

@@ -29,3 +29,7 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 
 - Rewrote top of [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md): Hauliage BFF uses OpenAPI/BRRTRouter composed views — **not** GraphQL; optional `graphql` / `async_graphql` is legacy/frozen for existing cfg/tests.
 - Updated [`index.md`](./index.md), [`docs-catalog.md`](./docs-catalog.md); aligned root [`README.md`](../../README.md), [`src/lib.rs`](../../src/lib.rs) comments, [`Cargo.toml`](../../Cargo.toml), [`LIFEGUARD_GAP_ANALYSIS.md`](../../LIFEGUARD_GAP_ANALYSIS.md) §6, [`SECURITY_PROMPT.md`](../../SECURITY_PROMPT.md).
+
+## [2026-04-17] ingest | raw SQL vs SelectQuery policy topic
+
+- Added [`topics/raw-sql-vs-selectquery-policy.md`](./topics/raw-sql-vs-selectquery-policy.md): raw SQL last resort; **human approval**; **ADR** must show idiomatic ORM extension is infeasible. Linked from [`topics/query-select-and-active-model.md`](./topics/query-select-and-active-model.md), [`reference/workspace-and-module-map.md`](./reference/workspace-and-module-map.md); updated [`index.md`](./index.md), [`docs-catalog.md`](./docs-catalog.md).

@@ -24,6 +24,7 @@ Content catalog for the Lifeguard llm-wiki. See [`SCHEMA.md`](./SCHEMA.md).
 
 - [`topics/documentation-landscape.md`](./topics/documentation-landscape.md) — Where root vs `docs/` vs `book/` vs planning live.
 - [`topics/query-select-and-active-model.md`](./topics/query-select-and-active-model.md) — `SelectQuery`, `ActiveModel`, validators.
+- [`topics/raw-sql-vs-selectquery-policy.md`](./topics/raw-sql-vs-selectquery-policy.md) — when **not** to use raw SQL; human approval + ADR bar.
 - [`topics/relations-loaders-scopes.md`](./topics/relations-loaders-scopes.md) — Relations, loaders, `find_related`, scopes.
 - [`topics/session-identity-map.md`](./topics/session-identity-map.md) — Session / identity map / UoW direction.
 - [`topics/reflector-cache-and-coherence.md`](./topics/reflector-cache-and-coherence.md) — LifeReflector, Redis, cache traits.

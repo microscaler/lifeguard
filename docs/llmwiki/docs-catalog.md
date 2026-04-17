@@ -86,6 +86,7 @@ Use this when you know **which subsystem** you are touching; each page links bac
 | [`entities/life-executor-pool-and-routing.md`](./entities/life-executor-pool-and-routing.md) | Pool, WAL routing, `LifeExecutor` |
 | [`entities/migrate-compare-and-sql-generation.md`](./entities/migrate-compare-and-sql-generation.md) | `lifeguard-migrate`, compare-schema, SQL gen |
 | [`topics/query-select-and-active-model.md`](./topics/query-select-and-active-model.md) | `SelectQuery`, validators, `ActiveModel` |
+| [`topics/raw-sql-vs-selectquery-policy.md`](./topics/raw-sql-vs-selectquery-policy.md) | Raw SQL vs `SelectQuery`; last resort, ADR, human approval |
 | [`topics/relations-loaders-scopes.md`](./topics/relations-loaders-scopes.md) | Relations, loaders, scopes |
 | [`topics/session-identity-map.md`](./topics/session-identity-map.md) | Session / identity map |
 | [`topics/reflector-cache-and-coherence.md`](./topics/reflector-cache-and-coherence.md) | LifeReflector, Redis, `cache` traits |
