@@ -33,3 +33,7 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 ## [2026-04-17] ingest | raw SQL vs SelectQuery policy topic
 
 - Added [`topics/raw-sql-vs-selectquery-policy.md`](./topics/raw-sql-vs-selectquery-policy.md): raw SQL last resort; **human approval**; **ADR** must show idiomatic ORM extension is infeasible. Linked from [`topics/query-select-and-active-model.md`](./topics/query-select-and-active-model.md), [`reference/workspace-and-module-map.md`](./reference/workspace-and-module-map.md); updated [`index.md`](./index.md), [`docs-catalog.md`](./docs-catalog.md).
+
+## [2026-04-17] doc | AGENT.md — raw SQL rule
+
+- Added **Core rule §5** to [`../../AGENT.md`](../../AGENT.md) (mirror of raw-SQL policy; links to [`topics/raw-sql-vs-selectquery-policy.md`](./topics/raw-sql-vs-selectquery-policy.md)).

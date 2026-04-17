@@ -37,6 +37,10 @@ The derive parses index strings but does not prove columns exist; broken SQL fai
 
 Hauliage and BRRTRouter have their own agent rules and wikis. When debugging app-level routing or seeds, open **[`../hauliage/docs/llmwiki/`](../hauliage/docs/llmwiki/)** and **[`../BRRTRouter/llmwiki/`](../BRRTRouter/llmwiki/)** from a `microscaler/` sibling checkout.
 
+### 5. Raw SQL is a last resort
+
+Prefer **`SelectQuery`** and idiomatic ORM APIs (`LifeModel` / `LifeRecord`, relations, scopes, validators). **Do not** add raw SQL helpers or string-built queries for convenience. **New** raw-SQL paths require **explicit human approval** and a **comprehensive ADR** that shows the use case cannot be met by extending Lifeguard with new idiomatic ORM functionality. Full policy: [`docs/llmwiki/topics/raw-sql-vs-selectquery-policy.md`](./docs/llmwiki/topics/raw-sql-vs-selectquery-policy.md).
+
 ---
 
 ## Postmortems and formal references (read via wiki)

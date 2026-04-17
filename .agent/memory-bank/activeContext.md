@@ -1,6 +1,7 @@
 # Active Context
 
 ## Current Work
+- **AGENT.md raw SQL rule (2026-04-17):** Core rule §5 in `AGENT.md` mirrors wiki policy; `docs/llmwiki/log.md` append. Pending: `farm git commit --no-add`.
 - **Lifeguard llmwiki — raw SQL policy (2026-04-17):** Added `docs/llmwiki/topics/raw-sql-vs-selectquery-policy.md` (raw SQL last resort; human approval; ADR proving idiomatic ORM extension infeasible). Updated `query-select-and-active-model.md`, `workspace-and-module-map.md`, `index.md`, `docs-catalog.md`, `log.md`. Committed (`farm git commit --no-add`).
 - **GraphQL docs alignment (2026-04-17, Lifeguard):** Recorded platform decision — GraphQL does **not** fit OpenAPI/BRRTRouter BFF; optional `graphql` / `async_graphql` is legacy/frozen. Updated `docs/llmwiki/topics/graphql-optional-feature.md` (top), `index.md`, `docs-catalog.md`, `log.md`; `README.md`, `src/lib.rs` rustdoc block, `Cargo.toml` comments, `LIFEGUARD_GAP_ANALYSIS.md` §6, `SECURITY_PROMPT.md`. Committed on lifeguard (`farm git commit --no-add`).
 - **llmwiki initiative continuation (2026-04-17):** **Hauliage:** `reference/x-brrtrouter-impl-coverage.md` (152/144/8 from F5 D3.5), `topics/bff-view-composition.md` (WIP PRD synthesis), `topics/adr-quick-index.md`; `index` + `docs-catalog` + `log` updated. **Lifeguard:** `entities/transaction-boundaries.md`, `topics/graphql-optional-feature.md`; `docs-catalog` synthesis rows; `log` append. **BRRTRouter:** `topics/canonical-docs-vs-wip.md` (staleness policy for `docs/wip/`); index + docs-catalog + log. Commits: `farm git commit --no-add` per repo.
