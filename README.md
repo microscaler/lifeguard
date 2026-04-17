@@ -57,7 +57,7 @@ lifeguard = { git = "https://github.com/microscaler/lifeguard" }
 lifeguard-derive = { git = "https://github.com/microscaler/lifeguard", package = "lifeguard-derive" }
 ```
 
-Enable optional features as needed, for example `metrics`, `tracing`, or `graphql` (see root `Cargo.toml`).
+Enable optional features as needed, for example `metrics` or `tracing`. The `graphql` feature exists for legacy `SimpleObject` paths and tests; it is **not** the intended API style for OpenAPI/BRRTRouter BFF work (see [`docs/llmwiki/topics/graphql-optional-feature.md`](docs/llmwiki/topics/graphql-optional-feature.md) and root `Cargo.toml`).
 
 ### Usage (today)
 

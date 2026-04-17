@@ -18,8 +18,9 @@ members = [
 ]
 resolver = "2"
 
-# Pinned GraphQL stack: consumers and tests should use this version via `workspace = true`
-# to match lifeguard's optional `graphql` feature (avoids duplicate async-graphql versions).
+# Pinned GraphQL stack (optional `graphql` feature only — not a Hauliage/BFF direction; see
+# docs/llmwiki/topics/graphql-optional-feature.md). Consumers and tests should use this version
+# via `workspace = true` to avoid duplicate async-graphql versions.
 [workspace.dependencies]
 # Match ORM field types used on `LifeModel` when `graphql` is enabled (`SimpleObject` needs these features).
 async-graphql = { version = "7.2.1", features = ["chrono", "uuid", "decimal"] }
@@ -76,7 +77,7 @@ regex = "1.10"  # For migration file name parsing
 # JSON support is always enabled (core functionality)
 sea-query = { version = "1.0.0-rc.29", features = ["with-json", "with-chrono", "with-uuid", "with-rust_decimal"] }
 
-# GraphQL API generation (version pinned in [workspace.dependencies])
+# Optional: `SimpleObject` on generated models — legacy/tests; not the platform API for Hauliage BFF.
 async-graphql = { workspace = true, optional = true }
 
 # Security: Force protobuf 3.7.2 to address CVE-2025-53605
@@ -115,4 +116,5 @@ tracing = ["dep:tracing", "dep:tracing-subscriber"]
 mock = []
 # Enable test helpers for integration tests
 test-helpers = []
+# Derive + async-graphql re-export; frozen for existing use — not expanded for BFF/dashboards.
 graphql = ["lifeguard-derive/graphql", "dep:async-graphql"]

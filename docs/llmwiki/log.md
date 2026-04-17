@@ -24,3 +24,8 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 ## [2026-04-17] ingest | transaction + GraphQL wiki pages
 
 - Added [`entities/transaction-boundaries.md`](./entities/transaction-boundaries.md) and [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md); updated [`index.md`](./index.md).
+
+## [2026-04-17] doc | GraphQL optional feature — platform decision
+
+- Rewrote top of [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md): Hauliage BFF uses OpenAPI/BRRTRouter composed views — **not** GraphQL; optional `graphql` / `async_graphql` is legacy/frozen for existing cfg/tests.
+- Updated [`index.md`](./index.md), [`docs-catalog.md`](./docs-catalog.md); aligned root [`README.md`](../../README.md), [`src/lib.rs`](../../src/lib.rs) comments, [`Cargo.toml`](../../Cargo.toml), [`LIFEGUARD_GAP_ANALYSIS.md`](../../LIFEGUARD_GAP_ANALYSIS.md) §6, [`SECURITY_PROMPT.md`](../../SECURITY_PROMPT.md).

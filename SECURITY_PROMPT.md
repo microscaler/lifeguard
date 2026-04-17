@@ -2,7 +2,7 @@
 
 **Purpose:** Copy the block below into an AI assistant, internal review ticket, or external penetration-test brief when you want a **structured security review** of the Lifeguard workspace. The audience for the **output** should be **CTOs, engineering leads, and CSOs**—executive clarity, evidence-backed, and actionable.
 
-**Scope note:** This repository is the **Lifeguard** PostgreSQL ORM/data-access platform for Rust (`may` / `may_postgres`), with optional **Redis** (cache / LifeReflector), **migrations**, **GraphQL** (optional), and **CI/Compose** test infrastructure. Adjust scope in your paste if you audit only a subdirectory or a release tag.
+**Scope note:** This repository is the **Lifeguard** PostgreSQL ORM/data-access platform for Rust (`may` / `may_postgres`), with optional **Redis** (cache / LifeReflector), **migrations**, an optional **GraphQL** (`async-graphql`) feature used only in narrow/legacy paths (not the Hauliage BFF API model), and **CI/Compose** test infrastructure. Adjust scope in your paste if you audit only a subdirectory or a release tag.
 
 ---
 
@@ -32,7 +32,7 @@ Cover at minimum:
 5. **Supply chain** — `cargo`/git dependencies, pinned revisions, optional features
 6. **Denial of service** — unbounded work, pool exhaustion, channel backpressure
 7. **Cache / Redis / LifeReflector** (if present) — cache poisoning, invalidation, NOTIFY abuse
-8. **GraphQL surface** (if enabled) — introspection, depth/complexity, authz (consumer responsibility)
+8. **GraphQL surface** (only if the optional `graphql` feature is enabled in a deployment) — introspection, depth/complexity, authz (consumer responsibility); not applicable when GraphQL is unused
 
 Explicitly state **consumer responsibilities** (e.g. this library does not implement application authentication).
 

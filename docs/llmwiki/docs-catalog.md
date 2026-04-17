@@ -97,4 +97,4 @@ Use this when you know **which subsystem** you are touching; each page links bac
 | [`topics/index-and-derive-constraints.md`](./topics/index-and-derive-constraints.md) | `#[index]` footguns |
 | [`topics/brrtrouter-integration-pitfalls.md`](./topics/brrtrouter-integration-pitfalls.md) | Empty `[]` + BRRTRouter stacks |
 | [`entities/transaction-boundaries.md`](./entities/transaction-boundaries.md) | `Transaction` / isolation |
-| [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md) | `graphql` / `async_graphql` |
+| [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md) | Optional `graphql` / `async_graphql` (legacy; not BFF stack) |

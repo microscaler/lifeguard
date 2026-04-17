@@ -100,10 +100,13 @@ pub use pool::{
 #[doc(inline)]
 pub use lifeguard_derive::{scope, scope_bundle};
 
-// Optional GraphQL: `LifeModel` nests `async_graphql::SimpleObject` on the generated `Model`.
-// Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version
-// and enable the scalar features they use (e.g. `chrono`, `uuid`, `decimal`); the workspace
-// crate pins these in `[workspace.dependencies]` for tests and internal packages.
+// Optional GraphQL (`graphql` feature): `LifeModel` can nest `async_graphql::SimpleObject` on the
+// generated `Model`. **Product direction (Hauliage / BFF):** a GraphQL runtime does not fit the
+// OpenAPI + BRRTRouter BFF model; do not plan new platform work on this path — see
+// `docs/llmwiki/topics/graphql-optional-feature.md`. The feature remains for existing cfg/tests.
+// Crates that enable `lifeguard`/`graphql` should depend on the same `async-graphql` version and
+// enable the scalar features they use (e.g. `chrono`, `uuid`, `decimal`); the workspace pins
+// these in `[workspace.dependencies]` for tests and internal packages.
 #[cfg(feature = "graphql")]
 pub use async_graphql;
 
