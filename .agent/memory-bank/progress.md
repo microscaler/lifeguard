@@ -1,5 +1,331 @@
 # Progress Tracking
 
+## Hauliage fleet compliance UI e2e (2026-04-17)
+
+- Added `hauliage/frontend/e2e/features/fleet-compliance-ui.feature` and `hauliage/frontend/e2e/specs/transport/007_fleet_compliance_ui.spec.ts` (banner + first compliance cell assertions).
+- Controller: removed mistaken `#[allow(dead_code)]` on `empty_summary()` in `get_fleet_compliance_summary.rs`.
+- **Pending local verify:** `cargo test -p hauliage_fleet` and Playwright from the hauliage repo (this environment has no `hauliage/` Cargo workspace).
+
+## docs/ reorganization + llmwiki seeding (2026-04-17)
+
+Reorganized `hauliage/docs/` from a flat 36-file folder into 4 topic subdirectories matching their natural lifecycles, with full cross-reference sweep and a new llmwiki synthesis surface.
+
+### Layout
+
+```
+hauliage/docs/
+├── README.md                # NEW: topic-grouped index across all 4 subdirs + root PRDs
+├── adr/                     # 16 files — ADR 0000..0015 (immutable decision records)
+├── postmortems/             # 5 files — incident write-ups
+├── discoveries/             # 3 files — DATABASE_LAYOUT, design-lifeguard-stored-procedures, BFF_GAP_ANALYSIS_AND_DESIGN
+├── llmwiki/                 # NEW: karpathy-inspired living knowledge base
+│   ├── README.md            # — maintenance conventions + topic/entity indexes
+│   ├── topics/              # — cross-cutting themes (compound summaries)
+│   │   ├── lifeguard-schema-authoring.md
+│   │   ├── seed-pipeline.md
+│   │   └── idempotent-migrations.md
+│   └── entities/            # — long-lived first-class concepts (reference-style)
+│       ├── entity-default-expr.md
+│       ├── entity-apply-order-txt.md
+│       ├── entity-seed-order-txt.md
+│       └── entity-infer-zero-default.md
+├── ROADMAP.md  BFF_TASKS.md  PRD_*.md  prd-*.md   # forward-looking docs stay at root
+└── ...
+```
+
+### Why four subdirs
+
+- **`adr/`** — immutable once accepted; numbered sequentially; cross-referenced by number forever. Moving them into a subdir is safe because every inbound reference was either a relative `./0NNN-*.md` (sibling) or `./docs/0NNN-*.md` (absolute from repo root) — both rewrites are mechanical.
+- **`postmortems/`** — write-once incident records. Easy to distinguish from ADRs by the `postmortem-*` / `postmortem_*` filename prefix.
+- **`discoveries/`** — investigations, design sketches, reference layouts. Continuously updated but not "decisions" (no ADR-style compliance expectations).
+- **`llmwiki/`** — the [karpathy llm-wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f): a persistent, compounding artifact maintained by LLM agents with human oversight. Topic pages synthesize cross-cutting themes; entity pages describe long-lived concepts. Both reference the underlying adr/postmortem/discovery sources.
+
+PRDs (`PRD_*`, `prd-*`), `ROADMAP.md`, and `BFF_TASKS.md` stayed at the root — they're forward-looking planning documents, not post-hoc records.
+
+### Rewrite sweep (every relative path touched)
+
+Inside `docs/adr/*`:
+- Sibling ADR refs (`0011-seed-data-isolation.md`) — unchanged.
+- Postmortem refs — rewritten to `../postmortems/postmortem-*.md`.
+- PRD refs — rewritten from `./PRD_*.md` or `./PRD_*.md` to `../PRD_*.md`.
+- `AGENTS.md` refs — `../AGENTS.md` → `../../AGENTS.md`.
+- ADR 0009's 10 `../microservices/`, `../openapi/`, `../../shared-kind-cluster/` refs all bumped up a level.
+
+Inside `docs/postmortems/*`:
+- My new default-expr postmortem's "Further reading" links rewritten to point at `./postmortem-migration-sync-failures...` (sibling) and `../adr/0004-lifeguard-option-poisoning-postmortem.md`.
+- `postmortem-consignments-list-jobs-empty-2026-04.md` AGENTS.md ref fixed (`../AGENTS.md` → `../../AGENTS.md`), `docs/DATABASE_LAYOUT.md` → `docs/discoveries/DATABASE_LAYOUT.md`, `docs/0001-...md` → `docs/adr/0001-...md`.
+
+Inside `docs/discoveries/*`:
+- `BFF_GAP_ANALYSIS_AND_DESIGN.md` ADR 0007 ref rewritten to `../adr/0007-...md`, AGENTS.md ref to `../../AGENTS.md`, `./BFF_TASKS.md` → `../BFF_TASKS.md`.
+
+Root `docs/*.md`:
+- `PRD_CHRONO_TIMESTAMPTZ_ALIGNMENT.md` — `DATABASE_LAYOUT.md` → `./discoveries/DATABASE_LAYOUT.md`, `./0005-...md` → `./adr/0005-...md`.
+- `BFF_TASKS.md` — `./BFF_GAP_ANALYSIS_AND_DESIGN.md` → `./discoveries/BFF_GAP_ANALYSIS_AND_DESIGN.md`.
+
+### External touchpoints updated
+
+- **`hauliage/AGENTS.md`** — added top-of-file "Documentation layout" table explaining the 4 subdirs; greatly expanded the "Lifeguard entities, indexes, foreign keys, and migrations" section to cross-link ADRs 0013/0014/0015 in three new subsections: "Defaults on NOT NULL columns (ADR 0014)", "Idempotent schema retrofits (ADR 0015)", and an expanded "Seeds" block that spells out the `YYYYMMDDHHMMSS_<slug>.sql` rule, `seed_order.txt` as the FK-aware source of truth, and the "update seeds in the same PR as column drops/renames" discipline. Rewrote every existing `./docs/0NNN-*.md` and `./docs/postmortem-*.md` path to the new subdir locations.
+- **`hauliage/scripts/setup-db.sh`** — comment path rewritten to `docs/postmortems/postmortem-lifeguard-default-expr-2026-04.md`.
+- **`hauliage/microservices/company/impl/seeds/README.md`** — retrofit-pattern link bumped to reference ADR 0015 (not just the postmortem) + postmortem path updated.
+- **`hauliage/Tiltfile`** — `docs/DATABASE_LAYOUT.md` → `docs/discoveries/DATABASE_LAYOUT.md`.
+- **`hauliage/.agent/memory-bank/techContext.md`** — same DATABASE_LAYOUT path fix.
+- **`hauliage/microservices/reviews/impl/src/controllers/get_review_stats.rs`** — inline comment reference to ADR 0004 rewritten.
+
+### llmwiki seeding
+
+The 8 seed pages (1 README + 3 topics + 4 entities) capture today's migration-tooling work as compound knowledge:
+
+- **Topics** (cross-cutting): `lifeguard-schema-authoring` (Rust-shape → SQL + Category A/B/C + `#[default_expr]` decision tree), `seed-pipeline` (three-manifest execution sequence + failure modes), `idempotent-migrations` (what Postgres gives / doesn't give + the 4-statement retrofit pattern).
+- **Entities** (reference-style): `entity-default-expr` (attribute spec + emission priority + Category tables), `entity-apply-order-txt` (generator + consumer + algorithm + gotchas), `entity-seed-order-txt` (same shape, for seeds + strict filename enforcement), `entity-infer-zero-default` (type-family table + gate conditions + warning format + env-var opt-out + the current 9-warning Category B audit).
+
+Each entity page cross-links up to the topic pages, and each topic page cross-links down to the ADRs + postmortems + sibling entities. `> **Open:**` blockquotes mark open questions so the next agent session knows what to investigate.
+
+### Verification
+
+- **Internal link checker** (Python walking every `.md` under `docs/`): every `[label](url)` markdown link resolves. The only 4 unresolved links are pre-existing in `prd-haulier-profile-compliance-routing.md` pointing at `../microservices/fleet/impl/tests/features/vehicle_compliance.feature` (which never existed — only `driver_compliance.feature` and `vehicles.feature` do). Unrelated to this reorganization.
+- **External touchpoint checker** (same Python, stricter regex matching only genuine markdown links): every external reference into `docs/` from `AGENTS.md`, `scripts/setup-db.sh`, `microservices/company/impl/seeds/README.md`, `microservices/reviews/impl/src/controllers/get_review_stats.rs`, `Tiltfile`, `.agent/memory-bank/techContext.md` resolves to an existing file.
+- **`git mv`** used wherever possible for rename tracking; plain `mv` only on the 3 brand-new ADRs (0013/0014/0015) that aren't yet committed.
+
+### Maintenance cadence (captured in `llmwiki/README.md`)
+
+The llmwiki is re-synthesized at the end of any session that produces a new ADR, a new postmortem, or a code change to `lifeguard-migrate`, `scripts/setup-db.sh`, or the `microservices/migrator` binary. Smaller patches (fixing a typo in a seed, updating a handler) do not require a wiki refresh unless they reveal a new entity or overturn a topic-page claim. When the agent finishes a session it (a) summarizes net learning into existing pages, (b) flags open questions with `> **Open:**` blockquotes, (c) prunes stale claims or marks them `> **Historical (superseded YYYY-MM-DD):**`.
+
+## ADRs 0013 / 0014 / 0015 — formalizing today's decisions (2026-04-17)
+
+Authored three Architecture Decision Records in `hauliage/docs/` to codify the policies that emerged from today's `hauliage-db-init` iterations. No code changes — pure documentation layer on top of the tactical + strategic fixes landed earlier in the session.
+
+### ADR 0013 — Seed File Ordering Contract (`YYYYMMDDHHMMSS_<slug>.sql` + `seed_order.txt`)
+
+**Scope.** All `microservices/*/impl/seeds/`, `lifeguard-migrate::write_seed_order_file`, `scripts/setup-db.sh::apply_seeds_from_disk`, the `hauliage-db-init` / `hauliage-apply-migrations` Tilt resources.
+
+**Why an ADR.** ADR 0011 established *where* seeds live but said nothing about apply order; this ADR fills that gap and supersedes the implicit "alphabetical `find | sort`" ordering.
+
+**Core sections.** (1) Three cascading failure classes that motivated the decision (FK-violating order, hidden schema drift, non-determinism on rename). (2) Three interlocking rules: strict filename grammar (`YYYYMMDDHHMMSS_<slug>.sql`), `seed_order.txt` as the single source of truth, `setup-db.sh` reads it preferentially with mermaid flow diagram of the two-tier lookup. (3) Enforcement-in-codegen rationale (filter happens in `write_seed_order_file` so the problem surfaces at `cargo run` time, not at Tilt rollout time). (4) Consequences including back-compat fallback that should be removed once CI has regenerated the manifest once. (5) Compliance rules covering developers, renames (`git mv`), CI sequencing, `LIFEGUARD_SILENCE_UNTIMESTAMPED_SEEDS=1` escape hatch semantics.
+
+**Extends.** ADR 0011 (Database Seed Data Decoupling and Isolation).
+
+### ADR 0014 — `#[default_expr]` Policy for NOT NULL Lifeguard Fields
+
+**Scope.** Every `#[derive(LifeModel)]` struct across Hauliage microservices; `lifeguard-migrate`'s SQL generator + diff engine; hand-written INSERT paths (seeds, ad-hoc SQL, ETL).
+
+**Why an ADR.** Policy of when to declare `#[default_expr]` is a recurring authoring decision; without a written rule, the next developer re-derives it from scratch. Documents the three-bucket authoring model.
+
+**Core sections.** (1) Context: the marketing failure, the four non-Rust INSERT paths (seeds, ETL, ad-hoc SQL, `ADD COLUMN IF NOT EXISTS`) that break when defaults are absent. (2) Category A (zero value semantically meaningful — must annotate) with table of 9 exemplars already adopted in the tree. (3) Category B (zero value semantically wrong — must not annotate) with 10 exemplars and explanations. (4) Category C (view fields — `#[view(query = …)]` makes the column loop inaccessible anyway, annotation is a no-op and misleading). (5) Auto-infer safety net spec: 4 gating conditions, type-family table, warning format. (6) Interaction with diff engine: `#[default_expr]` change on an existing entity does NOT regenerate an `ALTER COLUMN SET DEFAULT` — retrofits are ADR 0015's job. (7) Decision rules, consequences, revisit triggers (`#[lifeguard(strict_defaults)]` opt-in escalation if Category B ever bites), compliance covering authors / reviewers / CI.
+
+**References.** ADR 0010 (timestamp types, sibling decision on entity→schema flow), ADR 0013 (seed side), ADR 0015 (retrofit mechanism), `postmortem-lifeguard-default-expr-2026-04.md`.
+
+### ADR 0015 — Idempotent Schema Retrofit Pattern
+
+**Scope.** Every hand-written migration under `hauliage/migrations/` that retrofits an existing column (DEFAULT, nullability, constraint).
+
+**Why an ADR.** PostgreSQL's `IF NOT EXISTS` is idempotent for the *act of creating* but not for *reconciling the shape once it exists* — this asymmetry bit us three times in one day. The four-statement canonical pattern turns that asymmetry into a solved problem; writing it down means the next developer reaches for the correct shape on the first try.
+
+**Core sections.** (1) Context: the shadow-no-op bug class, enumerated (CREATE TABLE + columns, ADD COLUMN, CREATE INDEX). (2) The canonical pattern — 4 numbered statements: `ADD COLUMN IF NOT EXISTS ... NOT NULL DEFAULT X`, `ALTER COLUMN ... SET DEFAULT X`, `UPDATE ... WHERE ... IS NULL`, `ALTER COLUMN ... SET NOT NULL`. (3) Behavior matrix — four possible initial-DB states (column absent / NOT NULL no default / nullable with NULL rows / already correct) all converge on the same final shape. (4) When to reach for the pattern (required for retrofits on deployed columns; not required for brand-new tables or generator-emitted migrations). (5) Worked example using `verification_reminders_sent` showing the original broken file, the first broken retrofit attempt, and the correct 4-statement shape. (6) Decision rules, consequences including "more verbose — acceptable cost for correctness" and the `UPDATE ... WHERE IS NULL` scale caveat for production-size tables. (7) Compliance: block comments must reference ADR 0015; "never simplify a retrofit by removing the extra 3 statements" — they look redundant on fresh DBs and are load-bearing on stale ones.
+
+**References.** `postmortem-lifeguard-default-expr-2026-04.md`, `postmortem-lifeguard-migration-sync-failures-2026-04.md` (adjacent class on hand-editing generator output), ADR 0013 (seeds re-apply on every rollout and benefit from the same `ON CONFLICT` idempotency discipline), ADR 0014 (explains when a retrofit becomes necessary), PostgreSQL `ALTER TABLE` docs.
+
+### Cross-linking
+
+All three ADRs cross-reference:
+
+- The primary postmortem (`postmortem-lifeguard-default-expr-2026-04.md`) as the triggering incident record.
+- Each other (0013 ↔ 0014 ↔ 0015 form a triangle: seed ordering, schema authoring, retrofit mechanism).
+- Relevant adjacent ADRs (0010 chrono alignment, 0011 seed isolation, 0004 option poisoning postmortem).
+
+Each ADR follows the house-style structure matching ADRs 0009–0012: `Date / Status / Scope / [optional Extends/Related/Supersedes] / numbered sections / References`.
+
+### Verification
+
+No code changes; no tests affected. Sanity-checked paths referenced inside the ADRs all resolve (`lifeguard-migrate::sql_dependency_order::parse_leading_timestamp`, `write_seed_order_file`, `sql_generator::infer_zero_default_for_sql_type`, the marketing retrofit migration, the company seeds README, the postmortems).
+
+## Seed filename enforcement + `industry`→`gics_industry_code` drift (2026-04-17)
+
+Third report of the `setup-db.sh` failure chain, different error message: `ERROR: column "industry" of relation "organization_profiles" does not exist` in `company/impl/seeds/company_demo_organization.sql`. Two classes of bug stacked: the seed was untimestamped (so lex-ordering put it after GICS but the file *itself* was out of date), and it still referenced the `industry` column that had been dropped in favor of `gics_industry_code` in `migrations/company/20260417054910_update_company_details_gics.sql`.
+
+### Fixes
+
+**1. Tactical — seed content + rename.**
+
+- Swapped the legacy `industry = 'Freight & Logistics'` VALUES / ON CONFLICT clause for `gics_industry_code = '20301010'` (GICS Air Freight & Logistics sub-industry, resolvable via `microservices/company/impl/seeds/20260421000000_seed_gics.sql` which populates `company_gics_categories` before the demo seed runs).
+- `git mv microservices/company/impl/seeds/company_demo_organization.sql microservices/company/impl/seeds/20260422000000_company_demo_organization.sql`. Timestamp chosen to sort after `20260421000000_seed_gics.sql` so both FK targets (`locations_countries` via `20260414191699_seed_normalized_locations.sql`, `company_gics_categories` via `20260421000000_seed_gics.sql`) are already populated by the time the demo seed runs.
+- Audited every seed under `hauliage/microservices/*/impl/seeds/*.sql` for the same pattern — `company_demo_organization.sql` was the only untimestamped orphan.
+
+**2. Strategic — enforcement in `lifeguard-migrate`.**
+
+`sql_dependency_order::write_seed_order_file` now iterates `seed_files` and for each filename calls the existing `parse_leading_timestamp` helper. Filenames that don't match the strict `YYYYMMDDHHMMSS_<slug>.sql` grammar are **skipped** from the output (they're simply not pushed into `seed_targets`, so they never appear in `seed_order.txt`) and trigger a stderr warning:
+
+```
+warning: [lifeguard-migrate] skipping seed `<path>` — missing `YYYYMMDDHHMMSS_<slug>.sql` timestamp prefix, so it will NOT be applied via seed_order.txt. Rename the file (e.g. `git mv <name> {timestamp}_<name>`) to bring it back into the ordered pipeline; set LIFEGUARD_SILENCE_UNTIMESTAMPED_SEEDS=1 to silence this warning.
+```
+
+Env-var opt-out for quiet CI / once-reviewed lists. The skip is not disableable (the whole point is to keep the strict grammar) — the env var only silences the warning line.
+
+### Tests
+
+- New `sql_dependency_order::tests::seed_order_skips_seeds_without_timestamp_prefix`: writes three seeds (`20260501000000_seed_a.sql`, `company_demo_orphan.sql`, `2026050_bad.sql`) into a fixture, asserts only the timestamped one ends up in `seed_order.txt` and the other two leave no trace.
+- Two pre-existing tests updated to use `YYYYMMDDHHMMSS_<slug>.sql` names now that unprefixed seeds are silently dropped: `seed_order_places_location_seed_before_company_seed_across_services` (company_demo + seed_normalized_locations now have timestamps) and `seed_order_detects_cycles_and_errors` (`a.sql` / `b.sql` renamed to `20260101000000_a.sql` / `20260101000001_b.sql`).
+
+### Docs
+
+- **`lifeguard/lifeguard-migrate/README.md`** new section "Apply order and seed order (FK-safe file lists)" documenting `write_apply_order_file` + `write_seed_order_file`, the strict filename convention, the skip-with-warning behavior, both `LIFEGUARD_SILENCE_*` env-var escape hatches, and a cross-reference to `sql_generator::infer_zero_default_for_sql_type` so the full migration-correctness story is in one place.
+- **`hauliage/microservices/company/impl/seeds/README.md`** rewritten to document (a) the mandatory timestamp convention with examples, (b) the two-tier ordering strategy in `setup-db.sh` (seed_order.txt → alphabetical fallback), (c) the idempotent retrofit pattern for schema changes (ADD COLUMN IF NOT EXISTS + ALTER COLUMN SET DEFAULT + UPDATE WHERE IS NULL + SET NOT NULL), and (d) the "column drop/rename → update seeds in the same PR" discipline.
+- **`hauliage/scripts/setup-db.sh::apply_seeds_from_disk`** header comment now warns that `lifeguard-migrate` drops untimestamped seeds from `seed_order.txt`, pointing readers at the two README files for the rule.
+- **`hauliage/docs/postmortem-lifeguard-default-expr-2026-04.md`** new "Related enforcement: seed filename convention" section covering both the FK-ordering bug *and* the schema-drift bug as the two failure modes the enforcement defends against, plus the three-line "Rule" summary (`YYYYMMDDHHMMSS_<slug>.sql`; pick timestamp to sort after FK-target seeds; update seeds in the same PR as column drops/renames).
+
+### Verification
+
+- `cargo test -p lifeguard-migrate --lib --tests` — **170 pass / 0 fail** (170 = prior 169 + 1 new skip-behavior test). Two tests updated for the new naming convention passed with their new names.
+- `cargo clippy -p lifeguard-migrate --lib` — **0 warnings**.
+- `cargo run -p hauliage_migrator --quiet` — every entity still reports `Skipped`; `seed_order.txt` line 12 is now `company/impl/seeds/20260422000000_company_demo_organization.sql`, correctly placed after `locations/.../20260414191699_seed_normalized_locations.sql` (line 9) and `company/.../20260421000000_seed_gics.sql` (line 11). No untimestamped-seed warnings emitted — the audit found none.
+- Next `./scripts/setup-db.sh` run will apply the renamed seed in the correct slot with the updated `gics_industry_code = '20301010'` column reference, resolving the `column "industry" does not exist` crash.
+
+## Category A `#[default_expr]` adoption + stricter warnings (2026-04-17)
+
+Follow-up to the `#[default_expr]` postmortem. Two intertwined changes.
+
+**1. Hauliage entity edits (Category A — explicit `#[default_expr]` adopted):**
+
+| File | Field | Attribute |
+|---|---|---|
+| `marketing/impl/src/models/marketing_form_submission.rs` | `verification_reminders_sent: i16` | `#[default_expr = "0"]` (done earlier) |
+| `marketing/impl/src/models/marketing_form_submission.rs` | `consent_marketing: bool` | `#[default_expr = "false"]` |
+| `marketing/impl/src/models/marketing_invite.rs` | `max_uses: i32` | `#[default_expr = "0"]` (docstring says `0 = unlimited`) |
+| `marketing/impl/src/models/marketing_invite.rs` | `use_count: i32` | `#[default_expr = "0"]` |
+| `marketing/impl/src/models/marketing_campaign.rs` | `active: bool` | `#[default_expr = "true"]` (documented the "flip to false for explicit-activation UX" escape) |
+| `consignments/impl/src/models/consignment.rs` | `quotes_submitted: i32` | `#[default_expr = "0"]` |
+| `consignments/impl/src/models/consignment.rs` | `company_reviews_count: i32` | `#[default_expr = "0"]` |
+| `telemetry/impl/src/models/telemetry_timeline.rs` | `is_completed: bool` | `#[default_expr = "false"]` |
+| `locations/impl/src/models/location_country.rs` | `postcode_enabled: bool` | `#[default_expr = "true"]` (matches hand-written `locations/20260416101500_add_postcode_enabled.sql`) |
+
+`ReviewSummary.{total_reviews, five_stars, four_stars, three_stars, two_stars, one_star}` intentionally skipped — the struct carries `#[view(query = …)]`, and `sql_generator::generate_create_table_sql` early-returns for views before any column emission (including the default branch) runs. Annotating the fields would be a no-op at the SQL layer and is misleading as documentation. `review_summary.average_rating: Decimal` was never a candidate anyway (Category B — aggregation result).
+
+**2. `lifeguard-migrate::sql_generator::warn_auto_inferred_default` (new):**
+
+Stderr warning that fires every time `infer_zero_default_for_sql_type` injects a default into an emitted column. Message shape (one line, grep-friendly):
+
+```
+warning: [lifeguard-migrate] auto-inferred DEFAULT <value> for <TYPE> NOT NULL column `<table>.<col>` (add #[default_expr = "..."] to the LifeModel field to silence; set LIFEGUARD_SILENCE_INFERRED_DEFAULTS=1 to silence all)
+```
+
+- Suggested attribute string switches between `"0"` and `"false"` based on the inferred default.
+- `LIFEGUARD_SILENCE_INFERRED_DEFAULTS=1` environment variable silences all warnings — intended for CI / test runs where the residual warnings have already been triaged.
+- Fires **in addition to** the SQL emission — the auto-infer remains a safety net; the warning is strictly observational.
+
+**Verification:**
+
+- `cargo test -p lifeguard-migrate --lib --tests` — 169 pass / 0 fail. No test regression; no test asserted stderr was silent so the new warnings don't trip existing assertions.
+- `cargo clippy -p lifeguard-migrate --lib` — 0 warnings.
+- `cargo build -p hauliage_marketing -p hauliage_locations -p hauliage_consignments -p hauliage_telemetry` — clean (Lifeguard-derive accepted all the new `#[default_expr]` attributes; no column-type mismatches).
+- `cargo run -p hauliage_migrator --quiet`:
+  - Every entity still reports `⏭️  Skipped identical schema …` — the explicit defaults on Category A fields produce identical SQL to the auto-inferred version that was there before, so the diff engine sees no change.
+  - **9 warnings emitted**, one per residual Category B field (matches the audit in `postmortem-lifeguard-default-expr-2026-04.md` exactly): `consignments.payload_weight` (NUMERIC 10,2), `consignments.pay_amount` (NUMERIC 14,2), `vehicles.manufacture_year` (INTEGER), `vehicle_classes.available` (INTEGER), `telemetry_job_routes.active_geofence_radius_meters` (INTEGER), `telemetry_locations.heading` (NUMERIC), `quotes.amount` (DECIMAL 14,2), `reviews.rating` (INTEGER), `customs_hs_codes.tree_level` (INTEGER). These 9 warnings are the prompt for the next hygiene pass (either add `#[default_expr]` if the zero-value makes sense, accept the silent auto-default as technical debt, or adopt `LIFEGUARD_SILENCE_INFERRED_DEFAULTS=1` at the `hauliage-migrate` Tilt resource once the list has been reviewed).
+  - `apply_order.txt` and `microservices/seed_order.txt` still regenerate cleanly.
+
+## Self-healing retrofit for pre-DEFAULT marketing column (2026-04-17)
+
+**Problem:** Second report of `null value in column "verification_reminders_sent" … violates not-null constraint` after the previous fix. The generator fix (auto-infer `DEFAULT 0` for NOT NULL numeric/boolean) and the in-place edit of `20260416070238_marketing_form_submission.sql` are only effective on **fresh** databases — PostgreSQL's `ADD COLUMN IF NOT EXISTS` is a full no-op when the column is already present, so the `DEFAULT 0` clause never reaches a DB where the column was first created under the broken `SMALLINT NOT NULL` (no default) variant. The user's `setup-db.sh` bootstrap_hauliage_role_and_db only creates the DB when missing (`CREATE DATABASE … WHERE NOT EXISTS`), so iterating kicks against a stale schema where the column exists without a default and later seeds can't omit the column.
+
+**Fix (`hauliage/migrations/marketing/20260416120000_marketing_form_submission_reminders.sql`):** turned the previously-redundant hand-written retrofit into an idempotent self-heal:
+
+1. `ADD COLUMN IF NOT EXISTS … DEFAULT 0` (still there for fresh installs / in case the earlier migration never ran).
+2. `ALTER COLUMN … SET DEFAULT 0` — **always runs**, heals existing columns that lack a default.
+3. `UPDATE … SET verification_reminders_sent = 0 WHERE verification_reminders_sent IS NULL` — defensive backfill; no-op when the column was already NOT NULL, fills historical nullable rows otherwise.
+4. `ALTER COLUMN … SET NOT NULL` — idempotent; succeeds because step 3 guarantees no NULL rows remain.
+5. Existing `COMMENT ON COLUMN` annotations preserved (both are idempotent — subsequent runs replace the comment text).
+
+Block comment at top of the file documents why this retrofit is shaped this way so future maintenance doesn't "simplify" it back to the broken minimal form.
+
+**Why not a lifeguard-wide change (yet):** emitting `ALTER COLUMN SET DEFAULT` + `UPDATE … WHERE IS NULL` + `SET NOT NULL` after every `ADD COLUMN IF NOT EXISTS` in the codegen would make every Lifeguard migration self-healing, but also much more verbose and harder to audit. Parked as a follow-up (`FEATURE: idempotent self-healing ALTER retrofit in sql_generator delta output`) — trigger whenever we hit the third occurrence of this class of bug.
+
+**Verified:** `cargo test -p lifeguard-migrate --lib --tests` still **169 pass / 0 fail** — the tactical hauliage edit is outside the lifeguard test surface. Audit of remaining `ADD COLUMN NOT NULL (no default)` lines in `hauliage/migrations/` (`rg "ADD COLUMN.*NOT NULL\s*(?:;|$)"`) shows only one risk class: `locations/20260416104809_locations_countries.sql` adds `postcode_enabled BOOLEAN NOT NULL` (no default), but `locations/20260416101500_add_postcode_enabled.sql` runs *first* in apply_order.txt and contains `DEFAULT true` — on both fresh and stale DBs the column lands with `DEFAULT true` and the later no-default migration is a no-op. No action needed.
+
+## Auto-inferred zero DEFAULT for NOT NULL numeric / boolean columns (2026-04-17)
+
+**Problem (reported from `setup-db.sh`):** `ERROR: null value in column "verification_reminders_sent" of relation "marketing_form_submission" violates not-null constraint`. Root cause: Lifeguard's codegen emitted `ALTER TABLE … ADD COLUMN IF NOT EXISTS verification_reminders_sent SMALLINT NOT NULL` — no DEFAULT — from an entity field `pub verification_reminders_sent: i16`. A later hand-written migration tried to fix it with `DEFAULT 0`, but `ADD COLUMN IF NOT EXISTS` shadowed the second ADD into a silent no-op, so the column stayed NOT NULL / no-default. The `marketing_dev_seed.sql` INSERT that didn't specify the column then blew up. Same class appears for any `i16` / `i32` / `bool` / `f64` field that forgot `#[default_expr]`.
+
+**Fix (`lifeguard-migrate::sql_generator`):**
+
+- New narrow helper `infer_zero_default_for_sql_type(col_type) -> Option<&'static str>`: returns `"0"` for `SMALLINT`, `INT`/`INTEGER`, `BIGINT`, `INT2`/`4`/`8`, `NUMERIC`, `DECIMAL`, `REAL`, `FLOAT`/`4`/`8`, `MONEY`, and `DOUBLE PRECISION`; returns `"false"` for `BOOLEAN`/`BOOL`; returns `None` for `TEXT`, `VARCHAR`, `CHAR`, `UUID`, `JSON`/`JSONB`, timestamps, `DATE`, `TIME`, `BYTEA`. Parameterized types (`NUMERIC(10,2)`, `VARCHAR(255)`) are handled by taking the base identifier. Trailing constraint tokens (`SMALLINT NOT NULL`) are ignored so the helper is tolerant of full column-def fragments.
+- Wired into `generate_create_table_sql`'s column loop as a fourth-priority branch, strictly after:
+  1. explicit `#[default_expr]`
+  2. explicit `#[default_value]`
+  3. UUID primary key → `gen_random_uuid()`
+  4. **new:** `!nullable && foreign_key.is_none() && !is_primary_key` → inferred zero default from type.
+- Intentionally narrow: FK columns, primary keys, text / UUID / JSON / temporal / bytea types always need explicit defaults — silently auto-defaulting `VARCHAR(255) NOT NULL` to `''` or `TIMESTAMP NOT NULL` to `NOW()` would mask real "forgot to set X" bugs. 4 new unit tests cover each bucket (numeric accepted, boolean accepted, text/uuid/json/temporal rejected, trailing-constraint tolerance).
+
+**Does not retro-fix existing migrations.** The diff engine in `generated_migration_diff` only emits `ALTER TABLE ADD COLUMN` for columns that aren't already in the merged baseline. For Hauliage's already-on-disk `20260416070238_marketing_form_submission.sql`, the broken line was tactically corrected in place (`SMALLINT NOT NULL` → `SMALLINT NOT NULL DEFAULT 0`); the redundant hand-written `20260416120000_marketing_form_submission_reminders.sql` is now a no-op but left in place for audit continuity. Re-running `cargo run -p hauliage_migrator` reports every entity as `Skipped` — the generator's fresh body now matches the corrected baseline.
+
+**Verified:** `cargo test -p lifeguard-migrate --lib --tests` — **169 pass / 0 fail** (was 165). `cargo run -p hauliage_migrator` — all entities `Skipped`, `apply_order.txt` + `seed_order.txt` re-emitted cleanly, no new migration files. The Hauliage setup-db.sh chain is now unblocked for `verification_reminders_sent` on fresh clusters (empty table + ALTER with DEFAULT 0 succeeds; seeds that omit the column get 0 automatically).
+
+**Follow-up recommendations (not landed):** for hand-written hauliage migrations that also omit DEFAULT on non-numeric NOT NULL columns (`consent_marketing BOOLEAN NOT NULL`, `created_at TIMESTAMP WITH TIME ZONE NOT NULL`, `payload JSONB NOT NULL`) — these are currently fine because all existing seeds provide values, but adopting `#[default_expr = "NOW()"]` / `#[default_expr = "'{}'::jsonb"]` on the matching Rust fields (when semantically appropriate) would defend against future hand-written inserts missing those columns.
+
+## Seed-order (FK-aware) generation (2026-04-17)
+
+**Problem (reported from `setup-db.sh`):** `ERROR: insert or update on table "registered_addresses" violates foreign key constraint "registered_addresses_country_code_fkey". DETAIL: Key (country_code)=(ZW) is not present in table "locations_countries".` Cause: `setup-db.sh` used `find ./microservices -path '*/impl/seeds/*.sql' | sort`, and `company/…/company_demo_organization.sql` (no timestamp prefix, inserts into `registered_addresses` with `country_code='ZW'`) lex-sorted *before* `locations/…/seed_normalized_locations.sql` (which populates `locations_countries`). Same class of bug as the apply-order one, just for seed data.
+
+**Fix shape:** mirror `apply_order.txt` with a `seed_order.txt` generated by `lifeguard-migrate`, and teach `setup-db.sh` to read it when present.
+
+**New in `lifeguard-migrate::sql_dependency_order`:**
+
+- `extract_inserted_tables_from_sql(sql) -> Vec<String>` — `INSERT INTO x`, `COPY x (…) FROM`, `UPDATE [ONLY] x SET`. Schema-stripped / quoted-identifier aware. DDL and `SELECT` are ignored (no false edges).
+- `extract_table_level_fk_edges_from_migration_sql(sql) -> Vec<(from_table, to_table)>` — inline REFERENCES inside `CREATE TABLE X (...)` and references inside `ALTER TABLE X ...;`. Uses balanced-paren scanning for the CREATE body and `;` at paren-depth-0 for ALTER termination. Self-references preserved; callers filter.
+- `write_seed_order_file(migrations_dir, seeds_root, seed_files, out_path) -> Result<(), String>`:
+  1. Walks every `.sql` under `migrations_dir` to build `table_fk_deps: HashMap<table, HashSet<referenced_table>>` (self-FKs dropped at union time since they don't create cross-seed ordering).
+  2. For each seed, records `INSERT`/`COPY`/`UPDATE` target tables and the path relative to `seeds_root`.
+  3. Adds `seed_i → seed_j` whenever `seed_j` touches table `T` whose FK set includes `U`, and `seed_i` populates `U` (but `seed_j` does not also populate `U`).
+  4. Topo-sorts with the same `compare_apply_order_entries` tie-break (parsed `YYYYMMDDHHMMSS` → full rel path → timestamped-before-untimestamped), so independent seeds still appear chronologically.
+  5. Writes `# Auto-generated …` header plus one rel path per line. Missing `migrations_dir` is tolerated — fall-through yields the deterministic timestamp / path order, never an error.
+  6. Genuine seed cycles (e.g. mutual `A → B` / `B → A` FKs) return `Err` naming the remaining seeds.
+
+**New tests (12 total, all green):** `extract_inserted_tables_*` (4 — plain, quoted + bare, COPY/UPDATE, DDL-ignored), `fk_edges_*` (4 — inline CREATE, ALTER ADD COLUMN, multi-table multi-edge, self-ref preserved), `seed_order_*` (4 — cross-service Hauliage repro, timestamp tie-break with no FKs, missing migration dir, cycle detection).
+
+**Consumer wiring (`hauliage`):**
+
+- `microservices/migrator/src/main.rs`: new `discover_seed_files(microservices_root)` walks `*/impl/seeds/*.sql`; after `write_apply_order_file`, calls `write_seed_order_file(migrations_root, seeds_root, seed_files, seeds_root.join("seed_order.txt"))`. Paths inside `seed_order.txt` are relative to `microservices/` so the shell script can prefix a single `./microservices/`.
+- `scripts/setup-db.sh::apply_seeds_from_disk`: reads `./microservices/seed_order.txt` when present; skips commented/blank lines; warns on listed-but-missing files; falls back to the legacy `find | sort` alphabetical order when the file is absent (back-compat for pipelines that haven't re-run the migrator yet).
+
+**Verified:** `cargo test -p lifeguard-migrate --lib --tests` — **165 pass / 0 fail** across 13 binaries (was 153). `cargo clippy -p lifeguard-migrate --lib` — 0 warnings. `cargo build -p hauliage_migrator` from `hauliage/microservices` — clean.
+
+**Operational:** next run of `cargo run -p hauliage_migrator` emits `microservices/seed_order.txt`; subsequent `setup-db.sh` (or the `hauliage-db-init` Tilt resource) picks it up automatically. Expected order: locations seed precedes company-demo seed; other seeds without cross-FK coupling follow their timestamp prefix.
+
+## View-aware migration ordering + per-table identity (2026-04-17)
+
+**Problem (reported by consumer `hauliage`):** `setup-db.sh` failed applying `company/20260417054933_gics_industries_view.sql` with `ERROR: relation "hauliage.company_gics_categories" does not exist`, plus general symptoms of duplicate migration files being generated on every `cargo run -p hauliage_migrator` even when the schema had not changed.
+
+**Root causes in `lifeguard-migrate`:**
+
+1. `sql_dependency_order::extract_referenced_tables_from_migration_sql` only matched `REFERENCES x(` — i.e. FK edges. It never parsed `FROM` / `JOIN` inside `CREATE [OR REPLACE] VIEW ... AS SELECT ...`, so a view had zero dependencies in `write_apply_order_file`'s graph. Ordering for the GICS views worked only by lexicographic accident (`054900` < `054933`); any later regeneration could reorder a view before its backing table.
+2. `extract_created_tables_from_migration_sql` recognised only `CREATE TABLE IF NOT EXISTS`. `CREATE [OR REPLACE] VIEW` never registered the view as a "creator", so anything downstream could never find the view's creator file via `table_creator`.
+3. The consumer (`hauliage/microservices/migrator`) reimplemented per-table file writing inline (`write_migrations` + `collect_known_columns` + `collect_known_modifier_lines`). Its identity fast-skip was gated on `bodies.len() == 1 && bodies[0] == current_sql` — so once a table had ≥ 2 historical migrations it **never** short-circuited; every run produced a new timestamped file. For views it always fell into the "full body" branch on any byte-level diff, generating a new file per run even when the SELECT body was identical.
+
+**Fixes landed (`lifeguard-migrate`):**
+
+- `sql_dependency_order::extract_created_tables_from_migration_sql` now matches both `CREATE TABLE IF NOT EXISTS` and `CREATE [OR REPLACE] VIEW [IF NOT EXISTS] …`, handling quoted / schema-prefixed identifiers.
+- New `sql_dependency_order::extract_view_source_tables_from_migration_sql` parses `FROM` / `JOIN` (incl. `INNER|LEFT|RIGHT|FULL [OUTER]`, `ONLY`, `LATERAL`, aliases, `"quoted"."schema".tables`) from view bodies. CTE names introduced with `WITH x AS (...)` are excluded so they aren't mistaken for real tables.
+- `write_apply_order_file` now unions FK refs with view-source tables before computing `in_degree`, so a view file can never be emitted before its backing table regardless of filename order — proven by two new fixture tests (same service lex inversion; cross-service alphabetical inversion).
+- New module `lifeguard_migrate::migration_writer` (`EmissionOutcome::{Initial, Delta, Skipped}`, `write_per_table_migration_file`, `accumulate_per_table_parts_from_files`, `accumulate_per_table_baselines_from_dir`, `find_existing_per_table_files`, `MigrationHeader`, `strip_migration_file_header`). Reuses `generated_migration_diff` — so additive ALTER/INDEX emission, merged-baseline normalization, and view `CREATE OR REPLACE` idempotency all go through one implementation. Fast-skip now compares normalized merged baseline to fresh codegen, independent of how many historical files exist.
+
+**Consumer migration (`hauliage/microservices/migrator`):**
+
+- Replaced the inline `write_migrations` + regex helpers with a thin wrapper calling `lifeguard_migrate::migration_writer::write_per_table_migration_file`. Emissions log `Initial` / `Delta` / `Skipped` (= "⏭️  Skipped identical schema for …", a path that previously could only fire for single-history tables).
+- Single `run_timestamp = Utc::now()` captured once in `main()` and threaded through, so every file written in one pass shares a timestamp (no more sub-second drift across services).
+- `regex` dependency removed from `Cargo.toml` (all regex usage now lives in `lifeguard-migrate`).
+
+**Tests (all lifeguard-migrate):**
+
+- 17 tests in `sql_dependency_order` (was 7): view CREATE detection, FROM/JOIN extraction with joins/aliases/CTEs/non-view SQL, and `write_apply_order_file` fixtures for same-service and cross-service lex inversion.
+- 9 new tests in `migration_writer::tests`: `Initial` on fresh dir, `Skipped` after CREATE + later ALTER merged baseline (the regression fix), additive column `Delta` strips `-- Table:` header, view identical → `Skipped`, view changed → full body `Delta`, `MigrationHeader` option, `find_existing_per_table_files` filename filter, `strip_migration_file_header` round-trips.
+
+**Verified:** `cargo test -p lifeguard-migrate --lib --tests` — 13 binaries, 142 passed, 0 failed. `cargo clippy -p lifeguard-migrate --lib` — 0 warnings. `cargo build -p hauliage_migrator` from `hauliage/microservices` — clean (unrelated `customs/impl` warnings were pre-existing).
+
+**Follow-ups landed (same session):**
+
+1. **Timestamp-aware tie-break in `write_apply_order_file`.** New `parse_leading_timestamp(rel_or_filename) -> Option<u64>` accepts only **exactly** 14 ASCII digits followed by `_` or `.` (rejects stray numeric prefixes of other lengths). New private `compare_apply_order_entries` plugs into the Kahn queue sort: earliest-timestamp first, timestamped files before non-timestamped, ties broken by full relative path. FK / view / ALTER edges still dominate — only the `in_degree == 0` cohort is reordered. Three new tests: prefers earlier timestamp across differently-named directories (`zzz/20260101…` before `aaa/20260501…`), still respects FK edges when the parent has a *later* timestamp than the child, non-timestamped files (`manual_b.sql`) sort after timestamped ones.
+
+2. **Strict `YYYYMMDDHHMMSS_<name>.sql` grammar in `migration_writer`.** New public `parse_per_table_migration_filename(name) -> Option<(u64, String)>`: accepts exactly 14-digit timestamp + `_` + non-empty slug + `.sql`, explicitly excludes the `_generated_from_entities.sql` big-file layout (delegates to `accumulate_table_baselines_from_dir` as before). `accumulate_per_table_baselines_from_dir` now iterates only files that match the strict grammar and orders each slug's files by parsed timestamp — previously it split at the first `_` so `manual_seed.sql`, `20260417054933.sql`, and short / long prefixes could silently pollute the baseline map. Seven new tests cover all reject paths plus a mixed-directory acceptance test that also verifies the big-file layout still contributes.
+
+**Verified (after follow-ups):** `cargo test -p lifeguard-migrate --lib --tests` — **153 pass / 0 fail** across 13 binaries (was 142 before follow-ups). `cargo clippy -p lifeguard-migrate --lib` — 0 warnings. `cargo build -p hauliage_migrator` from `hauliage/microservices` — clean.
+
 ## STATUS merged into COMPARISON (2026-03-28)
 
 - **`STATUS.md` removed.** Former **repository truth** bullets live under **`## Repository status`** in **`COMPARISON.md`** (anchor **`#repository-status`**). **`README.md`**, **`VISION.md`**, **`ARCHITECTURE.md`**, **`ROADMAP.md`** links updated; documentation table uses a single **COMPARISON.md** row for repository truth + competitive content.

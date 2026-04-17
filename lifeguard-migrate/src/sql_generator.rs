@@ -134,8 +134,18 @@ where
             col_sql.push_str(" PRIMARY KEY");
         }
 
-        // Add default value or expression
+        // Add default value or expression.
         // Priority: explicit default_expr > explicit default_value > UUID primary key default
+        //         > inferred zero-value default for NOT NULL non-FK numeric/boolean columns.
+        //
+        // The inferred-default branch is a safety net for `ALTER TABLE ADD COLUMN IF NOT EXISTS`
+        // deltas that the consumer migrator emits from the same SQL body: PostgreSQL refuses to
+        // add a NOT NULL column without a DEFAULT to a non-empty table, and hand-written seeds /
+        // hand-written bulk inserts further require a DEFAULT so they can omit the column. We
+        // restrict this to numeric + boolean types (where `0` / `false` is the universally
+        // understood "zero" value) and explicitly exclude columns that already have an explicit
+        // default, foreign-key references, or are primary keys — on those, silently auto-
+        // defaulting would mask real bugs.
         if let Some(ref default_expr) = col_def.default_expr {
             col_sql.push_str(&format!(" DEFAULT {}", default_expr));
         } else if let Some(ref default_val) = col_def.default_value {
@@ -149,6 +159,13 @@ where
                 .unwrap_or(false)
             {
                 col_sql.push_str(" DEFAULT gen_random_uuid()");
+            }
+        } else if !col_def.nullable && col_def.foreign_key.is_none() {
+            if let Some(col_type) = col_def.column_type.as_ref() {
+                if let Some(inferred) = infer_zero_default_for_sql_type(col_type) {
+                    col_sql.push_str(&format!(" DEFAULT {}", inferred));
+                    warn_auto_inferred_default(&full_table_name, col_name, col_type, inferred);
+                }
             }
         }
 
@@ -394,6 +411,79 @@ fn sanitize_constraint_name(name: &str) -> String {
     name.replace("-", "_").replace(".", "_").to_lowercase()
 }
 
+/// Emit a stderr warning that [`infer_zero_default_for_sql_type`] kicked in for a specific
+/// column. Surfaces the "silent pragmatic default" so developers can replace it with an explicit
+/// `#[default_expr]` / `#[default_value]` — once the warning line stops appearing for a given
+/// field, the entity is telling the whole story instead of relying on the safety net.
+///
+/// Silenced when `LIFEGUARD_SILENCE_INFERRED_DEFAULTS=1` is set in the environment (useful in
+/// CI or tests where the noise has been reviewed and accepted). Test helpers can also gate on
+/// `cfg(test)` at the call site if individual suites want pristine stderr.
+fn warn_auto_inferred_default(
+    full_table_name: &str,
+    col_name: &str,
+    col_type: &str,
+    inferred_default: &str,
+) {
+    if std::env::var("LIFEGUARD_SILENCE_INFERRED_DEFAULTS")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        return;
+    }
+    // Keep to one concise line per occurrence; the postmortem / README go into the "why".
+    let suggested_attr = match inferred_default {
+        "false" => r#"#[default_expr = "false"]"#,
+        _ => r#"#[default_expr = "0"]"#,
+    };
+    eprintln!(
+        "warning: [lifeguard-migrate] auto-inferred DEFAULT {inferred_default} for {col_type} \
+         NOT NULL column `{full_table_name}.{col_name}` (add {suggested_attr} to the LifeModel \
+         field to silence; set LIFEGUARD_SILENCE_INFERRED_DEFAULTS=1 to silence all)",
+    );
+}
+
+/// Zero-value default for a PostgreSQL type, used as a safety net for NOT NULL non-FK columns
+/// that lack an explicit `#[default_expr]` / `#[default_value]`.
+///
+/// Intentionally narrow: only numeric and boolean types get an inferred default. Text, JSON,
+/// UUID, timestamps, and bytea require an explicit default — auto-defaulting `VARCHAR(255) NOT
+/// NULL` to `''` or `TIMESTAMP NOT NULL` to `NOW()` would happily mask real "forgot to set X"
+/// bugs. Length / scale / precision modifiers and trailing `NOT NULL` / inline `REFERENCES` are
+/// accepted transparently; the base type token at the start decides the answer.
+fn infer_zero_default_for_sql_type(col_type: &str) -> Option<&'static str> {
+    // Take only the base type identifier (everything before a `(`, whitespace, or end).
+    let trimmed = col_type.trim();
+    let base_end = trimmed
+        .find(|c: char| c == '(' || c.is_whitespace())
+        .unwrap_or(trimmed.len());
+    let base = trimmed[..base_end].to_ascii_uppercase();
+    // For two-word base types (`DOUBLE PRECISION`, `CHARACTER VARYING`) we also check the first
+    // two tokens joined by a single space.
+    let two_word = {
+        let rest = trimmed[base_end..].trim_start();
+        let second_end = rest
+            .find(|c: char| c == '(' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        if second_end == 0 {
+            None
+        } else {
+            Some(format!("{base} {}", rest[..second_end].to_ascii_uppercase()))
+        }
+    };
+
+    match base.as_str() {
+        "SMALLINT" | "INT" | "INTEGER" | "INT2" | "INT4" | "INT8" | "BIGINT" | "NUMERIC"
+        | "DECIMAL" | "REAL" | "FLOAT" | "FLOAT4" | "FLOAT8" | "MONEY" => Some("0"),
+        "BOOLEAN" | "BOOL" => Some("false"),
+        _ => match two_word.as_deref() {
+            Some("DOUBLE PRECISION") => Some("0"),
+            _ => None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,5 +501,70 @@ mod tests {
             "journal_entries"
         );
         assert_eq!(sanitize_constraint_name("UPPERCASE"), "uppercase");
+    }
+
+    // --- infer_zero_default_for_sql_type ---
+
+    #[test]
+    fn infer_zero_default_numeric_types() {
+        for t in [
+            "SMALLINT",
+            "smallint",
+            "INT",
+            "INTEGER",
+            "BIGINT",
+            "NUMERIC(10, 2)",
+            "DECIMAL(5,0)",
+            "REAL",
+            "FLOAT",
+            "FLOAT8",
+            "DOUBLE PRECISION",
+        ] {
+            assert_eq!(
+                infer_zero_default_for_sql_type(t),
+                Some("0"),
+                "expected 0 for {t}"
+            );
+        }
+    }
+
+    #[test]
+    fn infer_zero_default_boolean_types() {
+        assert_eq!(infer_zero_default_for_sql_type("BOOLEAN"), Some("false"));
+        assert_eq!(infer_zero_default_for_sql_type("BOOL"), Some("false"));
+    }
+
+    #[test]
+    fn infer_zero_default_does_not_apply_to_text_uuid_json_timestamps() {
+        for t in [
+            "TEXT",
+            "VARCHAR(255)",
+            "CHAR(10)",
+            "UUID",
+            "JSONB",
+            "JSON",
+            "TIMESTAMP",
+            "TIMESTAMP WITH TIME ZONE",
+            "TIMESTAMPTZ",
+            "DATE",
+            "TIME",
+            "BYTEA",
+        ] {
+            assert_eq!(
+                infer_zero_default_for_sql_type(t),
+                None,
+                "text / uuid / json / temporal types must require explicit defaults: {t}"
+            );
+        }
+    }
+
+    #[test]
+    fn infer_zero_default_ignores_trailing_constraint_tokens() {
+        // `column_type` is usually just the type, but be tolerant if a caller passes a snippet.
+        assert_eq!(infer_zero_default_for_sql_type("SMALLINT NOT NULL"), Some("0"));
+        assert_eq!(
+            infer_zero_default_for_sql_type("DOUBLE PRECISION NOT NULL"),
+            Some("0")
+        );
     }
 }

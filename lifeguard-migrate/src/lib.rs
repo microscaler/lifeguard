@@ -11,6 +11,7 @@ pub mod build_script;
 pub mod dependency_ordering;
 pub mod entity_loader;
 pub mod generated_migration_diff;
+pub mod migration_writer;
 pub mod registry_loader;
 pub mod schema_infer;
 pub mod schema_migration_compare;
