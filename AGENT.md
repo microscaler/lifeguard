@@ -7,7 +7,7 @@ Strict operational rules for AI assistants working on the Lifeguard ORM and migr
 ## Before you do anything
 
 1. Read [`docs/llmwiki/README.md`](./docs/llmwiki/README.md) — wiki entry point (`SCHEMA.md`, `index.md`, `log.md`, `docs-catalog.md`).
-2. Skim [`docs/llmwiki/index.md`](./docs/llmwiki/index.md) for topics relevant to your task.
+2. Open [`docs/llmwiki/index.md`](./docs/llmwiki/index.md) — full catalog of **reference / entities / topics** (subsystem map). Pick the page for the area you are changing before opening random `docs/planning` files.
 3. Tail [`docs/llmwiki/log.md`](./docs/llmwiki/log.md) for recent context.
 
 **Explicit rule:** Do not treat this file as a wiki. For index attributes, BRRTRouter + Lifeguard footguns, and where reference docs live, use the wiki pages linked above.

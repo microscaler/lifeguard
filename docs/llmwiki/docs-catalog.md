@@ -72,3 +72,27 @@ When debugging app-level issues, Hauliage and BRRTRouter carry their own wikis a
 | `../../../BRRTRouter/llmwiki/` | Router, OpenAPI validation, codegen templates. |
 
 Paths assume a `microscaler/` checkout with `lifeguard`, `hauliage`, and `BRRTRouter` as siblings.
+
+## LLM wiki synthesis index (pages → what they cover)
+
+Use this when you know **which subsystem** you are touching; each page links back to raw docs above.
+
+| Wiki page | Maps to |
+|-----------|---------|
+| [`topics/documentation-landscape.md`](./topics/documentation-landscape.md) | Where to look in `docs/`, `book/`, planning |
+| [`reference/workspace-and-module-map.md`](./reference/workspace-and-module-map.md) | Workspace crates, `src/lib.rs` modules |
+| [`reference/planning-docs-index.md`](./reference/planning-docs-index.md) | `docs/planning/` clusters (PRDs, compare-schema, derive) |
+| [`entities/life-model-and-life-record.md`](./entities/life-model-and-life-record.md) | `LifeModel`/`LifeRecord`, UUID typing |
+| [`entities/life-executor-pool-and-routing.md`](./entities/life-executor-pool-and-routing.md) | Pool, WAL routing, `LifeExecutor` |
+| [`entities/migrate-compare-and-sql-generation.md`](./entities/migrate-compare-and-sql-generation.md) | `lifeguard-migrate`, compare-schema, SQL gen |
+| [`topics/query-select-and-active-model.md`](./topics/query-select-and-active-model.md) | `SelectQuery`, validators, `ActiveModel` |
+| [`topics/relations-loaders-scopes.md`](./topics/relations-loaders-scopes.md) | Relations, loaders, scopes |
+| [`topics/session-identity-map.md`](./topics/session-identity-map.md) | Session / identity map |
+| [`topics/reflector-cache-and-coherence.md`](./topics/reflector-cache-and-coherence.md) | LifeReflector, Redis, `cache` traits |
+| [`topics/postgres-scalars-uuid-chrono.md`](./topics/postgres-scalars-uuid-chrono.md) | UUID + chrono scalar rules |
+| [`topics/observability-and-logging.md`](./topics/observability-and-logging.md) | Metrics, tracing, channel logs |
+| [`topics/migrate-cli-integration.md`](./topics/migrate-cli-integration.md) | CLI usage in apps / CI |
+| [`topics/derive-macros-and-attributes.md`](./topics/derive-macros-and-attributes.md) | `lifeguard-derive` surface |
+| [`topics/integration-testing-and-ci.md`](./topics/integration-testing-and-ci.md) | `TEST_INFRASTRUCTURE`, test helpers |
+| [`topics/index-and-derive-constraints.md`](./topics/index-and-derive-constraints.md) | `#[index]` footguns |
+| [`topics/brrtrouter-integration-pitfalls.md`](./topics/brrtrouter-integration-pitfalls.md) | Empty `[]` + BRRTRouter stacks |

@@ -24,7 +24,12 @@ Lifeguard spreads documentation across **root markdown** (narrative + ops), **`d
 
 > **Drift:** Some root files (e.g. `OBSERVABILITY.md` vs `docs/OBSERVABILITY.md`) overlap; prefer the path linked from `README.md` for your task and check dates.
 
+## Wiki-first navigation
+
+For **subsystem maps** (pool, derive, migrate, relations), start at [`index.md`](../index.md) — the wiki pages point at the exact `docs/planning` file and `src/` module to open.
+
 ## Cross-references
 
 - [`docs-catalog.md`](../docs-catalog.md) — full inventory tables.
-- [`index.md`](../index.md) — wiki page catalog.
+- [`reference/planning-docs-index.md`](../reference/planning-docs-index.md) — planning subtree router.
+- [`reference/workspace-and-module-map.md`](../reference/workspace-and-module-map.md) — crate + `src/lib.rs` modules.
