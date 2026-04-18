@@ -29,8 +29,7 @@
 
 #[cfg(feature = "metrics")]
 use opentelemetry::{
-    global,
-    metrics::{Counter, Gauge, Histogram},
+    metrics::{Counter, Gauge, Histogram, MeterProvider},
     KeyValue,
 };
 #[cfg(feature = "metrics")]
@@ -39,9 +38,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 // Note: once_cell::sync::Lazy is deprecated in favor of std::sync::LazyLock,
 // but LazyLock requires Rust 1.80+. Using once_cell for compatibility.
 #[allow(deprecated)]
-use std::sync::{Arc, LazyLock, Once};
-#[cfg(feature = "metrics")]
-static INIT_GLOBAL_METER_PROVIDER: Once = Once::new();
+use std::sync::{Arc, LazyLock};
 
 /// Lifeguard metrics collector
 ///
@@ -49,6 +46,9 @@ static INIT_GLOBAL_METER_PROVIDER: Once = Once::new();
 /// lazily on first access and can be accessed via the `METRICS` static.
 #[cfg(feature = "metrics")]
 pub struct LifeguardMetrics {
+    /// Keeps the Prometheus reader + OTEL meter instruments alive (not installed as a global).
+    #[allow(dead_code)]
+    meter_provider: SdkMeterProvider,
     /// Registry that holds the OTEL→Prometheus collector (keep alive for `gather()` / HTTP scrape).
     pub registry: Arc<prometheus::Registry>,
     /// Total pool slots (primary + replica); unlabeled for backward-compatible dashboards.
@@ -86,20 +86,17 @@ impl LifeguardMetrics {
     /// In production, this should be handled by the application's startup error handling.
     #[must_use]
     pub fn init() -> Self {
-        // Wire the Prometheus exporter as the **global** OTEL meter provider so instruments
-        // created via `global::meter` are not no-ops. Keep `registry` alive for text scrape.
+        // Prometheus exporter + local `SdkMeterProvider` only — do **not** call
+        // `global::set_meter_provider` (owned by `microscaler-observability`).
         let registry = Arc::new(prometheus::Registry::new());
         let reg_for_provider = (*registry).clone();
-        INIT_GLOBAL_METER_PROVIDER.call_once(|| {
-            #[allow(clippy::expect_used)] // Critical system error - fail fast at startup
-            let exporter = opentelemetry_prometheus::exporter()
-                .with_registry(reg_for_provider)
-                .build()
-                .expect("failed to build prometheus exporter");
-            let provider = SdkMeterProvider::builder().with_reader(exporter).build();
-            global::set_meter_provider(provider);
-        });
-        let meter = global::meter("lifeguard");
+        #[allow(clippy::expect_used)] // Critical system error - fail fast at startup
+        let exporter = opentelemetry_prometheus::exporter()
+            .with_registry(reg_for_provider)
+            .build()
+            .expect("failed to build prometheus exporter");
+        let meter_provider = SdkMeterProvider::builder().with_reader(exporter).build();
+        let meter = meter_provider.meter("lifeguard");
 
         let pool_size = meter
             .u64_gauge("lifeguard_pool_size")
@@ -154,6 +151,7 @@ impl LifeguardMetrics {
             .build();
 
         Self {
+            meter_provider,
             registry,
             pool_size,
             pool_workers,
