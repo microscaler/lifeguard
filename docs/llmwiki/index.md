@@ -36,6 +36,8 @@ Content catalog for the Lifeguard llm-wiki. See [`SCHEMA.md`](./SCHEMA.md).
 - [`topics/index-and-derive-constraints.md`](./topics/index-and-derive-constraints.md) — `#[index]` / `#[indexed]` constraints.
 - [`topics/brrtrouter-integration-pitfalls.md`](./topics/brrtrouter-integration-pitfalls.md) — BRRTRouter + Lifeguard footguns.
 - [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md) — optional `graphql` / `async_graphql` (legacy cfg; **not** Hauliage BFF / dashboard direction).
+- [`topics/coding-standards-jsf-inspired.md`](./topics/coding-standards-jsf-inspired.md) — JSF AV rules distilled for Lifeguard (ORM, migrate, derive).
+- [`topics/pragmatic-rust-guidelines.md`](./topics/pragmatic-rust-guidelines.md) — Microsoft Pragmatic Rust Guidelines — Lifeguard library stance.
 
 ## Planned (optional next passes)
 
@@ -45,4 +47,5 @@ Content catalog for the Lifeguard llm-wiki. See [`SCHEMA.md`](./SCHEMA.md).
 
 - **Hauliage:** [`../../../hauliage/docs/llmwiki/`](../../../hauliage/docs/llmwiki/)
 - **BRRTRouter:** [`../../../BRRTRouter/llmwiki/`](../../../BRRTRouter/llmwiki/)
+- **microscaler-observability:** [`../../../microscaler-observability/docs/llmwiki/`](../../../microscaler-observability/docs/llmwiki/) (OTEL adapter crate; shared standards bundle).
 - **Planning root:** [`../planning/README.md`](../planning/README.md)

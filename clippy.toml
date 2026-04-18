@@ -1,8 +1,21 @@
 # Clippy configuration for Lifeguard
-# Database tools must never panic - enforce strict error handling
+# Database tools must never panic — enforce strict error handling.
+# Numeric thresholds align with BRRTRouter / microscaler-observability (JSF-inspired profile).
+# See docs/llmwiki/topics/coding-standards-jsf-inspired.md.
 
 # Ban panic-causing methods (enforced via #![deny] in src/lib.rs)
 # Tests can use #[allow(clippy::unwrap_used)] or #[cfg(test)] to bypass
 
 # Note: Pedantic mode is enabled via command-line flags (-W clippy::pedantic)
 # not via this config file
+
+# --- JSF-aligned thresholds (same numbers as BRRTRouter clippy.toml) ---
+
+stack-size-threshold = 512000
+enum-variant-size-threshold = 256
+type-complexity-threshold = 300
+cognitive-complexity-threshold = 30
+missing-docs-in-crate-items = false
+too-many-arguments-threshold = 8
+too-many-lines-threshold = 200
+single-char-binding-names-threshold = 4

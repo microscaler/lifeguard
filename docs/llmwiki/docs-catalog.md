@@ -18,6 +18,17 @@ Inventory of **raw sources** the wiki synthesizes. The wiki does not replace the
 | [`SECURITY_PROMPT.md`](../../SECURITY_PROMPT.md) | Security review prompts. |
 | [`LIFEGUARD_GAP_ANALYSIS.md`](../../LIFEGUARD_GAP_ANALYSIS.md), [`LIFEGUARD_BLOG_POST.md`](../../LIFEGUARD_BLOG_POST.md) | Narrative / marketing. |
 
+## `docs/references/` — verbatim standards (JSF + Microsoft Rust)
+
+| Path | Role |
+|------|------|
+| [`docs/references/jsf-writeup.md`](../references/jsf-writeup.md) | BRRTRouter JSF distillation (full writeup). |
+| [`docs/references/jsf-audit-opinion.md`](../references/jsf-audit-opinion.md) | JSF audit opinion. |
+| [`docs/references/jsf-compliance.md`](../references/jsf-compliance.md) | JSF compliance summary. |
+| [`docs/references/rust-guidelines.md`](../references/rust-guidelines.md) | Microsoft Pragmatic Rust Guidelines (verbatim). |
+
+Synthesis for agents: [`topics/coding-standards-jsf-inspired.md`](./topics/coding-standards-jsf-inspired.md), [`topics/pragmatic-rust-guidelines.md`](./topics/pragmatic-rust-guidelines.md).
+
 ## `docs/` — operational reference and investigations
 
 | Path | Role |
@@ -99,3 +110,5 @@ Use this when you know **which subsystem** you are touching; each page links bac
 | [`topics/brrtrouter-integration-pitfalls.md`](./topics/brrtrouter-integration-pitfalls.md) | Empty `[]` + BRRTRouter stacks |
 | [`entities/transaction-boundaries.md`](./entities/transaction-boundaries.md) | `Transaction` / isolation |
 | [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md) | Optional `graphql` / `async_graphql` (legacy; not BFF stack) |
+| [`topics/coding-standards-jsf-inspired.md`](./topics/coding-standards-jsf-inspired.md) | JSF-inspired standards for Lifeguard |
+| [`topics/pragmatic-rust-guidelines.md`](./topics/pragmatic-rust-guidelines.md) | Microsoft Pragmatic Rust — library stance |

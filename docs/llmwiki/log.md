@@ -37,3 +37,10 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 ## [2026-04-17] doc | AGENT.md — raw SQL rule
 
 - Added **Core rule §5** to [`../../AGENT.md`](../../AGENT.md) (mirror of raw-SQL policy; links to [`topics/raw-sql-vs-selectquery-policy.md`](./topics/raw-sql-vs-selectquery-policy.md)).
+
+## [2026-04-18] ingest | JSF + Microsoft Pragmatic Rust references and wiki
+
+- Added [`docs/references/`](../references/) — `jsf-writeup.md`, `jsf-audit-opinion.md`, `jsf-compliance.md`, `rust-guidelines.md` (same bundle as BRRTRouter / `microscaler-observability`).
+- New topics: [`topics/coding-standards-jsf-inspired.md`](./topics/coding-standards-jsf-inspired.md), [`topics/pragmatic-rust-guidelines.md`](./topics/pragmatic-rust-guidelines.md).
+- Updated [`../../AGENT.md`](../../AGENT.md) **Core rule §6**; expanded [`docs-catalog.md`](./docs-catalog.md) and [`index.md`](./index.md).
+- Aligned [`../../clippy.toml`](../../clippy.toml) numeric thresholds with the platform JSF-inspired profile.

@@ -41,6 +41,14 @@ Hauliage and BRRTRouter have their own agent rules and wikis. When debugging app
 
 Prefer **`SelectQuery`** and idiomatic ORM APIs (`LifeModel` / `LifeRecord`, relations, scopes, validators). **Do not** add raw SQL helpers or string-built queries for convenience. **New** raw-SQL paths require **explicit human approval** and a **comprehensive ADR** that shows the use case cannot be met by extending Lifeguard with new idiomatic ORM functionality. Full policy: [`docs/llmwiki/topics/raw-sql-vs-selectquery-policy.md`](./docs/llmwiki/topics/raw-sql-vs-selectquery-policy.md).
 
+### 6. JSF-inspired discipline + Microsoft Pragmatic Rust (library stance)
+
+Lifeguard adopts the **same reference bundle** as BRRTRouter and `microscaler-observability`: Joint Strike Fighter AV rules **distilled for Rust** (bounded complexity, explicit errors, strong types, tests on dispatch paths) plus Microsoft’s **Pragmatic Rust Guidelines** for API and documentation hygiene.
+
+- **Synthesis (read first):** [`docs/llmwiki/topics/coding-standards-jsf-inspired.md`](./docs/llmwiki/topics/coding-standards-jsf-inspired.md), [`docs/llmwiki/topics/pragmatic-rust-guidelines.md`](./docs/llmwiki/topics/pragmatic-rust-guidelines.md).
+- **Raw sources (verbatim):** [`docs/references/jsf-writeup.md`](./docs/references/jsf-writeup.md), [`docs/references/jsf-audit-opinion.md`](./docs/references/jsf-audit-opinion.md), [`docs/references/jsf-compliance.md`](./docs/references/jsf-compliance.md), [`docs/references/rust-guidelines.md`](./docs/references/rust-guidelines.md).
+- **Mechanical alignment:** [`clippy.toml`](./clippy.toml) numeric thresholds match the platform stack; [`DEVELOPMENT.md`](./DEVELOPMENT.md) for fmt/clippy workflow.
+
 ---
 
 ## Postmortems and formal references (read via wiki)
