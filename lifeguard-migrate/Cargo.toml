@@ -26,7 +26,7 @@ thiserror = "1.0"
 # Configuration file parsing
 toml = "0.8"
 # Pretty printing
-colored = "2.1"
+colored = "3.1"
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }
 # UUID support (needed for entities)
