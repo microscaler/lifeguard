@@ -571,6 +571,8 @@ mod tests {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 mod session_context_tests {
     use super::*;
     use uuid::Uuid;
