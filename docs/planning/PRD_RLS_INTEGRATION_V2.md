@@ -199,9 +199,16 @@ In the pool path, a worker processes many jobs. If `session` is `Some`, we run `
 - **Pushback considered:** Could we cache the context on the worker connection? 
 - **Decision:** No. Sessions change per request. The worker connection might process Job A (User 1) then Job B (User 2). We must inject on every job. Since `SET LOCAL` is transaction-scoped and cheap, per-job injection is correct.
 
-### 4.3 Error Handling in Workers
-If `to_sql_args()` fails inside a worker thread, it cannot easily propagate `LifeError` through the existing `dispatch_worker_job` signature without significant restructuring. 
-- **Mitigation:** `SessionContext` construction and validation should ideally happen on the main thread *before* the job is dispatched to the pool. If it somehow fails in the worker, we log a warning and proceed without RLS (fail-closed or best-effort).
+### 4.3 Serialization Boundary: Dispatch vs. Worker
+`SessionContext::to_sql_args()` returns `Result<Vec<Box<dyn ToSql + '_>>, LifeError>`. The returned `Box<dyn ToSql>` is **not `Send`** (it borrows from `self` via the lifetime `'_'`), so it cannot cross thread boundaries into pool workers.
+
+This means `to_sql_args()` **must run on the dispatch side** (main thread), consistent with how the pool already serializes `sea_query::Values` into `Vec<OwnedParam>` before dispatch (see `values_to_owned()` at `pooled.rs:923`).
+
+- **Decision:** Serialize `SessionContext` into a `Send`-able form *before* constructing the `WorkerJob`. The serialization path uses the same pattern as `values_to_owned()`:
+  1. `dispatch_worker_job` calls `session.to_sql_args()` on the main thread.
+  2. On success, the result is converted into a `Send` form (owned bytes / owned params) and stored in `WorkerJob`.
+  3. On failure, the error is returned immediately via the reply channel — the job is never enqueued.
+- **Error propagation:** `LifeError` from serialization failure is returned immediately to the caller (same as any other dispatch-time error). No worker-side error handling needed.
 
 ---
 
