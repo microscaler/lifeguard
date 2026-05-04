@@ -200,6 +200,14 @@ fn collect_sql_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> 
         if path.is_dir() {
             collect_sql_files(&path, out)?;
         } else if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+            // macOS AppleDouble resource forks (._foo.sql) are not valid UTF-8 SQL; ignore.
+            if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("._"))
+            {
+                continue;
+            }
             out.push(path);
         }
     }

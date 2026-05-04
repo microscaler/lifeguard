@@ -85,11 +85,11 @@ def set_kubeconfig_context():
 def start_tilt():
     """Start Tilt development environment."""
     log_info("🎯 Starting Lifeguard Tilt (cargo builds/tests — no DB manifests here)...")
-    log_info("   Tilt UI: http://localhost:10350")
+    log_info("   Tilt UI: http://0.0.0.0:10350 (LAN: http://<this-host>:10350/)")
     log_info("   Postgres/Redis/Grafana: run shared-kind-cluster `tilt up` (UI often :10348), context kind-kind")
     # Run tilt up in foreground (will block until user stops it)
     # KeyboardInterrupt will be caught by main() handler
-    subprocess.run(["tilt", "up"], check=False)
+    subprocess.run(["tilt", "up", "--host", "0.0.0.0", "--port", "10350"], check=False)
 
 
 def main():

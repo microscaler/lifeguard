@@ -72,13 +72,13 @@ dev-port-forward:
 # Start Tilt (assumes cluster is already running)
 tilt-up:
     @echo "🎯 Starting Lifeguard Tilt (builds/tests only — infra is shared-kind-cluster)..."
-    @echo "   Tilt UI: http://localhost:10350"
-    @tilt up
+    @echo "   Tilt UI: http://0.0.0.0:10350 (LAN: http://<this-host>:10350/)"
+    @tilt up --host 0.0.0.0 --port 10350
 
 # Stop Tilt
 tilt-down:
     @echo "🛑 Stopping Tilt..."
-    @tilt down
+    @tilt down --port 10350
 
 # ============================================================================
 # Building
