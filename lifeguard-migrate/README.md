@@ -428,6 +428,35 @@ The tool provides clear error messages for common issues:
 6. **Atomic migrations** - Keep migrations focused and atomic
 7. **Backup before major changes** - Always backup before applying destructive migrations
 
+## Apply order and seed order (FK-safe file lists)
+
+`lifeguard-migrate` ships two helpers for consumer-managed migration + seed pipelines that want to hand the apply sequence to a shell script / Tilt resource without re-implementing FK-aware ordering:
+
+- [`write_apply_order_file(migrations_dir)`](src/sql_dependency_order.rs) — walks every `.sql` under `migrations_dir`, parses `CREATE TABLE`, `CREATE [OR REPLACE] VIEW`, `ALTER TABLE`, `REFERENCES`, and view-body `FROM` / `JOIN` targets, topologically sorts the files, and writes `apply_order.txt` (one relative path per line). Timestamp-aware tie-break (`YYYYMMDDHHMMSS` prefix → full path) keeps independent migrations in chronological order.
+- [`write_seed_order_file(migrations_dir, seeds_root, seed_files, out_path)`](src/sql_dependency_order.rs) — same shape, but for seed SQL. Reads the migration graph to learn `table_fk_deps`, reads each seed's `INSERT INTO` / `COPY … FROM` / `UPDATE … SET` targets, emits `seed_i → seed_j` edges whenever `seed_j` touches a table whose FK set is populated by `seed_i`.
+
+### Seed filename convention (enforced)
+
+`write_seed_order_file` **requires** every seed to be named `YYYYMMDDHHMMSS_<slug>.sql` — the same 14-digit timestamp prefix shared with generator-emitted migrations (see [`parse_leading_timestamp`](src/sql_dependency_order.rs)). Files that don't match are **skipped** (with a stderr warning) and are therefore absent from `seed_order.txt`, which means they never get applied via the ordered pipeline:
+
+```
+warning: [lifeguard-migrate] skipping seed `microservices/company/impl/seeds/company_demo_organization.sql` — missing `YYYYMMDDHHMMSS_<slug>.sql` timestamp prefix, so it will NOT be applied via seed_order.txt. Rename the file (e.g. `git mv company_demo_organization.sql {timestamp}_company_demo_organization.sql`) to bring it back into the ordered pipeline; set LIFEGUARD_SILENCE_UNTIMESTAMPED_SEEDS=1 to silence this warning.
+```
+
+Rationale: without a timestamp we have no deterministic tie-break among independent seeds, and historically "untimestamped seed file" has been the exact root cause of FK-violating apply order (the consumer's `find … | sort` fallback puts the hand-named file in a slot that depends on what ASCII sorting does to the filename's leading letters). Making the strict grammar part of the generation contract prevents the regression from coming back.
+
+Escape hatch: set `LIFEGUARD_SILENCE_UNTIMESTAMPED_SEEDS=1` to silence the warning (the skip still happens — this is only for noisy CI output where the list has already been triaged).
+
+### Auto-inferred defaults + warnings
+
+`sql_generator::infer_zero_default_for_sql_type` auto-injects `DEFAULT 0` / `DEFAULT false` when a NOT NULL column has no explicit `#[default_expr]` / `#[default_value]` and isn't a primary key or foreign-key reference. This saves developers from the "column exists NOT NULL with no default → seed insert fails" trap. Every time it fires, a stderr warning names the entity + field + inferred default and suggests the `#[default_expr]` attribute to silence it:
+
+```
+warning: [lifeguard-migrate] auto-inferred DEFAULT 0 for INTEGER NOT NULL column `schema.table.col` (add #[default_expr = "0"] to the LifeModel field to silence; set LIFEGUARD_SILENCE_INFERRED_DEFAULTS=1 to silence all)
+```
+
+Set `LIFEGUARD_SILENCE_INFERRED_DEFAULTS=1` to silence globally (again, observation-only — the auto-infer remains a safety net).
+
 ## Troubleshooting
 
 ### Migration Already Applied

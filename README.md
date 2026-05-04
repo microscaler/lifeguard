@@ -57,7 +57,7 @@ lifeguard = { git = "https://github.com/microscaler/lifeguard" }
 lifeguard-derive = { git = "https://github.com/microscaler/lifeguard", package = "lifeguard-derive" }
 ```
 
-Enable optional features as needed, for example `metrics`, `tracing`, or `graphql` (see root `Cargo.toml`).
+Enable optional features as needed, for example `metrics` or `tracing`. The `graphql` feature exists for legacy `SimpleObject` paths and tests; it is **not** the intended API style for OpenAPI/BRRTRouter BFF work (see [`docs/llmwiki/topics/graphql-optional-feature.md`](docs/llmwiki/topics/graphql-optional-feature.md) and root `Cargo.toml`).
 
 ### Usage (today)
 
@@ -72,6 +72,7 @@ Pooling behavior and tunables evolve with [PRD_CONNECTION_POOLING.md](./docs/pla
 
 - **[DEVELOPMENT.md](./DEVELOPMENT.md)** — Clippy (CI parity), pre-commit, `just` recipes.
 - **[docs/TEST_INFRASTRUCTURE.md](./docs/TEST_INFRASTRUCTURE.md)** — Postgres/Redis for integration tests and CI.
+- **[docs/llmwiki/](docs/llmwiki/)** — LLM-maintained wiki (agents: start at [`docs/llmwiki/README.md`](docs/llmwiki/README.md); rules live in [`AGENT.md`](AGENT.md)).
 
 ---
 
@@ -113,6 +114,7 @@ There is **no** `lifeguard::testkit` / `test_pool!` macro in this repository; us
 | **Tests & CI Postgres/Redis**                                           | [docs/TEST_INFRASTRUCTURE.md](./docs/TEST_INFRASTRUCTURE.md)                                                                                            |
 | **Epic notes & story tree**                                             | [docs/EPICS/](./docs/EPICS/) · [docs/planning/epics-stories/](./docs/planning/epics-stories/)                                                           |
 | **Planning index**                                                      | [docs/planning/README.md](./docs/planning/README.md)                                                                                                    |
+| **LLM wiki (compound context for agents)**                              | [docs/llmwiki/README.md](./docs/llmwiki/README.md) · [docs/llmwiki/index.md](./docs/llmwiki/index.md)                                                   |
 
 
 ---

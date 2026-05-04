@@ -114,17 +114,21 @@ Lifeguard supports `.paginate()` and built-in optimized `.paginate_and_count()` 
 ---
 
 ## 6. Supported Ecosystem Bridges
-**The Gap:**
+
+**Platform note (supersedes the “universal GraphQL for BFF” narrative below):** Hauliage BFF and dashboard composition are **OpenAPI-first, BRRTRouter-generated**, with **REST-shaped view endpoints** — not a GraphQL runtime. A GraphQL stack does not align with that model. The optional **`graphql`** / **`async-graphql`** integration in this repo is **legacy / frozen** from a product perspective; do not treat it as the direction of travel for the platform. See **`docs/llmwiki/topics/graphql-optional-feature.md`**.
+
+**The Gap (vs SeaORM OSS):**
 SeaORM extends beyond standard data fetching with `Seaography` for instant GraphQL schema translation, and `SeaORM Pro` for dashboard templating.
 **Lifeguard State:**
-Lifeguard meshes tightly with internal architectures (like BRRT routing validation), but it currently operates asynchronously to the external OSS landscape (like `juniper` or GraphQL APIs).
+Lifeguard meshes tightly with internal architectures (like BRRT routing validation), but it currently operates asynchronously to the external OSS landscape (like `juniper` or GraphQL APIs). An optional **`graphql`** feature flag exists: when enabled, `LifeModel` can emit **`async-graphql::SimpleObject`** on generated entities (`lifeguard-derive`), primarily to support existing tests and narrow integrations — **not** a mandate to expose GraphQL from Hauliage services.
 
-**Action Required:** Provide macro extensions for universal GraphQL integration.
-* **Proposed Implementation:**
-  1. Implement selective feature flags (e.g. `#[cfg(feature = "graphql")]`) within `lifeguard-derive`.
-  2. When enabled, have the `LifeModel` macro automatically append `async-graphql::SimpleObject` traits on generated entities, allowing instantaneous resolver mapping with zero boilerplate.
-* **Hauliage Platform Impact:** Unlocks future-proofing for the **`bff`**. Shifting the Hauliage mobile and web apps towards GraphQL endpoints drops the heavy maintenance burden of generating custom REST controllers for every discrete UI view.
-* **Roll-out Story:** The React Native Mobile team needs a heavily minimized profile view to save user bandwidth. Because the BFF adopted the GraphQL feature flags, they simply write a bespoke GraphQL query on the client. The server responds flawlessly without any backend engineer having to construct a new `GET /profile/minimal` endpoint.
+**Historical “Action Required” (not pursued for Hauliage BFF):** ~~Provide macro extensions for universal GraphQL integration.~~ **Current stance:** no expansion of GraphQL as the BFF or multi-service dashboard API; BFF composition is handled via composed REST/OpenAPI views instead.
+
+* **What was proposed (archived):**
+  1. Selective feature flags (e.g. `#[cfg(feature = "graphql")]`) within `lifeguard-derive` — **done** for `SimpleObject` emission.
+  2. Automatic `async-graphql::SimpleObject` on generated entities — **partially present**; not a platform rollout target for dashboards.
+* **Hauliage Platform Impact (superseded):** ~~GraphQL for the `bff`…~~ **Replaced by:** typed downstream calls and BFF view endpoints per PRD (REST-shaped, spec-driven).
+* **Roll-out Story (superseded):** Client-specific field selection via GraphQL on the BFF — **not** the chosen model; mobile/web clients consume OpenAPI-described view routes instead.
 
 ## Foundation work aligned with this audit (not gap closure)
 
