@@ -13,7 +13,6 @@
 
 #![allow(warnings)]
 
-use lifeguard::LifeModelTrait;
 use lifeguard_derive::LifeModel;
 use lifeguard_migrate::sql_generator;
 
@@ -26,6 +25,10 @@ use lifeguard_migrate::sql_generator;
 /// - A unique+indexed column
 /// - A nullable optional column
 /// - A timestamp column with CURRENT_TIMESTAMP default
+///
+/// Note: the `#[derive(LifeModel)]` macro generates a separate `Entity`
+/// unit struct with all required traits (`LifeEntityName`, `LifeModelTrait`,
+/// `Default`, `table_definition()`).
 #[derive(LifeModel)]
 #[table_name = "golden_test_users"]
 #[table_comment = "Golden baseline test users"]
@@ -72,8 +75,10 @@ COMMENT ON TABLE golden_test_users IS 'Golden baseline test users';";
 
 #[test]
 fn golden_baseline_create_table_sql_matches() {
-    let sql = sql_generator::generate_create_table_sql::<Entity>(Entity::table_definition())
-        .expect("should generate SQL for golden entity");
+    let sql = sql_generator::generate_create_table_sql::<Entity>(
+        Entity::table_definition(),
+    )
+    .expect("should generate SQL for golden entity");
 
     assert_eq!(
         sql.trim(),

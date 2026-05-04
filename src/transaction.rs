@@ -182,9 +182,13 @@ impl Transaction {
     /// executes `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` to set the
     /// session-level variables that power Row Level Security policies.
     ///
-    /// Because `SET LOCAL` is transaction-scoped, the RLS context is established
-    /// once at transaction start and inherited by all queries within the
-    /// transaction — no per-query injection needed.
+    /// The RLS context is set once at transaction start and persists on the
+    /// connection for the lifetime of the session (via `set_config(..., false)`
+    /// inside `rls_set_session`).  This means all queries within this
+    /// transaction inherit the context automatically, and subsequent
+    /// transactions on the same pooled connection will also inherit it until
+    /// a new context is set.  Callers should be aware that the context
+    /// survives `COMMIT` / `ROLLBACK`.
     ///
     /// # Errors
     ///

@@ -22,7 +22,7 @@
 //! (`primary` \| `replica`); see [`crate::metrics::METRICS`].
 
 use crate::connection::connect;
-use crate::executor::{LifeError, LifeExecutor};
+use crate::executor::{LifeError, LifeExecutor, SessionContext};
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
@@ -869,27 +869,32 @@ fn dispatch_worker_job(
     };
 
     // Inject RLS session context before executing the job.
-    // The `SET LOCAL` is scoped to the implicit transaction of this single
-    // query, so it does not persist across jobs.
-    if let Some(ref ctx) = session_context {
-        let args = match ctx.to_sql_args() {
-            Ok(args) => args,
-            Err(e) => {
-                log::error!(
-                    "lifeguard pool: failed to serialize session context for {tier} worker: {e}"
-                );
-                return;
-            }
-        };
-        let args_refs: Vec<&dyn may_postgres::types::ToSql> =
-            args.iter().map(|a| a.as_ref()).collect();
-        if let Err(e) = client.execute("SELECT rls_set_session($1, $2, $3, $4, $5, $6)", &args_refs)
-        {
-            log::warn!(
-                "lifeguard pool: rls_set_session failed on {tier} worker slot: {e} \
-                 (proceeding with query without RLS context)"
+    //
+    // We always call rls_set_session to prevent stale GUCs from leaking
+    // between jobs on the same pooled connection. When session_context is
+    // Some we use the caller's context; when None we use SessionContext::default()
+    // to clear all auth.* GUCs. If injection fails we abort the job — the
+    // rls_set_session function uses session-scoped GUCs (set_config(..., false))
+    // so continuing without a fresh context would expose data across tenants.
+    let default_ctx = SessionContext::default();
+    let ctx = session_context.as_ref().unwrap_or(&default_ctx);
+    let args = match ctx.to_sql_args() {
+        Ok(args) => args,
+        Err(e) => {
+            log::error!(
+                "lifeguard pool: failed to serialize session context for {tier} worker: {e}; \
+                 aborting job"
             );
+            return;
         }
+    };
+    let args_refs: Vec<&dyn may_postgres::types::ToSql> = args.iter().map(|a| a.as_ref()).collect();
+    if let Err(e) = client.execute("SELECT rls_set_session($1, $2, $3, $4, $5, $6)", &args_refs) {
+        log::error!(
+            "lifeguard pool: rls_set_session failed on {tier} worker slot: {e}; \
+             aborting job to prevent query without RLS context"
+        );
+        return;
     }
 
     match job {
