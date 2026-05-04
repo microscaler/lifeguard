@@ -152,21 +152,19 @@ impl Transaction {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::begin_transaction_span().entered();
 
-        // Set isolation level if not ReadCommitted (default)
+        // Use PostgreSQL's BEGIN ISOLATION LEVEL syntax so the isolation
+        // level takes effect inside the transaction (SET TRANSACTION ISOLATION
+        // LEVEL sent before BEGIN is ignored by Postgres).
         if isolation_level != IsolationLevel::ReadCommitted {
-            let isolation_sql = format!(
-                "SET TRANSACTION ISOLATION LEVEL {}",
-                isolation_level.to_sql()
-            );
+            let begin_sql = format!("BEGIN ISOLATION LEVEL {}", isolation_level.to_sql());
             client
-                .execute(isolation_sql.as_str(), &[])
+                .execute(begin_sql.as_str(), &[])
+                .map_err(TransactionError::from)?;
+        } else {
+            client
+                .execute("BEGIN", &[])
                 .map_err(TransactionError::from)?;
         }
-
-        // Start the transaction
-        client
-            .execute("BEGIN", &[])
-            .map_err(TransactionError::from)?;
 
         Ok(Self {
             client,
@@ -202,21 +200,19 @@ impl Transaction {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::begin_transaction_span().entered();
 
-        // Set isolation level if not ReadCommitted (default)
+        // Use PostgreSQL's BEGIN ISOLATION LEVEL syntax so the isolation
+        // level takes effect inside the transaction (SET TRANSACTION ISOLATION
+        // LEVEL sent before BEGIN is ignored by Postgres).
         if isolation_level != IsolationLevel::ReadCommitted {
-            let isolation_sql = format!(
-                "SET TRANSACTION ISOLATION LEVEL {}",
-                isolation_level.to_sql()
-            );
+            let begin_sql = format!("BEGIN ISOLATION LEVEL {}", isolation_level.to_sql());
             client
-                .execute(isolation_sql.as_str(), &[])
+                .execute(begin_sql.as_str(), &[])
+                .map_err(TransactionError::from)?;
+        } else {
+            client
+                .execute("BEGIN", &[])
                 .map_err(TransactionError::from)?;
         }
-
-        // Start the transaction
-        client
-            .execute("BEGIN", &[])
-            .map_err(TransactionError::from)?;
 
         // Inject RLS session context if provided
         if let Some(ref ctx) = ctx {

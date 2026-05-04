@@ -98,7 +98,7 @@ fn rls_test_setup() {
         PERFORM set_config('auth.user_id',
             COALESCE(p_user_id::text, ''), false);
         PERFORM set_config('auth.tenant',
-            COALESCE(p_user_org::text, ''), false);
+            COALESCE(p_user_type, ''), false);
         PERFORM set_config('auth.user_type',
             COALESCE(p_user_type, ''), false);
         PERFORM set_config('auth.org_type',
@@ -255,7 +255,7 @@ fn test_a_direct_executor_filters_rows() {
     let alpha_exec = make_rls_executor(&primary_url).with_session_context(SessionContext {
         user_id: Some(uid),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec!["read".into()],
         user_email: None,
@@ -334,7 +334,7 @@ fn test_c_transaction_begin_with_session() {
         .begin_with_session(SessionContext {
             user_id: Some(uid),
             user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
-            user_type: None,
+            user_type: Some("beta".into()),
             org_type: None,
             permissions: vec!["read".into(), "write".into()],
             user_email: Some("beta@example.com".into()),
@@ -411,7 +411,7 @@ fn test_d_pool_worker_isolation() {
     let exec_alpha = PooledLifeExecutor::new(pool.clone()).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec!["read".into()],
         user_email: None,
@@ -420,7 +420,7 @@ fn test_d_pool_worker_isolation() {
     let exec_gamma = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_GAMMA).unwrap()),
-        user_type: None,
+        user_type: Some("gamma".into()),
         org_type: None,
         permissions: vec!["read".into()],
         user_email: None,
@@ -597,7 +597,7 @@ fn test_e4_permissions_special_characters() {
     let special_perms_ctx = make_rls_executor(&primary_url).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec!["admin:write".to_string(), "read/write".to_string()],
         user_email: None,
@@ -632,7 +632,7 @@ fn test_e5_rapid_context_switching_direct() {
     let ctx_alpha = make_rls_executor(&primary_url).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec![],
         user_email: None,
@@ -641,7 +641,7 @@ fn test_e5_rapid_context_switching_direct() {
     let ctx_beta = make_rls_executor(&primary_url).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec![],
         user_email: None,
@@ -690,7 +690,7 @@ fn test_e6_missing_rls_function_returns_error() {
     let exec_with_ctx = make_rls_executor(&primary_url).with_session_context(SessionContext {
         user_id: Some(uid),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec![],
         user_email: None,
@@ -735,7 +735,7 @@ fn test_t1_transaction_rollback_clears_context() {
         .begin_with_session(SessionContext {
             user_id: Some(uid),
             user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-            user_type: None,
+            user_type: Some("alpha".into()),
             org_type: None,
             permissions: vec!["read".into()],
             user_email: None,
@@ -806,7 +806,7 @@ fn test_t2_serializable_with_session_context() {
             SessionContext {
                 user_id: Some(uid),
                 user_org_id: Some(uuid::Uuid::parse_str(TENANT_GAMMA).unwrap()),
-                user_type: None,
+                user_type: Some("gamma".into()),
                 org_type: None,
                 permissions: vec![],
                 user_email: None,
@@ -854,7 +854,7 @@ fn test_t3_nested_savepoint_inherits_context() {
         .begin_with_session(SessionContext {
             user_id: Some(uid),
             user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
-            user_type: None,
+            user_type: Some("beta".into()),
             org_type: None,
             permissions: vec![],
             user_email: None,
@@ -932,7 +932,7 @@ fn test_p1_pool_rapid_context_switching() {
     let exec_alpha = PooledLifeExecutor::new(pool.clone()).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec![],
         user_email: None,
@@ -941,7 +941,7 @@ fn test_p1_pool_rapid_context_switching() {
     let exec_beta = PooledLifeExecutor::new(pool.clone()).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
-        user_type: None,
+        user_type: Some("beta".into()),
         org_type: None,
         permissions: vec![],
         user_email: None,
@@ -995,7 +995,7 @@ fn test_p2_pool_worker_missing_function() {
     let exec = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: None,
+        user_type: Some("alpha".into()),
         org_type: None,
         permissions: vec![],
         user_email: None,
