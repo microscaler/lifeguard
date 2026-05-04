@@ -403,7 +403,7 @@ impl MayPostgresExecutor {
     /// use lifeguard::transaction::{IsolationLevel, Transaction};
     ///
     /// # fn main() -> Result<(), LifeError> {
-    /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
+    /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")
     ///     .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
     /// let executor = MayPostgresExecutor::new(client);
     ///
@@ -419,6 +419,67 @@ impl MayPostgresExecutor {
         isolation_level: crate::transaction::IsolationLevel,
     ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
         crate::transaction::Transaction::new_with_isolation(self.client.clone(), isolation_level)
+    }
+
+    /// Start a new transaction with a [`SessionContext`] for RLS injection.
+    ///
+    /// Runs `BEGIN` then executes `SELECT rls_set_session($1, $2, $3, $4, $5, $6)`
+    /// to inject the session context. Because `SET LOCAL` is transaction-scoped,
+    /// the context is set once at `BEGIN` and inherited by all queries within
+    /// the transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TransactionError` if `BEGIN` fails or if `rls_set_session`
+    /// cannot be called.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, SessionContext, LifeExecutor, connect};
+    ///
+    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
+    /// let executor = MayPostgresExecutor::new(client);
+    ///
+    /// let mut tx = executor.begin_with_session(SessionContext {
+    ///     user_id: Some(uuid::Uuid::new_v4()),
+    ///     user_org_id: None,
+    ///     user_type: Some("admin".to_string()),
+    ///     org_type: None,
+    ///     permissions: vec!["read".to_string()],
+    ///     user_email: None,
+    /// })?;
+    /// tx.execute("INSERT INTO users (name) VALUES ($1)", &[&"Alice"])?;
+    /// tx.commit()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn begin_with_session(
+        &self,
+        ctx: SessionContext,
+    ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+        crate::transaction::Transaction::new_with_session(
+            self.client.clone(),
+            crate::transaction::IsolationLevel::ReadCommitted,
+            Some(ctx),
+        )
+    }
+
+    /// Start a new transaction with a specific isolation level and [`SessionContext`].
+    ///
+    /// Same as [`begin_with_session`](Self::begin_with_session) but allows setting
+    /// a custom isolation level.
+    pub fn begin_with_isolation_session(
+        &self,
+        isolation_level: crate::transaction::IsolationLevel,
+        ctx: SessionContext,
+    ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+        crate::transaction::Transaction::new_with_session(
+            self.client.clone(),
+            isolation_level,
+            Some(ctx),
+        )
     }
 
     /// Check if the underlying connection is healthy
