@@ -471,7 +471,7 @@ impl LifeExecutor for MayPostgresExecutor {
 // minimal context from their JWT shape without being forced to map unused claims.
 //
 // Derives Clone + Send so it can cross thread boundaries in the pool worker path.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct SessionContext {
     pub user_id: Option<uuid::Uuid>,
     pub user_org_id: Option<uuid::Uuid>,
@@ -479,6 +479,19 @@ pub struct SessionContext {
     pub org_type: Option<String>,
     pub permissions: Vec<String>,
     pub user_email: Option<String>,
+}
+
+impl std::fmt::Debug for SessionContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionContext")
+            .field("user_id", &self.user_id)
+            .field("user_org_id", &self.user_org_id)
+            .field("user_type", &self.user_type)
+            .field("org_type", &self.org_type)
+            .field("permissions", &self.permissions)
+            .field("user_email", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl SessionContext {
@@ -497,10 +510,10 @@ impl SessionContext {
         Ok(vec![
             Box::new(self.user_id),
             Box::new(self.user_org_id),
-            Box::new(self.user_type.as_deref().unwrap_or("")),
-            Box::new(self.org_type.as_deref().unwrap_or("")),
+            Box::new(self.user_type.as_deref()),
+            Box::new(self.org_type.as_deref()),
             Box::new(permissions_json),
-            Box::new(self.user_email.as_deref().unwrap_or("")),
+            Box::new(self.user_email.as_deref()),
         ])
     }
 }
@@ -810,11 +823,20 @@ mod session_context_tests {
             user_type: Some("admin".to_string()),
             org_type: None,
             permissions: vec!["read".to_string()],
-            user_email: None,
+            user_email: Some("alice@example.com".to_string()),
         };
 
         let debug_str = format!("{ctx:?}");
         assert!(debug_str.contains("admin"));
         assert!(debug_str.contains("read"));
+        // PII field must be redacted
+        assert!(
+            !debug_str.contains("alice@example.com"),
+            "user_email must not appear in Debug output"
+        );
+        assert!(
+            debug_str.contains("[REDACTED]"),
+            "user_email should show [REDACTED]"
+        );
     }
 }
