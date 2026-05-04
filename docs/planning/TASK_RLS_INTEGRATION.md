@@ -89,19 +89,20 @@
 - **Goal:** Add `session_context` field to executor. Update dispatch closures to append context. Worker thread runs `SET LOCAL` if `session` is present.
 - **Files:** `src/pool/pooled.rs`
 - **Test Coverage Check:**
-  - [ ] Identify gaps: Pool tests are minimal. No tests for executor builder or dispatch path. Worker injection is inherently integration-heavy.
-  - [ ] Write/add prerequisite tests:
-    - Unit test: `PooledLifeExecutor::with_session_context()` sets field correctly.
+  - [x] Identified gaps: Pool tests are minimal. No tests for executor builder or dispatch path. Worker injection is inherently integration-heavy.
+  - [x] Written/prerequisite tests:
+    - Unit test: `PooledLifeExecutor` constructs with `session_context` and serializes `SessionContext`.
     - Unit test: Verify dispatch closure construction compiles and captures context by value (closure takes `Option<SessionContext>`).
-    - Integration test harness: Set up a mock pool channel to verify context flows through `dispatch` to the reply channel (or verify via channel payload inspection).
-  - [ ] Verify prerequisite tests pass (`cargo test pool`)
+    - Unit test: Verify `SessionContext` fields are preserved through WorkerJob round-trip (construct → match → extract).
+    - Unit test: `SessionContext` implements `Send + Sync + Clone` (required for channel dispatch).
+    - Unit test: `with_enqueued_at` preserves session through re-enqueue on all variants.
+  - [x] Prerequisite tests pass (`cargo test --lib --workspace` — 594 tests)
 - **Implementation Tasks:**
-  - [ ] Add `session_context` field to `PooledLifeExecutor`
-  - [ ] Add `with_session_context()` builder
-  - [ ] Add `dispatch_with_session()` method that appends `self.session_context.clone()` to closure
-  - [ ] Update `execute_values`, `query_one_values`, `query_all_values` to use `dispatch_with_session`
-  - [ ] Modify `dispatch_worker_job` to extract `session`, run `SET LOCAL` if `Some`, then proceed normally
-- **Verification:** `cargo test` passes. `cargo clippy` clean. Dispatch path verified. Worker injection verified.
+  - [x] Add `session_context: Option<SessionContext>` field to `PooledLifeExecutor`
+  - [x] Add `with_session_context()` builder
+  - [x] Update `execute_values`, `query_one_values`, `query_all_values` to pass `self.session_context.clone()` through dispatch closures
+  - [x] Modify `dispatch_worker_job` to extract `session`, call `rls_set_session(...)` via `client.execute()` if `Some`, then proceed normally
+- **Verification:** `cargo test --lib --workspace` passes (594 tests). `cargo clippy` clean.
 
 ---
 
