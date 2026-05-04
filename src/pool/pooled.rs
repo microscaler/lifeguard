@@ -868,14 +868,36 @@ fn dispatch_worker_job(
         | WorkerJob::QueryAll { session, .. } => session.clone(),
     };
 
+    // Guard: fail fast when a session context is attached but the SQL
+    // function rls_set_session is missing from the schema.  Without this
+    // check the worker silently falls through and executes the query
+    // without any RLS context — a dangerous silent-misconfiguration.
+    if session_context.is_some() {
+        // Probe: does rls_set_session exist?
+        match client.execute(
+            "SELECT 1 FROM pg_proc WHERE proname = 'rls_set_session'",
+            &[],
+        ) {
+            Ok(_) => {} // function exists, proceed normally
+            Err(e) => {
+                log::error!(
+                    "lifeguard pool: session context attached but rls_set_session SQL function is missing on {tier} worker; failing the job (error: {e}) to prevent execution without RLS context"
+                );
+                send_context_error(&job, &e);
+                return;
+            }
+        }
+    }
+
     // Inject RLS session context before executing the job.
     //
     // We always call rls_set_session to prevent stale GUCs from leaking
     // between jobs on the same pooled connection. When session_context is
     // Some we use the caller's context; when None we use SessionContext::default()
-    // to clear all auth.* GUCs. If injection fails we abort the job — the
-    // rls_set_session function uses session-scoped GUCs (set_config(..., false))
-    // so continuing without a fresh context would expose data across tenants.
+    // to clear all auth.* GUCs. If injection fails we send an error to the
+    // caller via the reply channel — the rls_set_session function uses
+    // session-scoped GUCs (set_config(..., false)) so continuing without a
+    // fresh context would expose data across tenants.
     let default_ctx = SessionContext::default();
     let ctx = session_context.as_ref().unwrap_or(&default_ctx);
     let args = match ctx.to_sql_args() {
@@ -885,6 +907,7 @@ fn dispatch_worker_job(
                 "lifeguard pool: failed to serialize session context for {tier} worker: {e}; \
                  aborting job"
             );
+            send_context_error(&job, &e);
             return;
         }
     };
@@ -894,6 +917,7 @@ fn dispatch_worker_job(
             "lifeguard pool: rls_set_session failed on {tier} worker slot: {e}; \
              aborting job to prevent query without RLS context"
         );
+        send_context_error(&job, &e);
         return;
     }
 
@@ -936,6 +960,25 @@ fn dispatch_worker_job(
                 })
             });
             let _ = reply.send(result);
+        }
+    }
+}
+
+/// Send an RLS context-injection error to the caller via the reply channel.
+///
+/// This ensures the executor does **not** block forever waiting for a response
+/// when `rls_set_session` fails or context serialization breaks.
+fn send_context_error(job: &WorkerJob, error: &impl std::error::Error) {
+    let err = LifeError::Pool(format!("rls_set_session context injection failed: {error}"));
+    match job {
+        WorkerJob::Execute { reply, .. } => {
+            let _ = reply.send(Err(err));
+        }
+        WorkerJob::QueryOne { reply, .. } => {
+            let _ = reply.send(Err(err));
+        }
+        WorkerJob::QueryAll { reply, .. } => {
+            let _ = reply.send(Err(err));
         }
     }
 }

@@ -352,8 +352,15 @@ impl MayPostgresExecutor {
     /// - Permissions cannot be serialised to JSON.
     /// - The `rls_set_session` SQL function is not available in the schema.
     fn run_set_session(&self) -> Result<(), LifeError> {
-        let default_ctx = SessionContext::default();
-        let ctx = self.session_context.as_ref().unwrap_or(&default_ctx);
+        // Zero-regression path: when no session context is attached, skip the
+        // rls_set_session call entirely.  This keeps `MayPostgresExecutor`
+        // usable in tests and code paths that do not want RLS injection.
+        if self.session_context.is_none() {
+            return Ok(());
+        }
+        let Some(ctx) = &self.session_context else {
+            return Ok(());
+        };
         let args = ctx.to_sql_args()?;
         let args_refs: Vec<&dyn may_postgres::types::ToSql> =
             args.iter().map(|a| a.as_ref()).collect();

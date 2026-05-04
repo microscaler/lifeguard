@@ -17,6 +17,7 @@
 //!   session contexts do not leak context across each other's queries.
 
 use lifeguard::executor::MayPostgresExecutor;
+use lifeguard::LifeError;
 use lifeguard::LifeExecutor;
 use lifeguard::LifeguardPool;
 use lifeguard::PooledLifeExecutor;
@@ -219,14 +220,26 @@ fn setup_rls_fixture(executor: &MayPostgresExecutor, schema: &str, table: &str) 
 }
 
 /// Count all rows visible to the current session (RLS-aware).
-fn count_visible_rows(executor: &MayPostgresExecutor, schema: &str, table: &str) -> i64 {
-    let row = executor
-        .query_one_values(
-            &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table}"),
-            &Values(vec![]),
-        )
-        .expect("count query");
-    row.get(0)
+///
+/// Propagates errors so callers can distinguish a genuine database error
+/// (e.g. missing `rls_set_session`) from a normal zero-row result.
+fn count_visible_rows(
+    executor: &MayPostgresExecutor,
+    schema: &str,
+    table: &str,
+) -> Result<i64, LifeError> {
+    let row = executor.query_one_values(
+        &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table}"),
+        &Values(vec![]),
+    )?;
+    Ok(row.get(0))
+}
+
+/// Convenience wrapper: counts visible rows and unwraps on error.
+/// Use `count_visible_rows()` directly when you need to inspect errors
+/// (e.g. testing that a missing `rls_set_session` function returns Err).
+fn count_visible_rows_ok(executor: &MayPostgresExecutor, schema: &str, table: &str) -> i64 {
+    count_visible_rows(executor, schema, table).expect("count query")
 }
 
 // ===================================================================
@@ -245,7 +258,7 @@ fn test_a_direct_executor_filters_rows() {
 
     // Without any session context, RLS blocks everything (fail-closed baseline).
     let no_ctx = make_rls_executor(&primary_url);
-    let c_no = count_visible_rows(&no_ctx, &schema, &table);
+    let c_no = count_visible_rows_ok(&no_ctx, &schema, &table);
     assert_eq!(c_no, 0, "No context -> zero rows (fail-closed baseline)");
 
     // With session context for tenant "alpha" we should see exactly 2 rows.
@@ -261,7 +274,7 @@ fn test_a_direct_executor_filters_rows() {
         user_email: None,
     });
 
-    let c_alpha = count_visible_rows(&alpha_exec, &schema, &table);
+    let c_alpha = count_visible_rows_ok(&alpha_exec, &schema, &table);
     assert_eq!(
         c_alpha, 2,
         "Test A: with tenant=alpha context, should see exactly 2 rows"
@@ -269,7 +282,7 @@ fn test_a_direct_executor_filters_rows() {
 
     // Count total visible rows with alpha context — should be exactly 2 (the alpha rows).
     // This proves RLS filtering is active: without RLS we'd see all 4 rows.
-    let c_total_from_alpha = count_visible_rows(&alpha_exec, &schema, &table);
+    let c_total_from_alpha = count_visible_rows_ok(&alpha_exec, &schema, &table);
     assert_eq!(
         c_total_from_alpha, 2,
         "Test A: alpha context should see 2 rows total (RLS filtered, not raw 4)"
@@ -304,7 +317,7 @@ fn test_b_fail_closed_no_context() {
 
     // Executor with NO session context -> RLS should block everything.
     let exec_no_ctx = make_rls_executor(&primary_url);
-    let count_no = count_visible_rows(&exec_no_ctx, &schema, &table);
+    let count_no = count_visible_rows_ok(&exec_no_ctx, &schema, &table);
     assert_eq!(
         count_no, 0,
         "Test B: fail-closed -> no context must return 0 rows"
@@ -532,7 +545,7 @@ fn test_e1_empty_context_visible_rows() {
     // The policy `USING (tenant = NULL)` will not match any non-NULL tenant rows.
     // This means an empty context is functionally equivalent to "no context" —
     // fail-closed. The test verifies this is intentional and consistent.
-    let count_empty = count_visible_rows(&empty_ctx, &schema, &table);
+    let count_empty = count_visible_rows_ok(&empty_ctx, &schema, &table);
     assert_eq!(
         count_empty, 0,
         "E1: empty context should see 0 rows (fail-closed, same as no context)"
@@ -569,7 +582,7 @@ fn test_e3_permissions_only_context() {
     });
 
     // Even with admin permissions, if tenant is NULL, no rows match.
-    let count_perms = count_visible_rows(&perms_only_ctx, &schema, &table);
+    let count_perms = count_visible_rows_ok(&perms_only_ctx, &schema, &table);
     assert_eq!(
         count_perms, 0,
         "E3: permissions-only context (no tenant) should see 0 rows"
@@ -604,7 +617,7 @@ fn test_e4_permissions_special_characters() {
     });
 
     // Should see 2 alpha rows regardless of permissions (tenant is the filter).
-    let count_special = count_visible_rows(&special_perms_ctx, &schema, &table);
+    let count_special = count_visible_rows_ok(&special_perms_ctx, &schema, &table);
     assert_eq!(
         count_special, 2,
         "E4: permissions with special chars should still filter by tenant"
@@ -648,15 +661,15 @@ fn test_e5_rapid_context_switching_direct() {
     });
 
     // Verify isolation: alpha sees alpha rows, beta sees beta rows.
-    let count_alpha = count_visible_rows(&ctx_alpha, &schema, &table);
-    let count_beta = count_visible_rows(&ctx_beta, &schema, &table);
+    let count_alpha = count_visible_rows_ok(&ctx_alpha, &schema, &table);
+    let count_beta = count_visible_rows_ok(&ctx_beta, &schema, &table);
 
     assert_eq!(count_alpha, 2, "E5: alpha context should see 2 rows");
     assert_eq!(count_beta, 1, "E5: beta context should see 1 row");
 
     // Verify they still see different counts even when swapped.
-    let count_alpha_again = count_visible_rows(&ctx_alpha, &schema, &table);
-    let count_beta_again = count_visible_rows(&ctx_beta, &schema, &table);
+    let count_alpha_again = count_visible_rows_ok(&ctx_alpha, &schema, &table);
+    let count_beta_again = count_visible_rows_ok(&ctx_beta, &schema, &table);
 
     assert_eq!(
         count_alpha_again, 2,
@@ -685,6 +698,16 @@ fn test_e6_missing_rls_function_returns_error() {
     let setup_exec = MayPostgresExecutor::new(conn);
     setup_rls_fixture(&setup_exec, &schema, &table);
 
+    // Temporarily drop rls_set_session so the executor cannot inject context.
+    // We drop ALL overloads to ensure no ambiguity survives from previous runs.
+    setup_exec.execute(
+        "DO $$\n        DECLARE\n            r RECORD;\n        BEGIN\n            FOR r IN\n                SELECT oid, proname, pg_catalog.pg_get_function_arguments(oid) AS args
+                FROM pg_proc
+                WHERE proname = 'rls_set_session'\n            LOOP\n                EXECUTE format('DROP FUNCTION %s(%s)', proname, args);\n            END LOOP;\n        END $$;",
+        &[],
+    )
+    .expect("drop all rls_set_session overloads");
+
     // Create an executor with session context.
     let uid = uuid::Uuid::new_v4();
     let exec_with_ctx = make_rls_executor(&primary_url).with_session_context(SessionContext {
@@ -696,18 +719,51 @@ fn test_e6_missing_rls_function_returns_error() {
         user_email: None,
     });
 
-    // The rls_set_session function should exist (created by rls_test_setup),
-    // so this query should succeed. This test verifies the happy path still works.
+    // The rls_set_session function is missing, so context injection should
+    // fail and the executor should return a PostgresError rather than
+    // silently succeeding without RLS context. Use count_visible_rows()
+    // directly (not the _ok convenience wrapper) so we can inspect the error.
     let result = count_visible_rows(&exec_with_ctx, &schema, &table);
-    assert_eq!(
-        result, 2,
-        "E6: with rls_set_session present, context-injected query should succeed"
+    assert!(
+        result.is_err(),
+        "E6: without rls_set_session, the executor should return an error, got: {:?}",
+        result
     );
 
-    // Verify the query actually ran through the RLS path by checking the row count
-    // matches what we expect for the "alpha" tenant.
-    let count_direct = count_visible_rows(&exec_with_ctx, &schema, &table);
-    assert_eq!(count_direct, 2, "E6: row count should match tenant filter");
+    // Verify the error is a PostgresError (function not found), not a
+    // serialization error — this distinguishes the missing-function path
+    // from other possible failure modes.
+    match &result {
+        Err(LifeError::PostgresError(_)) => {} // expected
+        other => panic!(
+            "E6: expected PostgresError, got {:?} — the failure mode may have changed",
+            other
+        ),
+    }
+
+    // Recreate the function for subsequent tests.
+    let func_sql = "CREATE OR REPLACE FUNCTION rls_set_session(\
+        p_user_id uuid, p_user_org uuid,\
+        p_user_type text, p_org_type text,\
+        p_permissions jsonb, p_user_email text\
+    ) RETURNS void LANGUAGE plpgsql AS $$\
+    BEGIN\
+        PERFORM set_config('auth.user_id',\
+            COALESCE(p_user_id::text, ''), false);\
+        PERFORM set_config('auth.tenant',\
+            COALESCE(p_user_type, ''), false);\
+        PERFORM set_config('auth.user_type',\
+            COALESCE(p_user_type, ''), false);\
+        PERFORM set_config('auth.org_type',\
+            COALESCE(p_org_type, ''), false);\
+        PERFORM set_config('auth.permissions',\
+            COALESCE(p_permissions::text, '[]'), false);\
+        PERFORM set_config('auth.user_email',\
+            COALESCE(p_user_email, ''), false);\
+    END; $$;";
+    setup_exec
+        .execute(func_sql, &[])
+        .expect("recreate rls_set_session for subsequent tests");
 }
 
 // ===================================================================
