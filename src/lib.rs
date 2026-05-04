@@ -117,7 +117,7 @@ pub use connection::{
 };
 
 // Re-export executor types for convenience
-pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor};
+pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor, SessionContext};
 
 // Query builder - Epic 02 Story 03
 pub mod query;
