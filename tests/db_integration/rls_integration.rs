@@ -99,7 +99,7 @@ fn rls_test_setup() {
         PERFORM set_config('auth.user_id',
             COALESCE(p_user_id::text, ''), false);
         PERFORM set_config('auth.tenant',
-            COALESCE(p_user_type, ''), false);
+            COALESCE(p_user_org::text, ''), false);
         PERFORM set_config('auth.user_type',
             COALESCE(p_user_type, ''), false);
         PERFORM set_config('auth.org_type',
