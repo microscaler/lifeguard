@@ -734,10 +734,9 @@ fn test_e6_missing_rls_function_returns_error() {
     // from other possible failure modes.
     match &result {
         Err(LifeError::PostgresError(_)) => {} // expected
-        other => panic!(
-            "E6: expected PostgresError, got {:?} — the failure mode may have changed",
-            other
-        ),
+        other => {
+            panic!("E6: expected PostgresError, got {other:?} — the failure mode may have changed")
+        }
     }
 
     // Recreate the function for subsequent tests.
