@@ -726,8 +726,7 @@ fn test_e6_missing_rls_function_returns_error() {
     let result = count_visible_rows(&exec_with_ctx, &schema, &table);
     assert!(
         result.is_err(),
-        "E6: without rls_set_session, the executor should return an error, got: {:?}",
-        result
+        "E6: without rls_set_session, the executor should return an error, got: {result:?}"
     );
 
     // Verify the error is a PostgresError (function not found), not a
