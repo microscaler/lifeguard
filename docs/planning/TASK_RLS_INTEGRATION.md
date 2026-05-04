@@ -148,12 +148,12 @@
 ## Delivery Order & Dependencies
 1. **Story 1** → 2, 3, 4, 5
 2. **Story 2** → 3, 5
-3. **Story 3** → (independent after 1)
+3. **Story 3** → 5 (depends on Story 2 — `begin_with_session()` requires `session_context` field on `MayPostgresExecutor`)
 4. **Story 4** → 5
 5. **Story 5** → 6
 6. **Story 6** → 7
 7. **Story 7**
 
-**Parallelism:** Stories 1, 2, 3, 4 can proceed sequentially. Story 5 needs 4. Story 6 needs 5. Story 7 is last.
+**Parallelism:** Story 1 is the sole entry point. Story 2 must complete before Story 3 (Story 3's `begin_with_session()` on `MayPostgresExecutor` requires the `session_context` field added in Story 2). Story 3 and Story 4 are independent of each other after Story 2. Story 5 requires both Story 3 and Story 4. Story 6 requires Story 5. Story 7 is last.
 **Total Effort:** ~32 hours
 **Quality Gate:** No story marked complete until `cargo test`, `cargo clippy`, and story-specific tests pass. Zero regressions on non-RLS paths.
