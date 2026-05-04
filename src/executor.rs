@@ -1123,6 +1123,8 @@ mod session_context_tests {
 // ------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 mod may_postgres_executor_rls_tests {
     use super::*;
 
@@ -1171,9 +1173,9 @@ mod may_postgres_executor_rls_tests {
     #[test]
     fn test_session_context_default_serializes_successfully() {
         let ctx = SessionContext::default();
-        let args = ctx.to_sql_args().unwrap_or_else(|e| {
-            panic!("default context must serialize (zero-regression path): {e}")
-        });
+        let args = ctx
+            .to_sql_args()
+            .expect("default context must serialize (zero-regression path)");
         assert_eq!(
             args.len(),
             6,
