@@ -65,3 +65,6 @@ mod pool_read_replica;
 
 #[path = "db_integration/pool_idle_liveness.rs"]
 mod pool_idle_liveness;
+
+#[path = "db_integration/rls_integration.rs"]
+mod rls_integration;

@@ -107,23 +107,26 @@
 ---
 
 ## Story 6: Integration tests — end-to-end RLS propagation
-- **Surface:** `tests-integration/` (new or existing test module)
+- **Surface:** `tests/db_integration/rls_integration.rs` (new)
 - **Goal:** Full integration tests using real Postgres with RLS policies enabled. Verify direct executor, transaction, and pool worker isolation.
-- **Files:** `tests-integration/rls_integration_tests.rs` (new) or append to existing integration test runner
+- **Files:** `tests/db_integration/rls_integration.rs` (new)
 - **Test Coverage Check:**
-  - [ ] Identify gaps: First story requiring real DB integration. No existing RLS test infrastructure.
-  - [ ] Write/add prerequisite tests (test-first even for integration):
-    - Set up test container / dedicated test DB with `ENABLE ROW LEVEL SECURITY` on a test table.
-    - Test A: Direct executor verifies RLS filters rows correctly.
-    - Test B: Fail-closed path (`None` context) returns 0 rows.
-    - Test C: Transaction `begin_with_session` injects at `BEGIN`, subsequent queries inherit context.
-    - Test D: Pool workers maintain correct isolation across different session contexts.
-  - [ ] Verify prerequisite tests pass (`cargo test --test rls_integration`)
+  - [x] Identified gaps: First story requiring real DB integration. No existing RLS test infrastructure.
+  - [x] Written/prerequisite tests:
+    - Integration test module `tests/db_integration/rls_integration.rs` with 4 scenarios:
+      - **Test A** — Direct executor (`MayPostgresExecutor::with_session_context`): session GUC injected via `SELECT rls_set_session(...)`, RLS policy `USING (tenant = NULLIF(current_setting('auth.tenant', true), ''))` filters to expected rows.
+      - **Test B** — Fail-closed (no context): same executor without session context returns 0 rows.
+      - **Test C** — Transaction `begin_with_session`: context set at `BEGIN` time via `SET LOCAL`, all subsequent queries in the transaction inherit context.
+      - **Test D** — Pool worker isolation: two `PooledLifeExecutor` instances with different contexts see different row subsets.
+  - [x] Prerequisite tests pass (`cargo test --test db_integration_suite rls` — 4/4 passed)
 - **Implementation Tasks:**
-  - [ ] Create integration test module with testcontainer setup
-  - [ ] Implement 4 test scenarios above
-  - [ ] Add migration/DDL setup in test fixture for RLS policies
-- **Verification:** All integration tests pass against live Postgres. `cargo test` clean.
+  - [x] Create `tests/db_integration/rls_integration.rs`
+  - [x] Implement `rls_test_setup()` ctor: create `rls_test_role` (LOGIN, non-superuser), grant CONNECT/USAGE/EXECUTE, create `rls_set_session` function with `set_config(..., false)` for session-scoped persistence, drop stale function overloads from prior runs.
+  - [x] Fix `rls_set_session` function: `set_config(key, value, false)` — session-level GUCs persist across autocommit statements (critical for direct executor path; transaction path was already working via `SET LOCAL`).
+  - [x] Fix pool test: use `rls_test_role` connection URL so pool workers authenticate as non-superuser (superusers bypass RLS by default).
+  - [x] Fix test assertions: removed `WHERE tenant = $X` sub-queries (explicit WHERE bypasses RLS), replaced with full-count queries that verify RLS filtering via visible row count.
+  - [x] All 4 tests pass.
+- **Verification:** All 4 integration tests pass against live Postgres (`cargo test --test db_integration_suite rls`).
 
 ---
 
