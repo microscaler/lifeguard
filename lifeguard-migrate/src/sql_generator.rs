@@ -469,7 +469,10 @@ fn infer_zero_default_for_sql_type(col_type: &str) -> Option<&'static str> {
         if second_end == 0 {
             None
         } else {
-            Some(format!("{base} {}", rest[..second_end].to_ascii_uppercase()))
+            Some(format!(
+                "{base} {}",
+                rest[..second_end].to_ascii_uppercase()
+            ))
         }
     };
 
@@ -561,7 +564,10 @@ mod tests {
     #[test]
     fn infer_zero_default_ignores_trailing_constraint_tokens() {
         // `column_type` is usually just the type, but be tolerant if a caller passes a snippet.
-        assert_eq!(infer_zero_default_for_sql_type("SMALLINT NOT NULL"), Some("0"));
+        assert_eq!(
+            infer_zero_default_for_sql_type("SMALLINT NOT NULL"),
+            Some("0")
+        );
         assert_eq!(
             infer_zero_default_for_sql_type("DOUBLE PRECISION NOT NULL"),
             Some("0")

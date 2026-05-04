@@ -352,14 +352,18 @@ mod tests {
             Value::String(Some("x".into())),
             Value::ChronoDateTimeUtc(Some(Utc::now())),
         ];
-        let result = with_converted_value_slice(&values, |e| e, |params| {
-            assert_eq!(
-                params.len(),
-                values.len(),
-                "each Value must yield exactly one bind parameter"
-            );
-            Ok::<(), String>(())
-        });
+        let result = with_converted_value_slice(
+            &values,
+            |e| e,
+            |params| {
+                assert_eq!(
+                    params.len(),
+                    values.len(),
+                    "each Value must yield exactly one bind parameter"
+                );
+                Ok::<(), String>(())
+            },
+        );
         assert!(result.is_ok(), "{:?}", result.err());
     }
 
@@ -370,10 +374,14 @@ mod tests {
             Value::Int(None),
             Value::ChronoDateTime(None),
         ];
-        let result = with_converted_value_slice(&values, |e| e, |params| {
-            assert_eq!(params.len(), 3);
-            Ok::<(), String>(())
-        });
+        let result = with_converted_value_slice(
+            &values,
+            |e| e,
+            |params| {
+                assert_eq!(params.len(), 3);
+                Ok::<(), String>(())
+            },
+        );
         assert!(result.is_ok(), "{:?}", result.err());
     }
 
@@ -407,10 +415,14 @@ mod tests {
             Value::SmallInt(Some(-2)),
             Value::Int(Some(3)),
         ];
-        let result = with_converted_value_slice(&values, |e| e, |params| {
-            assert_eq!(params.len(), 3);
-            Ok::<(), String>(())
-        });
+        let result = with_converted_value_slice(
+            &values,
+            |e| e,
+            |params| {
+                assert_eq!(params.len(), 3);
+                Ok::<(), String>(())
+            },
+        );
         assert!(result.is_ok(), "{:?}", result.err());
     }
 
@@ -419,34 +431,34 @@ mod tests {
         use bytes::BytesMut;
         use postgres_types::{IsNull, Type};
 
-        let values = vec![
-            Value::String(None),
-            Value::Bytes(None),
-            Value::Json(None),
-        ];
-        let result = with_converted_value_slice(&values, |e| e, |params| {
-            assert_eq!(params.len(), 3);
+        let values = vec![Value::String(None), Value::Bytes(None), Value::Json(None)];
+        let result = with_converted_value_slice(
+            &values,
+            |e| e,
+            |params| {
+                assert_eq!(params.len(), 3);
 
-            let mut b = BytesMut::new();
-            assert!(matches!(
-                params[0].to_sql_checked(&Type::TEXT, &mut b),
-                Ok(IsNull::Yes)
-            ));
+                let mut b = BytesMut::new();
+                assert!(matches!(
+                    params[0].to_sql_checked(&Type::TEXT, &mut b),
+                    Ok(IsNull::Yes)
+                ));
 
-            let mut b = BytesMut::new();
-            assert!(matches!(
-                params[1].to_sql_checked(&Type::BYTEA, &mut b),
-                Ok(IsNull::Yes)
-            ));
+                let mut b = BytesMut::new();
+                assert!(matches!(
+                    params[1].to_sql_checked(&Type::BYTEA, &mut b),
+                    Ok(IsNull::Yes)
+                ));
 
-            let mut b = BytesMut::new();
-            assert!(matches!(
-                params[2].to_sql_checked(&Type::JSONB, &mut b),
-                Ok(IsNull::Yes)
-            ));
+                let mut b = BytesMut::new();
+                assert!(matches!(
+                    params[2].to_sql_checked(&Type::JSONB, &mut b),
+                    Ok(IsNull::Yes)
+                ));
 
-            Ok::<(), String>(())
-        });
+                Ok::<(), String>(())
+            },
+        );
         assert!(result.is_ok(), "{:?}", result.err());
     }
 }

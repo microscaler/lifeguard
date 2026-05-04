@@ -59,7 +59,8 @@ fn normalize_sql_table_name(raw: &str) -> String {
 /// ordered after their creator in [`write_apply_order_file`].
 pub fn extract_created_tables_from_migration_sql(sql: &str) -> Vec<String> {
     // Unquoted or "quoted" identifier, optionally prefixed by a schema segment.
-    const QNAME: &str = r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
+    const QNAME: &str =
+        r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
 
     let table_re = Regex::new(&format!(
         r"(?i)CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+({QNAME})\s*\(",
@@ -96,7 +97,8 @@ pub fn extract_created_tables_from_migration_sql(sql: &str) -> Vec<String> {
 pub fn extract_view_source_tables_from_migration_sql(sql: &str) -> Vec<String> {
     // Capture everything after `… AS` up to the next `;` (or end of input) — that is the SELECT
     // body whose `FROM` / `JOIN` clauses we care about.
-    const QNAME: &str = r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
+    const QNAME: &str =
+        r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
     let view_body_re = Regex::new(&format!(
         r"(?is)CREATE\s+(?:OR\s+REPLACE\s+)?VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+{QNAME}\s+AS\s+(.*?)(?:;|\z)",
     ))
@@ -218,23 +220,28 @@ fn collect_sql_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> 
 ///
 /// Returns unqualified (schema-stripped) table names, sorted, deduped. `SELECT` / DDL is ignored.
 pub fn extract_inserted_tables_from_sql(sql: &str) -> Vec<String> {
-    const QNAME: &str = r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
-    let insert_re = Regex::new(&format!(r"(?is)\bINSERT\s+INTO\s+({QNAME})"))
-        .expect("INSERT INTO regex");
+    const QNAME: &str =
+        r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
+    let insert_re =
+        Regex::new(&format!(r"(?is)\bINSERT\s+INTO\s+({QNAME})")).expect("INSERT INTO regex");
     // `COPY <table> (cols) FROM ...` — we only bind targets of `FROM` (data loads), not `TO`
     // (exports). Anchored to whitespace + `FROM` to avoid catching `COPY ... TO` which is a dump.
-    let copy_re =
-        Regex::new(&format!(r"(?is)\bCOPY\s+({QNAME})\s*(?:\([^)]*\))?\s+FROM\b"))
-            .expect("COPY FROM regex");
-    let update_re =
-        Regex::new(&format!(r"(?is)\bUPDATE\s+(?:ONLY\s+)?({QNAME})\s+SET\b"))
-            .expect("UPDATE SET regex");
+    let copy_re = Regex::new(&format!(
+        r"(?is)\bCOPY\s+({QNAME})\s*(?:\([^)]*\))?\s+FROM\b"
+    ))
+    .expect("COPY FROM regex");
+    let update_re = Regex::new(&format!(r"(?is)\bUPDATE\s+(?:ONLY\s+)?({QNAME})\s+SET\b"))
+        .expect("UPDATE SET regex");
 
     let mut out: Vec<String> = Vec::new();
     for re in [&insert_re, &copy_re, &update_re] {
         for cap in re.captures_iter(sql) {
             if let Some(m) = cap.get(1) {
-                out.push(normalize_sql_table_name(m.as_str()).trim_matches('"').to_string());
+                out.push(
+                    normalize_sql_table_name(m.as_str())
+                        .trim_matches('"')
+                        .to_string(),
+                );
             }
         }
     }
@@ -253,9 +260,10 @@ pub fn extract_inserted_tables_from_sql(sql: &str) -> Vec<String> {
 /// Both bare and schema-qualified identifiers are handled; returned names are unqualified
 /// (schema-stripped). Self-references are preserved — callers decide whether to filter them.
 pub fn extract_table_level_fk_edges_from_migration_sql(sql: &str) -> Vec<(String, String)> {
-    const QNAME: &str = r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
-    let ref_re = Regex::new(&format!(r"(?i)REFERENCES\s+({QNAME})\s*\("))
-        .expect("REFERENCES regex");
+    const QNAME: &str =
+        r#"(?:(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_]*))?)"#;
+    let ref_re =
+        Regex::new(&format!(r"(?i)REFERENCES\s+({QNAME})\s*\(")).expect("REFERENCES regex");
     let mut out: Vec<(String, String)> = Vec::new();
     let bytes = sql.as_bytes();
 
@@ -382,8 +390,8 @@ pub fn write_seed_order_file(
         let mut files: Vec<PathBuf> = Vec::new();
         collect_sql_files(migrations_dir, &mut files).map_err(|e| e.to_string())?;
         for path in &files {
-            let content = fs::read_to_string(path)
-                .map_err(|e| format!("{}: {}", path.display(), e))?;
+            let content =
+                fs::read_to_string(path).map_err(|e| format!("{}: {}", path.display(), e))?;
             for (from, to) in extract_table_level_fk_edges_from_migration_sql(&content) {
                 if from == to {
                     continue; // self-FKs do not create cross-seed ordering
@@ -406,10 +414,7 @@ pub fn write_seed_order_file(
         // tie-break, and historically this class of file (`company_demo_organization.sql`) has
         // been the exact cause of FK-violating seed apply order. See
         // `postmortem-lifeguard-default-expr-2026-04.md` and the seed-order ADR.
-        let filename = seed_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let filename = seed_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if parse_leading_timestamp(filename).is_none() {
             if std::env::var("LIFEGUARD_SILENCE_UNTIMESTAMPED_SEEDS")
                 .ok()
@@ -429,8 +434,8 @@ pub fn write_seed_order_file(
             }
             continue;
         }
-        let content = fs::read_to_string(seed_path)
-            .map_err(|e| format!("{}: {}", seed_path.display(), e))?;
+        let content =
+            fs::read_to_string(seed_path).map_err(|e| format!("{}: {}", seed_path.display(), e))?;
         let targets = extract_inserted_tables_from_sql(&content);
         let rel = seed_path
             .canonicalize()
@@ -1168,7 +1173,8 @@ JOIN hauliage.users u ON u.id = r.user_id;
 
     #[test]
     fn extract_inserted_tables_plain_insert_into() {
-        let sql = "INSERT INTO hauliage.registered_addresses (id, country_code) VALUES ('a', 'ZW');";
+        let sql =
+            "INSERT INTO hauliage.registered_addresses (id, country_code) VALUES ('a', 'ZW');";
         assert_eq!(
             extract_inserted_tables_from_sql(sql),
             vec!["registered_addresses".to_string()]
@@ -1323,10 +1329,10 @@ CREATE TABLE IF NOT EXISTS c (
         // `write_seed_order_file` skips any seed without a timestamp prefix, so the legacy
         // untimestamped files this test used previously would now be filtered out of the output.
         let seeds_root = base.join("microservices");
-        let company_seed = seeds_root
-            .join("company/impl/seeds/20260422000000_company_demo_organization.sql");
-        let loc_seed = seeds_root
-            .join("locations/impl/seeds/20260414191699_seed_normalized_locations.sql");
+        let company_seed =
+            seeds_root.join("company/impl/seeds/20260422000000_company_demo_organization.sql");
+        let loc_seed =
+            seeds_root.join("locations/impl/seeds/20260414191699_seed_normalized_locations.sql");
         fs::create_dir_all(company_seed.parent().unwrap()).unwrap();
         fs::create_dir_all(loc_seed.parent().unwrap()).unwrap();
         fs::write(
@@ -1491,10 +1497,20 @@ CREATE TABLE IF NOT EXISTS c (
             .lines()
             .filter(|l| !l.starts_with('#') && !l.is_empty())
             .collect();
-        assert_eq!(lines.len(), 1, "exactly the one correctly-named seed: {lines:?}");
+        assert_eq!(
+            lines.len(),
+            1,
+            "exactly the one correctly-named seed: {lines:?}"
+        );
         assert!(lines[0].contains("20260501000000_seed_a.sql"));
-        assert!(!text.contains("company_demo_orphan.sql"), "no-prefix seed must be absent");
-        assert!(!text.contains("2026050_bad.sql"), "short-prefix seed must be absent");
+        assert!(
+            !text.contains("company_demo_orphan.sql"),
+            "no-prefix seed must be absent"
+        );
+        assert!(
+            !text.contains("2026050_bad.sql"),
+            "short-prefix seed must be absent"
+        );
     }
 
     #[test]
