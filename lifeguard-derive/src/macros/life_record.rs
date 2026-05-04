@@ -913,9 +913,15 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         sea_query::Expr::val(chrono::Utc::now().naive_utc())
     };
     let soft_delete_deleted_at_expr = field_rust_type_for_column_name(fields, "deleted_at")
-        .map_or_else(|| default_naive_now_expr.clone(), type_conversion::generate_expr_val_now_for_field_type);
+        .map_or_else(
+            || default_naive_now_expr.clone(),
+            type_conversion::generate_expr_val_now_for_field_type,
+        );
     let soft_delete_updated_at_expr = field_rust_type_for_column_name(fields, "updated_at")
-        .map_or_else(|| default_naive_now_expr.clone(), type_conversion::generate_expr_val_now_for_field_type);
+        .map_or_else(
+            || default_naive_now_expr.clone(),
+            type_conversion::generate_expr_val_now_for_field_type,
+        );
 
     let build_delete_query_ts = if table_attrs.soft_delete {
         let set_updated_at = if table_attrs.auto_timestamp {

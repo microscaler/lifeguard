@@ -461,6 +461,63 @@ impl LifeExecutor for MayPostgresExecutor {
     }
 }
 
+// Session Context (RLS Integration — Story 1)
+//
+// Verified identity claims from the consuming application's identity provider.
+// Lifeguard does not parse JWTs or extract these claims; the application constructs
+// and passes them here.
+//
+// All fields except `permissions` are optional so consuming apps can construct a
+// minimal context from their JWT shape without being forced to map unused claims.
+//
+// Derives Clone + Send so it can cross thread boundaries in the pool worker path.
+#[derive(Clone, PartialEq)]
+pub struct SessionContext {
+    pub user_id: Option<uuid::Uuid>,
+    pub user_org_id: Option<uuid::Uuid>,
+    pub user_type: Option<String>,
+    pub org_type: Option<String>,
+    pub permissions: Vec<String>,
+    pub user_email: Option<String>,
+}
+
+impl std::fmt::Debug for SessionContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionContext")
+            .field("user_id", &self.user_id)
+            .field("user_org_id", &self.user_org_id)
+            .field("user_type", &self.user_type)
+            .field("org_type", &self.org_type)
+            .field("permissions", &self.permissions)
+            .field("user_email", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl SessionContext {
+    /// Serialize this context into the SQL positional arguments expected by the
+    /// `rls_set_session($1, $2, $3, $4, $5, $6)` function.
+    ///
+    /// Returns six values in order: user_id, user_org_id, user_type, org_type,
+    /// permissions (JSON array), user_email.
+    ///
+    /// Fails only if permissions cannot be serialized to JSON, which would indicate
+    /// a bug in how the application constructed the context.
+    pub fn to_sql_args(&self) -> Result<Vec<Box<dyn ToSql + '_>>, LifeError> {
+        let permissions_json = serde_json::to_value(&self.permissions).map_err(|e| {
+            LifeError::Other(format!("failed to serialize session permissions: {e}"))
+        })?;
+        Ok(vec![
+            Box::new(self.user_id),
+            Box::new(self.user_org_id),
+            Box::new(self.user_type.as_deref()),
+            Box::new(self.org_type.as_deref()),
+            Box::new(permissions_json),
+            Box::new(self.user_email.as_deref()),
+        ])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,4 +573,270 @@ mod tests {
 
     // Note: Integration tests for actual database operations will be added
     // when we have a test database setup (Story 08)
+}
+
+// ============================================================================
+// SessionContext Tests — RLS Integration Story 1
+//
+// NOTE: `dyn ToSql` is opaque (no `Any` downcasting). Unit tests verify
+// structural properties. Value-level SQL correctness is tested in
+// Story 6 (integration tests against a real Postgres instance).
+// ============================================================================
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+mod session_context_tests {
+    use super::*;
+    use uuid::Uuid;
+
+    // ----------------------------------------------------------------
+    // Construction
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn test_session_context_empty_all_fields() {
+        let ctx = SessionContext {
+            user_id: None,
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: Vec::new(),
+            user_email: None,
+        };
+
+        assert!(ctx.user_id.is_none());
+        assert!(ctx.user_org_id.is_none());
+        assert!(ctx.user_type.is_none());
+        assert!(ctx.org_type.is_none());
+        assert!(ctx.permissions.is_empty());
+        assert!(ctx.user_email.is_none());
+    }
+
+    #[test]
+    fn test_session_context_full() {
+        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let oid = Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").unwrap();
+        let ctx = SessionContext {
+            user_id: Some(uid),
+            user_org_id: Some(oid),
+            user_type: Some("admin".to_string()),
+            org_type: Some("tenant".to_string()),
+            permissions: vec!["read".to_string(), "write".to_string()],
+            user_email: Some("alice@example.com".to_string()),
+        };
+
+        assert_eq!(ctx.user_id, Some(uid));
+        assert_eq!(ctx.user_org_id, Some(oid));
+        assert_eq!(ctx.user_type, Some("admin".to_string()));
+        assert_eq!(ctx.org_type, Some("tenant".to_string()));
+        assert_eq!(
+            ctx.permissions,
+            vec!["read".to_string(), "write".to_string()]
+        );
+        assert_eq!(ctx.user_email, Some("alice@example.com".to_string()));
+    }
+
+    #[test]
+    fn test_session_context_partial_fields() {
+        // Verify that a context with only user_id works (minimal multi-tenant context)
+        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let ctx = SessionContext {
+            user_id: Some(uid),
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: Vec::new(),
+            user_email: None,
+        };
+
+        assert_eq!(ctx.user_id, Some(uid));
+        assert!(ctx.user_org_id.is_none());
+        assert!(ctx.permissions.is_empty());
+    }
+
+    // ----------------------------------------------------------------
+    // Clone / PartialEq
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn test_session_context_clone() {
+        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let ctx = SessionContext {
+            user_id: Some(uid),
+            user_org_id: None,
+            user_type: Some("admin".to_string()),
+            org_type: None,
+            permissions: vec!["read".to_string()],
+            user_email: None,
+        };
+
+        let cloned = ctx.clone();
+        assert_eq!(ctx, cloned);
+        // Verify it's a deep clone (modifying the clone doesn't affect original)
+        let mut cloned = cloned;
+        cloned.permissions.push("write".to_string());
+        assert_ne!(ctx, cloned);
+    }
+
+    #[test]
+    fn test_session_context_partial_equality() {
+        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let ctx1 = SessionContext {
+            user_id: Some(uid),
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: vec![],
+            user_email: None,
+        };
+        let ctx2 = SessionContext {
+            user_id: Some(uid),
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: vec!["extra".to_string()],
+            user_email: None,
+        };
+
+        assert_eq!(ctx1, ctx1); // reflexivity
+        assert_ne!(ctx1, ctx2); // different permissions
+    }
+
+    // ----------------------------------------------------------------
+    // to_sql_args — structural tests
+    //
+    // `dyn ToSql` is opaque (no `Any` downcasting). We verify:
+    //   - correct number of args (6)
+    //   - Ok/Err return values
+    //   - JSON serialization correctness (via serde_json on the struct)
+    // Value-level SQL binding is tested in Story 6 integration tests.
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn test_to_sql_args_empty_context_returns_six_args() {
+        let ctx = SessionContext {
+            user_id: None,
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: Vec::new(),
+            user_email: None,
+        };
+
+        let args = ctx.to_sql_args().expect("empty context should serialize");
+        assert_eq!(args.len(), 6, "must return exactly 6 positional arguments");
+    }
+
+    #[test]
+    fn test_to_sql_args_full_context_returns_six_args() {
+        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let ctx = SessionContext {
+            user_id: Some(uid),
+            user_org_id: None,
+            user_type: Some("admin".to_string()),
+            org_type: Some("tenant".to_string()),
+            permissions: vec!["read".to_string()],
+            user_email: Some("alice@example.com".to_string()),
+        };
+
+        let args = ctx.to_sql_args().expect("full context should serialize");
+        assert_eq!(args.len(), 6);
+    }
+
+    #[test]
+    fn test_to_sql_args_partial_context_returns_six_args() {
+        // Even with only user_id set, we still get all 6 positional args
+        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let ctx = SessionContext {
+            user_id: Some(uid),
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: vec![],
+            user_email: None,
+        };
+
+        let args = ctx.to_sql_args().expect("partial context should serialize");
+        assert_eq!(args.len(), 6);
+    }
+
+    #[test]
+    fn test_to_sql_args_permissions_serialization_correct() {
+        // Verify permissions JSON is correct by checking the struct fields directly.
+        // (The actual ToSql binding is verified in Story 6 integration tests.)
+        let ctx = SessionContext {
+            user_id: None,
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: vec!["read".to_string(), "write".to_string()],
+            user_email: None,
+        };
+
+        let args = ctx.to_sql_args().expect("should serialize");
+        assert_eq!(args.len(), 6);
+        // Verify the struct's permissions field matches expectations
+        // (this confirms the caller constructed the context correctly)
+        assert_eq!(
+            ctx.permissions,
+            vec!["read".to_string(), "write".to_string()]
+        );
+
+        // Also verify JSON roundtrip is correct (sanity check on serialization path)
+        let json = serde_json::to_value(&ctx.permissions).unwrap();
+        assert!(json.is_array());
+        assert_eq!(json.as_array().unwrap().len(), 2);
+        assert_eq!(json[0], "read");
+        assert_eq!(json[1], "write");
+    }
+
+    #[test]
+    fn test_to_sql_args_empty_permissions_is_empty_json_array() {
+        let ctx = SessionContext {
+            user_id: None,
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: Vec::new(),
+            user_email: None,
+        };
+
+        // Verify the struct field is empty (the ToSql binding is tested in Story 6)
+        assert!(ctx.permissions.is_empty());
+
+        // Verify JSON roundtrip produces empty array
+        let json = serde_json::to_value(&ctx.permissions).unwrap();
+        assert!(json.is_array());
+        assert!(json.as_array().unwrap().is_empty());
+    }
+
+    // ----------------------------------------------------------------
+    // Debug derive
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn test_session_context_debug_fmt() {
+        let ctx = SessionContext {
+            user_id: None,
+            user_org_id: None,
+            user_type: Some("admin".to_string()),
+            org_type: None,
+            permissions: vec!["read".to_string()],
+            user_email: Some("alice@example.com".to_string()),
+        };
+
+        let debug_str = format!("{ctx:?}");
+        assert!(debug_str.contains("admin"));
+        assert!(debug_str.contains("read"));
+        // PII field must be redacted
+        assert!(
+            !debug_str.contains("alice@example.com"),
+            "user_email must not appear in Debug output"
+        );
+        assert!(
+            debug_str.contains("[REDACTED]"),
+            "user_email should show [REDACTED]"
+        );
+    }
 }

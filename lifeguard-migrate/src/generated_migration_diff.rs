@@ -350,7 +350,7 @@ pub fn build_service_migration_body_from_accumulated(
         }
 
         let combined = combined_old_section(parts);
-        
+
         if normalize_table_sql_blob(&combined) == normalize_table_sql_blob(new_sql) {
             continue;
         }

@@ -1996,16 +1996,22 @@ mod tests {
         assert!(is_datetime_utc_type(
             &parse_str("chrono::DateTime<chrono::Utc>").unwrap()
         ));
-        assert!(is_datetime_utc_type(&parse_str("chrono::DateTime<Utc>").unwrap()));
+        assert!(is_datetime_utc_type(
+            &parse_str("chrono::DateTime<Utc>").unwrap()
+        ));
         assert!(!is_datetime_utc_type(
             &parse_str("chrono::DateTime<chrono::Local>").unwrap()
         ));
-        assert!(!is_datetime_utc_type(&parse_str("chrono::NaiveDateTime").unwrap()));
+        assert!(!is_datetime_utc_type(
+            &parse_str("chrono::NaiveDateTime").unwrap()
+        ));
 
         assert!(is_datetime_local_type(
             &parse_str("chrono::DateTime<chrono::Local>").unwrap()
         ));
-        assert!(is_datetime_local_type(&parse_str("chrono::DateTime<Local>").unwrap()));
+        assert!(is_datetime_local_type(
+            &parse_str("chrono::DateTime<Local>").unwrap()
+        ));
         assert!(!is_datetime_local_type(
             &parse_str("chrono::DateTime<chrono::Utc>").unwrap()
         ));

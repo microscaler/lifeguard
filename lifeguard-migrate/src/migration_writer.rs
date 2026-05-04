@@ -28,8 +28,7 @@
 
 use crate::generated_migration_diff::{
     accumulate_table_baselines_from_dir, build_service_migration_body_from_accumulated,
-    combined_old_section, normalize_table_sql_blob, service_migration_is_empty,
-    TableBaselineParts,
+    combined_old_section, normalize_table_sql_blob, service_migration_is_empty, TableBaselineParts,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -479,7 +478,8 @@ mod tests {
 
     #[test]
     fn strip_migration_file_header_removes_lifeguard_header() {
-        let content = "-- Migration: x\n-- Generated: 20260101000000\n\nALTER TABLE x ADD COLUMN y INT;\n";
+        let content =
+            "-- Migration: x\n-- Generated: 20260101000000\n\nALTER TABLE x ADD COLUMN y INT;\n";
         assert_eq!(
             strip_migration_file_header(content),
             "ALTER TABLE x ADD COLUMN y INT;\n"
@@ -552,7 +552,10 @@ mod tests {
         // Underscore-separated but no timestamp prefix.
         write(&dir.path().join("manual_seed.sql"), "-- stray\n");
         // Timestamp with the wrong length.
-        write(&dir.path().join("2026041705493_wrong_len.sql"), "-- stray\n");
+        write(
+            &dir.path().join("2026041705493_wrong_len.sql"),
+            "-- stray\n",
+        );
         // The big-file layout — should be picked up by the big-file accumulator, not here.
         write(
             &dir.path()

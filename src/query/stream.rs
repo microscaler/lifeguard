@@ -82,9 +82,8 @@ where
 
         let mut chunk: Vec<E::Model> = Vec::with_capacity(rows.len());
         for row in rows {
-            let inner_model = <E::Model as FromRow>::from_row(&row).map_err(|e| {
-                LifeError::ParseError(format!("Failed to parse streamed row: {e}"))
-            })?;
+            let inner_model = <E::Model as FromRow>::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse streamed row: {e}")))?;
             chunk.push(inner_model);
         }
 

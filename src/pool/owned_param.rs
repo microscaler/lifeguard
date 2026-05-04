@@ -237,7 +237,9 @@ mod tests {
         assert!(matches!(s, Ok(OwnedParam::String(None))));
         let mut buf = BytesMut::new();
         assert!(matches!(
-            s.expect("string null").as_sql_ref().to_sql_checked(&Type::TEXT, &mut buf),
+            s.expect("string null")
+                .as_sql_ref()
+                .to_sql_checked(&Type::TEXT, &mut buf),
             Ok(IsNull::Yes)
         ));
 
@@ -245,7 +247,9 @@ mod tests {
         assert!(matches!(j, Ok(OwnedParam::Json(None))));
         let mut buf = BytesMut::new();
         assert!(matches!(
-            j.expect("json null").as_sql_ref().to_sql_checked(&Type::JSONB, &mut buf),
+            j.expect("json null")
+                .as_sql_ref()
+                .to_sql_checked(&Type::JSONB, &mut buf),
             Ok(IsNull::Yes)
         ));
     }
