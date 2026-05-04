@@ -565,6 +565,7 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
                 query,
                 params,
                 reply,
+                session: None,
             })
     }
 
@@ -578,6 +579,7 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
                 query,
                 params,
                 reply,
+                session: None,
             })
     }
 
@@ -595,6 +597,7 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
                 query,
                 params,
                 reply,
+                session: None,
             })
     }
 }
@@ -648,18 +651,21 @@ enum WorkerJob {
         query: String,
         params: Vec<OwnedParam>,
         reply: may::sync::mpsc::Sender<Result<u64, LifeError>>,
+        session: Option<crate::executor::SessionContext>,
     },
     QueryOne {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
         reply: may::sync::mpsc::Sender<Result<Row, LifeError>>,
+        session: Option<crate::executor::SessionContext>,
     },
     QueryAll {
         enqueued_at: Instant,
         query: String,
         params: Vec<OwnedParam>,
         reply: may::sync::mpsc::Sender<Result<Vec<Row>, LifeError>>,
+        session: Option<crate::executor::SessionContext>,
     },
 }
 
@@ -670,34 +676,40 @@ impl WorkerJob {
                 query,
                 params,
                 reply,
+                session,
                 ..
             } => WorkerJob::Execute {
                 enqueued_at: at,
                 query,
                 params,
                 reply,
+                session,
             },
             WorkerJob::QueryOne {
                 query,
                 params,
                 reply,
+                session,
                 ..
             } => WorkerJob::QueryOne {
                 enqueued_at: at,
                 query,
                 params,
                 reply,
+                session,
             },
             WorkerJob::QueryAll {
                 query,
                 params,
                 reply,
+                session,
                 ..
             } => WorkerJob::QueryAll {
                 enqueued_at: at,
                 query,
                 params,
                 reply,
+                session,
             },
         }
     }
@@ -1028,6 +1040,7 @@ impl LifeExecutor for PooledLifeExecutor {
             query,
             params,
             reply,
+            session: None,
         })
     }
 
@@ -1039,6 +1052,7 @@ impl LifeExecutor for PooledLifeExecutor {
             query,
             params,
             reply,
+            session: None,
         })
     }
 
@@ -1054,6 +1068,7 @@ impl LifeExecutor for PooledLifeExecutor {
             query,
             params,
             reply,
+            session: None,
         })
     }
 }
@@ -1088,5 +1103,220 @@ mod lifetime_effective_limit_tests {
             connection_lifetime_effective_limit(base, Duration::ZERO, 99),
             base
         );
+    }
+}
+
+// ============================================================================
+// WorkerJob RLS Tests — Story 4
+//
+// Verify the prerequisite surface: WorkerJob variants carry session field,
+// with_enqueued_at preserves it, and SessionContext is Send+Clone.
+// ============================================================================
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::panic)]
+mod worker_job_rls_tests {
+    use super::*;
+
+    // ----------------------------------------------------------------
+    // WorkerJob construction with session
+    // ----------------------------------------------------------------
+
+    /// Prerequisite: WorkerJob variants construct with session: None (backwards compatible).
+    #[test]
+    fn test_worker_job_execute_constructs_with_none_session() {
+        let (tx, _rx) = may::sync::mpsc::channel();
+        let job = WorkerJob::Execute {
+            enqueued_at: Instant::now(),
+            query: "SELECT 1".to_string(),
+            params: Vec::new(),
+            reply: tx,
+            session: None,
+        };
+
+        // Verify it's a valid WorkerJob that can be matched
+        match job {
+            WorkerJob::Execute {
+                enqueued_at: _,
+                query,
+                params: _,
+                session,
+                reply: _,
+            } => {
+                assert_eq!(query, "SELECT 1");
+                assert!(session.is_none());
+            }
+            _ => panic!("expected Execute variant"),
+        }
+    }
+
+    /// Prerequisite: WorkerJob::QueryOne constructs with session: None.
+    #[test]
+    fn test_worker_job_query_one_constructs_with_none_session() {
+        let (tx, _rx) = may::sync::mpsc::channel();
+        let job = WorkerJob::QueryOne {
+            enqueued_at: Instant::now(),
+            query: "SELECT 1".to_string(),
+            params: Vec::new(),
+            reply: tx,
+            session: None,
+        };
+
+        match job {
+            WorkerJob::QueryOne {
+                enqueued_at: _,
+                query,
+                params: _,
+                session,
+                reply: _,
+            } => {
+                assert_eq!(query, "SELECT 1");
+                assert!(session.is_none());
+            }
+            _ => panic!("expected QueryOne variant"),
+        }
+    }
+
+    /// Prerequisite: WorkerJob::QueryAll constructs with session: None.
+    #[test]
+    fn test_worker_job_query_all_constructs_with_none_session() {
+        let (tx, _rx) = may::sync::mpsc::channel();
+        let job = WorkerJob::QueryAll {
+            enqueued_at: Instant::now(),
+            query: "SELECT 1".to_string(),
+            params: Vec::new(),
+            reply: tx,
+            session: None,
+        };
+
+        match job {
+            WorkerJob::QueryAll {
+                enqueued_at: _,
+                query,
+                params: _,
+                session,
+                reply: _,
+            } => {
+                assert_eq!(query, "SELECT 1");
+                assert!(session.is_none());
+            }
+            _ => panic!("expected QueryAll variant"),
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // with_enqueued_at preserves session
+    // ----------------------------------------------------------------
+
+    /// Prerequisite: WorkerJob::with_enqueued_at() preserves existing session field.
+    #[test]
+    fn test_with_enqueued_at_preserves_session() {
+        let uid = uuid::Uuid::new_v4();
+        let ctx = crate::executor::SessionContext {
+            user_id: Some(uid),
+            user_org_id: None,
+            user_type: Some("admin".to_string()),
+            org_type: None,
+            permissions: vec!["read".to_string()],
+            user_email: None,
+        };
+
+        let (tx, _rx) = may::sync::mpsc::channel();
+        let job = WorkerJob::Execute {
+            enqueued_at: Instant::now(),
+            query: "SELECT 1".to_string(),
+            params: Vec::new(),
+            reply: tx,
+            session: Some(ctx.clone()),
+        };
+
+        let new_at = Instant::now() + Duration::from_secs(1);
+        let updated = job.with_enqueued_at(new_at);
+
+        match updated {
+            WorkerJob::Execute {
+                enqueued_at,
+                query,
+                params: _,
+                session,
+                reply: _,
+            } => {
+                assert_eq!(enqueued_at, new_at);
+                assert_eq!(query, "SELECT 1");
+                assert!(session.is_some());
+                assert_eq!(session.unwrap().user_id, Some(uid));
+            }
+            _ => panic!("expected Execute variant"),
+        }
+    }
+
+    /// Prerequisite: with_enqueued_at preserves None session across all variants.
+    #[test]
+    fn test_with_enqueued_at_preserves_none_session_all_variants() {
+        // Execute
+        let (tx, _rx) = may::sync::mpsc::channel();
+        let job_exec = WorkerJob::Execute {
+            enqueued_at: Instant::now(),
+            query: "INSERT".to_string(),
+            params: Vec::new(),
+            reply: tx,
+            session: None,
+        };
+        let updated_exec = job_exec.with_enqueued_at(Instant::now());
+        match updated_exec {
+            WorkerJob::Execute { session, .. } => assert!(session.is_none()),
+            _ => panic!(),
+        }
+
+        // QueryOne
+        let (tx, _rx) = may::sync::mpsc::channel();
+        let job_qo = WorkerJob::QueryOne {
+            enqueued_at: Instant::now(),
+            query: "SELECT".to_string(),
+            params: Vec::new(),
+            reply: tx,
+            session: None,
+        };
+        let updated_qo = job_qo.with_enqueued_at(Instant::now());
+        match updated_qo {
+            WorkerJob::QueryOne { session, .. } => assert!(session.is_none()),
+            _ => panic!(),
+        }
+
+        // QueryAll
+        let (tx, _rx) = may::sync::mpsc::channel();
+        let job_qa = WorkerJob::QueryAll {
+            enqueued_at: Instant::now(),
+            query: "SELECT".to_string(),
+            params: Vec::new(),
+            reply: tx,
+            session: None,
+        };
+        let updated_qa = job_qa.with_enqueued_at(Instant::now());
+        match updated_qa {
+            WorkerJob::QueryAll { session, .. } => assert!(session.is_none()),
+            _ => panic!(),
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Send + Clone on SessionContext
+    // ----------------------------------------------------------------
+
+    /// Prerequisite: Verify SessionContext implements Send + Clone
+    /// (required for channel dispatch into worker threads).
+    #[test]
+    fn test_session_context_send_and_clone() {
+        // These are compile-time checks via function signatures:
+        fn assert_send<T: Send>() {}
+        fn assert_clone<T: Clone>() {}
+
+        assert_send::<crate::executor::SessionContext>();
+        assert_clone::<crate::executor::SessionContext>();
+
+        // Also verify it's Arc-safe (may_postgres channels use Arc internally)
+        fn assert_arc_safe<T: Send + Sync>() {}
+        assert_arc_safe::<crate::executor::SessionContext>();
     }
 }
