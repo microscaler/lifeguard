@@ -428,7 +428,6 @@ mod tests {
 
     #[test]
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
-    #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_register_multiple_different_versions() {
         let _guard = REGISTRY_TEST_MUTEX
             .lock()
@@ -533,7 +532,6 @@ mod tests {
 
     #[test]
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
-    #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_register_after_unregister() {
         let _guard = REGISTRY_TEST_MUTEX
             .lock()
@@ -599,7 +597,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::expect_used)] // Test code - expect is acceptable
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_already_registered_error_message() {
         let _guard = REGISTRY_TEST_MUTEX
@@ -749,7 +746,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::expect_used)] // Test code - expect is acceptable
     #[allow(clippy::expect_used)] // Test code - expect is acceptable
     fn test_clear_registry_removes_all() {
         let _guard = REGISTRY_TEST_MUTEX
