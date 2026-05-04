@@ -1,9 +1,19 @@
-//! `LifeExecutor` Module - Epic 01 Story 03
+//! `LifeExecutor` Module
 //!
-//! Provides the `LifeExecutor` trait that abstracts database execution over `may_postgres`.
+//! Provides the `LifeExecutor` trait that abstracts database execution over `may_postgres`,
+//! concrete executor implementations (`MayPostgresExecutor`, `PooledLifeExecutor`), and
+//! the `SessionContext` type used for Row Level Security (RLS).
 //!
-//! This trait will be the foundation for all database operations, allowing the ORM layer
-//! and migrations to work with any executor implementation.
+//! ## Row Level Security (RLS)
+//!
+//! Lifeguard supports PostgreSQL Row Level Security by injecting session variables
+//! (`auth.tenant`, `auth.user_type`, etc.) before every query. The entry points are:
+//!
+//! - [`MayPostgresExecutor::with_session_context`] — for single-connection executors
+//! - [`MayPostgresExecutor::begin_with_session`] — for transactions (context set once)
+//! - [`PooledLifeExecutor::with_session_context`] — for pooled executors
+//!
+//! See the [`SessionContext`] struct for field-level documentation.
 
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Error as PostgresError, Row};
@@ -469,7 +479,44 @@ impl MayPostgresExecutor {
     /// Start a new transaction with a specific isolation level and [`SessionContext`].
     ///
     /// Same as [`begin_with_session`](Self::begin_with_session) but allows setting
-    /// a custom isolation level.
+    /// a custom isolation level for the transaction.
+    ///
+    /// The session context is injected via `SET LOCAL rls_set_session(...)` once at
+    /// `BEGIN`, making it available to all queries within the transaction without
+    /// per-query overhead.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TransactionError` if `BEGIN` fails, if the isolation level cannot
+    /// be set, or if `rls_set_session` is not available in the schema.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, SessionContext, LifeExecutor, connect};
+    /// use lifeguard::transaction::IsolationLevel;
+    ///
+    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
+    /// let executor = MayPostgresExecutor::new(client);
+    ///
+    /// let mut tx = executor.begin_with_isolation_session(
+    ///     IsolationLevel::Serializable,
+    ///     SessionContext {
+    ///         user_id: Some(uuid::Uuid::new_v4()),
+    ///         user_org_id: None,
+    ///         user_type: Some("admin".to_string()),
+    ///         org_type: None,
+    ///         permissions: vec!["read".to_string(), "write".to_string()],
+    ///         user_email: None,
+    ///     },
+    /// )?;
+    ///
+    /// tx.execute("INSERT INTO orders (user_id, total) VALUES ($1, $2)", &[&uuid::Uuid::new_v4(), &42.0])?;
+    /// tx.commit()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn begin_with_isolation_session(
         &self,
         isolation_level: crate::transaction::IsolationLevel,
@@ -599,23 +646,97 @@ impl LifeExecutor for MayPostgresExecutor {
     }
 }
 
-// Session Context (RLS Integration — Story 1)
-//
-// Verified identity claims from the consuming application's identity provider.
-// Lifeguard does not parse JWTs or extract these claims; the application constructs
-// and passes them here.
-//
-// All fields except `permissions` are optional so consuming apps can construct a
-// minimal context from their JWT shape without being forced to map unused claims.
-//
-// Derives Clone + Send so it can cross thread boundaries in the pool worker path.
-#[derive(Clone, PartialEq)]
+/// Identity context for Row Level Security (RLS).
+///
+/// Carries verified identity claims from the consuming application's identity provider.
+/// Lifeguard does **not** parse JWTs or extract these claims — the application constructs
+/// and passes the context.
+///
+/// # How it works
+///
+/// When attached to an executor, every query executed through that executor (or any
+/// transaction started from it) will first run:
+///
+/// ```sql
+/// SELECT rls_set_session($1, $2, $3, $4, $5, $6)
+/// ```
+///
+/// This sets PostgreSQL session variables (`auth.user_id`, `auth.user_type`, etc.)
+/// that power `CREATE POLICY` row filters. The SQL function is provided by the
+/// `lifeguard_rls` migration.
+///
+/// # Transaction vs. per-query injection
+///
+/// - [`MayPostgresExecutor::with_session_context`] — the context is injected **before
+///   every query** via `rls_set_session`. Use for fire-and-forget queries.
+/// - [`MayPostgresExecutor::begin_with_session`] — the context is injected **once at
+///   transaction start** via `SET LOCAL`. Inherited by all queries in the transaction.
+///   Use when executing multiple queries in a single transaction.
+/// - [`PooledLifeExecutor::with_session_context`] — the context is serialized and sent
+///   to the pool worker, which injects it before each dispatched job.
+///
+/// # Fields
+///
+/// All fields except `permissions` are optional so consuming apps can construct a
+/// minimal context from their JWT shape without being forced to map unused claims.
+/// The `rls_set_session` SQL function maps each field to a PostgreSQL session variable;
+/// fields set to `None` leave the corresponding session variable as `NULL`, which
+/// RLS policies typically treat as "allow full access" (or reject depending on policy).
+///
+/// Derives `Clone + Send + Sync + 'static` so it can cross thread boundaries in the
+/// pool worker path.
+///
+/// # Examples
+///
+/// Minimal context from a JWT with only a user ID:
+///
+/// ```no_run
+/// use lifeguard::SessionContext;
+///
+/// let ctx = SessionContext {
+///     user_id: Some(uuid::Uuid::new_v4()),
+///     ..Default::default()
+/// };
+/// ```
+///
+/// Full context from an authenticated request:
+///
+/// ```no_run
+/// use lifeguard::SessionContext;
+///
+/// let ctx = SessionContext {
+///     user_id: Some(uuid::Uuid::new_v4()),
+///     user_org_id: Some(uuid::Uuid::new_v4()),
+///     user_type: Some("admin".to_string()),
+///     org_type: Some("tenant".to_string()),
+///     permissions: vec!["read".to_string(), "write".to_string()],
+///     user_email: Some("alice@example.com".to_string()),
+/// };
+/// ```
+#[derive(Clone, PartialEq, Default)]
 pub struct SessionContext {
+    /// The authenticated user's unique identifier.
+    /// Maps to PostgreSQL session variable `auth.user_id`.
     pub user_id: Option<uuid::Uuid>,
+
+    /// The user's default organization (tenant) identifier.
+    /// Maps to PostgreSQL session variable `auth.tenant`.
     pub user_org_id: Option<uuid::Uuid>,
+
+    /// The user's role within the organization (e.g. `"admin"`, `"member"`).
+    /// Maps to PostgreSQL session variable `auth.user_type`.
     pub user_type: Option<String>,
+
+    /// The type/classification of the organization (e.g. `"tenant"`, `"reseller"`).
+    /// Maps to PostgreSQL session variable `auth.org_type`.
     pub org_type: Option<String>,
+
+    /// Permission strings for this session (e.g. `"read"`, `"write"`, `"admin"`).
+    /// Serialized to JSON and mapped to PostgreSQL session variable `auth.permissions`.
     pub permissions: Vec<String>,
+
+    /// The authenticated user's email address.
+    /// Maps to PostgreSQL session variable `auth.user_email`.
     pub user_email: Option<String>,
 }
 
