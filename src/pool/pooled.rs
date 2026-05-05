@@ -891,37 +891,38 @@ fn dispatch_worker_job(
 
     // Inject RLS session context before executing the job.
     //
-    // We always call rls_set_session to prevent stale GUCs from leaking
-    // between jobs on the same pooled connection. When session_context is
-    // Some we use the caller's context; when None we use SessionContext::default()
-    // to clear all auth.* GUCs. If injection fails we send an error to the
+    // Only call rls_set_session when the caller attached a session context.
+    // When session_context is None we skip entirely — the application is
+    // operating without RLS and we must not force a hard dependency on the
+    // helper for that path. If injection fails we send an error to the
     // caller via the reply channel — the rls_set_session function uses
     // session-scoped GUCs (set_config(..., false)) so continuing without a
     // fresh context would expose data across tenants.
-    let default_ctx = SessionContext::default();
-    let ctx = session_context.as_ref().unwrap_or(&default_ctx);
-    let args = match ctx.to_sql_args() {
-        Ok(args) => args,
-        Err(e) => {
+    if let Some(ctx) = &session_context {
+        let args = match ctx.to_sql_args() {
+            Ok(args) => args,
+            Err(e) => {
+                log::error!(
+                    "lifeguard pool: failed to serialize session context for {tier} worker: {e}; \
+                     aborting job"
+                );
+                send_context_error(&job, &e);
+                return;
+            }
+        };
+        let args_refs: Vec<&dyn may_postgres::types::ToSql> =
+            args.iter().map(|a| a.as_ref()).collect();
+        if let Err(e) = client.execute(
+            "SELECT rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+            &args_refs,
+        ) {
             log::error!(
-                "lifeguard pool: failed to serialize session context for {tier} worker: {e}; \
-                 aborting job"
+                "lifeguard pool: rls_set_session failed on {tier} worker slot: {e}; \
+                 aborting job to prevent query without RLS context"
             );
             send_context_error(&job, &e);
             return;
         }
-    };
-    let args_refs: Vec<&dyn may_postgres::types::ToSql> = args.iter().map(|a| a.as_ref()).collect();
-    if let Err(e) = client.execute(
-        "SELECT rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
-        &args_refs,
-    ) {
-        log::error!(
-            "lifeguard pool: rls_set_session failed on {tier} worker slot: {e}; \
-             aborting job to prevent query without RLS context"
-        );
-        send_context_error(&job, &e);
-        return;
     }
 
     match job {
