@@ -340,34 +340,41 @@ impl MayPostgresExecutor {
         self
     }
 
-    /// Run the RLS session injection query on the underlying client.
+    /// Runs `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` on the underlying
+    /// client.
     ///
-    /// Always calls `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` — when
-    /// `session_context` is `None` a cleared (default) context is used to
-    /// reset any stale GUCs left by a previous caller on the same connection.
+    /// When `session_context` is `Some` the caller-provided context is injected.
+    /// When `None` a cleared default context is used to reset stale GUCs — if the
+    /// function does not exist in the current search path the call silently returns
+    /// `Ok(())` (non-RLS path).  If a context *is* attached but the call fails for
+    /// any reason (including missing function) the error is propagated because
+    /// execution without RLS context would be unsafe.
     ///
     /// # Errors
     ///
     /// Returns `LifeError` if:
     /// - Permissions cannot be serialised to JSON.
-    /// - The `rls_set_session` SQL function is not available in the schema.
+    /// - A session context is attached but the `rls_set_session` call fails.
     fn run_set_session(&self) -> Result<(), LifeError> {
-        // Zero-regression path: when no session context is attached, skip the
-        // rls_set_session call entirely.  This keeps `MayPostgresExecutor`
-        // usable in tests and code paths that do not want RLS injection.
-        if self.session_context.is_none() {
-            return Ok(());
-        }
-        let Some(ctx) = &self.session_context else {
-            return Ok(());
-        };
+        let default_ctx = SessionContext::default();
+        let ctx = self.session_context.as_ref().unwrap_or(&default_ctx);
         let args = ctx.to_sql_args()?;
         let args_refs: Vec<&dyn may_postgres::types::ToSql> =
             args.iter().map(|a| a.as_ref()).collect();
-        self.client
-            .execute("SELECT rls_set_session($1, $2, $3, $4, $5, $6)", &args_refs)
-            .map(|_| ())
-            .map_err(LifeError::PostgresError)
+        match self.client.execute(
+            "SELECT rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+            &args_refs,
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // When no session context is attached, "function does not exist"
+                // is benign — the application simply isn't using RLS.
+                if self.session_context.is_none() && e.code().is_some_and(|s| s.code() == "42883") {
+                    return Ok(());
+                }
+                Err(LifeError::PostgresError(e))
+            }
+        }
     }
 
     /// Start a new transaction
@@ -1166,9 +1173,9 @@ mod may_postgres_executor_rls_tests {
 
     /// Prerequisite: `SessionContext::default()` serialises to 6 args.
     ///
-    /// The executor's zero-regression path calls `run_set_session()` only when
-    /// `session_context.is_some()`. But if a user *does* attach a default context,
-    /// the serialization must still succeed (returns 6 args, all NULL/empty).
+    /// `run_set_session()` always calls `rls_set_session`, falling back to
+    /// `SessionContext::default()` when no context is attached — so the
+    /// serialization must always succeed (returns 6 args, all NULL/empty).
     #[test]
     fn test_session_context_default_serializes_successfully() {
         let ctx = SessionContext::default();

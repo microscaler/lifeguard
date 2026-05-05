@@ -912,7 +912,10 @@ fn dispatch_worker_job(
         }
     };
     let args_refs: Vec<&dyn may_postgres::types::ToSql> = args.iter().map(|a| a.as_ref()).collect();
-    if let Err(e) = client.execute("SELECT rls_set_session($1, $2, $3, $4, $5, $6)", &args_refs) {
+    if let Err(e) = client.execute(
+        "SELECT rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+        &args_refs,
+    ) {
         log::error!(
             "lifeguard pool: rls_set_session failed on {tier} worker slot: {e}; \
              aborting job to prevent query without RLS context"
