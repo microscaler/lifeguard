@@ -22,7 +22,7 @@
 //! (`primary` \| `replica`); see [`crate::metrics::METRICS`].
 
 use crate::connection::connect;
-use crate::executor::{LifeError, LifeExecutor, SessionContext};
+use crate::executor::{LifeError, LifeExecutor};
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
