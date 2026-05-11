@@ -24,7 +24,7 @@ env_logger = "0.11"
 anyhow = "1.0"
 thiserror = "1.0"
 # Configuration file parsing
-toml = "0.8"
+toml = "0.9"
 # Pretty printing
 colored = "2.1"
 # Date/time handling
