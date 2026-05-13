@@ -177,6 +177,11 @@ pub struct ColumnAttributes {
     pub is_auto_increment: bool,
     pub enum_name: Option<String>,
     pub is_ignored: bool,
+    /// Indicates if a column is read-only (e.g. `GENERATED ALWAYS AS ... STORED`).
+    /// Such columns are excluded from `INSERT` and `UPDATE` statements but are fetched
+    /// via `RETURNING` clauses so the `ActiveModel` response accurately reflects the
+    /// database-generated value without throwing strict constraint errors on write.
+    pub is_readonly: bool,
     pub select_as: Option<String>,
     pub save_as: Option<String>,
     pub comment: Option<String>,
@@ -306,6 +311,8 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
             }
         } else if attr.path().is_ident("ignore") || attr.path().is_ident("skip") {
             attrs.is_ignored = true;
+        } else if attr.path().is_ident("readonly") || attr.path().is_ident("generated") {
+            attrs.is_readonly = true;
         } else if attr.path().is_ident("select_as") {
             if let Ok(meta) = attr.meta.require_name_value() {
                 if let syn::Expr::Lit(ExprLit {

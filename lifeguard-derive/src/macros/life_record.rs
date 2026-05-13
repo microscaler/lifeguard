@@ -141,12 +141,18 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut primary_key_column_variants = Vec::new();
     let mut primary_key_auto_increment = Vec::new();
 
+    // Track readonly fields for RETURNING mapping
+    let mut readonly_field_names = Vec::new();
+    let mut readonly_column_variants = Vec::new();
+    let mut readonly_inner_types = Vec::new();
+
     // Generate CRUD operation code for each field
     let mut insert_column_checks = Vec::new(); // Check if field should be included in INSERT
     let mut update_set_clauses = Vec::new(); // SET clauses for UPDATE (uses self)
     let mut update_set_clauses_from_hooks = Vec::new(); // SET clauses for UPDATE (uses record_for_hooks, includes before_update changes)
     let mut delete_where_clauses = Vec::new(); // WHERE clauses for DELETE
-    let mut returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
+    let mut pk_returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned PK values
+    let mut readonly_returning_extractors: Vec<proc_macro2::TokenStream> = Vec::new(); // Code to extract returned readonly values
     let mut to_json_field_conversions = Vec::new(); // Code to convert each field to JSON
     let mut field_validate_fail_fast_fragments: Vec<proc_macro2::TokenStream> = Vec::new(); // #[validate(custom = ...)] — FailFast (`?`)
     let mut field_validate_aggregate_fragments: Vec<proc_macro2::TokenStream> = Vec::new(); // same — Aggregate (collect into `errs`)
@@ -174,6 +180,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         let is_primary_key = col_attrs.is_primary_key;
         let is_auto_increment = col_attrs.is_auto_increment;
         let is_ignored = col_attrs.is_ignored;
+        let is_readonly = col_attrs.is_readonly;
 
         // Validate: primary key fields cannot be skipped/ignored
         if is_primary_key && is_ignored {
@@ -287,6 +294,21 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             primary_key_field_names.push(field_name.clone());
             primary_key_column_variants.push(column_variant.clone());
             primary_key_auto_increment.push(is_auto_increment);
+        }
+
+        // Track readonly fields
+        // Do not add auto_increment primary keys since they are already handled by RETURNING logic
+        if is_readonly && !is_auto_increment {
+            readonly_field_names.push(field_name.clone());
+            readonly_column_variants.push(column_variant.clone());
+            readonly_inner_types.push(inner_type.clone());
+
+            readonly_returning_extractors.push(quote! {
+                // Extract returned value for readonly #field_name
+                let readonly_val: #inner_type = row.get(returning_idx);
+                returning_idx += 1;
+                updated_record.#field_name = Some(readonly_val);
+            });
         }
 
         // Check if field is nullable (has #[nullable] attribute)
@@ -489,7 +511,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Skip auto-increment primary keys if not set
         // NOTE: Uses `record_for_hooks.get()` (includes `before_insert()` changes). Values come from
         // `type_conversion` → `Expr::val` (e.g. `DateTime<Utc>` → `ChronoDateTimeUtc`), matching `get()`.
-        if is_primary_key && is_auto_increment {
+        if is_readonly {
+            // #[readonly] Support
+            // Read-only fields (e.g. GENERATED ALWAYS AS ... STORED) are strictly managed by Postgres.
+            // Explicitly including them in an INSERT statement (even with NULL values) triggers a 
+            // Postgres constraint violation. We skip them in the INSERT columns array, and rely on 
+            // the subsequent RETURNING clause logic to dynamically fetch the generated value back into the model.
+        } else if is_primary_key && is_auto_increment {
             // Auto-increment PK: include only if set
             // NOTE: If save_as is used on an auto-increment PK:
             // - If value is set: save_as expression is used (overrides database auto-increment)
@@ -517,7 +545,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // before this code is expanded. The check happens after the move at line 613.
             // NOTE: If save_as is present and value is set, RETURNING is not needed (expression handles it)
             // If save_as is present but value is not set, RETURNING is still needed to get the generated value
-            returning_extractors.push(quote! {
+            pk_returning_extractors.push(quote! {
                 // Check if this auto-increment PK was not set and needs RETURNING
                 // Note: If save_as is used and value is set, the expression is used instead of RETURNING
                 if updated_record.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none() {
@@ -559,8 +587,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             });
         }
 
-        // Generate UPDATE SET clause (skip primary keys)
-        if !is_primary_key {
+        // Generate UPDATE SET clause 
+        // Skip primary keys to prevent altering identity.
+        // Skip readonly columns to prevent Postgres constraint violations on GENERATED fields.
+        if !is_primary_key && !is_readonly {
             // SET clause using self (for backward compatibility, though not used in update() anymore)
             // Check for save_as expression
             let has_save_as = col_attrs.save_as.is_some();
@@ -1276,6 +1306,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                         returning_cols.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants);
                     }
                 )*
+                #(
+                    needs_returning = true;
+                    returning_cols.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#readonly_column_variants);
+                )*
 
                 // Add RETURNING clause if needed
                 // SeaQuery's returning() expects ReturningClause enum
@@ -1303,7 +1337,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
                     // Extract returned primary key values and update the record
                     let mut returning_idx = 0usize;
-                    #(#returning_extractors)*
+                    #(#pk_returning_extractors)*
+                    #(#readonly_returning_extractors)*
                 } else {
                     executor.execute_values(&sql, &sql_values).map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())

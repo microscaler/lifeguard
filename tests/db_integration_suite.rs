@@ -68,3 +68,5 @@ mod pool_idle_liveness;
 
 #[path = "db_integration/rls_integration.rs"]
 mod rls_integration;
+#[path = "db_integration/readonly.rs"]
+mod readonly;
