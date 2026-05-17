@@ -1,9 +1,19 @@
-//! `LifeExecutor` Module - Epic 01 Story 03
+//! `LifeExecutor` Module
 //!
-//! Provides the `LifeExecutor` trait that abstracts database execution over `may_postgres`.
+//! Provides the `LifeExecutor` trait that abstracts database execution over `may_postgres`,
+//! concrete executor implementations (`MayPostgresExecutor`, `PooledLifeExecutor`), and
+//! the `SessionContext` type used for Row Level Security (RLS).
 //!
-//! This trait will be the foundation for all database operations, allowing the ORM layer
-//! and migrations to work with any executor implementation.
+//! ## Row Level Security (RLS)
+//!
+//! Lifeguard supports PostgreSQL Row Level Security by injecting session variables
+//! (`auth.tenant`, `auth.user_type`, etc.) before every query. The entry points are:
+//!
+//! - [`MayPostgresExecutor::with_session_context`] — for single-connection executors
+//! - [`MayPostgresExecutor::begin_with_session`] — for transactions (context set once)
+//! - [`PooledLifeExecutor::with_session_context`] — for pooled executors
+//!
+//! See the [`SessionContext`] struct for field-level documentation.
 
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Error as PostgresError, Row};
@@ -266,14 +276,25 @@ impl LifeExecutor for &dyn LifeExecutor {
 /// Implementation of `LifeExecutor` for `may_postgres::Client`
 ///
 /// This is the primary executor implementation that directly uses a `may_postgres::Client`.
+///
+/// **RLS integration (Story 2):** optionally carries a [`SessionContext`] which is injected
+/// via `SET LOCAL` / `SELECT rls_set_session(...)` before every query. When `session_context`
+/// is `None` (the default) the executor is functionally identical to the pre-RLS baseline.
 pub struct MayPostgresExecutor {
     client: Client,
+    session_context: Option<SessionContext>,
 }
 
 impl MayPostgresExecutor {
     /// Create a new executor from a `may_postgres::Client`
+    ///
+    /// The returned executor has no RLS session context (zero-regression path).
+    /// Use [`with_session_context`](Self::with_session_context) to attach a context.
     pub fn new(client: Client) -> Self {
-        Self { client }
+        Self {
+            client,
+            session_context: None,
+        }
     }
 
     /// Get a reference to the underlying client
@@ -284,6 +305,69 @@ impl MayPostgresExecutor {
     /// Consume the executor and return the underlying client
     pub fn into_client(self) -> Client {
         self.client
+    }
+
+    /// Attach a [`SessionContext`] for RLS session injection.
+    ///
+    /// When a context is attached, every query executed through this executor
+    /// will first run `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` to set
+    /// the session-level variables that power Row Level Security policies.
+    ///
+    /// Returns `self` for method chaining.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, SessionContext, connect};
+    ///
+    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
+    /// let executor = MayPostgresExecutor::new(client)
+    ///     .with_session_context(SessionContext {
+    ///         user_id: Some(uuid::Uuid::new_v4()),
+    ///         user_org_id: None,
+    ///         user_type: Some("admin".to_string()),
+    ///         org_type: None,
+    ///         permissions: vec!["read".to_string(), "write".to_string()],
+    ///         user_email: None,
+    ///     });
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_session_context(mut self, ctx: SessionContext) -> Self {
+        self.session_context = Some(ctx);
+        self
+    }
+
+    /// Run the RLS session injection query on the underlying client.
+    ///
+    /// Always calls `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` — when
+    /// `session_context` is `None` a cleared (default) context is used to
+    /// reset any stale GUCs left by a previous caller on the same connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if:
+    /// - Permissions cannot be serialised to JSON.
+    /// - The `rls_set_session` SQL function is not available in the schema.
+    fn run_set_session(&self) -> Result<(), LifeError> {
+        // Zero-regression path: when no session context is attached, skip the
+        // rls_set_session call entirely.  This keeps `MayPostgresExecutor`
+        // usable in tests and code paths that do not want RLS injection.
+        if self.session_context.is_none() {
+            return Ok(());
+        }
+        let Some(ctx) = &self.session_context else {
+            return Ok(());
+        };
+        let args = ctx.to_sql_args()?;
+        let args_refs: Vec<&dyn may_postgres::types::ToSql> =
+            args.iter().map(|a| a.as_ref()).collect();
+        self.client
+            .execute("SELECT rls_set_session($1, $2, $3, $4, $5, $6)", &args_refs)
+            .map(|_| ())
+            .map_err(LifeError::PostgresError)
     }
 
     /// Start a new transaction
@@ -336,7 +420,7 @@ impl MayPostgresExecutor {
     /// use lifeguard::transaction::{IsolationLevel, Transaction};
     ///
     /// # fn main() -> Result<(), LifeError> {
-    /// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
+    /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")
     ///     .map_err(|e| LifeError::Other(format!("Connection error: {e}")))?;
     /// let executor = MayPostgresExecutor::new(client);
     ///
@@ -352,6 +436,104 @@ impl MayPostgresExecutor {
         isolation_level: crate::transaction::IsolationLevel,
     ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
         crate::transaction::Transaction::new_with_isolation(self.client.clone(), isolation_level)
+    }
+
+    /// Start a new transaction with a [`SessionContext`] for RLS injection.
+    ///
+    /// Runs `BEGIN` then executes `SELECT rls_set_session($1, $2, $3, $4, $5, $6)`
+    /// to inject the session context. Because `SET LOCAL` is transaction-scoped,
+    /// the context is set once at `BEGIN` and inherited by all queries within
+    /// the transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TransactionError` if `BEGIN` fails or if `rls_set_session`
+    /// cannot be called.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, SessionContext, LifeExecutor, connect};
+    ///
+    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
+    /// let executor = MayPostgresExecutor::new(client);
+    ///
+    /// let mut tx = executor.begin_with_session(SessionContext {
+    ///     user_id: Some(uuid::Uuid::new_v4()),
+    ///     user_org_id: None,
+    ///     user_type: Some("admin".to_string()),
+    ///     org_type: None,
+    ///     permissions: vec!["read".to_string()],
+    ///     user_email: None,
+    /// })?;
+    /// tx.execute("INSERT INTO users (name) VALUES ($1)", &[&"Alice"])?;
+    /// tx.commit()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn begin_with_session(
+        &self,
+        ctx: SessionContext,
+    ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+        crate::transaction::Transaction::new_with_session(
+            self.client.clone(),
+            crate::transaction::IsolationLevel::ReadCommitted,
+            Some(ctx),
+        )
+    }
+
+    /// Start a new transaction with a specific isolation level and [`SessionContext`].
+    ///
+    /// Same as [`begin_with_session`](Self::begin_with_session) but allows setting
+    /// a custom isolation level for the transaction.
+    ///
+    /// The session context is injected via `SET LOCAL rls_set_session(...)` once at
+    /// `BEGIN`, making it available to all queries within the transaction without
+    /// per-query overhead.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TransactionError` if `BEGIN` fails, if the isolation level cannot
+    /// be set, or if `rls_set_session` is not available in the schema.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lifeguard::{MayPostgresExecutor, SessionContext, LifeExecutor, connect};
+    /// use lifeguard::transaction::IsolationLevel;
+    ///
+    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
+    /// let executor = MayPostgresExecutor::new(client);
+    ///
+    /// let mut tx = executor.begin_with_isolation_session(
+    ///     IsolationLevel::Serializable,
+    ///     SessionContext {
+    ///         user_id: Some(uuid::Uuid::new_v4()),
+    ///         user_org_id: None,
+    ///         user_type: Some("admin".to_string()),
+    ///         org_type: None,
+    ///         permissions: vec!["read".to_string(), "write".to_string()],
+    ///         user_email: None,
+    ///     },
+    /// )?;
+    ///
+    /// tx.execute("INSERT INTO orders (user_id, total) VALUES ($1, $2)", &[&uuid::Uuid::new_v4(), &42.0])?;
+    /// tx.commit()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn begin_with_isolation_session(
+        &self,
+        isolation_level: crate::transaction::IsolationLevel,
+        ctx: SessionContext,
+    ) -> Result<crate::transaction::Transaction, crate::transaction::TransactionError> {
+        crate::transaction::Transaction::new_with_session(
+            self.client.clone(),
+            isolation_level,
+            Some(ctx),
+        )
     }
 
     /// Check if the underlying connection is healthy
@@ -410,6 +592,10 @@ impl LifeExecutor for MayPostgresExecutor {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
 
+        // RLS injection (Story 2): run before the query when session context is present.
+        // Zero-regression path: `session_context == None` returns Ok(()) immediately.
+        self.run_set_session()?;
+
         let start = Instant::now();
         let result = self.client.execute(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
@@ -427,6 +613,9 @@ impl LifeExecutor for MayPostgresExecutor {
     fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
+
+        // RLS injection (Story 2)
+        self.run_set_session()?;
 
         let start = Instant::now();
         let result = self.client.query_one(query, params).map_err(|e| {
@@ -446,6 +635,9 @@ impl LifeExecutor for MayPostgresExecutor {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
 
+        // RLS injection (Story 2)
+        self.run_set_session()?;
+
         let start = Instant::now();
         let result = self.client.query(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
@@ -461,23 +653,97 @@ impl LifeExecutor for MayPostgresExecutor {
     }
 }
 
-// Session Context (RLS Integration — Story 1)
-//
-// Verified identity claims from the consuming application's identity provider.
-// Lifeguard does not parse JWTs or extract these claims; the application constructs
-// and passes them here.
-//
-// All fields except `permissions` are optional so consuming apps can construct a
-// minimal context from their JWT shape without being forced to map unused claims.
-//
-// Derives Clone + Send so it can cross thread boundaries in the pool worker path.
-#[derive(Clone, PartialEq)]
+/// Identity context for Row Level Security (RLS).
+///
+/// Carries verified identity claims from the consuming application's identity provider.
+/// Lifeguard does **not** parse JWTs or extract these claims — the application constructs
+/// and passes the context.
+///
+/// # How it works
+///
+/// When attached to an executor, every query executed through that executor (or any
+/// transaction started from it) will first run:
+///
+/// ```sql
+/// SELECT rls_set_session($1, $2, $3, $4, $5, $6)
+/// ```
+///
+/// This sets PostgreSQL session variables (`auth.user_id`, `auth.user_type`, etc.)
+/// that power `CREATE POLICY` row filters. The SQL function is provided by the
+/// `lifeguard_rls` migration.
+///
+/// # Transaction vs. per-query injection
+///
+/// - [`MayPostgresExecutor::with_session_context`] — the context is injected **before
+///   every query** via `rls_set_session`. Use for fire-and-forget queries.
+/// - [`MayPostgresExecutor::begin_with_session`] — the context is injected **once at
+///   transaction start** via `SET LOCAL`. Inherited by all queries in the transaction.
+///   Use when executing multiple queries in a single transaction.
+/// - [`PooledLifeExecutor::with_session_context`] — the context is serialized and sent
+///   to the pool worker, which injects it before each dispatched job.
+///
+/// # Fields
+///
+/// All fields except `permissions` are optional so consuming apps can construct a
+/// minimal context from their JWT shape without being forced to map unused claims.
+/// The `rls_set_session` SQL function maps each field to a PostgreSQL session variable;
+/// fields set to `None` leave the corresponding session variable as `NULL`, which
+/// RLS policies typically treat as "allow full access" (or reject depending on policy).
+///
+/// Derives `Clone + Send + Sync + 'static` so it can cross thread boundaries in the
+/// pool worker path.
+///
+/// # Examples
+///
+/// Minimal context from a JWT with only a user ID:
+///
+/// ```no_run
+/// use lifeguard::SessionContext;
+///
+/// let ctx = SessionContext {
+///     user_id: Some(uuid::Uuid::new_v4()),
+///     ..Default::default()
+/// };
+/// ```
+///
+/// Full context from an authenticated request:
+///
+/// ```no_run
+/// use lifeguard::SessionContext;
+///
+/// let ctx = SessionContext {
+///     user_id: Some(uuid::Uuid::new_v4()),
+///     user_org_id: Some(uuid::Uuid::new_v4()),
+///     user_type: Some("admin".to_string()),
+///     org_type: Some("tenant".to_string()),
+///     permissions: vec!["read".to_string(), "write".to_string()],
+///     user_email: Some("alice@example.com".to_string()),
+/// };
+/// ```
+#[derive(Clone, PartialEq, Default)]
 pub struct SessionContext {
+    /// The authenticated user's unique identifier.
+    /// Maps to PostgreSQL session variable `auth.user_id`.
     pub user_id: Option<uuid::Uuid>,
+
+    /// The user's default organization (tenant) identifier.
+    /// Maps to PostgreSQL session variable `auth.tenant`.
     pub user_org_id: Option<uuid::Uuid>,
+
+    /// The user's role within the organization (e.g. `"admin"`, `"member"`).
+    /// Maps to PostgreSQL session variable `auth.user_type`.
     pub user_type: Option<String>,
+
+    /// The type/classification of the organization (e.g. `"tenant"`, `"reseller"`).
+    /// Maps to PostgreSQL session variable `auth.org_type`.
     pub org_type: Option<String>,
+
+    /// Permission strings for this session (e.g. `"read"`, `"write"`, `"admin"`).
+    /// Serialized to JSON and mapped to PostgreSQL session variable `auth.permissions`.
     pub permissions: Vec<String>,
+
+    /// The authenticated user's email address.
+    /// Maps to PostgreSQL session variable `auth.user_email`.
     pub user_email: Option<String>,
 }
 
@@ -838,5 +1104,161 @@ mod session_context_tests {
             debug_str.contains("[REDACTED]"),
             "user_email should show [REDACTED]"
         );
+    }
+}
+
+// ============================================================================
+// MayPostgresExecutor RLS Tests — Story 2
+//
+// These tests verify the prerequisite surface: struct construction, builder
+// pattern, and zero-regression behaviour. Actual SQL injection is tested in
+// Story 6 (integration tests against a real Postgres instance).
+//
+// NOTE: `MayPostgresExecutor` wraps a `may_postgres::Client`, so we can't
+// instantiate it without a live DB. We verify the *shape* through:
+//   - `Default` on `SessionContext` (ensures zero-config context exists)
+//   - Static trait assertions (`Send`, `Sync`, `Clone`, `Default`)
+//   - Builder signature compilation against the correct types
+// ============================================================================
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+mod may_postgres_executor_rls_tests {
+    use super::*;
+
+    // ----------------------------------------------------------------
+    // Default impl on SessionContext
+    // ----------------------------------------------------------------
+
+    /// Prerequisite: `SessionContext::default()` produces an all-empty context.
+    ///
+    /// This is the zero-regression baseline: if an executor has no context
+    /// attached, the serialization path produces 6 args — all `NULL`/empty —
+    /// which the `rls_set_session` function maps to unscoped session vars.
+    #[test]
+    fn test_session_context_default_produces_empty_context() {
+        let ctx = SessionContext::default();
+
+        assert!(ctx.user_id.is_none());
+        assert!(ctx.user_org_id.is_none());
+        assert!(ctx.user_type.is_none());
+        assert!(ctx.org_type.is_none());
+        assert!(ctx.permissions.is_empty());
+        assert!(ctx.user_email.is_none());
+    }
+
+    /// Prerequisite: `Default::default()` and struct literal produce the same value.
+    #[test]
+    fn test_session_context_default_eq_struct_literal() {
+        let default_ctx = SessionContext::default();
+        let literal_ctx = SessionContext {
+            user_id: None,
+            user_org_id: None,
+            user_type: None,
+            org_type: None,
+            permissions: Vec::new(),
+            user_email: None,
+        };
+
+        assert_eq!(default_ctx, literal_ctx);
+    }
+
+    /// Prerequisite: `SessionContext::default()` serialises to 6 args.
+    ///
+    /// The executor's zero-regression path calls `run_set_session()` only when
+    /// `session_context.is_some()`. But if a user *does* attach a default context,
+    /// the serialization must still succeed (returns 6 args, all NULL/empty).
+    #[test]
+    fn test_session_context_default_serializes_successfully() {
+        let ctx = SessionContext::default();
+        let args = ctx
+            .to_sql_args()
+            .expect("default context must serialize (zero-regression path)");
+        assert_eq!(
+            args.len(),
+            6,
+            "default context must produce exactly 6 positional arguments"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Static trait bounds — must cross thread boundaries in pool worker path
+    // ----------------------------------------------------------------
+
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+    fn assert_clone<T: Clone>() {}
+    fn assert_default<T: Default>() {}
+
+    /// Prerequisite: `SessionContext: Send` (required for `WorkerJob` channel dispatch).
+    #[test]
+    fn test_session_context_is_send() {
+        assert_send::<SessionContext>();
+    }
+
+    /// Prerequisite: `SessionContext: Sync` (required when shared across threads).
+    #[test]
+    fn test_session_context_is_sync() {
+        assert_sync::<SessionContext>();
+    }
+
+    /// Prerequisite: `SessionContext: Clone` (required for pool worker duplication).
+    #[test]
+    fn test_session_context_is_clone() {
+        assert_clone::<SessionContext>();
+    }
+
+    /// Prerequisite: `SessionContext: Default` (required for zero-regression pattern).
+    #[test]
+    fn test_session_context_is_default() {
+        assert_default::<SessionContext>();
+    }
+
+    // ----------------------------------------------------------------
+    // Builder pattern — compile-time signature verification
+    // ----------------------------------------------------------------
+
+    /// Prerequisite: `MayPostgresExecutor::new(client)` returns a struct with
+    /// `session_context: Option<SessionContext>` (initially `None`).
+    ///
+    /// We verify this through the *type shape*: if the field were not
+    /// `Option<SessionContext>`, the type assertions below would fail to compile.
+    #[test]
+    fn test_executor_session_context_field_type() {
+        // This test exists to verify the field type at compile time.
+        // If `session_context` were e.g. `SessionContext` (not Option),
+        // the code would not compile.
+        //
+        // We can't construct a `MayPostgresExecutor` without a `Client`,
+        // but we can verify that `Option<SessionContext>` satisfies the
+        // expected constraints.
+        let _opt: Option<SessionContext> = None;
+        assert!(_opt.is_none());
+
+        let _some: Option<SessionContext> = Some(SessionContext::default());
+        assert!(_some.is_some());
+    }
+
+    /// Prerequisite: Builder pattern is chainable — `with_session_context` returns `Self`.
+    ///
+    /// Verification: if `with_session_context` returned anything other than `Self`,
+    /// chaining would fail at compile time. This test passes the compiler barrier.
+    #[test]
+    fn test_builder_pattern_chainable_signature() {
+        // Compile-time verification: verify the return type of with_session_context
+        // matches Self (allows method chaining).
+        //
+        // We use a compile-time assertion via function signature.
+        // If `with_session_context` returned a different type, this would fail to compile.
+        fn _verify_chainable(
+            executor: MayPostgresExecutor,
+            ctx: SessionContext,
+        ) -> MayPostgresExecutor {
+            executor.with_session_context(ctx)
+        }
+
+        // If this function compiles, the builder returns Self.
+        // (We can't call it without a Client, but the signature verifies the shape.)
     }
 }

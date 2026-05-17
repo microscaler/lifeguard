@@ -38,7 +38,7 @@ If `SessionContext` is `None` or claims are empty, RLS policies receive `NULL` o
 /// Lifeguard does not parse JWTs or extract these claims; the application passes them here.
 ///
 /// Derives Clone + Send to cross thread boundaries in the pool worker path.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct SessionContext {
     pub user_id: Option<uuid::Uuid>,
     pub user_org_id: Option<uuid::Uuid>,
@@ -55,12 +55,12 @@ impl SessionContext {
         Ok(vec![
             Box::new(self.user_id),
             Box::new(self.user_org_id),
-            Box::new(self.user_type.as_deref().unwrap_or("")),
-            Box::new(self.org_type.as_deref().unwrap_or("")),
+            Box::new(self.user_type.as_deref()),
+            Box::new(self.org_type.as_deref()),
             Box::new(serde_json::to_value(&self.permissions).map_err(|e| {
-                LifeError::Other(format!("failed to serialize session permissions: {}", e))
+                LifeError::Other(format!("failed to serialize session permissions: {e}"))
             })?),
-            Box::new(self.user_email.as_deref().unwrap_or("")),
+            Box::new(self.user_email.as_deref()),
         ])
     }
 }
