@@ -44,3 +44,18 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 - New topics: [`topics/coding-standards-jsf-inspired.md`](./topics/coding-standards-jsf-inspired.md), [`topics/pragmatic-rust-guidelines.md`](./topics/pragmatic-rust-guidelines.md).
 - Updated [`../../AGENT.md`](../../AGENT.md) **Core rule §6**; expanded [`docs-catalog.md`](./docs-catalog.md) and [`index.md`](./index.md).
 - Aligned [`../../clippy.toml`](../../clippy.toml) numeric thresholds with the platform JSF-inspired profile.
+
+## [2026-05-04] feat | Story 6 — End-to-end RLS integration tests
+
+- Created `tests/db_integration/rls_integration.rs` with 4 scenarios:
+  - **Test A:** Direct executor filters rows via `MayPostgresExecutor::with_session_context`
+  - **Test B:** Fail-closed (no context = 0 rows visible)
+  - **Test C:** Transaction `begin_with_session` propagates context to all queries
+  - **Test D:** Pool worker isolation — different contexts see different rows
+- Fixed `rls_set_session` SQL function: `set_config(..., false)` for session-scoped
+  GUC persistence (critical: `set_config(..., true)` is transaction-scoped and
+  vanishes after autocommit in direct executor path).
+- Fixed pool test: `rls_test_role` now has LOGIN + password; pool uses role URL
+  so workers authenticate as non-superuser (superusers bypass RLS by default).
+- Fixed test assertions: removed explicit `WHERE tenant = $X` queries (bypass
+  RLS), replaced with full-count queries verifying visible row count.
