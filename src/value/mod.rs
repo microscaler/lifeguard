@@ -13,6 +13,7 @@
 //! - **`FromValueTuple`** - Convert `ValueTuple` to composite keys
 //! - **`TryFromU64`** - Safe conversion from `u64` for primary keys
 
+pub mod text_param;
 pub mod try_getable;
 pub mod tuple;
 pub mod types;
@@ -21,6 +22,7 @@ pub mod u64;
 #[cfg(test)]
 mod integration_tests;
 
+pub use text_param::TextParam;
 pub use try_getable::{TryGetable, TryGetableMany, ValueExtractionError};
 pub use tuple::{FromValueTuple, IntoValueTuple};
 pub use types::ValueType;
