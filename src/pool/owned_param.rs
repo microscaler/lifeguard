@@ -241,9 +241,10 @@ mod tests {
         let bad = OwnedParam::try_from(&Value::String(Some("not json".to_string())))
             .expect("string param");
         let mut bbuf = BytesMut::new();
-        match bad.as_sql_ref().to_sql_checked(&Type::JSONB, &mut bbuf) {
-            Err(err) => assert!(err.to_string().contains("not valid JSON"), "{err}"),
-            Ok(_) => panic!("invalid JSON must not bind to jsonb"),
+        let res = bad.as_sql_ref().to_sql_checked(&Type::JSONB, &mut bbuf);
+        assert!(res.is_err(), "invalid JSON must not bind to jsonb");
+        if let Err(err) = res {
+            assert!(err.to_string().contains("not valid JSON"), "{err}");
         }
     }
 
