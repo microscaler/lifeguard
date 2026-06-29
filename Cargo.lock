@@ -1588,7 +1588,7 @@ dependencies = [
  "postgres-types",
  "prometheus",
  "protobuf",
- "rand 0.8.6",
+ "rand 0.10.1",
  "redis",
  "regex",
  "rust_decimal",
