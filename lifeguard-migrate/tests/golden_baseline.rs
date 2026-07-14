@@ -75,10 +75,8 @@ COMMENT ON TABLE golden_test_users IS 'Golden baseline test users';";
 
 #[test]
 fn golden_baseline_create_table_sql_matches() {
-    let sql = sql_generator::generate_create_table_sql::<Entity>(
-        Entity::table_definition(),
-    )
-    .expect("should generate SQL for golden entity");
+    let sql = sql_generator::generate_create_table_sql::<Entity>(Entity::table_definition())
+        .expect("should generate SQL for golden entity");
 
     assert_eq!(
         sql.trim(),
