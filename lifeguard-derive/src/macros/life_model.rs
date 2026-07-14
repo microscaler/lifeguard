@@ -1994,7 +1994,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         quote! {
             #[automatically_derived]
             impl lifeguard::FromRow for #model_name {
-                fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+                fn from_row(
+                    row: &lifeguard::may_postgres::Row,
+                ) -> Result<Self, lifeguard::may_postgres::Error> {
                     Ok(Self {
                         #(#from_row_fields)*
                     })

@@ -16,6 +16,14 @@
 - **Streaming / pagination**: cursor and stream helpers live under `query` — verify signatures in rustdoc when changing behavior.
 - **Validators**: PRD [`PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md`](../../planning/PRD_SCHEMA_VALIDATORS_SESSION_AND_SCOPES.md).
 
+## Consumer requirements
+
+Lifeguard enables SeaQuery's `thread-safe` representation because generated
+records implement `ActiveModelTrait: Send`. Derive expansions refer to the
+hidden `lifeguard::may_postgres` re-export, so a model crate does not need to
+declare Lifeguard's database driver as its own direct dependency merely to use
+generated `FromRow` implementations.
+
 ## Cross-references
 
 - [`entities/life-model-and-life-record.md`](../entities/life-model-and-life-record.md)

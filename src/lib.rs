@@ -110,6 +110,11 @@ pub use lifeguard_derive::{scope, scope_bundle};
 #[cfg(feature = "graphql")]
 pub use async_graphql;
 
+// Derive expansions use this re-export so consumers do not need to declare
+// Lifeguard's database-driver implementation detail as a direct dependency.
+#[doc(hidden)]
+pub use may_postgres;
+
 // Re-export connection types for convenience
 pub use connection::{
     check_connection_health, check_connection_health_with_timeout, connect,

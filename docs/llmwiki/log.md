@@ -121,3 +121,13 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
   fixed executor-protocol SQL exception.
 - Live RLS suite passes 19/19, including multi-statement context, missing helper,
   commit, rollback, returned error, panic, and context-free reuse.
+
+## [2026-07-14] fix | external LifeRecord consumer hygiene
+
+- Enabled SeaQuery's `thread-safe` representation so generated record update
+  expressions satisfy `ActiveModelTrait: Send` in downstream model crates.
+- Re-exported `may_postgres` behind Lifeguard and changed `LifeModel`, `FromRow`
+  and partial-model expansions to use that path; downstream crates no longer
+  need an undeclared direct driver dependency for generated row hydration.
+- Verified derive tests, 485 Lifeguard library tests and RERP's external typed
+  accounting models.

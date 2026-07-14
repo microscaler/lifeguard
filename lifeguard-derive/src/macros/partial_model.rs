@@ -177,7 +177,9 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
 
         // Implement FromRow trait for partial model
         impl lifeguard::FromRow for #struct_name {
-            fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+            fn from_row(
+                row: &lifeguard::may_postgres::Row,
+            ) -> Result<Self, lifeguard::may_postgres::Error> {
                 Ok(Self {
                     #(#from_row_fields)*
                 })

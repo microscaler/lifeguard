@@ -75,7 +75,7 @@ regex = "1.10"  # For migration file name parsing
 
 # SQL Builder (borrowed, runtime-agnostic)
 # JSON support is always enabled (core functionality)
-sea-query = { version = "1.0.0-rc.29", features = ["with-json", "with-chrono", "with-uuid", "with-rust_decimal"] }
+sea-query = { version = "1.0.0-rc.29", features = ["thread-safe", "with-json", "with-chrono", "with-uuid", "with-rust_decimal"] }
 
 # Optional: `SimpleObject` on generated models — legacy/tests; not the platform API for Hauliage BFF.
 async-graphql = { workspace = true, optional = true }

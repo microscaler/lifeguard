@@ -118,7 +118,9 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
     let expanded: TokenStream2 = quote! {
         // Implement FromRow trait for Model
         impl lifeguard::FromRow for #struct_name {
-            fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+            fn from_row(
+                row: &lifeguard::may_postgres::Row,
+            ) -> Result<Self, lifeguard::may_postgres::Error> {
                 Ok(Self {
                     #(#from_row_fields)*
                 })
