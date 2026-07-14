@@ -17,7 +17,7 @@
 `SessionContext`. Its required fields are tenant ID, subject ID, active
 organization ID, session ID, roles, and permissions; user and organization
 classifications are optional. Context-aware execution calls the application-owned,
-schema-qualified `public.rls_set_session(uuid, uuid, uuid, text, jsonb, jsonb, text, text)`
+schema-qualified `public.rls_set_session(text, uuid, uuid, text, jsonb, jsonb, text, text)`
 helper in the same transaction as the application query. A missing helper is an
 error; the query is not allowed to continue without its requested tenant context.
 Consumers must install the helper in `public`, implement its GUC assignments with

@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const RLS_SET_SESSION_SQL: &str = "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)";
+const RLS_SET_SESSION_SQL: &str = "SELECT public.rls_set_session($1::text, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)";
 
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
@@ -567,7 +567,7 @@ fn session_context_values(context: &SessionContext) -> Result<sea_query::Values,
         .map_err(|e| LifeError::Other(format!("failed to serialize session permissions: {e}")))?;
 
     Ok(sea_query::Values(vec![
-        sea_query::Value::Uuid(Some(context.tenant_id)),
+        sea_query::Value::String(Some(context.tenant_id.clone())),
         sea_query::Value::Uuid(Some(context.subject_id)),
         sea_query::Value::Uuid(Some(context.organization_id)),
         sea_query::Value::String(Some(context.session_id.clone())),
@@ -988,7 +988,7 @@ fn exec_worker_job<T>(
                 args.iter().map(|arg| arg.as_ref()).collect();
             client
                 .execute(
-                    "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)",
+                    "SELECT public.rls_set_session($1::text, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)",
                     &args_refs,
                 )
                 .map_err(|error| {
@@ -1232,7 +1232,7 @@ impl PooledLifeExecutor {
     /// # fn take_pool() -> Arc<LifeguardPool> { todo!() }
     /// let pool = take_pool();
     /// let executor = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
-    ///     tenant_id: uuid::Uuid::new_v4(),
+    ///     tenant_id: "hauliage".to_string(),
     ///     subject_id: uuid::Uuid::new_v4(),
     ///     organization_id: uuid::Uuid::new_v4(),
     ///     session_id: "session-123".to_string(),
@@ -1369,7 +1369,7 @@ mod pooled_rls_tests {
 
     fn context() -> crate::executor::SessionContext {
         crate::executor::SessionContext {
-            tenant_id: uuid::Uuid::new_v4(),
+            tenant_id: "hauliage".to_string(),
             subject_id: uuid::Uuid::new_v4(),
             organization_id: uuid::Uuid::new_v4(),
             session_id: "session-test".to_string(),
@@ -1508,9 +1508,9 @@ mod pooled_rls_tests {
     fn test_session_context_all_fields_preserved() {
         let uid = uuid::Uuid::new_v4();
         let org_id = uuid::Uuid::new_v4();
-        let tenant_id = uuid::Uuid::new_v4();
+        let tenant_id = "hauliage".to_string();
         let mut ctx = context();
-        ctx.tenant_id = tenant_id;
+        ctx.tenant_id.clone_from(&tenant_id);
         ctx.subject_id = uid;
         ctx.organization_id = org_id;
         ctx.session_id = "session-all-fields".to_string();
@@ -1640,7 +1640,7 @@ mod worker_job_rls_tests {
 
     fn context() -> crate::executor::SessionContext {
         crate::executor::SessionContext {
-            tenant_id: uuid::Uuid::new_v4(),
+            tenant_id: "hauliage".to_string(),
             subject_id: uuid::Uuid::new_v4(),
             organization_id: uuid::Uuid::new_v4(),
             session_id: "session-worker-job".to_string(),

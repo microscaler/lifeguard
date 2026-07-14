@@ -42,7 +42,7 @@ RLS context injection is a first-class optional protocol on Lifeguard's base exe
 - `LifeguardPool::with_session_transaction` pins the existing primary executor for
   multi-statement work.
 - Lifeguard calls only the constant SQL entry point
-  `public.rls_set_session($1::uuid, ..., $8::text)` with bound values.
+  `public.rls_set_session($1::text, $2::uuid, ..., $8::text)` with bound values.
 - The application owns the database function and its `sesame.*` GUC mapping.
 - Context injection and application work share a transaction. Injection failure, returned error,
   or unwinding rolls back before the connection is released.

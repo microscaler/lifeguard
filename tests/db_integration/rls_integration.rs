@@ -28,14 +28,14 @@ use lifeguard::SessionContext;
 const TENANT_ALPHA: &str = "550e8400-e29b-41d4-a716-446655440001";
 const TENANT_BETA: &str = "550e8400-e29b-41d4-a716-446655440002";
 const TENANT_GAMMA: &str = "550e8400-e29b-41d4-a716-446655440003";
-const PLATFORM_TENANT: &str = "550e8400-e29b-41d4-a716-446655440000";
+const PLATFORM_TENANT: &str = "hauliage";
 const RLS_SET_SESSION_SQL: &str = "CREATE OR REPLACE FUNCTION public.rls_set_session(
-    p_tenant_id uuid, p_subject_id uuid, p_organization_id uuid,
+    p_tenant_id text, p_subject_id uuid, p_organization_id uuid,
     p_session_id text, p_roles jsonb, p_permissions jsonb,
     p_user_type text, p_org_type text
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    PERFORM set_config('sesame.tenant_id', p_tenant_id::text, true);
+    PERFORM set_config('sesame.tenant_id', p_tenant_id, true);
     PERFORM set_config('sesame.subject_id', p_subject_id::text, true);
     PERFORM set_config('sesame.organization_id', p_organization_id::text, true);
     PERFORM set_config('sesame.session_id', p_session_id, true);
@@ -159,7 +159,7 @@ fn session_context(
     permissions: Vec<String>,
 ) -> SessionContext {
     SessionContext {
-        tenant_id: uuid::Uuid::parse_str(PLATFORM_TENANT).expect("platform tenant UUID"),
+        tenant_id: PLATFORM_TENANT.to_string(),
         subject_id: uuid::Uuid::new_v4(),
         organization_id: uuid::Uuid::parse_str(organization_id).expect("organization UUID"),
         session_id: format!("rls-test-{}", uuid::Uuid::new_v4()),
