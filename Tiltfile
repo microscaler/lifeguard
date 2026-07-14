@@ -1,8 +1,8 @@
 # Lifeguard Tiltfile
 #
 # Builds, tests, and examples only — **no** Postgres/Redis/observability manifests here.
-# Platform infra lives in **microscaler/shared-kind-cluster** (Tilt UI often :10348). Bring that stack up first,
-# context `kind-kind`, then run this Tilt (UI default :10350) for Lifeguard workflows only.
+# Platform infra: **shared-k8s-cluster** (Tilt UI :10349) or legacy Kind (TILT_K8S_CLUSTER=kind).
+# systemd: tilt-lifeguard.service (port 10355) from shared-k8s-cluster/deploy/.
 #
 # Usage: tilt up
 #
@@ -20,9 +20,17 @@
 # Configuration
 # ====================
 
-# Restrict to kind cluster
-# Shared default cluster: kind-kind. Legacy: kind-lifeguard-test.
-allow_k8s_contexts(['kind-kind', 'kind-lifeguard-test'])
+# Restrict kubectl context when DB helpers use cluster API (cargo-only Tilt otherwise).
+_SHARED_K8S_KCFG = os.path.abspath('../shared-k8s-cluster/kubeconfig/shared-k8s.yaml')
+_k8s_mode = os.environ.get('TILT_K8S_CLUSTER', '').strip().lower()
+if _k8s_mode in ('kind', 'kind-kind'):
+    allow_k8s_contexts(['kind-kind', 'kind-lifeguard-test'])
+elif _k8s_mode in ('shared-k8s', 'k3s') or os.path.exists(_SHARED_K8S_KCFG):
+    allow_k8s_contexts(['shared-k8s'])
+    if os.path.exists(_SHARED_K8S_KCFG):
+        os.putenv('KUBECONFIG', _SHARED_K8S_KCFG)
+else:
+    allow_k8s_contexts(['kind-kind', 'kind-lifeguard-test'])
 
 # BRRTRouter paths: this Tiltfile does not invoke BRRTRouter. Expected layout is microscaler/lifeguard next to
 # microscaler/BRRTRouter. From repo root use ../BRRTRouter; from docs/ use ../../BRRTRouter (see OBSERVABILITY_APP_INTEGRATION.md).

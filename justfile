@@ -7,9 +7,13 @@ set shell := ["bash", "-uc"]
 # Set dotenv loading
 set dotenv-load := true
 
+shared_k8s_root := "../shared-k8s-cluster"
+shared_k8s_kubeconfig := shared_k8s_root + "/kubeconfig/shared-k8s.yaml"
+LIFEGUARD_TILT_PORT := env_var_or_default("LIFEGUARD_TILT_PORT", "10355")
+
 # Variables
-# **Local dev:** use microscaler/shared-kind-cluster (`tilt up` there); it port-forwards Postgres primary to **localhost:5432**.
-# **shared-kind-cluster** Tilt port-forwards replica-0 **6544** and Redis **6545** (see that repo’s `Tiltfile`). Manual `kubectl port-forward` only if you use another stack.
+# **Local dev:** use microscaler/shared-k8s-cluster (`just systemd-tilt-up` there); Postgres LoadBalancer is **10.177.76.224:5432** (or port-forward svc/postgres).
+# **shared-k8s-cluster** platform exposes Redis/Postgres via MetalLB (see that repo’s `config/loadbalancer-ips.env`). Manual `kubectl port-forward` if you prefer localhost.
 # **CI / docker-compose** uses host **6543** — set `LIFEGUARD_PG_PORT=6543` when running `just` against that stack only.
 # libpq `options`: `search_path=lifeguard` (create schema once: `CREATE SCHEMA IF NOT EXISTS lifeguard;` on shared Postgres).
 LG_PG_SEARCH_PATH := "?options=-c%20search_path%3Dlifeguard"
@@ -34,19 +38,38 @@ default:
 # Development Environment
 # ============================================================================
 
-# Start development environment (Kind + Tilt)
+# Start development environment (shared-k8s default; Kind via TILT_K8S_CLUSTER=kind).
 dev-up:
     @python3 scripts/dev_up.py
 
-# Stop development environment (Kind + Tilt)
+# Stop development environment
 dev-down:
     @python3 scripts/dev_down.py
 
-# Wait for shared **data** plane (microscaler/shared-kind-cluster) — namespace `data`
+# Install Kind systemd override (see shared-k8s-cluster/config/systemd-kind-override.example).
+dev-enable-kind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="${HOME}/.config/systemd/user/tilt-lifeguard.service.d"
+    mkdir -p "${dest}"
+    cp "{{shared_k8s_root}}/config/systemd-kind-override.example" "${dest}/kind.conf"
+    systemctl --user daemon-reload
+    systemctl --user restart tilt-lifeguard.service
+    echo "Lifeguard Tilt now uses Kind (TILT_K8S_CLUSTER=kind)"
+
+dev-disable-kind:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -f "${HOME}/.config/systemd/user/tilt-lifeguard.service.d/kind.conf"
+    systemctl --user daemon-reload
+    systemctl --user restart tilt-lifeguard.service
+    echo "Lifeguard Tilt restored to shared-k8s default"
+
+# Wait for shared **data** plane (microscaler/shared-k8s-cluster) — namespace `data`
 dev-wait-db:
     @echo "⏳ Waiting for Postgres primary + replicas + Redis (namespace data)..."
     @kubectl wait --for=condition=available --timeout=300s deployment/postgres-primary deployment/postgres-replica-0 deployment/postgres-replica-1 deployment/redis -n data || \
-        (echo "⚠️  Stack not ready. Is shared-kind-cluster Tilt up? kubectl get pods -n data" && kubectl get pods -n data && exit 1)
+        (echo "⚠️  Stack not ready. Is shared-k8s platform Tilt up? kubectl get pods -n data" && kubectl get pods -n data && exit 1)
 
 # Get test database connection string
 dev-connection-string:
@@ -66,19 +89,18 @@ kind-test-env:
 
 # Port-forward shared primary (only if shared Tilt is not already forwarding :5432)
 dev-port-forward:
-    @echo "🔌 kubectl port-forward -n data svc/postgres 5432:5432  (shared-kind-cluster; skip if that Tilt already binds :5432)"
+    @echo "🔌 kubectl port-forward -n data svc/postgres 5432:5432  (shared-k8s; skip if already bound)"
     @kubectl port-forward -n data svc/postgres 5432:5432
 
-# Start Tilt (assumes cluster is already running)
+# Start Tilt (shared-k8s systemd or foreground on Kind)
 tilt-up:
-    @echo "🎯 Starting Lifeguard Tilt (builds/tests only — infra is shared-kind-cluster)..."
-    @echo "   Tilt UI: http://0.0.0.0:10350 (LAN: http://<this-host>:10350/)"
-    @tilt up --host 0.0.0.0 --port 10350
+    @echo "🎯 Starting Lifeguard Tilt (shared-k8s-cluster platform)..."
+    @echo "   Tilt UI: http://0.0.0.0:{{LIFEGUARD_TILT_PORT}}/ (systemd: tilt-lifeguard.service)"
+    @systemctl --user start tilt-lifeguard.service || tilt up --host 0.0.0.0 --port {{LIFEGUARD_TILT_PORT}}
 
 # Stop Tilt
 tilt-down:
-    @echo "🛑 Stopping Tilt..."
-    @tilt down --port 10350
+    @systemctl --user stop tilt-lifeguard.service 2>/dev/null || tilt down --port {{LIFEGUARD_TILT_PORT}}
 
 # ============================================================================
 # Building
@@ -361,7 +383,7 @@ clean:
 status:
     @echo "📊 Cluster Status..."
     @kubectl get nodes 2>/dev/null || echo "⚠️  No Kind cluster running"
-    @kubectl get pods -n data 2>/dev/null || echo "⚠️  No pods in data namespace (start shared-kind-cluster Tilt)"
+    @kubectl get pods -n data 2>/dev/null || echo "⚠️  No pods in data namespace (start shared-k8s platform: cd ../shared-k8s-cluster && just systemd-tilt-up)"
 
 # Show PostgreSQL logs
 logs-db:
