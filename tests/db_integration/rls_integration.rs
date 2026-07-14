@@ -1230,3 +1230,77 @@ fn test_p5_pinned_pool_transaction_context_lifecycle() {
         "commit, application error, and panic must all clear transaction-local context"
     );
 }
+
+// ===================================================================
+// Test P6: Concurrent contexts and repeated pool-slot reuse never bleed
+// ===================================================================
+
+#[test]
+fn test_p6_concurrent_context_repeat_matrix_has_zero_bleed() {
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_rls_schema_names();
+
+    let setup_exec = make_superuser_executor(&primary_url);
+    setup_rls_fixture(&setup_exec, &schema, &table);
+
+    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let pool = Arc::new(LifeguardPool::new(&rls_url, 2, Vec::new(), 0).expect("create pool"));
+    let start = Arc::new(std::sync::Barrier::new(2));
+    let query = format!("SELECT note FROM {schema}.{table} ORDER BY note");
+
+    let run_context = |context: SessionContext, expected: Vec<&'static str>| {
+        let pool = Arc::clone(&pool);
+        let start = Arc::clone(&start);
+        let query = query.clone();
+        std::thread::spawn(move || {
+            pool.with_session_transaction(&context, |executor| {
+                // Both transactions hold distinct pool slots before either starts
+                // reading, making accidental connection-global context observable.
+                start.wait();
+                for iteration in 0..100 {
+                    let notes = executor
+                        .query_all_values(&query, &Values(vec![]))?
+                        .into_iter()
+                        .map(|row| row.get::<_, String>(0))
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        notes, expected,
+                        "RLS context bleed at repeat iteration {iteration}"
+                    );
+                    std::thread::yield_now();
+                }
+                Ok::<(), LifeError>(())
+            })
+        })
+    };
+
+    let alpha = run_context(
+        session_context(TENANT_ALPHA, "alpha", vec!["read".into()]),
+        vec!["alpha-item-a", "alpha-item-b"],
+    );
+    let beta = run_context(
+        session_context(TENANT_BETA, "beta", vec!["read".into()]),
+        vec!["beta-item"],
+    );
+
+    alpha
+        .join()
+        .expect("alpha context thread panicked")
+        .expect("alpha contextual transaction failed");
+    beta.join()
+        .expect("beta context thread panicked")
+        .expect("beta contextual transaction failed");
+
+    // Round-robin across both worker slots twice. Each context-free query must
+    // remain fail-closed after both contextual transactions have committed.
+    let plain = PooledLifeExecutor::new(pool);
+    let count_query = format!("SELECT COUNT(*)::bigint FROM {schema}.{table}");
+    for reuse in 0..4 {
+        let visible = plain
+            .query_one_values(&count_query, &Values(vec![]))
+            .expect("context-free pool-slot reuse query")
+            .get::<_, i64>(0);
+        assert_eq!(visible, 0, "context leaked on pool-slot reuse {reuse}");
+    }
+}
