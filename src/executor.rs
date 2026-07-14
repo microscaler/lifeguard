@@ -7,12 +7,13 @@
 //! ## Row Level Security (RLS)
 //!
 //! Lifeguard supports PostgreSQL Row Level Security by injecting transaction-local
-//! variables (`auth.tenant`, `auth.user_type`, etc.) around contextual work. The entry
+//! variables (`sesame.tenant_id`, `sesame.subject_id`, etc.) around contextual work. The entry
 //! points are:
 //!
 //! - [`MayPostgresExecutor::with_session_context`] — for single-connection executors
 //! - [`MayPostgresExecutor::begin_with_session`] — for transactions (context set once)
 //! - [`PooledLifeExecutor::with_session_context`] — for pooled executors
+//! - [`crate::LifeguardPool::with_session_transaction`] — for pinned pooled transactions
 //!
 //! See the [`SessionContext`] struct for field-level documentation.
 
@@ -314,7 +315,7 @@ impl MayPostgresExecutor {
     ///
     /// When a context is attached, every one-shot operation executed through this
     /// executor runs in a short transaction. The executor calls
-    /// `public.rls_set_session($1, $2, $3, $4, $5, $6)` before the application
+    /// `public.rls_set_session($1, ..., $8)` before the application
     /// statement and commits only if both calls succeed.
     ///
     /// Returns `self` for method chaining.
@@ -328,12 +329,14 @@ impl MayPostgresExecutor {
     /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
     /// let executor = MayPostgresExecutor::new(client)
     ///     .with_session_context(SessionContext {
-    ///         user_id: Some(uuid::Uuid::new_v4()),
-    ///         user_org_id: None,
+    ///         tenant_id: uuid::Uuid::new_v4(),
+    ///         subject_id: uuid::Uuid::new_v4(),
+    ///         organization_id: uuid::Uuid::new_v4(),
+    ///         session_id: "session-123".to_string(),
+    ///         roles: vec!["admin".to_string()],
+    ///         permissions: vec!["read".to_string(), "write".to_string()],
     ///         user_type: Some("admin".to_string()),
     ///         org_type: None,
-    ///         permissions: vec!["read".to_string(), "write".to_string()],
-    ///         user_email: None,
     ///     });
     /// # Ok(())
     /// # }
@@ -344,7 +347,7 @@ impl MayPostgresExecutor {
         self
     }
 
-    /// Runs `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` on the underlying
+    /// Runs `SELECT public.rls_set_session($1, ..., $8)` on the underlying
     /// client.
     ///
     /// This method is called only after the executor has opened a transaction. When
@@ -365,7 +368,7 @@ impl MayPostgresExecutor {
         let args_refs: Vec<&dyn may_postgres::types::ToSql> =
             args.iter().map(|a| a.as_ref()).collect();
         self.client.execute(
-            "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+            "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)",
             &args_refs,
         )
         .map(|_| ())
@@ -497,12 +500,14 @@ impl MayPostgresExecutor {
     /// let executor = MayPostgresExecutor::new(client);
     ///
     /// let mut tx = executor.begin_with_session(SessionContext {
-    ///     user_id: Some(uuid::Uuid::new_v4()),
-    ///     user_org_id: None,
+    ///     tenant_id: uuid::Uuid::new_v4(),
+    ///     subject_id: uuid::Uuid::new_v4(),
+    ///     organization_id: uuid::Uuid::new_v4(),
+    ///     session_id: "session-123".to_string(),
+    ///     roles: vec!["admin".to_string()],
+    ///     permissions: vec!["read".to_string()],
     ///     user_type: Some("admin".to_string()),
     ///     org_type: None,
-    ///     permissions: vec!["read".to_string()],
-    ///     user_email: None,
     /// })?;
     /// tx.execute("INSERT INTO users (name) VALUES ($1)", &[&"Alice"])?;
     /// tx.commit()?;
@@ -547,12 +552,14 @@ impl MayPostgresExecutor {
     /// let mut tx = executor.begin_with_isolation_session(
     ///     IsolationLevel::Serializable,
     ///     SessionContext {
-    ///         user_id: Some(uuid::Uuid::new_v4()),
-    ///         user_org_id: None,
+    ///         tenant_id: uuid::Uuid::new_v4(),
+    ///         subject_id: uuid::Uuid::new_v4(),
+    ///         organization_id: uuid::Uuid::new_v4(),
+    ///         session_id: "session-123".to_string(),
+    ///         roles: vec!["admin".to_string()],
+    ///         permissions: vec!["read".to_string(), "write".to_string()],
     ///         user_type: Some("admin".to_string()),
     ///         org_type: None,
-    ///         permissions: vec!["read".to_string(), "write".to_string()],
-    ///         user_email: None,
     ///     },
     /// )?;
     ///
@@ -698,10 +705,11 @@ impl LifeExecutor for MayPostgresExecutor {
 /// establishes a transaction and runs:
 ///
 /// ```sql
-/// SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)
+/// SELECT public.rls_set_session($1, $2, $3, $4, $5, $6, $7, $8)
 /// ```
 ///
-/// This sets PostgreSQL transaction-local variables (`auth.user_id`, `auth.user_type`, etc.)
+/// This sets PostgreSQL transaction-local variables (`sesame.tenant_id`,
+/// `sesame.subject_id`, etc.)
 /// that power `CREATE POLICY` row filters. The SQL function is provided by the
 /// `lifeguard_rls` migration.
 ///
@@ -715,29 +723,17 @@ impl LifeExecutor for MayPostgresExecutor {
 /// - [`PooledLifeExecutor::with_session_context`] — the context is serialized and sent
 ///   to the pool worker, which wraps each dispatched job in the same short transaction.
 ///
-/// # Fields
+/// # Required identity boundary
 ///
-/// All fields except `permissions` are optional so consuming apps can construct a
-/// minimal context from their JWT shape without being forced to map unused claims.
-/// The `rls_set_session` SQL function maps each field to a PostgreSQL session variable;
-/// fields set to `None` leave the corresponding session variable as `NULL`, which
-/// RLS policies typically treat as "allow full access" (or reject depending on policy).
+/// Tenant, subject, active organization, and session identifiers are required. This
+/// prevents a protected executor from being constructed with an ambiguous or unscoped
+/// principal. Roles and permissions are always present (and may be empty); user and
+/// organization classifications remain optional application metadata.
 ///
 /// Derives `Clone + Send + Sync + 'static` so it can cross thread boundaries in the
 /// pool worker path.
 ///
 /// # Examples
-///
-/// Minimal context from a JWT with only a user ID:
-///
-/// ```no_run
-/// use lifeguard::SessionContext;
-///
-/// let ctx = SessionContext {
-///     user_id: Some(uuid::Uuid::new_v4()),
-///     ..Default::default()
-/// };
-/// ```
 ///
 /// Full context from an authenticated request:
 ///
@@ -745,74 +741,91 @@ impl LifeExecutor for MayPostgresExecutor {
 /// use lifeguard::SessionContext;
 ///
 /// let ctx = SessionContext {
-///     user_id: Some(uuid::Uuid::new_v4()),
-///     user_org_id: Some(uuid::Uuid::new_v4()),
+///     tenant_id: uuid::Uuid::new_v4(),
+///     subject_id: uuid::Uuid::new_v4(),
+///     organization_id: uuid::Uuid::new_v4(),
+///     session_id: "session-123".to_string(),
+///     roles: vec!["member".to_string()],
+///     permissions: vec!["read".to_string(), "write".to_string()],
 ///     user_type: Some("admin".to_string()),
 ///     org_type: Some("tenant".to_string()),
-///     permissions: vec!["read".to_string(), "write".to_string()],
-///     user_email: Some("alice@example.com".to_string()),
 /// };
 /// ```
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq)]
 pub struct SessionContext {
-    /// The authenticated user's unique identifier.
-    /// Maps to PostgreSQL session variable `auth.user_id`.
-    pub user_id: Option<uuid::Uuid>,
+    /// Hard tenant isolation boundary.
+    /// Maps to PostgreSQL session variable `sesame.tenant_id`.
+    pub tenant_id: uuid::Uuid,
 
-    /// The user's default organization (tenant) identifier.
-    /// Maps to PostgreSQL session variable `auth.tenant`.
-    pub user_org_id: Option<uuid::Uuid>,
+    /// The authenticated subject's unique identifier.
+    /// Maps to PostgreSQL session variable `sesame.subject_id`.
+    pub subject_id: uuid::Uuid,
 
-    /// The user's role within the organization (e.g. `"admin"`, `"member"`).
-    /// Maps to PostgreSQL session variable `auth.user_type`.
-    pub user_type: Option<String>,
+    /// The active organization identifier.
+    /// Maps to PostgreSQL session variable `sesame.organization_id`.
+    pub organization_id: uuid::Uuid,
 
-    /// The type/classification of the organization (e.g. `"tenant"`, `"reseller"`).
-    /// Maps to PostgreSQL session variable `auth.org_type`.
-    pub org_type: Option<String>,
+    /// The authenticated session identifier (`sid`).
+    /// Maps to PostgreSQL session variable `sesame.session_id`.
+    pub session_id: String,
 
-    /// Permission strings for this session (e.g. `"read"`, `"write"`, `"admin"`).
-    /// Serialized to JSON and mapped to PostgreSQL session variable `auth.permissions`.
+    /// Authoritative role names for this session.
+    /// Serialized to JSON and mapped to `sesame.roles`.
+    pub roles: Vec<String>,
+
+    /// Authoritative permission strings for this session.
+    /// Serialized to JSON and mapped to `sesame.permissions`.
     pub permissions: Vec<String>,
 
-    /// The authenticated user's email address.
-    /// Maps to PostgreSQL session variable `auth.user_email`.
-    pub user_email: Option<String>,
+    /// Optional subject classification.
+    /// Maps to PostgreSQL session variable `sesame.user_type`.
+    pub user_type: Option<String>,
+
+    /// Optional organization classification.
+    /// Maps to PostgreSQL session variable `sesame.org_type`.
+    pub org_type: Option<String>,
 }
 
 impl std::fmt::Debug for SessionContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionContext")
-            .field("user_id", &self.user_id)
-            .field("user_org_id", &self.user_org_id)
+            .field("tenant_id", &"[REDACTED]")
+            .field("subject_id", &"[REDACTED]")
+            .field("organization_id", &"[REDACTED]")
+            .field("session_id", &"[REDACTED]")
+            .field("roles_count", &self.roles.len())
+            .field("permissions_count", &self.permissions.len())
             .field("user_type", &self.user_type)
             .field("org_type", &self.org_type)
-            .field("permissions", &self.permissions)
-            .field("user_email", &"[REDACTED]")
             .finish()
     }
 }
 
 impl SessionContext {
     /// Serialize this context into the SQL positional arguments expected by the
-    /// `rls_set_session($1, $2, $3, $4, $5, $6)` function.
+    /// `rls_set_session($1, $2, $3, $4, $5, $6, $7, $8)` function.
     ///
-    /// Returns six values in order: user_id, user_org_id, user_type, org_type,
-    /// permissions (JSON array), user_email.
+    /// Returns eight values in order: tenant ID, subject ID, active organization ID,
+    /// session ID, roles (JSON array), permissions (JSON array), user type, and
+    /// organization type.
     ///
     /// Fails only if permissions cannot be serialized to JSON, which would indicate
     /// a bug in how the application constructed the context.
     pub fn to_sql_args(&self) -> Result<Vec<Box<dyn ToSql + '_>>, LifeError> {
+        let roles_json = serde_json::to_value(&self.roles)
+            .map_err(|e| LifeError::Other(format!("failed to serialize session roles: {e}")))?;
         let permissions_json = serde_json::to_value(&self.permissions).map_err(|e| {
             LifeError::Other(format!("failed to serialize session permissions: {e}"))
         })?;
         Ok(vec![
-            Box::new(self.user_id),
-            Box::new(self.user_org_id),
+            Box::new(self.tenant_id),
+            Box::new(self.subject_id),
+            Box::new(self.organization_id),
+            Box::new(self.session_id.as_str()),
+            Box::new(roles_json),
+            Box::new(permissions_json),
             Box::new(self.user_type.as_deref()),
             Box::new(self.org_type.as_deref()),
-            Box::new(permissions_json),
-            Box::new(self.user_email.as_deref()),
         ])
     }
 }
@@ -889,27 +902,31 @@ mod session_context_tests {
     use super::*;
     use uuid::Uuid;
 
+    fn context() -> SessionContext {
+        SessionContext {
+            tenant_id: Uuid::parse_str("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa").unwrap(),
+            subject_id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            organization_id: Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").unwrap(),
+            session_id: "session-test".to_string(),
+            roles: vec!["member".to_string()],
+            permissions: vec!["read".to_string()],
+            user_type: Some("customer".to_string()),
+            org_type: Some("tenant".to_string()),
+        }
+    }
+
     // ----------------------------------------------------------------
     // Construction
     // ----------------------------------------------------------------
 
     #[test]
-    fn test_session_context_empty_all_fields() {
-        let ctx = SessionContext {
-            user_id: None,
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: Vec::new(),
-            user_email: None,
-        };
+    fn test_session_context_required_identity_fields() {
+        let ctx = context();
 
-        assert!(ctx.user_id.is_none());
-        assert!(ctx.user_org_id.is_none());
-        assert!(ctx.user_type.is_none());
-        assert!(ctx.org_type.is_none());
-        assert!(ctx.permissions.is_empty());
-        assert!(ctx.user_email.is_none());
+        assert_ne!(ctx.tenant_id, Uuid::nil());
+        assert_ne!(ctx.subject_id, Uuid::nil());
+        assert_ne!(ctx.organization_id, Uuid::nil());
+        assert!(!ctx.session_id.is_empty());
     }
 
     #[test]
@@ -917,41 +934,24 @@ mod session_context_tests {
         let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let oid = Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").unwrap();
         let ctx = SessionContext {
-            user_id: Some(uid),
-            user_org_id: Some(oid),
+            tenant_id: Uuid::new_v4(),
+            subject_id: uid,
+            organization_id: oid,
+            session_id: "session-full".to_string(),
+            roles: vec!["admin".to_string()],
+            permissions: vec!["read".to_string(), "write".to_string()],
             user_type: Some("admin".to_string()),
             org_type: Some("tenant".to_string()),
-            permissions: vec!["read".to_string(), "write".to_string()],
-            user_email: Some("alice@example.com".to_string()),
         };
 
-        assert_eq!(ctx.user_id, Some(uid));
-        assert_eq!(ctx.user_org_id, Some(oid));
+        assert_eq!(ctx.subject_id, uid);
+        assert_eq!(ctx.organization_id, oid);
         assert_eq!(ctx.user_type, Some("admin".to_string()));
         assert_eq!(ctx.org_type, Some("tenant".to_string()));
         assert_eq!(
             ctx.permissions,
             vec!["read".to_string(), "write".to_string()]
         );
-        assert_eq!(ctx.user_email, Some("alice@example.com".to_string()));
-    }
-
-    #[test]
-    fn test_session_context_partial_fields() {
-        // Verify that a context with only user_id works (minimal multi-tenant context)
-        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let ctx = SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: Vec::new(),
-            user_email: None,
-        };
-
-        assert_eq!(ctx.user_id, Some(uid));
-        assert!(ctx.user_org_id.is_none());
-        assert!(ctx.permissions.is_empty());
     }
 
     // ----------------------------------------------------------------
@@ -960,15 +960,7 @@ mod session_context_tests {
 
     #[test]
     fn test_session_context_clone() {
-        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let ctx = SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: Some("admin".to_string()),
-            org_type: None,
-            permissions: vec!["read".to_string()],
-            user_email: None,
-        };
+        let ctx = context();
 
         let cloned = ctx.clone();
         assert_eq!(ctx, cloned);
@@ -980,23 +972,9 @@ mod session_context_tests {
 
     #[test]
     fn test_session_context_partial_equality() {
-        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let ctx1 = SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: vec![],
-            user_email: None,
-        };
-        let ctx2 = SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: vec!["extra".to_string()],
-            user_email: None,
-        };
+        let ctx1 = context();
+        let mut ctx2 = context();
+        ctx2.permissions.push("extra".to_string());
 
         assert_eq!(ctx1, ctx1); // reflexivity
         assert_ne!(ctx1, ctx2); // different permissions
@@ -1013,68 +991,21 @@ mod session_context_tests {
     // ----------------------------------------------------------------
 
     #[test]
-    fn test_to_sql_args_empty_context_returns_six_args() {
-        let ctx = SessionContext {
-            user_id: None,
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: Vec::new(),
-            user_email: None,
-        };
-
-        let args = ctx.to_sql_args().expect("empty context should serialize");
-        assert_eq!(args.len(), 6, "must return exactly 6 positional arguments");
-    }
-
-    #[test]
-    fn test_to_sql_args_full_context_returns_six_args() {
-        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let ctx = SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: Some("admin".to_string()),
-            org_type: Some("tenant".to_string()),
-            permissions: vec!["read".to_string()],
-            user_email: Some("alice@example.com".to_string()),
-        };
-
+    fn test_to_sql_args_full_context_returns_eight_args() {
+        let ctx = context();
         let args = ctx.to_sql_args().expect("full context should serialize");
-        assert_eq!(args.len(), 6);
-    }
-
-    #[test]
-    fn test_to_sql_args_partial_context_returns_six_args() {
-        // Even with only user_id set, we still get all 6 positional args
-        let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let ctx = SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: vec![],
-            user_email: None,
-        };
-
-        let args = ctx.to_sql_args().expect("partial context should serialize");
-        assert_eq!(args.len(), 6);
+        assert_eq!(args.len(), 8);
     }
 
     #[test]
     fn test_to_sql_args_permissions_serialization_correct() {
         // Verify permissions JSON is correct by checking the struct fields directly.
         // (The actual ToSql binding is verified in Story 6 integration tests.)
-        let ctx = SessionContext {
-            user_id: None,
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: vec!["read".to_string(), "write".to_string()],
-            user_email: None,
-        };
+        let mut ctx = context();
+        ctx.permissions = vec!["read".to_string(), "write".to_string()];
 
         let args = ctx.to_sql_args().expect("should serialize");
-        assert_eq!(args.len(), 6);
+        assert_eq!(args.len(), 8);
         // Verify the struct's permissions field matches expectations
         // (this confirms the caller constructed the context correctly)
         assert_eq!(
@@ -1092,14 +1023,8 @@ mod session_context_tests {
 
     #[test]
     fn test_to_sql_args_empty_permissions_is_empty_json_array() {
-        let ctx = SessionContext {
-            user_id: None,
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: Vec::new(),
-            user_email: None,
-        };
+        let mut ctx = context();
+        ctx.permissions.clear();
 
         // Verify the struct field is empty (the ToSql binding is tested in Story 6)
         assert!(ctx.permissions.is_empty());
@@ -1116,26 +1041,16 @@ mod session_context_tests {
 
     #[test]
     fn test_session_context_debug_fmt() {
-        let ctx = SessionContext {
-            user_id: None,
-            user_org_id: None,
-            user_type: Some("admin".to_string()),
-            org_type: None,
-            permissions: vec!["read".to_string()],
-            user_email: Some("alice@example.com".to_string()),
-        };
+        let ctx = context();
 
         let debug_str = format!("{ctx:?}");
-        assert!(debug_str.contains("admin"));
-        assert!(debug_str.contains("read"));
-        // PII field must be redacted
-        assert!(
-            !debug_str.contains("alice@example.com"),
-            "user_email must not appear in Debug output"
-        );
+        assert!(debug_str.contains("customer"));
+        assert!(!debug_str.contains(&ctx.tenant_id.to_string()));
+        assert!(!debug_str.contains(&ctx.subject_id.to_string()));
+        assert!(!debug_str.contains(&ctx.session_id));
         assert!(
             debug_str.contains("[REDACTED]"),
-            "user_email should show [REDACTED]"
+            "identity values should show [REDACTED]"
         );
     }
 }
@@ -1149,8 +1064,8 @@ mod session_context_tests {
 //
 // NOTE: `MayPostgresExecutor` wraps a `may_postgres::Client`, so we can't
 // instantiate it without a live DB. We verify the *shape* through:
-//   - `Default` on `SessionContext` (ensures zero-config context exists)
-//   - Static trait assertions (`Send`, `Sync`, `Clone`, `Default`)
+//   - Required `SessionContext` identity boundary
+//   - Static trait assertions (`Send`, `Sync`, `Clone`)
 //   - Builder signature compilation against the correct types
 // ============================================================================
 
@@ -1161,67 +1076,12 @@ mod may_postgres_executor_rls_tests {
     use super::*;
 
     // ----------------------------------------------------------------
-    // Default impl on SessionContext
-    // ----------------------------------------------------------------
-
-    /// Prerequisite: `SessionContext::default()` produces an all-empty context.
-    ///
-    /// This is also a valid explicit fail-closed context. An executor with no
-    /// context attached skips injection entirely; attaching this value invokes
-    /// the helper with six `NULL`/empty arguments.
-    #[test]
-    fn test_session_context_default_produces_empty_context() {
-        let ctx = SessionContext::default();
-
-        assert!(ctx.user_id.is_none());
-        assert!(ctx.user_org_id.is_none());
-        assert!(ctx.user_type.is_none());
-        assert!(ctx.org_type.is_none());
-        assert!(ctx.permissions.is_empty());
-        assert!(ctx.user_email.is_none());
-    }
-
-    /// Prerequisite: `Default::default()` and struct literal produce the same value.
-    #[test]
-    fn test_session_context_default_eq_struct_literal() {
-        let default_ctx = SessionContext::default();
-        let literal_ctx = SessionContext {
-            user_id: None,
-            user_org_id: None,
-            user_type: None,
-            org_type: None,
-            permissions: Vec::new(),
-            user_email: None,
-        };
-
-        assert_eq!(default_ctx, literal_ctx);
-    }
-
-    /// Prerequisite: `SessionContext::default()` serialises to 6 args.
-    ///
-    /// Callers may deliberately attach the default fail-closed context, so its
-    /// serialization must succeed and return six `NULL`/empty arguments.
-    #[test]
-    fn test_session_context_default_serializes_successfully() {
-        let ctx = SessionContext::default();
-        let args = ctx
-            .to_sql_args()
-            .expect("default context must serialize (zero-regression path)");
-        assert_eq!(
-            args.len(),
-            6,
-            "default context must produce exactly 6 positional arguments"
-        );
-    }
-
-    // ----------------------------------------------------------------
     // Static trait bounds — must cross thread boundaries in pool worker path
     // ----------------------------------------------------------------
 
     fn assert_send<T: Send>() {}
     fn assert_sync<T: Sync>() {}
     fn assert_clone<T: Clone>() {}
-    fn assert_default<T: Default>() {}
 
     /// Prerequisite: `SessionContext: Send` (required for `WorkerJob` channel dispatch).
     #[test]
@@ -1239,12 +1099,6 @@ mod may_postgres_executor_rls_tests {
     #[test]
     fn test_session_context_is_clone() {
         assert_clone::<SessionContext>();
-    }
-
-    /// Prerequisite: `SessionContext: Default` (required for zero-regression pattern).
-    #[test]
-    fn test_session_context_is_default() {
-        assert_default::<SessionContext>();
     }
 
     // ----------------------------------------------------------------
@@ -1267,9 +1121,6 @@ mod may_postgres_executor_rls_tests {
         // expected constraints.
         let _opt: Option<SessionContext> = None;
         assert!(_opt.is_none());
-
-        let _some: Option<SessionContext> = Some(SessionContext::default());
-        assert!(_some.is_some());
     }
 
     /// Prerequisite: Builder pattern is chainable — `with_session_context` returns `Self`.

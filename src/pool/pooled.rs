@@ -22,7 +22,7 @@
 //! (`primary` \| `replica`); see [`crate::metrics::METRICS`].
 
 use crate::connection::connect;
-use crate::executor::{LifeError, LifeExecutor};
+use crate::executor::{LifeError, LifeExecutor, SessionContext};
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
@@ -35,6 +35,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+
+const RLS_SET_SESSION_SQL: &str = "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)";
 
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
@@ -506,6 +508,74 @@ impl LifeguardPool {
             _guard,
         })
     }
+
+    /// Run a multi-statement unit of work on one pinned primary connection with
+    /// transaction-local RLS context.
+    ///
+    /// The pool starts a transaction, calls `public.rls_set_session(...)`, and then
+    /// passes its existing [`ExclusivePrimaryLifeExecutor`] to `operation`. All ORM
+    /// and raw executor calls in the closure therefore use the same connection and
+    /// the same RLS context. A successful closure is committed; an error is rolled
+    /// back. Unwinding also triggers a best-effort rollback before the worker slot is
+    /// released.
+    ///
+    /// This is a capability of the base pool rather than a Sesame-specific executor.
+    /// Use [`PooledLifeExecutor::with_session_context`] for a single contextual
+    /// statement. Use this method when several statements must share one transaction.
+    /// Context-free callers continue to use the normal pool API and pay no RLS cost.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first database or application error. Context injection is
+    /// fail-closed: the operation is not called if the helper is unavailable or
+    /// rejects the context.
+    pub fn with_session_transaction<T>(
+        &self,
+        context: &SessionContext,
+        operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
+    ) -> Result<T, LifeError> {
+        let context_values = session_context_values(context)?;
+        let executor = self.exclusive_primary_write_executor()?;
+        executor.execute("BEGIN", &[])?;
+
+        let mut transaction = PoolTransactionGuard::new(&executor);
+        transaction
+            .executor()
+            .execute_values(RLS_SET_SESSION_SQL, &context_values)?;
+
+        match operation(transaction.executor()) {
+            Ok(value) => {
+                transaction.commit()?;
+                Ok(value)
+            }
+            Err(operation_error) => {
+                if let Err(rollback_error) = transaction.rollback() {
+                    log::error!(
+                        "lifeguard pool: contextual transaction rollback failed: {rollback_error}"
+                    );
+                }
+                Err(operation_error)
+            }
+        }
+    }
+}
+
+fn session_context_values(context: &SessionContext) -> Result<sea_query::Values, LifeError> {
+    let roles = serde_json::to_value(&context.roles)
+        .map_err(|e| LifeError::Other(format!("failed to serialize session roles: {e}")))?;
+    let permissions = serde_json::to_value(&context.permissions)
+        .map_err(|e| LifeError::Other(format!("failed to serialize session permissions: {e}")))?;
+
+    Ok(sea_query::Values(vec![
+        sea_query::Value::Uuid(Some(context.tenant_id)),
+        sea_query::Value::Uuid(Some(context.subject_id)),
+        sea_query::Value::Uuid(Some(context.organization_id)),
+        sea_query::Value::String(Some(context.session_id.clone())),
+        sea_query::Value::Json(Some(Box::new(roles))),
+        sea_query::Value::Json(Some(Box::new(permissions))),
+        sea_query::Value::String(context.user_type.clone()),
+        sea_query::Value::String(context.org_type.clone()),
+    ]))
 }
 
 /// Pins one primary [`LifeguardPool`] worker slot: every [`LifeExecutor`] call uses the same
@@ -517,6 +587,48 @@ pub struct ExclusivePrimaryLifeExecutor<'a> {
     pool: &'a LifeguardPool,
     slot: usize,
     _guard: MutexGuard<'a, ()>,
+}
+
+struct PoolTransactionGuard<'executor, 'pool> {
+    executor: &'executor ExclusivePrimaryLifeExecutor<'pool>,
+    active: bool,
+}
+
+impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
+    fn new(executor: &'executor ExclusivePrimaryLifeExecutor<'pool>) -> Self {
+        Self {
+            executor,
+            active: true,
+        }
+    }
+
+    fn executor(&self) -> &ExclusivePrimaryLifeExecutor<'pool> {
+        self.executor
+    }
+
+    fn commit(&mut self) -> Result<(), LifeError> {
+        self.executor.execute("COMMIT", &[])?;
+        self.active = false;
+        Ok(())
+    }
+
+    fn rollback(&mut self) -> Result<(), LifeError> {
+        self.executor.execute("ROLLBACK", &[])?;
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl Drop for PoolTransactionGuard<'_, '_> {
+    fn drop(&mut self) {
+        if self.active {
+            if let Err(error) = self.executor.execute("ROLLBACK", &[]) {
+                log::error!(
+                    "lifeguard pool: contextual transaction cleanup rollback failed: {error}"
+                );
+            }
+        }
+    }
 }
 
 impl fmt::Debug for ExclusivePrimaryLifeExecutor<'_> {
@@ -876,7 +988,7 @@ fn exec_worker_job<T>(
                 args.iter().map(|arg| arg.as_ref()).collect();
             client
                 .execute(
-                    "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+                    "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)",
                     &args_refs,
                 )
                 .map_err(|error| {
@@ -1039,7 +1151,7 @@ fn values_to_owned(values: &sea_query::Values) -> Result<Vec<OwnedParam>, LifeEr
 ///
 /// **RLS integration (Story 5):** optionally carries a [`SessionContext`]. On the worker
 /// thread each contextual job runs `BEGIN`, calls
-/// `public.rls_set_session($1, $2, $3, $4, $5, $6)`, executes the application statement,
+/// `public.rls_set_session($1, ..., $8)`, executes the application statement,
 /// and commits. The transaction-local context cannot leak into the worker's next job. When
 /// `session_context` is `None` (the default), the executor retains the original autocommit path.
 #[derive(Clone)]
@@ -1106,7 +1218,7 @@ impl PooledLifeExecutor {
     ///
     /// When a context is attached, every query executed through this executor is
     /// wrapped in a short worker-side transaction. The worker calls
-    /// `public.rls_set_session($1, $2, $3, $4, $5, $6)` before the actual query and
+    /// `public.rls_set_session($1, ..., $8)` before the actual query and
     /// commits only after both calls succeed.
     ///
     /// Returns `self` for method chaining.
@@ -1120,12 +1232,14 @@ impl PooledLifeExecutor {
     /// # fn take_pool() -> Arc<LifeguardPool> { todo!() }
     /// let pool = take_pool();
     /// let executor = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
-    ///     user_id: Some(uuid::Uuid::new_v4()),
-    ///     user_org_id: None,
+    ///     tenant_id: uuid::Uuid::new_v4(),
+    ///     subject_id: uuid::Uuid::new_v4(),
+    ///     organization_id: uuid::Uuid::new_v4(),
+    ///     session_id: "session-123".to_string(),
+    ///     roles: vec!["admin".to_string()],
+    ///     permissions: vec!["read".to_string()],
     ///     user_type: Some("admin".to_string()),
     ///     org_type: None,
-    ///     permissions: vec!["read".to_string()],
-    ///     user_email: None,
     /// });
     /// ```
     #[must_use]
@@ -1253,6 +1367,19 @@ mod lifetime_effective_limit_tests {
 mod pooled_rls_tests {
     use super::*;
 
+    fn context() -> crate::executor::SessionContext {
+        crate::executor::SessionContext {
+            tenant_id: uuid::Uuid::new_v4(),
+            subject_id: uuid::Uuid::new_v4(),
+            organization_id: uuid::Uuid::new_v4(),
+            session_id: "session-test".to_string(),
+            roles: vec!["admin".to_string()],
+            permissions: vec!["read".to_string()],
+            user_type: Some("admin".to_string()),
+            org_type: Some("customer".to_string()),
+        }
+    }
+
     // ------------------------------------------------------------------
     // PooledLifeExecutor builder tests
     // ------------------------------------------------------------------
@@ -1267,16 +1394,9 @@ mod pooled_rls_tests {
         // and that the struct compiles with our expected fields.
         // This is primarily a compile-time gate: if the struct doesn't have
         // session_context: Option<...>, the next tests fail.
-        let _ctx = crate::executor::SessionContext {
-            user_id: Some(uuid::Uuid::new_v4()),
-            user_org_id: None,
-            user_type: Some("admin".to_string()),
-            org_type: None,
-            permissions: vec!["read".to_string()],
-            user_email: None,
-        };
+        let ctx = context();
         // If this compiles, SessionContext is constructable and clonable.
-        let _clone = _ctx.clone();
+        let _clone = ctx.clone();
     }
 
     /// Prerequisite: PooledLifeExecutor carries session_context: Option field.
@@ -1285,14 +1405,9 @@ mod pooled_rls_tests {
     #[test]
     fn test_session_context_flows_through_worker_job() {
         let uid = uuid::Uuid::new_v4();
-        let ctx = crate::executor::SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: Some("admin".to_string()),
-            org_type: None,
-            permissions: vec!["read".to_string(), "write".to_string()],
-            user_email: None,
-        };
+        let mut ctx = context();
+        ctx.subject_id = uid;
+        ctx.permissions = vec!["read".to_string(), "write".to_string()];
 
         // Simulate what dispatch_with_session does: build a WorkerJob with
         // the executor's session_context cloned into the job.
@@ -1314,7 +1429,7 @@ mod pooled_rls_tests {
             } => {
                 assert!(job_session.is_some());
                 let job_ctx = job_session.unwrap();
-                assert_eq!(job_ctx.user_id, Some(uid));
+                assert_eq!(job_ctx.subject_id, uid);
                 assert_eq!(
                     job_ctx.permissions,
                     vec!["read".to_string(), "write".to_string()]
@@ -1329,14 +1444,10 @@ mod pooled_rls_tests {
     #[test]
     fn test_dispatch_closure_captures_session_by_value() {
         let uid = uuid::Uuid::new_v4();
-        let ctx = crate::executor::SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: Some("user".to_string()),
-            org_type: None,
-            permissions: Vec::new(),
-            user_email: None,
-        };
+        let mut ctx = context();
+        ctx.subject_id = uid;
+        ctx.user_type = Some("user".to_string());
+        ctx.permissions.clear();
 
         // This mirrors the closure pattern used in dispatch_with_session:
         // self.session_context.clone() is passed into WorkerJob::Execute.
@@ -1359,7 +1470,7 @@ mod pooled_rls_tests {
             WorkerJob::Execute { session, query, .. } => {
                 assert_eq!(query, "INSERT INTO test VALUES (1)");
                 assert!(session.is_some());
-                assert_eq!(session.unwrap().user_id, Some(uid));
+                assert_eq!(session.unwrap().subject_id, uid);
             }
             _ => panic!(),
         }
@@ -1397,18 +1508,19 @@ mod pooled_rls_tests {
     fn test_session_context_all_fields_preserved() {
         let uid = uuid::Uuid::new_v4();
         let org_id = uuid::Uuid::new_v4();
-        let ctx = crate::executor::SessionContext {
-            user_id: Some(uid),
-            user_org_id: Some(org_id),
-            user_type: Some("moderator".to_string()),
-            org_type: Some("customer".to_string()),
-            permissions: vec![
-                "read".to_string(),
-                "write".to_string(),
-                "delete".to_string(),
-            ],
-            user_email: Some("test@example.com".to_string()),
-        };
+        let tenant_id = uuid::Uuid::new_v4();
+        let mut ctx = context();
+        ctx.tenant_id = tenant_id;
+        ctx.subject_id = uid;
+        ctx.organization_id = org_id;
+        ctx.session_id = "session-all-fields".to_string();
+        ctx.roles = vec!["moderator".to_string()];
+        ctx.user_type = Some("moderator".to_string());
+        ctx.permissions = vec![
+            "read".to_string(),
+            "write".to_string(),
+            "delete".to_string(),
+        ];
 
         let (tx, _rx) = may::sync::mpsc::channel();
         let job = WorkerJob::QueryAll {
@@ -1424,12 +1536,14 @@ mod pooled_rls_tests {
                 assert_eq!(query, "SELECT * FROM accounts");
                 assert!(session.is_some());
                 let s = session.unwrap();
-                assert_eq!(s.user_id, Some(uid));
-                assert_eq!(s.user_org_id, Some(org_id));
+                assert_eq!(s.tenant_id, tenant_id);
+                assert_eq!(s.subject_id, uid);
+                assert_eq!(s.organization_id, org_id);
+                assert_eq!(s.session_id, "session-all-fields");
+                assert_eq!(s.roles, vec!["moderator".to_string()]);
                 assert_eq!(s.user_type, Some("moderator".to_string()));
                 assert_eq!(s.org_type, Some("customer".to_string()));
                 assert_eq!(s.permissions.len(), 3);
-                assert_eq!(s.user_email, Some("test@example.com".to_string()));
             }
             _ => panic!(),
         }
@@ -1451,14 +1565,7 @@ mod pooled_rls_tests {
     /// Prerequisite: with_enqueued_at preserves session through re-enqueue.
     #[test]
     fn test_with_enqueued_at_preserves_session_all_variants() {
-        let ctx = crate::executor::SessionContext {
-            user_id: Some(uuid::Uuid::new_v4()),
-            user_org_id: None,
-            user_type: Some("admin".to_string()),
-            org_type: None,
-            permissions: vec![],
-            user_email: None,
-        };
+        let ctx = context();
 
         let original_at = Instant::now();
 
@@ -1530,6 +1637,19 @@ mod pooled_rls_tests {
 #[allow(clippy::panic)]
 mod worker_job_rls_tests {
     use super::*;
+
+    fn context() -> crate::executor::SessionContext {
+        crate::executor::SessionContext {
+            tenant_id: uuid::Uuid::new_v4(),
+            subject_id: uuid::Uuid::new_v4(),
+            organization_id: uuid::Uuid::new_v4(),
+            session_id: "session-worker-job".to_string(),
+            roles: vec!["admin".to_string()],
+            permissions: vec!["read".to_string()],
+            user_type: Some("admin".to_string()),
+            org_type: None,
+        }
+    }
 
     // ----------------------------------------------------------------
     // WorkerJob construction with session
@@ -1625,14 +1745,8 @@ mod worker_job_rls_tests {
     #[test]
     fn test_with_enqueued_at_preserves_session() {
         let uid = uuid::Uuid::new_v4();
-        let ctx = crate::executor::SessionContext {
-            user_id: Some(uid),
-            user_org_id: None,
-            user_type: Some("admin".to_string()),
-            org_type: None,
-            permissions: vec!["read".to_string()],
-            user_email: None,
-        };
+        let mut ctx = context();
+        ctx.subject_id = uid;
 
         let (tx, _rx) = may::sync::mpsc::channel();
         let job = WorkerJob::Execute {
@@ -1657,7 +1771,7 @@ mod worker_job_rls_tests {
                 assert_eq!(enqueued_at, new_at);
                 assert_eq!(query, "SELECT 1");
                 assert!(session.is_some());
-                assert_eq!(session.unwrap().user_id, Some(uid));
+                assert_eq!(session.unwrap().subject_id, uid);
             }
             _ => panic!("expected Execute variant"),
         }

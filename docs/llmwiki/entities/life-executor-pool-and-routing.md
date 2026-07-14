@@ -14,8 +14,10 @@
 ## RLS session context
 
 `MayPostgresExecutor`, transactions, and pooled workers can carry a
-`SessionContext`. Context-aware execution calls the application-owned,
-schema-qualified `public.rls_set_session(uuid, uuid, text, text, jsonb, text)`
+`SessionContext`. Its required fields are tenant ID, subject ID, active
+organization ID, session ID, roles, and permissions; user and organization
+classifications are optional. Context-aware execution calls the application-owned,
+schema-qualified `public.rls_set_session(uuid, uuid, uuid, text, jsonb, jsonb, text, text)`
 helper in the same transaction as the application query. A missing helper is an
 error; the query is not allowed to continue without its requested tenant context.
 Consumers must install the helper in `public`, implement its GUC assignments with
@@ -28,6 +30,11 @@ Explicit transactions inject once immediately after `BEGIN`. PostgreSQL clears
 the transaction-local GUCs on both commit and rollback, preventing tenant context
 from leaking through direct client clones or reused pool workers. Context-free
 operations retain the original autocommit path and do not require the helper.
+
+Multi-statement pooled work uses `LifeguardPool::with_session_transaction`. It
+pins the existing `ExclusivePrimaryLifeExecutor`, injects context before calling
+the operation closure, and commits or rolls back before releasing the slot. This
+is a base pool capability; there is no identity-provider-specific executor type.
 
 ## Operational docs
 
@@ -42,4 +49,5 @@ operations retain the original autocommit path and do not require the helper.
 
 - [`topics/observability-and-logging.md`](../topics/observability-and-logging.md)
 - [`entities/transaction-boundaries.md`](./transaction-boundaries.md)
+- [`../../adr/0002-rls-session-protocol.md`](../../adr/0002-rls-session-protocol.md)
 - [`reference/workspace-and-module-map.md`](../reference/workspace-and-module-map.md)

@@ -110,3 +110,14 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 - Added same-connection and single-pool-worker tests proving context is cleared
   before context-free work runs. This supersedes the earlier session-scoped
   workaround recorded above.
+
+## [2026-07-14] feat | first-class RLS context on base executors
+
+- Expanded `SessionContext` to tenant, subject, active organization, session,
+  roles, permissions, and optional user/org classifications.
+- Added `LifeguardPool::with_session_transaction` over the existing pinned
+  primary executor; no Sesame-specific executor or wrapper hierarchy.
+- Added [`ADR 0002`](../../adr/0002-rls-session-protocol.md) for the narrow,
+  fixed executor-protocol SQL exception.
+- Live RLS suite passes 19/19, including multi-statement context, missing helper,
+  commit, rollback, returned error, panic, and context-free reuse.

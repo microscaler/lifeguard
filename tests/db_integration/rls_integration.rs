@@ -28,18 +28,21 @@ use lifeguard::SessionContext;
 const TENANT_ALPHA: &str = "550e8400-e29b-41d4-a716-446655440001";
 const TENANT_BETA: &str = "550e8400-e29b-41d4-a716-446655440002";
 const TENANT_GAMMA: &str = "550e8400-e29b-41d4-a716-446655440003";
+const PLATFORM_TENANT: &str = "550e8400-e29b-41d4-a716-446655440000";
 const RLS_SET_SESSION_SQL: &str = "CREATE OR REPLACE FUNCTION public.rls_set_session(
-    p_user_id uuid, p_user_org uuid,
-    p_user_type text, p_org_type text,
-    p_permissions jsonb, p_user_email text
+    p_tenant_id uuid, p_subject_id uuid, p_organization_id uuid,
+    p_session_id text, p_roles jsonb, p_permissions jsonb,
+    p_user_type text, p_org_type text
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    PERFORM set_config('auth.user_id', COALESCE(p_user_id::text, ''), true);
-    PERFORM set_config('auth.tenant', COALESCE(p_user_org::text, ''), true);
-    PERFORM set_config('auth.user_type', COALESCE(p_user_type, ''), true);
-    PERFORM set_config('auth.org_type', COALESCE(p_org_type, ''), true);
-    PERFORM set_config('auth.permissions', COALESCE(p_permissions::text, '[]'), true);
-    PERFORM set_config('auth.user_email', COALESCE(p_user_email, ''), true);
+    PERFORM set_config('sesame.tenant_id', p_tenant_id::text, true);
+    PERFORM set_config('sesame.subject_id', p_subject_id::text, true);
+    PERFORM set_config('sesame.organization_id', p_organization_id::text, true);
+    PERFORM set_config('sesame.session_id', p_session_id, true);
+    PERFORM set_config('sesame.roles', p_roles::text, true);
+    PERFORM set_config('sesame.permissions', p_permissions::text, true);
+    PERFORM set_config('sesame.user_type', COALESCE(p_user_type, ''), true);
+    PERFORM set_config('sesame.org_type', COALESCE(p_org_type, ''), true);
 END; $$;";
 use sea_query::{Value, Values};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -150,11 +153,28 @@ fn make_rls_executor(pg_url: &str) -> MayPostgresExecutor {
     MayPostgresExecutor::new(conn)
 }
 
+fn session_context(
+    organization_id: &str,
+    classification: &str,
+    permissions: Vec<String>,
+) -> SessionContext {
+    SessionContext {
+        tenant_id: uuid::Uuid::parse_str(PLATFORM_TENANT).expect("platform tenant UUID"),
+        subject_id: uuid::Uuid::new_v4(),
+        organization_id: uuid::Uuid::parse_str(organization_id).expect("organization UUID"),
+        session_id: format!("rls-test-{}", uuid::Uuid::new_v4()),
+        roles: vec![classification.to_string()],
+        permissions,
+        user_type: Some(classification.to_string()),
+        org_type: Some("tenant".to_string()),
+    }
+}
+
 /// DDL that every RLS test needs:
 /// 1. Unique schema + table
 /// 2. Grants for rls_test_role (USAGE + SELECT)
 /// 3. ENABLE ROW LEVEL SECURITY
-/// 4. RLS policy using auth.tenant GUC
+/// 4. RLS policy using the canonical Sesame organization GUC
 /// 5. Seed data across multiple tenants
 fn setup_rls_fixture(executor: &MayPostgresExecutor, schema: &str, table: &str) {
     executor
@@ -198,12 +218,12 @@ fn setup_rls_fixture(executor: &MayPostgresExecutor, schema: &str, table: &str) 
         )
         .expect("ENABLE RLS");
 
-    // Policy: only rows where tenant matches auth.tenant GUC.
+    // Policy: only rows where tenant matches the active Sesame organization.
     executor
         .execute(
             &format!(
                 "CREATE POLICY rls_tenant_filter ON {schema}.{table} \
-                USING (tenant = NULLIF(current_setting('auth.tenant', true), ''))"
+                USING (tenant = NULLIF(current_setting('sesame.organization_id', true), ''))"
             ),
             &[],
         )
@@ -269,15 +289,11 @@ fn test_a_direct_executor_filters_rows() {
     // With session context for tenant "alpha" we should see exactly 2 rows.
     // The executor wraps context injection and this application query in one
     // transaction, allowing the helper to use transaction-local GUCs.
-    let uid = uuid::Uuid::new_v4();
-    let alpha_exec = make_rls_executor(&primary_url).with_session_context(SessionContext {
-        user_id: Some(uid),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec!["read".into()],
-        user_email: None,
-    });
+    let alpha_exec = make_rls_executor(&primary_url).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec!["read".into()],
+    ));
 
     let c_alpha = count_visible_rows_ok(&alpha_exec, &schema, &table);
     assert_eq!(
@@ -310,16 +326,8 @@ fn test_a2_direct_context_clears_after_one_shot_commit() {
     // Client clones share one underlying connection. Use a contextual executor
     // first, then query through a context-free handle on that exact connection.
     let plain_exec = make_rls_executor(&primary_url);
-    let alpha_exec = MayPostgresExecutor::new(plain_exec.client().clone()).with_session_context(
-        SessionContext {
-            user_id: Some(uuid::Uuid::new_v4()),
-            user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-            user_type: Some("alpha".into()),
-            org_type: None,
-            permissions: vec!["read".into()],
-            user_email: None,
-        },
-    );
+    let alpha_exec = MayPostgresExecutor::new(plain_exec.client().clone())
+        .with_session_context(session_context(TENANT_ALPHA, "alpha", vec!["read".into()]));
 
     assert_eq!(
         count_visible_rows_ok(&alpha_exec, &schema, &table),
@@ -386,16 +394,12 @@ fn test_c_transaction_begin_with_session() {
     let exec = make_rls_executor(&primary_url);
 
     // Begin transaction WITH session context for tenant "beta".
-    let uid = uuid::Uuid::new_v4();
     let tx = exec
-        .begin_with_session(SessionContext {
-            user_id: Some(uid),
-            user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
-            user_type: Some("beta".into()),
-            org_type: None,
-            permissions: vec!["read".into(), "write".into()],
-            user_email: Some("beta@example.com".into()),
-        })
+        .begin_with_session(session_context(
+            TENANT_BETA,
+            "beta",
+            vec!["read".into(), "write".into()],
+        ))
         .expect("begin_with_session");
 
     // Query inside the transaction should see only 1 beta row.
@@ -465,23 +469,17 @@ fn test_d_pool_worker_isolation() {
     let pool = Arc::new(LifeguardPool::new(&rls_url, 2, Vec::new(), 0).expect("create pool"));
 
     // Two pooled executors with different session contexts.
-    let exec_alpha = PooledLifeExecutor::new(pool.clone()).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec!["read".into()],
-        user_email: None,
-    });
+    let exec_alpha = PooledLifeExecutor::new(pool.clone()).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec!["read".into()],
+    ));
 
-    let exec_gamma = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_GAMMA).unwrap()),
-        user_type: Some("gamma".into()),
-        org_type: None,
-        permissions: vec!["read".into()],
-        user_email: None,
-    });
+    let exec_gamma = PooledLifeExecutor::new(pool).with_session_context(session_context(
+        TENANT_GAMMA,
+        "gamma",
+        vec!["read".into()],
+    ));
 
     // Query alpha count via alpha executor.
     let count_alpha = exec_alpha
@@ -551,20 +549,11 @@ fn test_d_pool_worker_isolation() {
 }
 
 // ===================================================================
-// Test E1: Empty SessionContext allows all rows (intentional "allow all")
+// Test E1: Empty roles and permissions retain tenant scoping
 // ===================================================================
 
-/// **E1 — Empty context allows all rows.**
-/// When all SessionContext fields are None/empty, the rls_set_session function
-/// sets auth.tenant to "" (empty string). The RLS policy uses
-/// `NULLIF(current_setting('auth.tenant', true), '')` which converts "" to NULL.
-/// The policy `USING (tenant = NULL)` matches no rows when tenant is NOT NULL,
-/// but our fixture tables use `tenant TEXT NOT NULL`, so a NULL tenant value
-/// means no rows match — unless we use a different policy approach.
-///
-/// However, the key insight is: the test verifies the behavior IS controlled
-/// by the session context, not hardcoded. If the policy is changed to allow
-/// all when tenant is NULL, this test should still pass.
+/// Roles and permissions may legitimately be empty, but the hard identity and
+/// active-organization boundary remains mandatory and scoped.
 #[test]
 fn test_e1_empty_context_visible_rows() {
     let ctx = crate::context::get_test_context();
@@ -575,36 +564,23 @@ fn test_e1_empty_context_visible_rows() {
     let setup_exec = MayPostgresExecutor::new(conn);
     setup_rls_fixture(&setup_exec, &schema, &table);
 
-    // Empty context: all fields None/empty.
-    let empty_ctx = make_rls_executor(&primary_url).with_session_context(SessionContext {
-        user_id: None,
-        user_org_id: None,
-        user_type: None,
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let mut context = session_context(TENANT_ALPHA, "member", vec![]);
+    context.roles.clear();
+    let empty_ctx = make_rls_executor(&primary_url).with_session_context(context);
 
-    // With an empty context, auth.tenant will be "" which NULLIF converts to NULL.
-    // The policy `USING (tenant = NULL)` will not match any non-NULL tenant rows.
-    // This means an empty context is functionally equivalent to "no context" —
-    // fail-closed. The test verifies this is intentional and consistent.
     let count_empty = count_visible_rows_ok(&empty_ctx, &schema, &table);
     assert_eq!(
-        count_empty, 0,
-        "E1: empty context should see 0 rows (fail-closed, same as no context)"
+        count_empty, 2,
+        "E1: empty authorization lists must retain active-organization scoping"
     );
 }
 
 // ===================================================================
-// Test E3: Permissions-only context
+// Test E3: Optional classifications may be absent
 // ===================================================================
 
-/// **E3 — Permissions-only context.**
-/// When only permissions are set (no user_id, org_id, user_type),
-/// the RLS policy should still evaluate. Since auth.tenant is NULL,
-/// no rows match (fail-closed). This tests that the permissions JSON
-/// field serializes correctly even when other fields are empty.
+/// The tenant, subject, organization, and session boundary is always present.
+/// Optional subject and organization classifications do not affect isolation.
 #[test]
 fn test_e3_permissions_only_context() {
     let ctx = crate::context::get_test_context();
@@ -615,21 +591,19 @@ fn test_e3_permissions_only_context() {
     let setup_exec = MayPostgresExecutor::new(conn);
     setup_rls_fixture(&setup_exec, &schema, &table);
 
-    // Context with only permissions set — user_type (maps to tenant) is None.
-    let perms_only_ctx = make_rls_executor(&primary_url).with_session_context(SessionContext {
-        user_id: None,
-        user_org_id: None,
-        user_type: None, // tenant will be NULL → fail-closed
-        org_type: None,
-        permissions: vec!["admin".to_string(), "read".to_string()],
-        user_email: None,
-    });
+    let mut context = session_context(
+        TENANT_BETA,
+        "member",
+        vec!["admin".to_string(), "read".to_string()],
+    );
+    context.user_type = None;
+    context.org_type = None;
+    let perms_only_ctx = make_rls_executor(&primary_url).with_session_context(context);
 
-    // Even with admin permissions, if tenant is NULL, no rows match.
     let count_perms = count_visible_rows_ok(&perms_only_ctx, &schema, &table);
     assert_eq!(
-        count_perms, 0,
-        "E3: permissions-only context (no tenant) should see 0 rows"
+        count_perms, 1,
+        "E3: absent optional classifications must retain active-organization scoping"
     );
 }
 
@@ -651,14 +625,11 @@ fn test_e4_permissions_special_characters() {
     setup_rls_fixture(&setup_exec, &schema, &table);
 
     // Context with permissions containing special characters.
-    let special_perms_ctx = make_rls_executor(&primary_url).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec!["admin:write".to_string(), "read/write".to_string()],
-        user_email: None,
-    });
+    let special_perms_ctx = make_rls_executor(&primary_url).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec!["admin:write".to_string(), "read/write".to_string()],
+    ));
 
     // Should see 2 alpha rows regardless of permissions (tenant is the filter).
     let count_special = count_visible_rows_ok(&special_perms_ctx, &schema, &table);
@@ -686,23 +657,17 @@ fn test_e5_rapid_context_switching_direct() {
     setup_rls_fixture(&setup_exec, &schema, &table);
 
     // Create two executors with different contexts.
-    let ctx_alpha = make_rls_executor(&primary_url).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let ctx_alpha = make_rls_executor(&primary_url).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec![],
+    ));
 
-    let ctx_beta = make_rls_executor(&primary_url).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
-        user_type: Some("beta".into()),
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let ctx_beta = make_rls_executor(&primary_url).with_session_context(session_context(
+        TENANT_BETA,
+        "beta",
+        vec![],
+    ));
 
     // Verify isolation: alpha sees alpha rows, beta sees beta rows.
     let count_alpha = count_visible_rows_ok(&ctx_alpha, &schema, &table);
@@ -754,15 +719,11 @@ fn test_e6_missing_rls_function_returns_error() {
     .expect("drop all rls_set_session overloads");
 
     // Create an executor with session context.
-    let uid = uuid::Uuid::new_v4();
-    let exec_with_ctx = make_rls_executor(&primary_url).with_session_context(SessionContext {
-        user_id: Some(uid),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let exec_with_ctx = make_rls_executor(&primary_url).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec![],
+    ));
 
     // The rls_set_session function is missing, so context injection should
     // fail and the executor should return a PostgresError rather than
@@ -815,18 +776,9 @@ fn test_t1_transaction_rollback_clears_context() {
     setup_rls_fixture(&setup_exec, &schema, &table);
 
     let exec = make_rls_executor(&primary_url);
-    let uid = uuid::Uuid::new_v4();
-
     // Begin a transaction with session context for "alpha".
     let tx = exec
-        .begin_with_session(SessionContext {
-            user_id: Some(uid),
-            user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-            user_type: Some("alpha".into()),
-            org_type: None,
-            permissions: vec!["read".into()],
-            user_email: None,
-        })
+        .begin_with_session(session_context(TENANT_ALPHA, "alpha", vec!["read".into()]))
         .expect("begin_with_session");
 
     // Inside the transaction, we should see alpha rows.
@@ -884,20 +836,11 @@ fn test_t2_serializable_with_session_context() {
     setup_rls_fixture(&setup_exec, &schema, &table);
 
     let exec = make_rls_executor(&primary_url);
-    let uid = uuid::Uuid::new_v4();
-
     // Begin with Serializable isolation and session context.
     let tx = exec
         .begin_with_isolation_session(
             IsolationLevel::Serializable,
-            SessionContext {
-                user_id: Some(uid),
-                user_org_id: Some(uuid::Uuid::parse_str(TENANT_GAMMA).unwrap()),
-                user_type: Some("gamma".into()),
-                org_type: None,
-                permissions: vec![],
-                user_email: None,
-            },
+            session_context(TENANT_GAMMA, "gamma", vec![]),
         )
         .expect("begin_with_isolation_session");
 
@@ -935,17 +878,8 @@ fn test_t3_nested_savepoint_inherits_context() {
     setup_rls_fixture(&setup_exec, &schema, &table);
 
     let exec = make_rls_executor(&primary_url);
-    let uid = uuid::Uuid::new_v4();
-
     let mut tx = exec
-        .begin_with_session(SessionContext {
-            user_id: Some(uid),
-            user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
-            user_type: Some("beta".into()),
-            org_type: None,
-            permissions: vec![],
-            user_email: None,
-        })
+        .begin_with_session(session_context(TENANT_BETA, "beta", vec![]))
         .expect("begin_with_session");
 
     // First query in the transaction: should see beta rows.
@@ -1016,23 +950,17 @@ fn test_p1_pool_rapid_context_switching() {
     // Create a pool with 4 workers.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 4, Vec::new(), 0).expect("create pool"));
 
-    let exec_alpha = PooledLifeExecutor::new(pool.clone()).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let exec_alpha = PooledLifeExecutor::new(pool.clone()).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec![],
+    ));
 
-    let exec_beta = PooledLifeExecutor::new(pool.clone()).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
-        user_type: Some("beta".into()),
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let exec_beta = PooledLifeExecutor::new(pool.clone()).with_session_context(session_context(
+        TENANT_BETA,
+        "beta",
+        vec![],
+    ));
 
     // Rapid sequential queries — verify isolation.
     for _ in 0..5 {
@@ -1078,14 +1006,11 @@ fn test_p2_pool_worker_with_function() {
     // Create a pool with 1 worker.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
 
-    let exec = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let exec = PooledLifeExecutor::new(pool).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec![],
+    ));
 
     // The rls_set_session function should exist (created by setup),
     // so this should succeed. This verifies the happy path.
@@ -1135,14 +1060,11 @@ fn test_p2b_pool_worker_missing_function() {
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
 
     // Create a pooled executor WITH session context.
-    let exec = PooledLifeExecutor::new(Arc::clone(&pool)).with_session_context(SessionContext {
-        user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
-        org_type: None,
-        permissions: vec![],
-        user_email: None,
-    });
+    let exec = PooledLifeExecutor::new(Arc::clone(&pool)).with_session_context(session_context(
+        TENANT_ALPHA,
+        "alpha",
+        vec![],
+    ));
 
     // The helper is missing, so the worker must reject the job before the
     // application query can run without a tenant context.
@@ -1226,15 +1148,8 @@ fn test_p4_pool_worker_context_clears_after_job_commit() {
     let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
     // Exactly one worker guarantees both jobs use the same physical slot.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
-    let alpha_exec =
-        PooledLifeExecutor::new(Arc::clone(&pool)).with_session_context(SessionContext {
-            user_id: Some(uuid::Uuid::new_v4()),
-            user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-            user_type: Some("alpha".into()),
-            org_type: None,
-            permissions: vec![],
-            user_email: None,
-        });
+    let alpha_exec = PooledLifeExecutor::new(Arc::clone(&pool))
+        .with_session_context(session_context(TENANT_ALPHA, "alpha", vec![]));
     let plain_exec = PooledLifeExecutor::new(pool);
     let query = format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table}");
 
@@ -1251,5 +1166,67 @@ fn test_p4_pool_worker_context_clears_after_job_commit() {
     assert_eq!(
         plain_count, 0,
         "P4: context must be cleared before the worker accepts its next job"
+    );
+}
+
+// ===================================================================
+// Test P5: Pinned pooled transaction shares and clears RLS context
+// ===================================================================
+
+#[test]
+fn test_p5_pinned_pool_transaction_context_lifecycle() {
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_rls_schema_names();
+
+    let setup_exec = make_superuser_executor(&primary_url);
+    setup_rls_fixture(&setup_exec, &schema, &table);
+
+    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    // One slot proves all lifecycle checks reuse the same physical connection.
+    let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
+    let alpha_context = session_context(TENANT_ALPHA, "alpha", vec!["read".into()]);
+    let query = format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table}");
+
+    let two_counts = pool
+        .with_session_transaction(&alpha_context, |executor| {
+            let first = executor
+                .query_one_values(&query, &Values(vec![]))?
+                .get::<_, i64>(0);
+            let second = executor
+                .query_one_values(&query, &Values(vec![]))?
+                .get::<_, i64>(0);
+            Ok((first, second))
+        })
+        .expect("pinned contextual transaction");
+    assert_eq!(two_counts, (2, 2), "all statements share one RLS context");
+
+    let application_error = pool.with_session_transaction(&alpha_context, |executor| {
+        let visible = executor
+            .query_one_values(&query, &Values(vec![]))?
+            .get::<_, i64>(0);
+        assert_eq!(visible, 2);
+        Err::<(), _>(LifeError::Other("application failure".to_string()))
+    });
+    assert!(matches!(application_error, Err(LifeError::Other(_))));
+
+    let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _: Result<(), LifeError> = pool.with_session_transaction(&alpha_context, |executor| {
+            let visible = executor
+                .query_one_values(&query, &Values(vec![]))?
+                .get::<_, i64>(0);
+            assert_eq!(visible, 2);
+            panic!("intentional transaction unwind");
+        });
+    }));
+    assert!(panic_result.is_err(), "the test closure must unwind");
+
+    let plain_count = PooledLifeExecutor::new(pool)
+        .query_one_values(&query, &Values(vec![]))
+        .expect("context-free query after commit, error, and panic")
+        .get::<_, i64>(0);
+    assert_eq!(
+        plain_count, 0,
+        "commit, application error, and panic must all clear transaction-local context"
     );
 }

@@ -220,7 +220,7 @@ impl Transaction {
                 let args_refs: Vec<&dyn may_postgres::types::ToSql> =
                     args.iter().map(|a| a.as_ref()).collect();
                 client
-                    .execute("SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)", &args_refs)
+                    .execute("SELECT public.rls_set_session($1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)", &args_refs)
                     .map_err(TransactionError::from)?;
             }
             Ok(())
