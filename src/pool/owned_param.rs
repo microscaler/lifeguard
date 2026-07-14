@@ -6,6 +6,7 @@
 //! can rebuild `ToSql` references on their stack.
 
 use crate::executor::LifeError;
+use crate::value::TextParam;
 use may_postgres::types::ToSql;
 use sea_query::Value;
 
@@ -19,7 +20,9 @@ pub enum OwnedParam {
     BigInt(Option<i64>),
     Float(Option<f32>),
     Double(Option<f64>),
-    String(Option<String>),
+    /// TEXT-family bind that also accepts JSON/JSONB columns with
+    /// `text::jsonb` cast semantics (see [`TextParam`]); `None` is SQL NULL.
+    String(TextParam),
     Bytes(Option<Vec<u8>>),
     ChronoDate(Option<chrono::NaiveDate>),
     ChronoTime(Option<chrono::NaiveTime>),
@@ -77,8 +80,8 @@ impl TryFrom<&Value> for OwnedParam {
             Value::BigInt(Some(i)) => Ok(OwnedParam::BigInt(Some(*i))),
             Value::BigInt(None) => Ok(OwnedParam::GenericNull),
 
-            Value::String(Some(s)) => Ok(OwnedParam::String(Some(s.clone()))),
-            Value::String(None) => Ok(OwnedParam::String(None)),
+            Value::String(Some(s)) => Ok(OwnedParam::String(TextParam::some(s.clone()))),
+            Value::String(None) => Ok(OwnedParam::String(TextParam::null())),
 
             Value::Bytes(Some(b)) => Ok(OwnedParam::Bytes(Some(b.clone()))),
             Value::Bytes(None) => Ok(OwnedParam::Bytes(None)),
@@ -208,6 +211,44 @@ mod tests {
     }
 
     #[test]
+    fn string_param_binds_to_jsonb_with_cast_semantics() {
+        use bytes::BytesMut;
+        use postgres_types::{IsNull, Type};
+
+        // Stringified JSON document bound to a jsonb column must encode as
+        // the parsed document (regression: previously failed with "cannot
+        // convert between the Rust type Option<String> and jsonb").
+        let doc = serde_json::json!({"step": 3, "form": {"city": "Oslo"}});
+        let p = OwnedParam::try_from(&Value::String(Some(doc.to_string()))).expect("string param");
+        let mut buf = BytesMut::new();
+        assert!(matches!(
+            p.as_sql_ref().to_sql_checked(&Type::JSONB, &mut buf),
+            Ok(IsNull::No)
+        ));
+        let mut native = BytesMut::new();
+        doc.to_sql_checked(&Type::JSONB, &mut native)
+            .expect("native");
+        assert_eq!(buf, native, "same wire bytes as binding serde_json::Value");
+
+        // TEXT binding is unchanged.
+        let mut tbuf = BytesMut::new();
+        assert!(matches!(
+            p.as_sql_ref().to_sql_checked(&Type::TEXT, &mut tbuf),
+            Ok(IsNull::No)
+        ));
+
+        // Invalid JSON against jsonb errors with a useful message.
+        let bad = OwnedParam::try_from(&Value::String(Some("not json".to_string())))
+            .expect("string param");
+        let mut bbuf = BytesMut::new();
+        let res = bad.as_sql_ref().to_sql_checked(&Type::JSONB, &mut bbuf);
+        assert!(res.is_err(), "invalid JSON must not bind to jsonb");
+        if let Err(err) = res {
+            assert!(err.to_string().contains("not valid JSON"), "{err}");
+        }
+    }
+
+    #[test]
     fn try_from_json_encodes_for_json_and_jsonb() {
         use bytes::BytesMut;
         use postgres_types::{IsNull, Type};
@@ -234,7 +275,7 @@ mod tests {
         use sea_query::Value;
 
         let s = OwnedParam::try_from(&Value::String(None));
-        assert!(matches!(s, Ok(OwnedParam::String(None))));
+        assert!(matches!(s, Ok(OwnedParam::String(TextParam(None)))));
         let mut buf = BytesMut::new();
         assert!(matches!(
             s.expect("string null")

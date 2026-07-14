@@ -49,6 +49,11 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 /// - `FromRow` implementation (automatic)
 /// - `LifeModelTrait` implementation (via nested `DeriveEntity`)
 ///
+/// **Supported Attributes:**
+/// - `#[readonly]`: Excludes the field from `INSERT` operations. Critical for Postgres `GENERATED ALWAYS` columns which strictly reject explicit values, even `NULL`.
+/// - `#[generated]`: Marks the column as database-generated (e.g. sequences, triggers).
+/// - `#[generated_always_as = "<expr>"]`: Explicitly defines the deterministic, immutable SQL expression used by the database to hydrate the field upon insert.
+///
 /// See `lifeguard-derive/tests/test_minimal.rs` for usage examples.
 #[proc_macro_derive(
     LifeModel,
@@ -70,6 +75,9 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
         auto_increment,
         enum_name,
         skip,
+        readonly,
+        generated,
+        generated_always_as,
         table_comment,
         index,
         foreign_key,
@@ -105,6 +113,11 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 /// - Optional `#[validate(custom = path)]` on fields: `path` is `fn(&sea_query::Value) -> Result<(), String>`; runs when the field is set (`get` is `Some`) during `validate_fields`.
 /// - Optional `#[validation_strategy = "aggregate"]` or `"fail_fast"` on the struct: controls how multiple field validators combine (default: fail fast).
 /// - F-style **`UPDATE`**: `set_<field>_expr(sea_query::SimpleExpr)` schedules `SET col = <expr>` (e.g. `Column::n.f_add(1)`); stored in `__update_exprs` until `reset` / `from_model`. Literal `set_*` clears the expression for that column.
+///
+/// **Supported Attributes:**
+/// - `#[readonly]`: Excludes the field from `UPDATE` (and `INSERT`) operations. Vital for Postgres `GENERATED ALWAYS` columns.
+/// - `#[generated]`: Marks the column as database-generated.
+/// - `#[generated_always_as = "<expr>"]`: Explicitly defines the immutable SQL expression used by the database to hydrate the field.
 #[proc_macro_derive(
     LifeRecord,
     attributes(
@@ -121,6 +134,9 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         auto_increment,
         enum_name,
         skip,
+        readonly,
+        generated,
+        generated_always_as,
         soft_delete,
         auto_timestamp,
         lifecycle_hook,

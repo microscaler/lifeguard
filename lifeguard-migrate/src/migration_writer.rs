@@ -34,6 +34,12 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// macOS AppleDouble resource forks (`._foo.sql`) are binary and must never be read as UTF-8 SQL.
+#[must_use]
+pub fn is_macos_resource_fork_file_name(name: &str) -> bool {
+    name.starts_with("._")
+}
+
 /// Outcome of a single `write_per_table_migration_file` invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmissionOutcome {
@@ -227,6 +233,9 @@ pub fn accumulate_per_table_baselines_from_dir(
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
+            if is_macos_resource_fork_file_name(name) {
+                continue;
+            }
             let Some((ts, table)) = parse_per_table_migration_filename(name) else {
                 continue;
             };
@@ -270,7 +279,7 @@ pub fn find_existing_per_table_files(
         if path
             .file_name()
             .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with(&suffix))
+            .is_some_and(|n| !is_macos_resource_fork_file_name(n) && n.ends_with(&suffix))
         {
             files.push(path);
         }
@@ -590,5 +599,27 @@ mod tests {
             "big-file layout must still be surfaced: {:?}",
             map.keys().collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn find_existing_per_table_files_ignores_macos_resource_forks() {
+        let dir = tempdir().unwrap();
+        write(
+            &dir.path().join("20260417054933_notification_alerts.sql"),
+            "CREATE TABLE IF NOT EXISTS notification_alerts (id UUID PRIMARY KEY);\n",
+        );
+        // Binary AppleDouble fork — must not be matched even though it ends with the suffix.
+        fs::write(
+            &dir.path().join("._20260417054933_notification_alerts.sql"),
+            &[0x00, 0x05, 0x16, 0x07, 0xff],
+        )
+        .unwrap();
+
+        let files = find_existing_per_table_files(dir.path(), "notification_alerts").unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0]
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| !n.starts_with("._")));
     }
 }

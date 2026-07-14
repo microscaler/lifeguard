@@ -180,8 +180,8 @@ pub use raw_sql::{
 // Value type system - Epic 02 Story 10 (Phase 4: Value Type Infrastructure)
 pub mod value;
 pub use value::{
-    FromValueTuple, IntoValueTuple, TryFromU64, TryGetable, TryGetableMany, ValueExtractionError,
-    ValueType,
+    FromValueTuple, IntoValueTuple, TextParam, TryFromU64, TryGetable, TryGetableMany,
+    ValueExtractionError, ValueType,
 };
 
 // Re-export transaction types for convenience

@@ -44,3 +44,47 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 - New topics: [`topics/coding-standards-jsf-inspired.md`](./topics/coding-standards-jsf-inspired.md), [`topics/pragmatic-rust-guidelines.md`](./topics/pragmatic-rust-guidelines.md).
 - Updated [`../../AGENT.md`](../../AGENT.md) **Core rule §6**; expanded [`docs-catalog.md`](./docs-catalog.md) and [`index.md`](./index.md).
 - Aligned [`../../clippy.toml`](../../clippy.toml) numeric thresholds with the platform JSF-inspired profile.
+
+## [2026-05-04] feat | Story 6 — End-to-end RLS integration tests
+
+- Created `tests/db_integration/rls_integration.rs` with 4 scenarios:
+  - **Test A:** Direct executor filters rows via `MayPostgresExecutor::with_session_context`
+  - **Test B:** Fail-closed (no context = 0 rows visible)
+  - **Test C:** Transaction `begin_with_session` propagates context to all queries
+  - **Test D:** Pool worker isolation — different contexts see different rows
+- Fixed `rls_set_session` SQL function: `set_config(..., false)` for session-scoped
+  GUC persistence (critical: `set_config(..., true)` is transaction-scoped and
+  vanishes after autocommit in direct executor path).
+- Fixed pool test: `rls_test_role` now has LOGIN + password; pool uses role URL
+  so workers authenticate as non-superuser (superusers bypass RLS by default).
+- Fixed test assertions: removed explicit `WHERE tenant = $X` queries (bypass
+  RLS), replaced with full-count queries verifying visible row count.
+
+## [2026-06-12] fix | TextParam — Value::String binds to JSON/JSONB with text::jsonb cast semantics
+
+- Root cause (reported from Tiffany's WAL sink; likely the Hauliage JSONB-update
+  failure mode too): `Value::String` was bound via `String`'s `ToSql`, which
+  rejects `jsonb` params → "cannot convert between the Rust type
+  `Option<String>` and the Postgres type `jsonb`". Callers had to write
+  `($n::text)::jsonb` casts by hand.
+- New [`src/value/text_param.rs`](../../src/value/text_param.rs) (`TextParam`,
+  exported at crate root): TEXT-family unchanged; JSON/JSONB parses the string
+  as a document (PostgreSQL `text::jsonb` semantics, bind-time error on invalid
+  JSON). Wired into **both** dispatch paths: `query/converted_params.rs`
+  (strings + null-strings buckets) and `pool/owned_param.rs`
+  (`OwnedParam::String` now holds `TextParam` — construction sites internal).
+- Tests: unit coverage in `text_param.rs` (wire-byte equality with native
+  `serde_json::Value`, PG cast semantics for scalars, invalid-JSON error,
+  typed NULLs) + regression tests on both dispatch paths. 492 lib tests green;
+  clippy/fmt clean. Live-verified against Postgres 16 from Tiffany
+  (`crates/executor/tests/wal_pg.rs`).
+- Updated [`topics/postgres-scalars-uuid-chrono.md`](./topics/postgres-scalars-uuid-chrono.md)
+  with the JSON/JSONB binding section.
+
+## [2026-07-14] feat | readonly and generated PostgreSQL columns
+
+- Completed `#[readonly]` / `#[generated]` write exclusion and insert hydration.
+- Added `#[generated_always_as = "<expression>"]` metadata for both runtime
+  schema creation and `lifeguard-migrate` SQL generation.
+- Added live PostgreSQL coverage using a real `GENERATED ALWAYS ... STORED`
+  column and documented the trusted compile-time expression boundary.

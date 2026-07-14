@@ -77,6 +77,8 @@ pub struct ColumnDefinition {
     pub default_value: Option<String>,
     /// Default SQL expression (e.g., `NOW()`, `uuid_generate_v4()`)
     pub default_expr: Option<String>,
+    /// The expression for a GENERATED ALWAYS AS column.
+    pub generated_always_as: Option<String>,
     /// Previous column name (for migrations - column was renamed from this)
     pub renamed_from: Option<String>,
     /// Custom SELECT expression (e.g., `CONCAT(first, ' ', last) AS full_name`)
@@ -239,6 +241,27 @@ impl ColumnDefinition {
             let static_str = get_static_expr(expr_str);
             let expr = Expr::cust(static_str);
             def.default(expr);
+        }
+    }
+
+    /// Apply GENERATED ALWAYS AS expression to a `ColumnDef` (for use in migrations)
+    ///
+    /// This helper method applies the generated SQL expression to a `ColumnDef`.
+    /// It should be called by migration builders after `to_column_def()` if
+    /// `generated_always_as` is set.
+    ///
+    /// # Arguments
+    ///
+    /// * `def` - The `ColumnDef` to apply the generated expression to
+    pub fn apply_generated_always_as_expr(&self, def: &mut ColumnDef) {
+        use sea_query::Expr;
+
+        if let Some(ref expr_str) = self.generated_always_as {
+            // Use cached static string to avoid leaking memory on every call
+            let static_str = get_static_expr(expr_str);
+            let expr = Expr::cust(static_str);
+            // In PostgreSQL, generated columns are always STORED, so we pass true
+            def.generated(expr, true);
         }
     }
 
@@ -410,6 +433,7 @@ impl ColumnDefinition {
             nullable,
             default_value: None,
             default_expr: None,
+            generated_always_as: None,
             renamed_from: None,
             select_as: None,
             save_as: None,
@@ -435,6 +459,7 @@ mod tests {
         assert!(!def.nullable);
         assert_eq!(def.default_value, None);
         assert_eq!(def.default_expr, None);
+        assert_eq!(def.generated_always_as, None);
         assert_eq!(def.renamed_from, None);
         assert_eq!(def.select_as, None);
         assert_eq!(def.save_as, None);
@@ -453,6 +478,7 @@ mod tests {
             nullable: true,
             default_value: Some("''".to_string()),
             default_expr: Some("NOW()".to_string()),
+            generated_always_as: None,
             renamed_from: Some("old_name".to_string()),
             select_as: None,
             save_as: None,
@@ -469,6 +495,7 @@ mod tests {
         assert!(def.nullable);
         assert_eq!(def.default_value, Some("''".to_string()));
         assert_eq!(def.default_expr, Some("NOW()".to_string()));
+        assert_eq!(def.generated_always_as, None);
         assert_eq!(def.renamed_from, Some("old_name".to_string()));
         assert!(def.unique);
         assert!(def.indexed);
@@ -482,6 +509,7 @@ mod tests {
             nullable: true,
             default_value: None,
             default_expr: None,
+            generated_always_as: None,
             renamed_from: None,
             select_as: None,
             save_as: None,
@@ -516,6 +544,7 @@ mod tests {
             nullable: false,
             default_value: None,
             default_expr: Some("NOW()".to_string()),
+            generated_always_as: None,
             renamed_from: None,
             select_as: None,
             save_as: None,

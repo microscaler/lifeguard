@@ -301,6 +301,9 @@ impl<'a> SchemaManager<'a> {
             // Apply default expression if present
             col_def.apply_default_expr(&mut sea_def);
 
+            // Apply generated always as expression if present
+            col_def.apply_generated_always_as_expr(&mut sea_def);
+
             // Add column to table
             // Note: If the column has .primary_key() set in its ColumnDef,
             // SeaQuery will automatically handle the primary key constraint

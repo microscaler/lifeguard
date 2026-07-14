@@ -23,7 +23,7 @@
 //! **Do not** route these through the generic bucket — each uses **`Option<T>`** storage so
 //! `ToSql::accepts` matches the target column OID:
 //!
-//! - `String(None)` → `null_strings: Vec<Option<String>>`
+//! - `String(None)` → `null_strings: Vec<TextParam>` (typed NULL accepted by TEXT *and* JSON/JSONB)
 //! - `Bytes(None)` → `null_bytes: Vec<Option<Vec<u8>>>`
 //! - `Json(None)` → `null_json_values: Vec<Option<serde_json::Value>>`
 //! - Chrono / `Uuid` variants → their existing typed-null vectors
@@ -48,10 +48,12 @@ where
     // `sea_query::Value::TinyInt` / `SmallInt` / small unsigned — PostgreSQL `INT2`, not `INT4`.
     let mut small_ints: Vec<i16> = Vec::new();
     let mut big_ints: Vec<i64> = Vec::new();
-    let mut strings: Vec<String> = Vec::new();
+    // `TextParam`, not `String`: binds TEXT-family as before, and JSON/JSONB
+    // with `text::jsonb` cast semantics (stringified-JSON footgun fix).
+    let mut strings: Vec<crate::value::TextParam> = Vec::new();
     let mut json_values: Vec<serde_json::Value> = Vec::new();
     let mut null_json_values: Vec<Option<serde_json::Value>> = Vec::new();
-    let mut null_strings: Vec<Option<String>> = Vec::new();
+    let mut null_strings: Vec<crate::value::TextParam> = Vec::new();
     let mut null_bytes: Vec<Option<Vec<u8>>> = Vec::new();
     let mut bytes: Vec<Vec<u8>> = Vec::new();
     let mut nulls: Vec<Option<i32>> = Vec::new();
@@ -82,7 +84,7 @@ where
             Value::Bool(Some(b)) => bools.push(*b),
             Value::Int(Some(i)) => ints.push(*i),
             Value::BigInt(Some(i)) => big_ints.push(*i),
-            Value::String(Some(s)) => strings.push(s.clone()),
+            Value::String(Some(s)) => strings.push(crate::value::TextParam::some(s.clone())),
             Value::Bytes(Some(b)) => bytes.push(b.clone()),
             Value::TinyInt(Some(i)) => small_ints.push(i16::from(*i)),
             Value::SmallInt(Some(i)) => small_ints.push(*i),
@@ -118,7 +120,7 @@ where
 
             Value::Uuid(Some(u)) => uuids.push(*u),
 
-            Value::String(None) => null_strings.push(None),
+            Value::String(None) => null_strings.push(crate::value::TextParam::null()),
             Value::Bytes(None) => null_bytes.push(None),
 
             #[allow(clippy::match_same_arms)]
@@ -362,6 +364,43 @@ mod tests {
                     "each Value must yield exactly one bind parameter"
                 );
                 Ok::<(), String>(())
+            },
+        );
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn string_params_bind_to_jsonb_columns_with_cast_semantics() {
+        use postgres_types::{IsNull, Type};
+
+        // Regression: stringified JSON through the direct-executor values
+        // path must bind to a jsonb column (previously: "cannot convert
+        // between the Rust type Option<String> and the Postgres type jsonb").
+        let doc = serde_json::json!({"k": [1, 2, 3]});
+        let values = vec![Value::String(Some(doc.to_string())), Value::String(None)];
+        let result = with_converted_value_slice(
+            &values,
+            |e| e,
+            |params| {
+                let mut buf = bytes::BytesMut::new();
+                match params[0].to_sql_checked(&Type::JSONB, &mut buf) {
+                    Ok(IsNull::No) => {}
+                    Ok(IsNull::Yes) => return Err("doc bound as NULL".to_string()),
+                    Err(e) => return Err(format!("doc should bind to jsonb: {e}")),
+                }
+                let mut nbuf = bytes::BytesMut::new();
+                match params[1].to_sql_checked(&Type::JSONB, &mut nbuf) {
+                    Ok(IsNull::Yes) => {}
+                    Ok(IsNull::No) => return Err("expected jsonb NULL".to_string()),
+                    Err(e) => return Err(format!("String(None) should be jsonb NULL: {e}")),
+                }
+                // TEXT binding still works for the same params.
+                let mut tbuf = bytes::BytesMut::new();
+                match params[0].to_sql_checked(&Type::TEXT, &mut tbuf) {
+                    Ok(IsNull::No) => Ok(()),
+                    Ok(IsNull::Yes) => Err("doc bound as TEXT NULL".to_string()),
+                    Err(e) => Err(format!("doc should still bind as TEXT: {e}")),
+                }
             },
         );
         assert!(result.is_ok(), "{:?}", result.err());

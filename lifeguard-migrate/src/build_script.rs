@@ -46,6 +46,10 @@ fn discover_entities_recursive(
             }
             discover_entities_recursive(root_dir, &path, entities)?;
         } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if file_name.starts_with("._") {
+                continue;
+            }
             // Check if file contains #[derive(...LifeModel...)] in any pattern
             if let Ok(content) = fs::read_to_string(&path) {
                 if contains_lifemodel_derive(&content) {
@@ -165,8 +169,8 @@ fn extract_struct_name(content: &str) -> Result<Option<String>, Box<dyn std::err
 
     for (i, line) in lines.iter().enumerate() {
         if contains_lifemodel_derive(line) {
-            // Look ahead for struct definition (within next 25 lines to handle multiple attributes)
-            for j in (i + 1)..(i + 25).min(lines.len()) {
+            // Look ahead for struct definition (within next 100 lines to handle multi-line attributes)
+            for j in (i + 1)..(i + 100).min(lines.len()) {
                 let struct_line = lines[j].trim();
                 if struct_line.starts_with("pub struct ") || struct_line.starts_with("struct ") {
                     // Extract struct name

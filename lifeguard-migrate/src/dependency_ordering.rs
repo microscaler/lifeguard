@@ -82,18 +82,26 @@ pub fn build_dependency_graph(tables: &[TableInfo]) -> HashMap<String, Vec<Strin
 /// Returns tables in order: dependencies first, dependents last
 /// Returns None if there's a circular dependency
 pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
+    // Deduplicate by table name: keep the last occurrence so that
+    // whichever entry appears last in the input wins (merge semantics).
+    let mut by_name: HashMap<String, TableInfo> = HashMap::new();
+    for t in tables {
+        by_name.insert(t.name.clone(), t.clone());
+    }
+    let tables: Vec<TableInfo> = by_name.into_values().collect();
+
     // Build reverse graph: for each table, track which tables depend on it
     let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
     let mut in_degree: HashMap<String, usize> = HashMap::new();
 
     // Initialize
-    for table in tables {
+    for table in &tables {
         in_degree.insert(table.name.clone(), table.dependencies.len());
         reverse_graph.insert(table.name.clone(), Vec::new());
     }
 
     // Build reverse graph: if A depends on B, then B has A as a dependent
-    for table in tables {
+    for table in &tables {
         for dep in &table.dependencies {
             if let Some(dependents) = reverse_graph.get_mut(dep) {
                 dependents.push(table.name.clone());
@@ -201,6 +209,24 @@ mod tests {
         assert_eq!(sorted[0], "banks");
         assert_eq!(sorted[1], "bank_accounts");
         assert_eq!(sorted[2], "bank_transactions");
+    }
+
+    #[test]
+    fn test_topological_sort_deduplicates_table_names_using_last_definition() {
+        let tables = vec![
+            TableInfo {
+                name: "accounts".to_string(),
+                sql: "old".to_string(),
+                dependencies: vec!["missing_old_dependency".to_string()],
+            },
+            TableInfo {
+                name: "accounts".to_string(),
+                sql: "new".to_string(),
+                dependencies: vec![],
+            },
+        ];
+
+        assert_eq!(topological_sort(&tables).unwrap(), vec!["accounts"]);
     }
 
     #[test]

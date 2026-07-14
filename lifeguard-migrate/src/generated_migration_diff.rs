@@ -544,6 +544,11 @@ fn is_simple_ident(s: &str) -> bool {
 fn index_line_with_if_not_exists(line: &str) -> String {
     let t = line.trim();
     let upper = t.to_ascii_uppercase();
+    if upper.starts_with("CREATE UNIQUE INDEX IF NOT EXISTS ")
+        || upper.starts_with("CREATE INDEX IF NOT EXISTS ")
+    {
+        return t.to_string();
+    }
     if upper.starts_with("CREATE UNIQUE INDEX ") {
         let rest = &t["CREATE UNIQUE INDEX ".len()..];
         format!("CREATE UNIQUE INDEX IF NOT EXISTS {rest}")
@@ -856,5 +861,20 @@ CREATE TABLE IF NOT EXISTS widgets (
             .push("CREATE INDEX IF NOT EXISTS i ON t(id);\n".to_string());
         let m = index_statements_for_table_from_merged_baseline(&parts, "t");
         assert!(m.contains_key("i"));
+    }
+
+    #[test]
+    fn delta_index_already_has_if_not_exists_is_not_doubled() {
+        let old = "-- Table: t\nCREATE TABLE IF NOT EXISTS t (\n    id INT PRIMARY KEY\n);\n\n";
+        let new = r"CREATE TABLE IF NOT EXISTS t (
+    id INT PRIMARY KEY,
+    col INT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_t_col ON t(col);
+";
+        let body = build_service_migration_body(Some(old), &[("t".into(), new.into())]);
+        assert!(body.contains("CREATE INDEX IF NOT EXISTS idx_t_col"));
+        assert!(!body.contains("IF NOT EXISTS IF NOT EXISTS"));
     }
 }
