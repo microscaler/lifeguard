@@ -71,18 +71,20 @@ CREATE OR REPLACE FUNCTION public.rls_set_session(
     p_user_org_id   uuid        DEFAULT NULL,
     p_user_type     text        DEFAULT NULL,
     p_org_type      text        DEFAULT NULL,
-    p_permissions   text[]      DEFAULT '{}',
+    p_permissions   jsonb       DEFAULT '[]'::jsonb,
     p_user_email    text        DEFAULT NULL
 ) RETURNS void
-LANGUAGE sql
-SET LOCAL search_path = public
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
 AS $$
-    SELECT SET LOCAL 'auth.user_id'::text, COALESCE(p_user_id::text, '');
-    SELECT SET LOCAL 'auth.user_org_id'::text, COALESCE(p_user_org_id::text, '');
-    SELECT SET LOCAL 'auth.user_type'::text, COALESCE(p_user_type, '');
-    SELECT SET LOCAL 'auth.org_type'::text, COALESCE(p_org_type, '');
-    SELECT SET LOCAL 'auth.permissions'::text, COALESCE(p_permissions::text, '{}');
-    SELECT SET LOCAL 'auth.user_email'::text, COALESCE(p_user_email, '');
+BEGIN
+    PERFORM set_config('auth.user_id', COALESCE(p_user_id::text, ''), true);
+    PERFORM set_config('auth.user_org_id', COALESCE(p_user_org_id::text, ''), true);
+    PERFORM set_config('auth.user_type', COALESCE(p_user_type, ''), true);
+    PERFORM set_config('auth.org_type', COALESCE(p_org_type, ''), true);
+    PERFORM set_config('auth.permissions', COALESCE(p_permissions::text, '[]'), true);
+    PERFORM set_config('auth.user_email', COALESCE(p_user_email, ''), true);
+END;
 $$;
 
 -- Convenience getters for RLS policy templates
@@ -96,13 +98,16 @@ CREATE OR REPLACE FUNCTION rls_current_user_email()    RETURNS text       LANGUA
 
 **Key Design Decisions:**
 - Function name (`rls_set_session`) and variable namespace (`auth.*`) are **application-defined conventions**, not Lifeguard mandates. Lifeguard's executor wrapper supports any function name via configuration.
-- `SET LOCAL` inside function ensures variables are transaction-scoped and automatically cleaned up
+- `set_config(..., true)` makes every variable transaction-local and automatically cleaned up
+- Lifeguard calls the helper inside the same transaction as the contextual application statement
 - `current_setting(..., true)` prevents errors if variable isn't set (returns `NULL` instead of raising)
 - Default values are `NULL`/empty — no assumed roles. The consuming app decides what makes sense
 
 **Current implementation:** the executor, transaction, and pool paths call the
-schema-qualified `public.rls_set_session` helper. Lifeguard does **not** ship the
-function; the consuming application owns its migration and grants. The earlier
+schema-qualified `public.rls_set_session` helper. Contextual one-shot operations
+use a short `BEGIN` / helper / statement / `COMMIT` transaction; explicit
+transactions inject once after `BEGIN`. Lifeguard does **not** ship the function;
+the consuming application owns its migration and grants. The earlier
 configurable-name proposal below is design history, not a delivered API.
 
 ### 4.2 Phase 2: RLS-Enabled Executor Wrapper (Lifeguard Ownership)

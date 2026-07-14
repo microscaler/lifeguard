@@ -6,8 +6,9 @@
 //!
 //! ## Row Level Security (RLS)
 //!
-//! Lifeguard supports PostgreSQL Row Level Security by injecting session variables
-//! (`auth.tenant`, `auth.user_type`, etc.) before every query. The entry points are:
+//! Lifeguard supports PostgreSQL Row Level Security by injecting transaction-local
+//! variables (`auth.tenant`, `auth.user_type`, etc.) around contextual work. The entry
+//! points are:
 //!
 //! - [`MayPostgresExecutor::with_session_context`] — for single-connection executors
 //! - [`MayPostgresExecutor::begin_with_session`] — for transactions (context set once)
@@ -277,9 +278,11 @@ impl LifeExecutor for &dyn LifeExecutor {
 ///
 /// This is the primary executor implementation that directly uses a `may_postgres::Client`.
 ///
-/// **RLS integration (Story 2):** optionally carries a [`SessionContext`] which is injected
-/// via `SELECT public.rls_set_session(...)` before every query. When `session_context`
-/// is `None` (the default) the executor is functionally identical to the pre-RLS baseline.
+/// **RLS integration (Story 2):** optionally carries a [`SessionContext`]. Each contextual
+/// one-shot operation runs `BEGIN`, calls `public.rls_set_session(...)`, executes the
+/// application statement, and commits. This keeps the helper's GUCs transaction-local and
+/// prevents tenant context leaking through a reused connection. When `session_context` is
+/// `None` (the default) the executor is functionally identical to the pre-RLS baseline.
 pub struct MayPostgresExecutor {
     client: Client,
     session_context: Option<SessionContext>,
@@ -309,9 +312,10 @@ impl MayPostgresExecutor {
 
     /// Attach a [`SessionContext`] for RLS session injection.
     ///
-    /// When a context is attached, every query executed through this executor
-    /// will first run `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` to set
-    /// the session-level variables that power Row Level Security policies.
+    /// When a context is attached, every one-shot operation executed through this
+    /// executor runs in a short transaction. The executor calls
+    /// `public.rls_set_session($1, $2, $3, $4, $5, $6)` before the application
+    /// statement and commits only if both calls succeed.
     ///
     /// Returns `self` for method chaining.
     ///
@@ -320,7 +324,7 @@ impl MayPostgresExecutor {
     /// ```no_run
     /// use lifeguard::{MayPostgresExecutor, SessionContext, connect};
     ///
-    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
     /// let executor = MayPostgresExecutor::new(client)
     ///     .with_session_context(SessionContext {
@@ -343,12 +347,10 @@ impl MayPostgresExecutor {
     /// Runs `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` on the underlying
     /// client.
     ///
-    /// When `session_context` is `Some` the caller-provided context is injected.
-    /// When `None` a cleared default context is used to reset stale GUCs — if the
-    /// function does not exist in the current search path the call silently returns
-    /// `Ok(())` (non-RLS path).  If a context *is* attached but the call fails for
-    /// any reason (including missing function) the error is propagated because
-    /// execution without RLS context would be unsafe.
+    /// This method is called only after the executor has opened a transaction. When
+    /// `session_context` is `None` it returns immediately, preserving the non-RLS path.
+    /// If a context is attached but the helper fails for any reason (including a missing
+    /// function), the error is propagated and the enclosing transaction is rolled back.
     ///
     /// # Errors
     ///
@@ -356,23 +358,52 @@ impl MayPostgresExecutor {
     /// - Permissions cannot be serialised to JSON.
     /// - A session context is attached but the `rls_set_session` call fails.
     fn run_set_session(&self) -> Result<(), LifeError> {
-        let default_ctx = SessionContext::default();
-        let ctx = self.session_context.as_ref().unwrap_or(&default_ctx);
+        let Some(ctx) = self.session_context.as_ref() else {
+            return Ok(());
+        };
         let args = ctx.to_sql_args()?;
         let args_refs: Vec<&dyn may_postgres::types::ToSql> =
             args.iter().map(|a| a.as_ref()).collect();
-        match self.client.execute(
+        self.client.execute(
             "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
             &args_refs,
-        ) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                // When no session context is attached, "function does not exist"
-                // is benign — the application simply isn't using RLS.
-                if self.session_context.is_none() && e.code().is_some_and(|s| s.code() == "42883") {
-                    return Ok(());
+        )
+        .map(|_| ())
+        .map_err(LifeError::PostgresError)
+    }
+
+    /// Run one application operation inside the transaction that owns its RLS context.
+    fn with_session_transaction<T>(
+        &self,
+        operation: impl FnOnce(&Client) -> Result<T, LifeError>,
+    ) -> Result<T, LifeError> {
+        if self.session_context.is_none() {
+            return operation(&self.client);
+        }
+
+        self.client
+            .execute("BEGIN", &[])
+            .map_err(LifeError::PostgresError)?;
+
+        let result = self
+            .run_set_session()
+            .and_then(|()| operation(&self.client));
+
+        match result {
+            Ok(value) => match self.client.execute("COMMIT", &[]) {
+                Ok(_) => Ok(value),
+                Err(error) => {
+                    let _ = self.client.execute("ROLLBACK", &[]);
+                    Err(LifeError::PostgresError(error))
                 }
-                Err(LifeError::PostgresError(e))
+            },
+            Err(error) => {
+                if let Err(rollback_error) = self.client.execute("ROLLBACK", &[]) {
+                    log::warn!(
+                        "lifeguard executor: rollback after contextual operation failed: {rollback_error}"
+                    );
+                }
+                Err(error)
             }
         }
     }
@@ -461,7 +492,7 @@ impl MayPostgresExecutor {
     /// ```no_run
     /// use lifeguard::{MayPostgresExecutor, SessionContext, LifeExecutor, connect};
     ///
-    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
     /// let executor = MayPostgresExecutor::new(client);
     ///
@@ -494,9 +525,9 @@ impl MayPostgresExecutor {
     /// Same as [`begin_with_session`](Self::begin_with_session) but allows setting
     /// a custom isolation level for the transaction.
     ///
-    /// The session context is injected via `SET LOCAL rls_set_session(...)` once at
-    /// `BEGIN`, making it available to all queries within the transaction without
-    /// per-query overhead.
+    /// After `BEGIN`, the session context is injected once through
+    /// `public.rls_set_session(...)`, whose settings are transaction-local. This makes
+    /// the context available to all queries in the transaction without per-query overhead.
     ///
     /// # Errors
     ///
@@ -509,7 +540,7 @@ impl MayPostgresExecutor {
     /// use lifeguard::{MayPostgresExecutor, SessionContext, LifeExecutor, connect};
     /// use lifeguard::transaction::IsolationLevel;
     ///
-    /// # fn main() -> Result<(), lifeguard::executor::LifeError> {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
     /// let executor = MayPostgresExecutor::new(client);
     ///
@@ -598,15 +629,13 @@ impl LifeExecutor for MayPostgresExecutor {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
 
-        // RLS injection (Story 2): run before the query when session context is present.
-        // Zero-regression path: `session_context == None` returns Ok(()) immediately.
-        self.run_set_session()?;
-
         let start = Instant::now();
-        let result = self.client.execute(query, params).map_err(|e| {
-            #[cfg(feature = "metrics")]
-            METRICS.record_query_error(None);
-            LifeError::PostgresError(e)
+        let result = self.with_session_transaction(|client| {
+            client.execute(query, params).map_err(|e| {
+                #[cfg(feature = "metrics")]
+                METRICS.record_query_error(None);
+                LifeError::PostgresError(e)
+            })
         });
 
         let duration = start.elapsed();
@@ -620,14 +649,13 @@ impl LifeExecutor for MayPostgresExecutor {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
 
-        // RLS injection (Story 2)
-        self.run_set_session()?;
-
         let start = Instant::now();
-        let result = self.client.query_one(query, params).map_err(|e| {
-            #[cfg(feature = "metrics")]
-            METRICS.record_query_error(None);
-            LifeError::PostgresError(e)
+        let result = self.with_session_transaction(|client| {
+            client.query_one(query, params).map_err(|e| {
+                #[cfg(feature = "metrics")]
+                METRICS.record_query_error(None);
+                LifeError::PostgresError(e)
+            })
         });
 
         let duration = start.elapsed();
@@ -641,14 +669,13 @@ impl LifeExecutor for MayPostgresExecutor {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query).entered();
 
-        // RLS injection (Story 2)
-        self.run_set_session()?;
-
         let start = Instant::now();
-        let result = self.client.query(query, params).map_err(|e| {
-            #[cfg(feature = "metrics")]
-            METRICS.record_query_error(None);
-            LifeError::PostgresError(e)
+        let result = self.with_session_transaction(|client| {
+            client.query(query, params).map_err(|e| {
+                #[cfg(feature = "metrics")]
+                METRICS.record_query_error(None);
+                LifeError::PostgresError(e)
+            })
         });
 
         let duration = start.elapsed();
@@ -667,26 +694,26 @@ impl LifeExecutor for MayPostgresExecutor {
 ///
 /// # How it works
 ///
-/// When attached to an executor, every query executed through that executor (or any
-/// transaction started from it) will first run:
+/// When attached to an executor, every one-shot operation (or explicit transaction)
+/// establishes a transaction and runs:
 ///
 /// ```sql
 /// SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)
 /// ```
 ///
-/// This sets PostgreSQL session variables (`auth.user_id`, `auth.user_type`, etc.)
+/// This sets PostgreSQL transaction-local variables (`auth.user_id`, `auth.user_type`, etc.)
 /// that power `CREATE POLICY` row filters. The SQL function is provided by the
 /// `lifeguard_rls` migration.
 ///
 /// # Transaction vs. per-query injection
 ///
-/// - [`MayPostgresExecutor::with_session_context`] — the context is injected **before
-///   every query** via `rls_set_session`. Use for fire-and-forget queries.
+/// - [`MayPostgresExecutor::with_session_context`] — each one-shot operation is wrapped
+///   in a short transaction and receives context before its application statement.
 /// - [`MayPostgresExecutor::begin_with_session`] — the context is injected **once at
 ///   transaction start** via `SET LOCAL`. Inherited by all queries in the transaction.
 ///   Use when executing multiple queries in a single transaction.
 /// - [`PooledLifeExecutor::with_session_context`] — the context is serialized and sent
-///   to the pool worker, which injects it before each dispatched job.
+///   to the pool worker, which wraps each dispatched job in the same short transaction.
 ///
 /// # Fields
 ///
@@ -1139,9 +1166,9 @@ mod may_postgres_executor_rls_tests {
 
     /// Prerequisite: `SessionContext::default()` produces an all-empty context.
     ///
-    /// This is the zero-regression baseline: if an executor has no context
-    /// attached, the serialization path produces 6 args — all `NULL`/empty —
-    /// which the `rls_set_session` function maps to unscoped session vars.
+    /// This is also a valid explicit fail-closed context. An executor with no
+    /// context attached skips injection entirely; attaching this value invokes
+    /// the helper with six `NULL`/empty arguments.
     #[test]
     fn test_session_context_default_produces_empty_context() {
         let ctx = SessionContext::default();
@@ -1172,9 +1199,8 @@ mod may_postgres_executor_rls_tests {
 
     /// Prerequisite: `SessionContext::default()` serialises to 6 args.
     ///
-    /// `run_set_session()` always calls `rls_set_session`, falling back to
-    /// `SessionContext::default()` when no context is attached — so the
-    /// serialization must always succeed (returns 6 args, all NULL/empty).
+    /// Callers may deliberately attach the default fail-closed context, so its
+    /// serialization must succeed and return six `NULL`/empty arguments.
     #[test]
     fn test_session_context_default_serializes_successfully() {
         let ctx = SessionContext::default();

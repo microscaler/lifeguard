@@ -34,12 +34,12 @@ const RLS_SET_SESSION_SQL: &str = "CREATE OR REPLACE FUNCTION public.rls_set_ses
     p_permissions jsonb, p_user_email text
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    PERFORM set_config('auth.user_id', COALESCE(p_user_id::text, ''), false);
-    PERFORM set_config('auth.tenant', COALESCE(p_user_org::text, ''), false);
-    PERFORM set_config('auth.user_type', COALESCE(p_user_type, ''), false);
-    PERFORM set_config('auth.org_type', COALESCE(p_org_type, ''), false);
-    PERFORM set_config('auth.permissions', COALESCE(p_permissions::text, '[]'), false);
-    PERFORM set_config('auth.user_email', COALESCE(p_user_email, ''), false);
+    PERFORM set_config('auth.user_id', COALESCE(p_user_id::text, ''), true);
+    PERFORM set_config('auth.tenant', COALESCE(p_user_org::text, ''), true);
+    PERFORM set_config('auth.user_type', COALESCE(p_user_type, ''), true);
+    PERFORM set_config('auth.org_type', COALESCE(p_org_type, ''), true);
+    PERFORM set_config('auth.permissions', COALESCE(p_permissions::text, '[]'), true);
+    PERFORM set_config('auth.user_email', COALESCE(p_user_email, ''), true);
 END; $$;";
 use sea_query::{Value, Values};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -267,8 +267,8 @@ fn test_a_direct_executor_filters_rows() {
     assert_eq!(c_no, 0, "No context -> zero rows (fail-closed baseline)");
 
     // With session context for tenant "alpha" we should see exactly 2 rows.
-    // Using set_config(..., false) ensures GUCs persist at the session level,
-    // so they survive across separate autocommit statements.
+    // The executor wraps context injection and this application query in one
+    // transaction, allowing the helper to use transaction-local GUCs.
     let uid = uuid::Uuid::new_v4();
     let alpha_exec = make_rls_executor(&primary_url).with_session_context(SessionContext {
         user_id: Some(uid),
@@ -291,6 +291,45 @@ fn test_a_direct_executor_filters_rows() {
     assert_eq!(
         c_total_from_alpha, 2,
         "Test A: alpha context should see 2 rows total (RLS filtered, not raw 4)"
+    );
+}
+
+// ===================================================================
+// Test A2: Direct one-shot context does not leak after commit
+// ===================================================================
+
+#[test]
+fn test_a2_direct_context_clears_after_one_shot_commit() {
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_rls_schema_names();
+
+    let setup = make_superuser_executor(&primary_url);
+    setup_rls_fixture(&setup, &schema, &table);
+
+    // Client clones share one underlying connection. Use a contextual executor
+    // first, then query through a context-free handle on that exact connection.
+    let plain_exec = make_rls_executor(&primary_url);
+    let alpha_exec = MayPostgresExecutor::new(plain_exec.client().clone()).with_session_context(
+        SessionContext {
+            user_id: Some(uuid::Uuid::new_v4()),
+            user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
+            user_type: Some("alpha".into()),
+            org_type: None,
+            permissions: vec!["read".into()],
+            user_email: None,
+        },
+    );
+
+    assert_eq!(
+        count_visible_rows_ok(&alpha_exec, &schema, &table),
+        2,
+        "A2: contextual operation should see alpha rows"
+    );
+    assert_eq!(
+        count_visible_rows_ok(&plain_exec, &schema, &table),
+        0,
+        "A2: context must be cleared after the one-shot transaction commits"
     );
 }
 
@@ -749,6 +788,13 @@ fn test_e6_missing_rls_function_returns_error() {
     setup_exec
         .execute(RLS_SET_SESSION_SQL, &[])
         .expect("recreate rls_set_session for subsequent tests");
+
+    // The failed helper call must have rolled its transaction back. A plain
+    // handle sharing the same connection should be immediately usable.
+    let plain_exec = MayPostgresExecutor::new(exec_with_ctx.client().clone());
+    plain_exec
+        .query_one("SELECT 1", &[])
+        .expect("connection remains usable after context injection failure");
 }
 
 // ===================================================================
@@ -1089,7 +1135,7 @@ fn test_p2b_pool_worker_missing_function() {
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
 
     // Create a pooled executor WITH session context.
-    let exec = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
+    let exec = PooledLifeExecutor::new(Arc::clone(&pool)).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
         user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
         user_type: Some("alpha".into()),
@@ -1118,6 +1164,12 @@ fn test_p2b_pool_worker_missing_function() {
     setup_exec
         .execute(RLS_SET_SESSION_SQL, &[])
         .expect("recreate rls_set_session for subsequent tests");
+
+    // The worker must have rolled back the failed contextual job rather than
+    // leaving its only slot in an aborted transaction.
+    PooledLifeExecutor::new(pool)
+        .query_one_values("SELECT 1", &Values(vec![]))
+        .expect("pool slot remains usable after context injection failure");
 }
 
 // ===================================================================
@@ -1155,5 +1207,49 @@ fn test_p3_pool_worker_no_context() {
     assert_eq!(
         count, 0,
         "P3: pool worker without context should see 0 rows (RLS enabled, fail-closed)"
+    );
+}
+
+// ===================================================================
+// Test P4: Pool worker context does not leak to its next job
+// ===================================================================
+
+#[test]
+fn test_p4_pool_worker_context_clears_after_job_commit() {
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_rls_schema_names();
+
+    let setup_exec = make_superuser_executor(&primary_url);
+    setup_rls_fixture(&setup_exec, &schema, &table);
+
+    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    // Exactly one worker guarantees both jobs use the same physical slot.
+    let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
+    let alpha_exec =
+        PooledLifeExecutor::new(Arc::clone(&pool)).with_session_context(SessionContext {
+            user_id: Some(uuid::Uuid::new_v4()),
+            user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
+            user_type: Some("alpha".into()),
+            org_type: None,
+            permissions: vec![],
+            user_email: None,
+        });
+    let plain_exec = PooledLifeExecutor::new(pool);
+    let query = format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table}");
+
+    let contextual_count = alpha_exec
+        .query_one_values(&query, &Values(vec![]))
+        .expect("contextual pool query")
+        .get::<_, i64>(0);
+    assert_eq!(contextual_count, 2, "P4: alpha job should see alpha rows");
+
+    let plain_count = plain_exec
+        .query_one_values(&query, &Values(vec![]))
+        .expect("context-free pool query after contextual job")
+        .get::<_, i64>(0);
+    assert_eq!(
+        plain_count, 0,
+        "P4: context must be cleared before the worker accepts its next job"
     );
 }

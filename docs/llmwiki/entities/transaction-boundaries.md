@@ -15,7 +15,11 @@ Lifeguard exposes **`Transaction`**, **`IsolationLevel`**, and **`TransactionErr
 - Streaming APIs (`stream_all`, etc.) document **txn** cleanup in module rustdocs — read before changing `query/stream` paths.
 - `begin_with_session` calls the schema-qualified application helper
   `public.rls_set_session(...)` after `BEGIN`. The consumer owns that SQL
-  function and its `auth.*` GUC mapping.
+  function and its `auth.*` GUC mapping. The helper must use
+  `set_config(..., true)` so commit and rollback clear the context.
+- Contextual direct and pooled one-shot operations create an internal short
+  transaction around context injection and the application statement. Callers
+  that need multiple statements should use `begin_with_session` instead.
 
 ## Cross-references
 

@@ -97,3 +97,16 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 - Serialized shared test-fixture DDL across concurrent nextest discovery and
   consolidated the helper definition to prevent fixture drift.
 - Corrected stale UUID and tenant fixtures; the serial DB suite passes 104/104.
+
+## [2026-07-14] fix | transaction-local RLS context
+
+- Replaced the interim session-scoped helper contract with transaction-local
+  `set_config(..., true)` GUCs.
+- Direct and pooled contextual one-shot operations now bind context injection
+  and the application statement inside one short transaction, rolling back on
+  any failure.
+- Explicit transaction setup now rolls back if context serialization or
+  injection fails, rather than returning with an open transaction.
+- Added same-connection and single-pool-worker tests proving context is cleared
+  before context-free work runs. This supersedes the earlier session-scoped
+  workaround recorded above.

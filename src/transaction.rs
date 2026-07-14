@@ -178,15 +178,12 @@ impl Transaction {
     ///
     /// Runs `BEGIN` (with optional isolation level) then, if `ctx` is `Some`,
     /// executes `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` to set the
-    /// session-level variables that power Row Level Security policies.
+    /// transaction-local variables that power Row Level Security policies.
     ///
-    /// The RLS context is set once at transaction start and persists on the
-    /// connection for the lifetime of the session (via `set_config(..., false)`
-    /// inside `rls_set_session`).  This means all queries within this
-    /// transaction inherit the context automatically, and subsequent
-    /// transactions on the same pooled connection will also inherit it until
-    /// a new context is set.  Callers should be aware that the context
-    /// survives `COMMIT` / `ROLLBACK`.
+    /// The RLS context is set once at transaction start. The application-owned
+    /// helper must use transaction-local settings (`set_config(..., true)`), so all
+    /// queries in this transaction inherit the context and PostgreSQL clears it on
+    /// `COMMIT` or `ROLLBACK`.
     ///
     /// # Errors
     ///
@@ -214,16 +211,24 @@ impl Transaction {
                 .map_err(TransactionError::from)?;
         }
 
-        // Inject RLS session context if provided
-        if let Some(ref ctx) = ctx {
-            let args = ctx.to_sql_args().map_err(|e| {
-                TransactionError::Other(format!("failed to serialize session context: {e}"))
-            })?;
-            let args_refs: Vec<&dyn may_postgres::types::ToSql> =
-                args.iter().map(|a| a.as_ref()).collect();
-            client
-                .execute("SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)", &args_refs)
-                .map_err(TransactionError::from)?;
+        // Inject RLS context after BEGIN so transaction-local GUCs cannot leak.
+        let injection = (|| -> Result<(), TransactionError> {
+            if let Some(ref ctx) = ctx {
+                let args = ctx.to_sql_args().map_err(|e| {
+                    TransactionError::Other(format!("failed to serialize session context: {e}"))
+                })?;
+                let args_refs: Vec<&dyn may_postgres::types::ToSql> =
+                    args.iter().map(|a| a.as_ref()).collect();
+                client
+                    .execute("SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)", &args_refs)
+                    .map_err(TransactionError::from)?;
+            }
+            Ok(())
+        })();
+
+        if let Err(error) = injection {
+            let _ = client.execute("ROLLBACK", &[]);
+            return Err(error);
         }
 
         Ok(Self {

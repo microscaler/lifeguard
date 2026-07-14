@@ -846,6 +846,73 @@ fn idle_liveness_probe(connection_string: &str, client: &mut Client, tier: &'sta
     });
 }
 
+/// Execute one worker job in the transaction that owns its RLS context.
+///
+/// Context-free jobs retain the original autocommit path. Contextual jobs are retried as
+/// a complete unit after a healable connection failure: `BEGIN`, context injection,
+/// application statement, then `COMMIT`. The application-owned helper must use
+/// `set_config(..., true)` so PostgreSQL clears the context at transaction end.
+fn exec_worker_job<T>(
+    connection_string: &str,
+    client: &mut Client,
+    tier: &'static str,
+    session_context: Option<&crate::executor::SessionContext>,
+    operation: impl Fn(&Client) -> Result<T, LifeError>,
+) -> Result<T, LifeError> {
+    exec_with_optional_heal(connection_string, client, tier, |client| {
+        let Some(ctx) = session_context else {
+            return operation(client);
+        };
+
+        client.execute("BEGIN", &[]).map_err(LifeError::from)?;
+
+        let result = (|| {
+            let args = ctx.to_sql_args().map_err(|error| {
+                LifeError::Pool(format!(
+                    "rls_set_session context serialization failed: {error}"
+                ))
+            })?;
+            let args_refs: Vec<&dyn may_postgres::types::ToSql> =
+                args.iter().map(|arg| arg.as_ref()).collect();
+            client
+                .execute(
+                    "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+                    &args_refs,
+                )
+                .map_err(|error| {
+                    if error.code().is_some_and(|code| code.code() == "42883") {
+                        LifeError::Pool(
+                            "rls_set_session SQL function not found on database".to_string(),
+                        )
+                    } else {
+                        LifeError::Pool(format!(
+                            "rls_set_session context injection failed: {error}"
+                        ))
+                    }
+                })?;
+            operation(client)
+        })();
+
+        match result {
+            Ok(value) => match client.execute("COMMIT", &[]) {
+                Ok(_) => Ok(value),
+                Err(error) => {
+                    let _ = client.execute("ROLLBACK", &[]);
+                    Err(LifeError::from(error))
+                }
+            },
+            Err(error) => {
+                if let Err(rollback_error) = client.execute("ROLLBACK", &[]) {
+                    log::warn!(
+                        "lifeguard pool: rollback after contextual {tier} job failed: {rollback_error}"
+                    );
+                }
+                Err(error)
+            }
+        }
+    })
+}
+
 fn dispatch_worker_job(
     tier: &'static str,
     connection_string: &str,
@@ -868,73 +935,6 @@ fn dispatch_worker_job(
         | WorkerJob::QueryAll { session, .. } => session.clone(),
     };
 
-    // Guard: fail fast when a session context is attached but the SQL
-    // function rls_set_session is missing from the schema.  Without this
-    // check the worker silently falls through and executes the query
-    // without any RLS context — a dangerous silent-misconfiguration.
-    if session_context.is_some() {
-        // Probe: does rls_set_session exist?
-        match client.execute(
-            "SELECT 1 FROM pg_proc AS p JOIN pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'rls_set_session'",
-            &[],
-        ) {
-            Ok(0) => {
-                log::error!(
-                    "lifeguard pool: session context attached but rls_set_session SQL function is missing on {tier} worker; failing the job to prevent execution without RLS context"
-                );
-                let e = LifeError::Other(
-                    "rls_set_session SQL function not found on database".to_string(),
-                );
-                send_context_error(&job, &e);
-                return;
-            }
-            Ok(_) => {} // function exists, proceed normally
-            Err(e) => {
-                log::error!(
-                    "lifeguard pool: session context attached but rls_set_session SQL function is missing on {tier} worker; failing the job (error: {e}) to prevent execution without RLS context"
-                );
-                send_context_error(&job, &e);
-                return;
-            }
-        }
-    }
-
-    // Inject RLS session context before executing the job.
-    //
-    // Only call rls_set_session when the caller attached a session context.
-    // When session_context is None we skip entirely — the application is
-    // operating without RLS and we must not force a hard dependency on the
-    // helper for that path. If injection fails we send an error to the
-    // caller via the reply channel — the rls_set_session function uses
-    // session-scoped GUCs (set_config(..., false)) so continuing without a
-    // fresh context would expose data across tenants.
-    if let Some(ctx) = &session_context {
-        let args = match ctx.to_sql_args() {
-            Ok(args) => args,
-            Err(e) => {
-                log::error!(
-                    "lifeguard pool: failed to serialize session context for {tier} worker: {e}; \
-                     aborting job"
-                );
-                send_context_error(&job, &e);
-                return;
-            }
-        };
-        let args_refs: Vec<&dyn may_postgres::types::ToSql> =
-            args.iter().map(|a| a.as_ref()).collect();
-        if let Err(e) = client.execute(
-            "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
-            &args_refs,
-        ) {
-            log::error!(
-                "lifeguard pool: rls_set_session failed on {tier} worker slot: {e}; \
-                 aborting job to prevent query without RLS context"
-            );
-            send_context_error(&job, &e);
-            return;
-        }
-    }
-
     match job {
         WorkerJob::Execute {
             query,
@@ -942,11 +942,17 @@ fn dispatch_worker_job(
             reply,
             ..
         } => {
-            let result = exec_with_optional_heal(connection_string, client, tier, |c| {
-                exec_on_client(tier, c, &query, &params, |c, q, r| {
-                    c.execute(q, r).map_err(LifeError::from)
-                })
-            });
+            let result = exec_worker_job(
+                connection_string,
+                client,
+                tier,
+                session_context.as_ref(),
+                |c| {
+                    exec_on_client(tier, c, &query, &params, |c, q, r| {
+                        c.execute(q, r).map_err(LifeError::from)
+                    })
+                },
+            );
             let _ = reply.send(result);
         }
         WorkerJob::QueryOne {
@@ -955,11 +961,17 @@ fn dispatch_worker_job(
             reply,
             ..
         } => {
-            let result = exec_with_optional_heal(connection_string, client, tier, |c| {
-                exec_on_client(tier, c, &query, &params, |c, q, r| {
-                    c.query_one(q, r).map_err(LifeError::from)
-                })
-            });
+            let result = exec_worker_job(
+                connection_string,
+                client,
+                tier,
+                session_context.as_ref(),
+                |c| {
+                    exec_on_client(tier, c, &query, &params, |c, q, r| {
+                        c.query_one(q, r).map_err(LifeError::from)
+                    })
+                },
+            );
             let _ = reply.send(result);
         }
         WorkerJob::QueryAll {
@@ -968,31 +980,18 @@ fn dispatch_worker_job(
             reply,
             ..
         } => {
-            let result = exec_with_optional_heal(connection_string, client, tier, |c| {
-                exec_on_client(tier, c, &query, &params, |c, q, r| {
-                    c.query(q, r).map_err(LifeError::from)
-                })
-            });
+            let result = exec_worker_job(
+                connection_string,
+                client,
+                tier,
+                session_context.as_ref(),
+                |c| {
+                    exec_on_client(tier, c, &query, &params, |c, q, r| {
+                        c.query(q, r).map_err(LifeError::from)
+                    })
+                },
+            );
             let _ = reply.send(result);
-        }
-    }
-}
-
-/// Send an RLS context-injection error to the caller via the reply channel.
-///
-/// This ensures the executor does **not** block forever waiting for a response
-/// when `rls_set_session` fails or context serialization breaks.
-fn send_context_error(job: &WorkerJob, error: &impl std::error::Error) {
-    let err = LifeError::Pool(format!("rls_set_session context injection failed: {error}"));
-    match job {
-        WorkerJob::Execute { reply, .. } => {
-            let _ = reply.send(Err(err));
-        }
-        WorkerJob::QueryOne { reply, .. } => {
-            let _ = reply.send(Err(err));
-        }
-        WorkerJob::QueryAll { reply, .. } => {
-            let _ = reply.send(Err(err));
         }
     }
 }
@@ -1038,11 +1037,11 @@ fn values_to_owned(values: &sea_query::Values) -> Result<Vec<OwnedParam>, LifeEr
 /// **Read routing:** by default, reads may go to a configured replica when WAL lag allows; see
 /// [`ReadPreference`] and [`Self::with_read_preference`]. Writes always use the primary tier.
 ///
-/// **RLS integration (Story 5):** optionally carries a [`SessionContext`] which is injected
-/// via `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` on the worker thread **before**
-/// executing each dispatched job. The session-scoped context is refreshed for every job that
-/// carries a context. When `session_context` is `None` (the default) the executor is functionally
-/// identical to the pre-RLS baseline.
+/// **RLS integration (Story 5):** optionally carries a [`SessionContext`]. On the worker
+/// thread each contextual job runs `BEGIN`, calls
+/// `public.rls_set_session($1, $2, $3, $4, $5, $6)`, executes the application statement,
+/// and commits. The transaction-local context cannot leak into the worker's next job. When
+/// `session_context` is `None` (the default), the executor retains the original autocommit path.
 #[derive(Clone)]
 pub struct PooledLifeExecutor {
     pool: Arc<LifeguardPool>,
@@ -1105,10 +1104,10 @@ impl PooledLifeExecutor {
 
     /// Attach a [`SessionContext`] for RLS session injection on pool workers.
     ///
-    /// When a context is attached, every query executed through this executor
-    /// will first run `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` on the
-    /// worker thread before the actual query. The context is refreshed once per
-    /// dispatched job.
+    /// When a context is attached, every query executed through this executor is
+    /// wrapped in a short worker-side transaction. The worker calls
+    /// `public.rls_set_session($1, $2, $3, $4, $5, $6)` before the actual query and
+    /// commits only after both calls succeed.
     ///
     /// Returns `self` for method chaining.
     ///

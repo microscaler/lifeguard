@@ -16,14 +16,18 @@
 `MayPostgresExecutor`, transactions, and pooled workers can carry a
 `SessionContext`. Context-aware execution calls the application-owned,
 schema-qualified `public.rls_set_session(uuid, uuid, text, text, jsonb, text)`
-helper before the application query. A missing helper is an error; the query is
-not allowed to continue without its requested tenant context. Consumers must
-install the helper in `public` and grant callers `USAGE` on that schema plus
-`EXECUTE` on the function.
+helper in the same transaction as the application query. A missing helper is an
+error; the query is not allowed to continue without its requested tenant context.
+Consumers must install the helper in `public`, implement its GUC assignments with
+`set_config(..., true)`, and grant callers `USAGE` on that schema plus `EXECUTE`
+on the function.
 
-The current helper contract uses session-scoped GUCs so direct autocommit calls
-can inject context before a separate query. Transaction-local semantics require
-the setter and application statement to share an explicit transaction boundary.
+Direct and pooled contextual one-shot operations use a short
+`BEGIN -> public.rls_set_session -> application statement -> COMMIT` boundary.
+Explicit transactions inject once immediately after `BEGIN`. PostgreSQL clears
+the transaction-local GUCs on both commit and rollback, preventing tenant context
+from leaking through direct client clones or reused pool workers. Context-free
+operations retain the original autocommit path and do not require the helper.
 
 ## Operational docs
 
