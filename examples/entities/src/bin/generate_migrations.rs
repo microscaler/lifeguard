@@ -17,8 +17,7 @@ use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Anchor to this crate so runs work regardless of process cwd (e.g. `cargo run` from repo root).
-    let output_dir =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../migrations/generated");
+    let output_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../migrations/generated");
 
     // Create output directory if it doesn't exist
     if !output_dir.exists() {
@@ -97,8 +96,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs::create_dir_all(&service_dir)?;
         }
 
-        let body =
-            generated_migration_diff::build_service_migration_body_from_service_dir(&service_dir, &tables);
+        let body = generated_migration_diff::build_service_migration_body_from_service_dir(
+            &service_dir,
+            &tables,
+        );
 
         if generated_migration_diff::service_migration_is_empty(&body) {
             println!(
