@@ -119,6 +119,13 @@ where
             primary_key_cols.push(col_name.to_string());
         }
 
+        // PostgreSQL generated columns are evaluated by the database and cannot
+        // also carry a DEFAULT. The expression is trusted, compile-time schema
+        // metadata supplied by the application developer.
+        if let Some(ref generated_expr) = col_def.generated_always_as {
+            col_sql.push_str(&format!(" GENERATED ALWAYS AS ({generated_expr}) STORED"));
+        }
+
         // Add nullability
         // For primary keys, omit NOT NULL (PostgreSQL allows it, and original doesn't have it)
         // For other columns, add NOT NULL if not nullable
@@ -146,7 +153,9 @@ where
         // understood "zero" value) and explicitly exclude columns that already have an explicit
         // default, foreign-key references, or are primary keys — on those, silently auto-
         // defaulting would mask real bugs.
-        if let Some(ref default_expr) = col_def.default_expr {
+        if col_def.generated_always_as.is_some() {
+            // Generated columns cannot also declare a default.
+        } else if let Some(ref default_expr) = col_def.default_expr {
             col_sql.push_str(&format!(" DEFAULT {}", default_expr));
         } else if let Some(ref default_val) = col_def.default_value {
             col_sql.push_str(&format!(" DEFAULT {}", default_val));

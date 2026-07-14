@@ -1655,6 +1655,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             },
         );
 
+        let generated_always_as_expr = col_attrs.generated_always_as.as_ref().map_or_else(
+            || quote! { None },
+            |ga| {
+                let ga_lit = syn::LitStr::new(ga, field_name.span());
+                quote! { Some(#ga_lit.to_string()) }
+            },
+        );
+
         let renamed_from_expr = col_attrs.renamed_from.as_ref().map_or_else(
             || quote! { None },
             |rf| {
@@ -1715,6 +1723,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                 nullable: #is_nullable,
                 default_value: #default_value_expr,
                 default_expr: #default_expr_expr,
+                generated_always_as: #generated_always_as_expr,
                 renamed_from: #renamed_from_expr,
                 select_as: #select_as_expr,
                 save_as: #save_as_expr,

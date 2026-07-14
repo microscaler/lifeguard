@@ -177,6 +177,8 @@ pub struct ColumnAttributes {
     pub is_auto_increment: bool,
     pub enum_name: Option<String>,
     pub is_ignored: bool,
+    /// The expression for a GENERATED ALWAYS AS column.
+    pub generated_always_as: Option<String>,
     /// Indicates if a column is read-only (e.g. `GENERATED ALWAYS AS ... STORED`).
     /// Such columns are excluded from `INSERT` and `UPDATE` statements but are fetched
     /// via `RETURNING` clauses so the `ActiveModel` response accurately reflects the
@@ -281,6 +283,31 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                 }) = &meta.value
                 {
                     attrs.default_expr = Some(s.value());
+                }
+            }
+        } else if attr.path().is_ident("generated_always_as") {
+            if let Ok(meta) = attr.meta.require_name_value() {
+                if let syn::Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &meta.value
+                {
+                    let value = s.value();
+                    if value.trim().is_empty() {
+                        return Err(syn::Error::new_spanned(
+                            &meta.value,
+                            "generated_always_as must contain a SQL expression",
+                        ));
+                    }
+                    #[allow(clippy::items_after_statements)]
+                    const MAX_EXPR_LENGTH: usize = 64 * 1024;
+                    if value.len() > MAX_EXPR_LENGTH {
+                        return Err(syn::Error::new_spanned(
+                            &meta.value,
+                            "generated_always_as expression exceeds the 64 KiB limit",
+                        ));
+                    }
+                    attrs.generated_always_as = Some(value);
+                    attrs.is_readonly = true;
                 }
             }
         } else if attr.path().is_ident("renamed_from") {
@@ -406,6 +433,15 @@ pub fn parse_column_attributes(field: &Field) -> Result<ColumnAttributes, syn::E
                 }
             }
         }
+    }
+
+    if attrs.generated_always_as.is_some()
+        && (attrs.default_expr.is_some() || attrs.default_value.is_some())
+    {
+        return Err(syn::Error::new_spanned(
+            field,
+            "generated_always_as cannot be combined with default_expr or default_value",
+        ));
     }
 
     Ok(attrs)
@@ -1227,6 +1263,39 @@ fn parse_index_definition(def: &str) -> Result<ParsedIndexSpec, syn::Error> {
             partial_where: where_clause,
             include_columns,
         })
+    }
+}
+
+#[cfg(test)]
+mod generated_column_attribute_tests {
+    use super::*;
+    use syn::parse_quote;
+
+    #[test]
+    fn generated_expression_is_implicitly_readonly() {
+        let field: Field = parse_quote! {
+            #[generated_always_as = "upper(name)"]
+            generated_name: String
+        };
+
+        let attrs = parse_column_attributes(&field).expect("parse generated column");
+        assert_eq!(attrs.generated_always_as.as_deref(), Some("upper(name)"));
+        assert!(attrs.is_readonly);
+    }
+
+    #[test]
+    fn generated_expression_rejects_default() {
+        let field: Field = parse_quote! {
+            #[generated_always_as = "upper(name)"]
+            #[default_expr = "'UNKNOWN'"]
+            generated_name: String
+        };
+
+        let result = parse_column_attributes(&field);
+        assert!(matches!(
+            result,
+            Err(err) if err.to_string().contains("cannot be combined")
+        ));
     }
 }
 

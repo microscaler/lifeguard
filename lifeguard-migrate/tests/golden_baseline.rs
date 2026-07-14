@@ -25,6 +25,7 @@ use lifeguard_migrate::sql_generator;
 /// - A unique+indexed column
 /// - A nullable optional column
 /// - A timestamp column with CURRENT_TIMESTAMP default
+/// - A database-generated normalized email column
 ///
 /// Note: the `#[derive(LifeModel)]` macro generates a separate `Entity`
 /// unit struct with all required traits (`LifeEntityName`, `LifeModelTrait`,
@@ -51,6 +52,9 @@ pub struct GoldenTestUser {
     #[default_expr = "CURRENT_TIMESTAMP"]
     pub created_at: chrono::NaiveDateTime,
 
+    #[generated_always_as = "lower(email)"]
+    pub normalized_email: String,
+
     #[foreign_key = "golden_test_organizations(id) ON DELETE SET NULL"]
     #[column_type = "UUID"]
     pub org_id: Option<uuid::Uuid>,
@@ -66,6 +70,7 @@ const EXPECTED: &str = r"CREATE TABLE IF NOT EXISTS golden_test_users (
     email VARCHAR(255) NOT NULL UNIQUE,
     bio TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    normalized_email TEXT GENERATED ALWAYS AS (lower(email)) STORED NOT NULL,
     org_id UUID REFERENCES golden_test_organizations(id) ON DELETE SET NULL
 );
 
@@ -75,10 +80,8 @@ COMMENT ON TABLE golden_test_users IS 'Golden baseline test users';";
 
 #[test]
 fn golden_baseline_create_table_sql_matches() {
-    let sql = sql_generator::generate_create_table_sql::<Entity>(
-        Entity::table_definition(),
-    )
-    .expect("should generate SQL for golden entity");
+    let sql = sql_generator::generate_create_table_sql::<Entity>(Entity::table_definition())
+        .expect("should generate SQL for golden entity");
 
     assert_eq!(
         sql.trim(),

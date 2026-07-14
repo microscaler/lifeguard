@@ -80,3 +80,11 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
   (`crates/executor/tests/wal_pg.rs`).
 - Updated [`topics/postgres-scalars-uuid-chrono.md`](./topics/postgres-scalars-uuid-chrono.md)
   with the JSON/JSONB binding section.
+
+## [2026-07-14] feat | readonly and generated PostgreSQL columns
+
+- Completed `#[readonly]` / `#[generated]` write exclusion and insert hydration.
+- Added `#[generated_always_as = "<expression>"]` metadata for both runtime
+  schema creation and `lifeguard-migrate` SQL generation.
+- Added live PostgreSQL coverage using a real `GENERATED ALWAYS ... STORED`
+  column and documented the trusted compile-time expression boundary.

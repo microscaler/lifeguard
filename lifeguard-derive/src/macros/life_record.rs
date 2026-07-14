@@ -514,8 +514,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         if is_readonly {
             // #[readonly] Support
             // Read-only fields (e.g. GENERATED ALWAYS AS ... STORED) are strictly managed by Postgres.
-            // Explicitly including them in an INSERT statement (even with NULL values) triggers a 
-            // Postgres constraint violation. We skip them in the INSERT columns array, and rely on 
+            // Explicitly including them in an INSERT statement (even with NULL values) triggers a
+            // Postgres constraint violation. We skip them in the INSERT columns array, and rely on
             // the subsequent RETURNING clause logic to dynamically fetch the generated value back into the model.
         } else if is_primary_key && is_auto_increment {
             // Auto-increment PK: include only if set
@@ -587,7 +587,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             });
         }
 
-        // Generate UPDATE SET clause 
+        // Generate UPDATE SET clause
         // Skip primary keys to prevent altering identity.
         // Skip readonly columns to prevent Postgres constraint violations on GENERATED fields.
         if !is_primary_key && !is_readonly {
