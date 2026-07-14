@@ -278,7 +278,7 @@ impl LifeExecutor for &dyn LifeExecutor {
 /// This is the primary executor implementation that directly uses a `may_postgres::Client`.
 ///
 /// **RLS integration (Story 2):** optionally carries a [`SessionContext`] which is injected
-/// via `SET LOCAL` / `SELECT rls_set_session(...)` before every query. When `session_context`
+/// via `SELECT public.rls_set_session(...)` before every query. When `session_context`
 /// is `None` (the default) the executor is functionally identical to the pre-RLS baseline.
 pub struct MayPostgresExecutor {
     client: Client,
@@ -310,7 +310,7 @@ impl MayPostgresExecutor {
     /// Attach a [`SessionContext`] for RLS session injection.
     ///
     /// When a context is attached, every query executed through this executor
-    /// will first run `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` to set
+    /// will first run `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` to set
     /// the session-level variables that power Row Level Security policies.
     ///
     /// Returns `self` for method chaining.
@@ -340,7 +340,7 @@ impl MayPostgresExecutor {
         self
     }
 
-    /// Runs `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` on the underlying
+    /// Runs `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` on the underlying
     /// client.
     ///
     /// When `session_context` is `Some` the caller-provided context is injected.
@@ -362,7 +362,7 @@ impl MayPostgresExecutor {
         let args_refs: Vec<&dyn may_postgres::types::ToSql> =
             args.iter().map(|a| a.as_ref()).collect();
         match self.client.execute(
-            "SELECT rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+            "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
             &args_refs,
         ) {
             Ok(_) => Ok(()),
@@ -447,10 +447,9 @@ impl MayPostgresExecutor {
 
     /// Start a new transaction with a [`SessionContext`] for RLS injection.
     ///
-    /// Runs `BEGIN` then executes `SELECT rls_set_session($1, $2, $3, $4, $5, $6)`
-    /// to inject the session context. Because `SET LOCAL` is transaction-scoped,
-    /// the context is set once at `BEGIN` and inherited by all queries within
-    /// the transaction.
+    /// Runs `BEGIN` then executes `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)`
+    /// to inject the session context once after `BEGIN`; all queries on that
+    /// transaction's connection inherit the context.
     ///
     /// # Errors
     ///
@@ -672,7 +671,7 @@ impl LifeExecutor for MayPostgresExecutor {
 /// transaction started from it) will first run:
 ///
 /// ```sql
-/// SELECT rls_set_session($1, $2, $3, $4, $5, $6)
+/// SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)
 /// ```
 ///
 /// This sets PostgreSQL session variables (`auth.user_id`, `auth.user_type`, etc.)

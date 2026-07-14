@@ -28,6 +28,19 @@ use lifeguard::SessionContext;
 const TENANT_ALPHA: &str = "550e8400-e29b-41d4-a716-446655440001";
 const TENANT_BETA: &str = "550e8400-e29b-41d4-a716-446655440002";
 const TENANT_GAMMA: &str = "550e8400-e29b-41d4-a716-446655440003";
+const RLS_SET_SESSION_SQL: &str = "CREATE OR REPLACE FUNCTION public.rls_set_session(
+    p_user_id uuid, p_user_org uuid,
+    p_user_type text, p_org_type text,
+    p_permissions jsonb, p_user_email text
+) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM set_config('auth.user_id', COALESCE(p_user_id::text, ''), false);
+    PERFORM set_config('auth.tenant', COALESCE(p_user_org::text, ''), false);
+    PERFORM set_config('auth.user_type', COALESCE(p_user_type, ''), false);
+    PERFORM set_config('auth.org_type', COALESCE(p_org_type, ''), false);
+    PERFORM set_config('auth.permissions', COALESCE(p_permissions::text, '[]'), false);
+    PERFORM set_config('auth.user_email', COALESCE(p_user_email, ''), false);
+END; $$;";
 use sea_query::{Value, Values};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -39,6 +52,12 @@ fn rls_test_setup() {
     let ctx = crate::context::get_test_context();
     let conn = may_postgres::connect(&ctx.pg_url).expect("ctor: connect");
     let exec = MayPostgresExecutor::new(conn);
+
+    // Nextest may start the test binary concurrently to enumerate normal and
+    // ignored tests. Serialize the shared role/function DDL across those
+    // processes; PostgreSQL can otherwise race two CREATE OR REPLACE calls.
+    exec.execute("SELECT pg_advisory_lock(7211915000)", &[])
+        .expect("ctor: acquire RLS setup lock");
 
     // Create non-superuser role for RLS testing.
     // Must have LOGIN for pooled executor tests, and must NOT be superuser.
@@ -75,12 +94,14 @@ fn rls_test_setup() {
             r RECORD;
         BEGIN
             FOR r IN
-                SELECT oid, proname, pg_catalog.pg_get_function_arguments(oid) AS args
-                FROM pg_proc
-                WHERE proname = 'rls_set_session'
+                SELECT p.oid, n.nspname, p.proname,
+                       pg_catalog.pg_get_function_arguments(p.oid) AS args
+                FROM pg_proc AS p
+                JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                WHERE p.proname = 'rls_set_session'
             LOOP
-                RAISE NOTICE 'Dropping: %(%s%)', proname, args;
-                EXECUTE format('DROP FUNCTION %s(%s)', proname, args);
+                EXECUTE format('DROP FUNCTION %I.%I(%s)',
+                    r.nspname, r.proname, r.args);
             END LOOP;
         END $$;",
         &[],
@@ -90,31 +111,12 @@ fn rls_test_setup() {
     // Create the app-owned rls_set_session function in public (idempotent).
     // p_permissions is `jsonb` because to_sql_args() serializes permissions
     // as serde_json::Value.
-    let func_sql = "CREATE OR REPLACE FUNCTION rls_set_session(
-        p_user_id uuid, p_user_org uuid,
-        p_user_type text, p_org_type text,
-        p_permissions jsonb, p_user_email text
-    ) RETURNS void LANGUAGE plpgsql AS $$
-    BEGIN
-        PERFORM set_config('auth.user_id',
-            COALESCE(p_user_id::text, ''), false);
-        PERFORM set_config('auth.tenant',
-            COALESCE(p_user_org::text, ''), false);
-        PERFORM set_config('auth.user_type',
-            COALESCE(p_user_type, ''), false);
-        PERFORM set_config('auth.org_type',
-            COALESCE(p_org_type, ''), false);
-        PERFORM set_config('auth.permissions',
-            COALESCE(p_permissions::text, '[]'), false);
-        PERFORM set_config('auth.user_email',
-            COALESCE(p_user_email, ''), false);
-    END; $$;";
-    exec.execute(func_sql, &[])
+    exec.execute(RLS_SET_SESSION_SQL, &[])
         .expect("ctor: CREATE rls_set_session");
 
     // Allow rls_test_role to call the function
     exec.execute(
-        "GRANT EXECUTE ON FUNCTION rls_set_session TO rls_test_role",
+        "GRANT EXECUTE ON FUNCTION public.rls_set_session TO rls_test_role",
         &[],
     )
     .ok();
@@ -122,6 +124,9 @@ fn rls_test_setup() {
     // rls_test_role needs USAGE on public schema to resolve function calls
     exec.execute("GRANT USAGE ON SCHEMA public TO rls_test_role", &[])
         .ok();
+
+    exec.execute("SELECT pg_advisory_unlock(7211915000)", &[])
+        .expect("ctor: release RLS setup lock");
 }
 
 /// Unique schema/table pair for each test to avoid collisions.
@@ -209,10 +214,10 @@ fn setup_rls_fixture(executor: &MayPostgresExecutor, schema: &str, table: &str) 
         .execute(
             &format!(
                 "INSERT INTO {schema}.{table} (tenant, note) VALUES \
-                ({TENANT_ALPHA}, 'alpha-item-a'), \
-                ({TENANT_ALPHA}, 'alpha-item-b'), \
-                ({TENANT_BETA}, 'beta-item'), \
-                ({TENANT_GAMMA}, 'gamma-item')"
+                ('{TENANT_ALPHA}', 'alpha-item-a'), \
+                ('{TENANT_ALPHA}', 'alpha-item-b'), \
+                ('{TENANT_BETA}', 'beta-item'), \
+                ('{TENANT_GAMMA}', 'gamma-item')"
             ),
             &[],
         )
@@ -371,7 +376,7 @@ fn test_c_transaction_begin_with_session() {
     let count_tx2 = tx
         .query_one_values(
             &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table} WHERE tenant = $1"),
-            &Values(vec![Value::String(Some("beta".into()))]),
+            &Values(vec![Value::String(Some(TENANT_BETA.to_string()))]),
         )
         .expect("second count inside transaction");
     let c2: i64 = count_tx2.get(0);
@@ -384,7 +389,7 @@ fn test_c_transaction_begin_with_session() {
     let count_alpha = tx
         .query_one_values(
             &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table} WHERE tenant = $1"),
-            &Values(vec![Value::String(Some("alpha".into()))]),
+            &Values(vec![Value::String(Some(TENANT_ALPHA.to_string()))]),
         )
         .expect("alpha query in beta tx")
         .get::<_, i64>(0);
@@ -443,7 +448,7 @@ fn test_d_pool_worker_isolation() {
     let count_alpha = exec_alpha
         .query_one_values(
             &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table} WHERE tenant = $1"),
-            &Values(vec![Value::String(Some("alpha".into()))]),
+            &Values(vec![Value::String(Some(TENANT_ALPHA.to_string()))]),
         )
         .expect("alpha count query")
         .get::<_, i64>(0);
@@ -456,7 +461,7 @@ fn test_d_pool_worker_isolation() {
     let count_gamma = exec_gamma
         .query_one_values(
             &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table} WHERE tenant = $1"),
-            &Values(vec![Value::String(Some("gamma".into()))]),
+            &Values(vec![Value::String(Some(TENANT_GAMMA.to_string()))]),
         )
         .expect("gamma count query")
         .get::<_, i64>(0);
@@ -653,8 +658,8 @@ fn test_e5_rapid_context_switching_direct() {
 
     let ctx_beta = make_rls_executor(&primary_url).with_session_context(SessionContext {
         user_id: Some(uuid::Uuid::new_v4()),
-        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
-        user_type: Some("alpha".into()),
+        user_org_id: Some(uuid::Uuid::parse_str(TENANT_BETA).unwrap()),
+        user_type: Some("beta".into()),
         org_type: None,
         permissions: vec![],
         user_email: None,
@@ -701,9 +706,10 @@ fn test_e6_missing_rls_function_returns_error() {
     // Temporarily drop rls_set_session so the executor cannot inject context.
     // We drop ALL overloads to ensure no ambiguity survives from previous runs.
     setup_exec.execute(
-        "DO $$\n        DECLARE\n            r RECORD;\n        BEGIN\n            FOR r IN\n                SELECT oid, proname, pg_catalog.pg_get_function_arguments(oid) AS args
-                FROM pg_proc
-                WHERE proname = 'rls_set_session'\n            LOOP\n                EXECUTE format('DROP FUNCTION %s(%s)', proname, args);\n            END LOOP;\n        END $$;",
+        "DO $$\n        DECLARE\n            r RECORD;\n        BEGIN\n            FOR r IN\n                SELECT p.oid, n.nspname, p.proname,\n                       pg_catalog.pg_get_function_arguments(p.oid) AS args
+                FROM pg_proc AS p
+                JOIN pg_namespace AS n ON n.oid = p.pronamespace
+                WHERE p.proname = 'rls_set_session'\n            LOOP\n                EXECUTE format('DROP FUNCTION %I.%I(%s)',\n                    r.nspname, r.proname, r.args);\n            END LOOP;\n        END $$;",
         &[],
     )
     .expect("drop all rls_set_session overloads");
@@ -740,27 +746,8 @@ fn test_e6_missing_rls_function_returns_error() {
     }
 
     // Recreate the function for subsequent tests.
-    let func_sql = "CREATE OR REPLACE FUNCTION rls_set_session(\
-        p_user_id uuid, p_user_org uuid,\
-        p_user_type text, p_org_type text,\
-        p_permissions jsonb, p_user_email text\
-    ) RETURNS void LANGUAGE plpgsql AS $$\
-    BEGIN\
-        PERFORM set_config('auth.user_id',\
-            COALESCE(p_user_id::text, ''), false);\
-        PERFORM set_config('auth.tenant',\
-            COALESCE(p_user_org::text, ''), false);\
-        PERFORM set_config('auth.user_type',\
-            COALESCE(p_user_type, ''), false);\
-        PERFORM set_config('auth.org_type',\
-            COALESCE(p_org_type, ''), false);\
-        PERFORM set_config('auth.permissions',\
-            COALESCE(p_permissions::text, '[]'), false);\
-        PERFORM set_config('auth.user_email',\
-            COALESCE(p_user_email, ''), false);\
-    END; $$;";
     setup_exec
-        .execute(func_sql, &[])
+        .execute(RLS_SET_SESSION_SQL, &[])
         .expect("recreate rls_set_session for subsequent tests");
 }
 
@@ -1024,14 +1011,13 @@ fn test_p1_pool_rapid_context_switching() {
 }
 
 // ===================================================================
-// Test P2: Pool worker fails when rls_set_session function is missing
+// Test P2: Pool worker happy path — function exists
 // ===================================================================
 
-/// **P2 — Pool worker fails when rls_set_session is missing.**
-/// If the rls_set_session function is not present in the schema,
-/// the pool worker should return an error for context-injected queries.
+/// **P2 — Pool worker happy path.** When rls_set_session exists, the
+/// pool worker should execute queries with RLS context normally.
 #[test]
-fn test_p2_pool_worker_missing_function() {
+fn test_p2_pool_worker_with_function() {
     let ctx = crate::context::get_test_context();
     let primary_url = ctx.pg_url.clone();
     let (schema, table) = unique_rls_schema_names();
@@ -1068,6 +1054,70 @@ fn test_p2_pool_worker_missing_function() {
         count, 2,
         "P2: pool worker should return correct count when function exists"
     );
+}
+
+// ===================================================================
+// Test P2b: Pool worker fails when rls_set_session function is missing
+// ===================================================================
+
+/// **P2b — Pool worker fails when rls_set_session is missing.**
+/// If the rls_set_session function is not present in the schema,
+/// the pool worker should return an error for context-injected queries
+/// (not silently execute without RLS context).
+#[test]
+fn test_p2b_pool_worker_missing_function() {
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_rls_schema_names();
+
+    let conn = may_postgres::connect(&primary_url).expect("connect");
+    let setup_exec = MayPostgresExecutor::new(conn);
+    setup_rls_fixture(&setup_exec, &schema, &table);
+
+    // Drop rls_set_session to simulate a missing function.
+    // Must use r. prefix for loop variable references inside the DO block.
+    setup_exec.execute(
+        "DO $$\n        DECLARE\n            r RECORD;\n        BEGIN\n            FOR r IN\n                SELECT p.oid, n.nspname, p.proname,\n                       pg_catalog.pg_get_function_arguments(p.oid) AS args\n                FROM pg_proc AS p\n                JOIN pg_namespace AS n ON n.oid = p.pronamespace\n                WHERE p.proname = 'rls_set_session'\n            LOOP\n                EXECUTE format('DROP FUNCTION %I.%I(%s)',\n                    r.nspname, r.proname, r.args);\n            END LOOP;\n        END $$;",
+        &[],
+    )
+    .expect("drop rls_set_session");
+
+    // Build RLS URL for the pool.
+    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+
+    // Create a pool with 1 worker.
+    let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
+
+    // Create a pooled executor WITH session context.
+    let exec = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
+        user_id: Some(uuid::Uuid::new_v4()),
+        user_org_id: Some(uuid::Uuid::parse_str(TENANT_ALPHA).unwrap()),
+        user_type: Some("alpha".into()),
+        org_type: None,
+        permissions: vec![],
+        user_email: None,
+    });
+
+    // The helper is missing, so the worker must reject the job before the
+    // application query can run without a tenant context.
+    let result = exec.query_one_values(
+        &format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table}"),
+        &Values(vec![]),
+    );
+
+    assert!(
+        matches!(
+            &result,
+            Err(LifeError::Pool(msg))
+                if msg.contains("rls_set_session") && msg.contains("not found")
+        ),
+        "P2b: expected a descriptive pool error for the missing helper"
+    );
+
+    // Recreate the function for subsequent tests (same body as ctor setup).
+    setup_exec
+        .execute(RLS_SET_SESSION_SQL, &[])
+        .expect("recreate rls_set_session for subsequent tests");
 }
 
 // ===================================================================

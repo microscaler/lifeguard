@@ -88,3 +88,12 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
   schema creation and `lifeguard-migrate` SQL generation.
 - Added live PostgreSQL coverage using a real `GENERATED ALWAYS ... STORED`
   column and documented the trusted compile-time expression boundary.
+
+## [2026-07-14] fix | RLS helper contract and live integration coverage
+
+- Schema-qualified every runtime call as `public.rls_set_session(...)` so
+  application search paths cannot hide or redirect the helper.
+- Made pooled execution fail closed when the helper is absent.
+- Serialized shared test-fixture DDL across concurrent nextest discovery and
+  consolidated the helper definition to prevent fixture drift.
+- Corrected stale UUID and tenant fixtures; the serial DB suite passes 104/104.
