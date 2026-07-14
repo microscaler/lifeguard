@@ -100,7 +100,10 @@ CREATE OR REPLACE FUNCTION rls_current_user_email()    RETURNS text       LANGUA
 - `current_setting(..., true)` prevents errors if variable isn't set (returns `NULL` instead of raising)
 - Default values are `NULL`/empty — no assumed roles. The consuming app decides what makes sense
 
-**Lifeguard's Role:** The executor wrapper (Phase 2) accepts a configurable function name (default: `rls_set_session`) so applications can rename it or use a different convention. Lifeguard does **not** ship or enforce this function.
+**Current implementation:** the executor, transaction, and pool paths call the
+schema-qualified `public.rls_set_session` helper. Lifeguard does **not** ship the
+function; the consuming application owns its migration and grants. The earlier
+configurable-name proposal below is design history, not a delivered API.
 
 ### 4.2 Phase 2: RLS-Enabled Executor Wrapper (Lifeguard Ownership)
 

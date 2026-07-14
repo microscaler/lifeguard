@@ -177,7 +177,7 @@ impl Transaction {
     /// Create a new transaction with a [`SessionContext`] for RLS injection.
     ///
     /// Runs `BEGIN` (with optional isolation level) then, if `ctx` is `Some`,
-    /// executes `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` to set the
+    /// executes `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` to set the
     /// session-level variables that power Row Level Security policies.
     ///
     /// The RLS context is set once at transaction start and persists on the
@@ -222,7 +222,7 @@ impl Transaction {
             let args_refs: Vec<&dyn may_postgres::types::ToSql> =
                 args.iter().map(|a| a.as_ref()).collect();
             client
-                .execute("SELECT rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)", &args_refs)
+                .execute("SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)", &args_refs)
                 .map_err(TransactionError::from)?;
         }
 

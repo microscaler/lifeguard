@@ -875,9 +875,19 @@ fn dispatch_worker_job(
     if session_context.is_some() {
         // Probe: does rls_set_session exist?
         match client.execute(
-            "SELECT 1 FROM pg_proc WHERE proname = 'rls_set_session'",
+            "SELECT 1 FROM pg_proc AS p JOIN pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'rls_set_session'",
             &[],
         ) {
+            Ok(0) => {
+                log::error!(
+                    "lifeguard pool: session context attached but rls_set_session SQL function is missing on {tier} worker; failing the job to prevent execution without RLS context"
+                );
+                let e = LifeError::Other(
+                    "rls_set_session SQL function not found on database".to_string(),
+                );
+                send_context_error(&job, &e);
+                return;
+            }
             Ok(_) => {} // function exists, proceed normally
             Err(e) => {
                 log::error!(
@@ -913,7 +923,7 @@ fn dispatch_worker_job(
         let args_refs: Vec<&dyn may_postgres::types::ToSql> =
             args.iter().map(|a| a.as_ref()).collect();
         if let Err(e) = client.execute(
-            "SELECT rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
+            "SELECT public.rls_set_session($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text)",
             &args_refs,
         ) {
             log::error!(
@@ -1029,10 +1039,10 @@ fn values_to_owned(values: &sea_query::Values) -> Result<Vec<OwnedParam>, LifeEr
 /// [`ReadPreference`] and [`Self::with_read_preference`]. Writes always use the primary tier.
 ///
 /// **RLS integration (Story 5):** optionally carries a [`SessionContext`] which is injected
-/// via `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` on the worker thread **before**
-/// executing each dispatched job. The `SET LOCAL` is scoped to the worker's single-statement
-/// transaction per job. When `session_context` is `None` (the default) the executor is
-/// functionally identical to the pre-RLS baseline.
+/// via `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` on the worker thread **before**
+/// executing each dispatched job. The session-scoped context is refreshed for every job that
+/// carries a context. When `session_context` is `None` (the default) the executor is functionally
+/// identical to the pre-RLS baseline.
 #[derive(Clone)]
 pub struct PooledLifeExecutor {
     pool: Arc<LifeguardPool>,
@@ -1096,9 +1106,9 @@ impl PooledLifeExecutor {
     /// Attach a [`SessionContext`] for RLS session injection on pool workers.
     ///
     /// When a context is attached, every query executed through this executor
-    /// will first run `SELECT rls_set_session($1, $2, $3, $4, $5, $6)` on the
-    /// worker thread before the actual query. The `SET LOCAL` is transaction-scoped
-    /// and is applied once per dispatched job.
+    /// will first run `SELECT public.rls_set_session($1, $2, $3, $4, $5, $6)` on the
+    /// worker thread before the actual query. The context is refreshed once per
+    /// dispatched job.
     ///
     /// Returns `self` for method chaining.
     ///

@@ -3,7 +3,7 @@
 - **Status**: `verified`
 - **Source docs**: [`src/lib.rs`](../../../src/lib.rs) re-exports, rustdoc on `transaction::`
 - **Code anchors**: [`src/transaction.rs`](../../../src/transaction.rs)
-- **Last updated**: 2026-04-17
+- **Last updated**: 2026-07-14
 
 ## What it is
 
@@ -13,6 +13,9 @@ Lifeguard exposes **`Transaction`**, **`IsolationLevel`**, and **`TransactionErr
 
 - Prefer **`cargo doc -p lifeguard transaction`** for exact method signatures at your revision.
 - Streaming APIs (`stream_all`, etc.) document **txn** cleanup in module rustdocs — read before changing `query/stream` paths.
+- `begin_with_session` calls the schema-qualified application helper
+  `public.rls_set_session(...)` after `BEGIN`. The consumer owns that SQL
+  function and its `auth.*` GUC mapping.
 
 ## Cross-references
 

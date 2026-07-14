@@ -59,3 +59,12 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
   so workers authenticate as non-superuser (superusers bypass RLS by default).
 - Fixed test assertions: removed explicit `WHERE tenant = $X` queries (bypass
   RLS), replaced with full-count queries verifying visible row count.
+
+## [2026-07-14] fix | RLS helper contract and live integration coverage
+
+- Schema-qualified every runtime call as `public.rls_set_session(...)` so
+  application search paths cannot hide or redirect the helper.
+- Made pooled execution fail closed when the helper is absent.
+- Serialized shared test-fixture DDL across concurrent nextest discovery and
+  consolidated the helper definition to prevent fixture drift.
+- Corrected stale UUID and tenant fixtures; the serial DB suite passes 104/104.
