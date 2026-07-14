@@ -1071,7 +1071,7 @@ impl UserFunctions for User {
 #### Current Lifeguard Support
 
 ✅ **What Works Now:**
-- Raw SQL execution (`execute_statement()`, `execute_unprepared()`)
+- Parameterized SQL execution (`execute_statement()`); the unprepared convenience was removed by policy
 - Parameterized queries (`find_by_statement()`, `find_all_by_statement()`)
 - Single value queries (`query_value()`)
 - Result mapping (can use `FromRow` to map results to models)

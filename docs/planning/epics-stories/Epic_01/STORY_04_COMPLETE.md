@@ -1,4 +1,9 @@
-# Story 04 Complete: Execute Raw SQL Queries
+# Story 04: Execute Raw SQL Queries (historical)
+
+> Superseded 2026-07-14: `execute_unprepared` was removed from Lifeguard's
+> application API. This file records the original implementation only and must
+> not be used as current API guidance. Use entities/migrations and parameterized
+> statement helpers.
 
 **Date:** 2025-01-XX  
 **Status:** ✅ Complete  

@@ -12,7 +12,7 @@ Establish the foundational architecture for Lifeguard by removing incompatible d
 - Redesign `LifeguardPool` for `may_postgres` connections
 - Add basic metrics and observability
 - Implement transaction support (replicates SeaORM's transaction API)
-- Implement raw SQL helpers (replicates SeaORM's `find_by_statement()`, `execute_unprepared()`)
+- Implement parameterized SQL helpers (`find_by_statement`; unprepared execution was later removed by policy)
 
 ## Success Criteria
 
@@ -23,7 +23,7 @@ Establish the foundational architecture for Lifeguard by removing incompatible d
 - Basic Prometheus metrics and OpenTelemetry tracing in place
 - Connection pooling works with semaphore-based acquisition
 - Transaction support: `pool.begin()`, `transaction.commit()`, `transaction.rollback()`
-- Raw SQL helpers: `find_by_statement()`, `execute_unprepared()`
+- Parameterized SQL helpers: `find_by_statement()`, `execute_statement()`
 
 ## Timeline
 
@@ -44,4 +44,3 @@ Establish the foundational architecture for Lifeguard by removing incompatible d
 ## Related Epics
 
 - Epic 02: ORM Core (depends on this epic)
-

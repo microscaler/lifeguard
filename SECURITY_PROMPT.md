@@ -65,7 +65,7 @@ Deliver:
 
 | Theme | Example locations / notes |
 |-------|---------------------------|
-| **Raw / unprepared SQL** | `src/raw_sql.rs` — `execute_unprepared` passes through to `executor.execute(sql, &[])`; consumer misuse enables classic SQL injection if user input is concatenated into `sql`. |
+| **Direct SQL construction** | `LifeExecutor` remains a low-level trait, but the public `execute_unprepared` convenience was removed. Review consumers that emulate it with `executor.execute(sql, &[])`; dynamic values must use bound parameters and schema changes must use migrations. |
 | **Parameterized vs embedded values** | `src/relation/eager.rs` — generated SQL fragments use `value_to_sql_string` / `Expr::cust` in places; code comments note embedding values is not ideal. Review for any path where **untrusted** data influences SQL text. |
 | **`unsafe`** | `src/session/identity_model_cell.rs` — `unsafe impl Send`; `lifeguard-reflector` may use `unsafe` for FFI/cache — review soundness and thread contracts. |
 | **Migration / lock SQL** | `src/migration/lock.rs` — `format!` with `LOCK_VERSION` constant (not user input); still verify no future refactor introduces interpolation of untrusted input. |
@@ -86,7 +86,7 @@ Deliver:
 
 | Location | Concern | Potential exploit | Possible remediation |
 |----------|---------|-------------------|----------------------|
-| `src/raw_sql.rs` (`execute_unprepared`, etc.) | Unprepared execution of caller-supplied SQL strings | Attacker-controlled string concatenated into SQL → **CWE-89** | Prefer `execute_statement` / parameterized APIs; static analysis for call sites; never pass untrusted input into `execute_unprepared` |
+| Consumer calls to `executor.execute(sql, &[])` | Recreating removed unprepared execution with caller-supplied SQL strings | Attacker-controlled string concatenated into SQL → **CWE-89** | Require `execute_statement` / parameterized APIs; reject schema changes outside the entity/migration process |
 | Consumer applications using Lifeguard | No built-in authn/authz | Broken access control at app layer | Enforce authz in application; use least-privilege DB roles; row-level security in PostgreSQL where appropriate |
 | `Cargo.toml` / lockfile | Transitive vulnerabilities | Known CVEs in dependencies | `cargo audit`, Dependabot, pin upgrades; review git deps (`may_postgres`) |
 | Optional Redis / NOTIFY / reflector | Cache and messaging trust boundaries | Cache poisoning or stale reads if misconfigured | TLS to Redis where required, auth secrets, network segmentation; document trust model |

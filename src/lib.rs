@@ -173,9 +173,7 @@ pub use json_helpers::{
 };
 
 // Re-export raw SQL helpers for convenience
-pub use raw_sql::{
-    execute_statement, execute_unprepared, find_all_by_statement, find_by_statement, query_value,
-};
+pub use raw_sql::{execute_statement, find_all_by_statement, find_by_statement, query_value};
 
 // Value type system - Epic 02 Story 10 (Phase 4: Value Type Infrastructure)
 pub mod value;

@@ -1,46 +1,13 @@
 //! Raw SQL Helpers - Epic 01 Story 04
 //!
-//! Provides convenience functions for executing raw SQL queries.
-//! These helpers replicate `SeaORM`'s `find_by_statement()` and `execute_unprepared()` functionality.
+//! Provides parameterized helpers for SQL that cannot be expressed through the
+//! entity/query APIs. Lifeguard deliberately does not expose an unprepared
+//! application helper: values must be bound, and schema changes belong in the
+//! entity and migration process.
 
 use crate::executor::{LifeError, LifeExecutor};
 use may_postgres::types::ToSql;
 use may_postgres::Row;
-
-/// Execute an unprepared SQL statement
-///
-/// This is equivalent to `SeaORM`'s `execute_unprepared()`. It executes a raw SQL string
-/// without parameter binding.
-///
-/// # Arguments
-///
-/// * `executor` - The executor to use for database operations
-/// * `sql` - Raw SQL string to execute
-///
-/// # Returns
-///
-/// Returns the number of rows affected, or an error.
-///
-/// # Errors
-///
-/// Returns `LifeError` if the SQL execution fails.
-///
-/// # Examples
-///
-/// ```no_run
-/// use lifeguard::{MayPostgresExecutor, LifeExecutor, execute_unprepared, connect, LifeError};
-///
-/// # fn main() -> Result<(), LifeError> {
-/// let client = connect("postgresql://postgres:postgres@localhost:5432/mydb")
-///     .map_err(|e| LifeError::Other(format!("Connection error: {}", e)))?;
-/// let executor = MayPostgresExecutor::new(client);
-/// let rows = execute_unprepared(&executor, "DELETE FROM users WHERE id = 42")?;
-/// # Ok(())
-/// # }
-/// ```
-pub fn execute_unprepared<E: LifeExecutor>(executor: &E, sql: &str) -> Result<u64, LifeError> {
-    executor.execute(sql, &[])
-}
 
 /// Execute a prepared statement with parameters
 ///

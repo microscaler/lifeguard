@@ -15,7 +15,7 @@ This document summarizes how all SeaORM features are covered across Lifeguard ep
 
 **Story 07: Raw SQL Helpers** (NEW)
 - ✅ `Entity::find_by_statement(statement)` - Execute raw SQL
-- ✅ `Entity::execute_unprepared(sql)` - Execute unprepared SQL
+- ❌ `Entity::execute_unprepared(sql)` - Deliberately not exposed; use entities/migrations and bound parameters
 - ✅ Parameter binding support
 - ✅ Result mapping to LifeModel
 
@@ -210,7 +210,7 @@ This document summarizes how all SeaORM features are covered across Lifeguard ep
 | commit() | transaction.commit() | Epic 01 | Story 06 | ✅ |
 | rollback() | transaction.rollback() | Epic 01 | Story 06 | ✅ |
 | find_by_statement() | Entity::find_by_statement() | Epic 01 | Story 07 | ✅ |
-| execute_unprepared() | Entity::execute_unprepared() | Epic 01 | Story 07 | ✅ |
+| execute_unprepared() | Entity::execute_unprepared() | Removed by policy | — | ❌ |
 | All filters | All filters | Epic 02 | Story 05 | ✅ |
 | All joins | All joins | Epic 05 | Story 06 | ✅ |
 | Relations | Relations | Epic 05 | Story 06 | ✅ |
@@ -228,4 +228,3 @@ All SeaORM features are now covered across the appropriate epics:
 - **Epic 06**: Enterprise Features
 
 Lifeguard will provide complete SeaORM API parity while being coroutine-native and optimized for the `may` runtime.
-
