@@ -57,7 +57,7 @@ fn default_db_url() -> String {
 }
 
 fn default_max_connections() -> usize {
-    10
+    2
 }
 
 fn default_pool_timeout_seconds() -> u64 {
