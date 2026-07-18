@@ -1,0 +1,16 @@
+apiVersion: v2
+name: postgres
+description: >
+  Lifeguard PostgreSQL — Bitnami primary Deployment with optional streaming
+  replicas. App traffic hits the primary Service (no Pgpool). Persistence is
+  values-driven for iSCSI (dev) or GCP Persistent Disk (GKE).
+type: application
+version: 0.1.0
+appVersion: "15"
+keywords:
+  - postgresql
+  - lifeguard
+maintainers:
+  - name: microscaler
+sources:
+  - https://github.com/microscaler/lifeguard

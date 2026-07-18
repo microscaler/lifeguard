@@ -1,0 +1,42 @@
+# GKE — Persistent Disk via regional/zonal StorageClass.
+# Prefer premium-rwo for primary; standard-rwo is fine for standbys.
+
+auth:
+  existingSecret: postgres-credentials
+  passwordKey: postgres-password
+  replicationPasswordKey: postgres-replication-password
+
+primary:
+  name: postgres-primary
+  persistence:
+    # GKE CSI: standard-rwo | premium-rwo | hyperdisk-* (cluster-dependent)
+    storageClass: premium-rwo
+    size: 50Gi
+    # Bind an existing PD PersistentVolume:
+    # volumeName: pvc-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    # Or skip PVC create entirely:
+    # existingClaim: postgres-primary-data
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi
+
+service:
+  name: postgres
+  type: ClusterIP
+  port: 5432
+  nodePort: null
+  annotations: {}
+
+replica:
+  enabled: true
+  count: 2
+  persistence:
+    storageClass: standard-rwo
+    size: 50Gi
+
+exporter:
+  enabled: true

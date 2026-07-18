@@ -1,0 +1,21 @@
+Lifeguard postgres
+
+  Primary:  {{ include "postgres.primaryName" . }}
+  Service:  {{ include "postgres.serviceName" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  Secret:   {{ include "postgres.secretName" . }}
+  PVC:      {{ include "postgres.primaryClaimName" . }}
+            storageClass={{ .Values.primary.persistence.storageClass | default "(cluster default)" }}
+            {{- if .Values.primary.persistence.volumeName }} volumeName={{ .Values.primary.persistence.volumeName }}{{- end }}
+            {{- if .Values.primary.persistence.existingClaim }} (existingClaim){{- end }}
+
+{{- if and .Values.replica.enabled (gt (int .Values.replica.count) 0) }}
+  Replicas: {{ .Values.replica.count }} ({{ .Values.replica.namePrefix }}-0..) — not selected by app Service
+{{- else }}
+  Replicas: disabled
+{{- end }}
+
+Persistence tips:
+  - Dev iSCSI:  primary.persistence.storageClass=zfs-iscsi
+  - GKE PD:     primary.persistence.storageClass=premium-rwo (or standard-rwo)
+  - Rebind PV:  primary.persistence.volumeName=<pv-name> (size must match PV)
+  - Pre-made:   primary.persistence.existingClaim=<pvc-name>

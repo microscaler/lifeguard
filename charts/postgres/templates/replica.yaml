@@ -1,0 +1,161 @@
+{{- if and .Values.replica.enabled (gt (int .Values.replica.count) 0) }}
+{{- $root := . }}
+{{- range $i, $_ := until (int .Values.replica.count) }}
+{{- $name := printf "%s-%d" $root.Values.replica.namePrefix $i }}
+{{- $existing := "" }}
+{{- if and $root.Values.replica.persistence.existingClaims (lt $i (len $root.Values.replica.persistence.existingClaims)) }}
+{{- $existing = index $root.Values.replica.persistence.existingClaims $i }}
+{{- end }}
+{{- $volumeName := "" }}
+{{- if and $root.Values.replica.persistence.volumeNames (lt $i (len $root.Values.replica.persistence.volumeNames)) }}
+{{- $volumeName = index $root.Values.replica.persistence.volumeNames $i }}
+{{- end }}
+{{- $claimName := printf "%s-data" $name }}
+{{- if $existing }}
+{{- $claimName = $existing }}
+{{- end }}
+{{- if and $root.Values.replica.persistence.enabled (not $existing) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $claimName }}
+  labels:
+    {{- include "postgres.labels" $root | nindent 4 }}
+    app: {{ $name }}
+  {{- $anns := dict }}
+  {{- range $k, $v := $root.Values.commonAnnotations }}{{ $_ := set $anns $k $v }}{{ end }}
+  {{- range $k, $v := $root.Values.replica.persistence.annotations }}{{ $_ := set $anns $k $v }}{{ end }}
+  {{- with $anns }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml $root.Values.replica.persistence.accessModes | nindent 4 }}
+  {{- include "postgres.storageClass" $root.Values.replica.persistence | nindent 2 }}
+  {{- if $volumeName }}
+  volumeName: {{ $volumeName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $root.Values.replica.persistence.size | quote }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "postgres.labels" $root | nindent 4 }}
+    app: {{ $name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        {{- include "postgres.selectorLabels" $root | nindent 8 }}
+        app: {{ $name }}
+    spec:
+      {{- with $root.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgres
+          image: {{ include "postgres.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRESQL_REPLICATION_MODE
+              value: "slave"
+            - name: POSTGRESQL_REPLICATION_USER
+              value: {{ $root.Values.auth.replicationUser | quote }}
+            - name: POSTGRESQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres.secretName" $root }}
+                  key: {{ $root.Values.auth.replicationPasswordKey }}
+            - name: POSTGRESQL_MASTER_HOST
+              value: {{ include "postgres.masterHost" $root | quote }}
+            - name: POSTGRESQL_MASTER_PORT_NUMBER
+              value: {{ $root.Values.service.port | quote }}
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres.secretName" $root }}
+                  key: {{ $root.Values.auth.passwordKey }}
+            - name: POSTGRESQL_MASTER_ROOT_USER
+              value: {{ $root.Values.auth.username | quote }}
+            - name: POSTGRESQL_MASTER_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres.secretName" $root }}
+                  key: {{ $root.Values.auth.passwordKey }}
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: {{ $root.Values.postgresql.maxConnections | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+          livenessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - {{ $root.Values.auth.username }}
+                - -d
+                - {{ $root.Values.auth.database }}
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: {{ $root.Values.replica.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $root.Values.replica.livenessProbe.periodSeconds }}
+          readinessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - {{ $root.Values.auth.username }}
+                - -d
+                - {{ $root.Values.auth.database }}
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: {{ $root.Values.replica.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $root.Values.replica.readinessProbe.periodSeconds }}
+          {{- with $root.Values.replica.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $claimName }}
+{{- if $root.Values.replica.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "postgres.labels" $root | nindent 4 }}
+    app: {{ $name }}
+spec:
+  type: {{ $root.Values.replica.service.type }}
+  ports:
+    - name: postgres
+      port: {{ $root.Values.service.port }}
+      targetPort: postgres
+      protocol: TCP
+  selector:
+    app: {{ $name }}
+{{- end }}
+{{- end }}
+{{- end }}

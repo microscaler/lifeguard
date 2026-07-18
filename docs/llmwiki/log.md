@@ -139,3 +139,10 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
   Service `postgres`, exporter, pact). Not a reinvented Helm chart.
 - Flux (shared-gitops stack `postgres`) applies it via Kustomization
   `postgres-manifests` from GitRepository `lifeguard-charts`.
+
+## [2026-07-19] feat | charts/postgres proper Helm + PVC values
+
+- Templated primary/replicas/exporter from `values.yaml`.
+- Persistence: `storageClass` (zfs-iscsi / GKE PD / `-` empty), `volumeName`,
+  `existingClaim`, per-replica `volumeNames` / `existingClaims`.
+- Overlays: `values/dev-iscsi.yaml`, `values/gke.yaml`. Pact removed earlier.

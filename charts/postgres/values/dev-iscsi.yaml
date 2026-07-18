@@ -1,0 +1,40 @@
+# Shared Kind / ms02 — democratic-csi iSCSI (StorageClass zfs-iscsi).
+# MetalLB LB on Service postgres (historical IP).
+
+auth:
+  existingSecret: postgres-credentials
+  passwordKey: postgres-password
+  replicationPasswordKey: postgres-replication-password
+
+primary:
+  name: postgres-primary
+  persistence:
+    storageClass: zfs-iscsi
+    size: 10Gi
+    # Static rebind example (after PV is Released / claimRef cleared):
+    # volumeName: pvc-7410f9b7-ba1c-495b-bd27-956663b84c37
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+service:
+  name: postgres
+  type: LoadBalancer
+  port: 5432
+  nodePort: null
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "10.177.76.224"
+
+replica:
+  enabled: true
+  count: 2
+  persistence:
+    storageClass: zfs-iscsi
+    size: 10Gi
+
+exporter:
+  enabled: true

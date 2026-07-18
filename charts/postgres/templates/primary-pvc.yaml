@@ -1,0 +1,30 @@
+{{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "postgres.primaryClaimName" . }}
+  labels:
+    {{- include "postgres.labels" . | nindent 4 }}
+    app: {{ include "postgres.primaryName" . }}
+  {{- $anns := dict }}
+  {{- range $k, $v := .Values.commonAnnotations }}{{ $_ := set $anns $k $v }}{{ end }}
+  {{- range $k, $v := .Values.primary.persistence.annotations }}{{ $_ := set $anns $k $v }}{{ end }}
+  {{- with $anns }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.primary.persistence.accessModes | nindent 4 }}
+  {{- include "postgres.storageClass" .Values.primary.persistence | nindent 2 }}
+  {{- if .Values.primary.persistence.volumeName }}
+  volumeName: {{ .Values.primary.persistence.volumeName | quote }}
+  {{- end }}
+  {{- with .Values.primary.persistence.selector }}
+  selector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.primary.persistence.size | quote }}
+{{- end }}

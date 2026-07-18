@@ -1,0 +1,132 @@
+# Lifeguard postgres chart — drive all resources from this file.
+# Overlays: values/dev-iscsi.yaml (shared Kind), values/gke.yaml (GCP PD).
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  registry: docker.io
+  repository: bitnamilegacy/postgresql
+  tag: "15"
+  pullPolicy: IfNotPresent
+
+podSecurityContext:
+  fsGroup: 1001
+
+auth:
+  username: postgres
+  database: postgres
+  replicationUser: replicator
+  # When empty, chart creates a Secret (dev only). Prefer existingSecret in shared clusters.
+  existingSecret: ""
+  passwordKey: postgres-password
+  replicationPasswordKey: postgres-replication-password
+  # Used only when existingSecret is empty.
+  password: postgres
+  replicationPassword: postgres
+
+postgresql:
+  maxConnections: "200"
+
+## Persistence contract (primary and each replica):
+##
+##   storageClass:
+##     unset / null  → cluster default StorageClass (often ok on GKE)
+##     "zfs-iscsi"   → democratic-csi iSCSI on shared Kind / ms02
+##     "standard-rwo" / "premium-rwo" → GKE Persistent Disk
+##     "-"           → force storageClassName: "" (static / unbound SC)
+##
+##   volumeName: bind to a pre-created PV (Retain volumes, iSCSI reuse, GCP PD)
+##   existingClaim: skip PVC creation; mount this claim name
+##   selector: matchLabels/matchExpressions for static PV binding
+##
+## Dynamic provision: set storageClass + size, leave volumeName empty.
+## Static rebind:    set volumeName (+ size matching the PV), storageClass as needed.
+
+primary:
+  name: postgres-primary
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+  persistence:
+    enabled: true
+    existingClaim: ""
+    # Claim name when chart creates the PVC (default: <primary.name>-data).
+    claimName: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    volumeName: ""
+    selector: {}
+    annotations: {}
+
+# App-facing Service — always selects the primary.
+service:
+  # Empty → primary.name historically was "postgres" for Kind extraPortMappings.
+  name: postgres
+  type: NodePort
+  port: 5432
+  nodePort: 30432
+  annotations: {}
+  # LoadBalancer example (MetalLB):
+  #   type: LoadBalancer
+  #   nodePort: null
+  #   annotations:
+  #     metallb.universe.tf/loadBalancerIPs: "10.177.76.224"
+
+# Streaming standbys for Lifeguard WAL-lag / read-routing. Not on the app Service.
+replica:
+  enabled: true
+  count: 2
+  namePrefix: postgres-replica
+  # Empty → chart Service DNS name (short name in release namespace).
+  masterHost: ""
+  resources: {}
+  service:
+    enabled: true
+    type: ClusterIP
+  livenessProbe:
+    initialDelaySeconds: 90
+    periodSeconds: 15
+  readinessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    annotations: {}
+    # Optional per-index static binds: ["", "pvc-uuid-or-pv-name", ...]
+    volumeNames: []
+    # Optional per-index existing claims (skip PVC create for that index).
+    existingClaims: []
+
+exporter:
+  enabled: true
+  image:
+    registry: quay.io
+    repository: prometheuscommunity/postgres-exporter
+    tag: v0.15.0
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  # Empty → built from auth + service DNS (password from values when chart creates Secret).
+  dataSourceName: ""
+
+commonLabels: {}
+commonAnnotations: {}
