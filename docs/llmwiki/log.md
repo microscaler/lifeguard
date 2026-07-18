@@ -132,11 +132,10 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 - Verified derive tests, 485 Lifeguard library tests and RERP's external typed
   accounting models.
 
-## [2026-07-18] feat | charts/postgres Helm (primary-direct)
+## [2026-07-18] feat | charts/postgres = verbatim shared-kind manifests
 
-- Added [`charts/postgres`](../../charts/postgres): Bitnami primary Deployment,
-  optional streaming replicas, **no Pgpool** — packages
-  `config/k8s/test-infrastructure` + docker-compose topology for Flux/Kind.
-- Overlays: `values/lifeguard-test.yaml` (primary+2 replicas),
-  `values/shared-kind.yaml` (Service `postgres` + MetalLB, primary only).
-- Intended to replace shared-gitops Bitnami `postgresql-ha` for consumer stability.
+- [`charts/postgres`](../../charts/postgres) is a **verbatim copy** of
+  `shared-kind-cluster/k8s/platform-data/data/postgres` (primary + replicas,
+  Service `postgres`, exporter, pact). Not a reinvented Helm chart.
+- Flux (shared-gitops stack `postgres`) applies it via Kustomization
+  `postgres-manifests` from GitRepository `lifeguard-charts`.

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: data
+resources:
+  - pact-broker.yaml
+  - pact-postgres.yaml
+  - postgres-credentials-secret.yaml
+  - postgres-primary-deployment.yaml
+  - postgres-primary-pvc.yaml
+  - postgres-primary-service.yaml
+  - postgres-replica-0-deployment.yaml
+  - postgres-replica-0-pvc.yaml
+  - postgres-replica-0-service.yaml
+  - postgres-replica-1-deployment.yaml
+  - postgres-replica-1-pvc.yaml
+  - postgres-replica-1-service.yaml
+  - claims.yaml
+  - postgres-exporter.yaml
+
+configMapGenerator:
+  - name: postgres-pact-init
+    files:
+      - 10-pact-role.sql=postgres-pact-role.sql
+    options:
+      disableNameSuffixHash: true
