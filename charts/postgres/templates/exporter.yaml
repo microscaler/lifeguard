@@ -1,0 +1,64 @@
+{{- if .Values.exporter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "postgres.fullname" . }}-exporter
+  labels:
+    {{- include "postgres.labels" . | nindent 4 }}
+    app: {{ include "postgres.fullname" . }}-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "postgres.fullname" . }}-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "postgres.selectorLabels" . | nindent 8 }}
+        app: {{ include "postgres.fullname" . }}-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+    spec:
+      containers:
+        - name: postgres-exporter
+          image: {{ include "postgres.exporterImage" . }}
+          imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}
+          args:
+            - --web.listen-address=:9187
+          env:
+            - name: DATA_SOURCE_NAME
+              value: {{ include "postgres.dataSourceName" . | quote }}
+          ports:
+            - name: metrics
+              containerPort: 9187
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+          {{- with .Values.exporter.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "postgres.fullname" . }}-exporter
+  labels:
+    {{- include "postgres.labels" . | nindent 4 }}
+    app: {{ include "postgres.fullname" . }}-exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9187
+      targetPort: metrics
+  selector:
+    app: {{ include "postgres.fullname" . }}-exporter
+{{- end }}

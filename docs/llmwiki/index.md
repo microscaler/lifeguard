@@ -33,6 +33,7 @@ Content catalog for the Lifeguard llm-wiki. See [`SCHEMA.md`](./SCHEMA.md).
 - [`topics/migrate-cli-integration.md`](./topics/migrate-cli-integration.md) — Running migrate in apps and CI.
 - [`topics/derive-macros-and-attributes.md`](./topics/derive-macros-and-attributes.md) — `lifeguard-derive` attributes.
 - [`topics/integration-testing-and-ci.md`](./topics/integration-testing-and-ci.md) — `TEST_INFRASTRUCTURE`, test helpers.
+- [`../../charts/postgres/README.md`](../../charts/postgres/README.md) — **Helm chart:** primary-direct Postgres (no Pgpool) for Kind/shared-dev; overlays `lifeguard-test` + `shared-kind`.
 - [`topics/index-and-derive-constraints.md`](./topics/index-and-derive-constraints.md) — `#[index]` / `#[indexed]` constraints.
 - [`topics/brrtrouter-integration-pitfalls.md`](./topics/brrtrouter-integration-pitfalls.md) — BRRTRouter + Lifeguard footguns.
 - [`topics/graphql-optional-feature.md`](./topics/graphql-optional-feature.md) — optional `graphql` / `async_graphql` (legacy cfg; **not** Hauliage BFF / dashboard direction).

@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "postgres.primaryName" . }}
+  labels:
+    {{- include "postgres.labels" . | nindent 4 }}
+    app: {{ include "postgres.primaryName" . }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "postgres.primaryName" . }}
+  template:
+    metadata:
+      labels:
+        {{- include "postgres.selectorLabels" . | nindent 8 }}
+        app: {{ include "postgres.primaryName" . }}
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.primary.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.primary.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.primary.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: {{ include "postgres.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          env:
+            - name: POSTGRESQL_REPLICATION_MODE
+              value: "master"
+            - name: POSTGRESQL_REPLICATION_USER
+              value: {{ .Values.auth.replicationUser | quote }}
+            - name: POSTGRESQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres.secretName" . }}
+                  key: {{ .Values.auth.replicationPasswordKey }}
+            - name: POSTGRESQL_USERNAME
+              value: {{ .Values.auth.username | quote }}
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgres.secretName" . }}
+                  key: {{ .Values.auth.passwordKey }}
+            - name: POSTGRESQL_DATABASE
+              value: {{ .Values.auth.database | quote }}
+            - name: POSTGRESQL_MAX_CONNECTIONS
+              value: {{ .Values.postgresql.maxConnections | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+            {{- if .Values.initScripts.enabled }}
+            - name: init-scripts
+              mountPath: /init-sql
+              readOnly: true
+            {{- end }}
+          {{- if .Values.initScripts.enabled }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - |
+                    set -e
+                    export PATH="/opt/bitnami/postgresql/bin:$PATH"
+                    for _ in $(seq 1 120); do
+                      if pg_isready -U {{ .Values.auth.username }} -d {{ .Values.auth.database }} -h 127.0.0.1 -p 5432; then break; fi
+                      sleep 1
+                    done
+                    export PGPASSWORD="$POSTGRESQL_PASSWORD"
+                    for f in /init-sql/*.sql; do
+                      [ -f "$f" ] || continue
+                      psql -U {{ .Values.auth.username }} -d {{ .Values.auth.database }} -h 127.0.0.1 -v ON_ERROR_STOP=1 -f "$f"
+                    done
+          {{- end }}
+          livenessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - {{ .Values.auth.username }}
+                - -d
+                - {{ .Values.auth.database }}
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: {{ .Values.primary.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.primary.livenessProbe.periodSeconds }}
+          readinessProbe:
+            exec:
+              command:
+                - /opt/bitnami/postgresql/bin/pg_isready
+                - -U
+                - {{ .Values.auth.username }}
+                - -d
+                - {{ .Values.auth.database }}
+                - -h
+                - 127.0.0.1
+                - -p
+                - "5432"
+            initialDelaySeconds: {{ .Values.primary.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.primary.readinessProbe.periodSeconds }}
+          {{- with .Values.primary.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ if .Values.primary.persistence.existingClaim }}{{ .Values.primary.persistence.existingClaim }}{{ else }}{{ include "postgres.primaryName" . }}-data{{ end }}
+        {{- if .Values.initScripts.enabled }}
+        - name: init-scripts
+          configMap:
+            name: {{ include "postgres.initConfigMapName" . }}
+        {{- end }}

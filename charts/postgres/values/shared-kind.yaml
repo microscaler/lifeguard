@@ -1,0 +1,51 @@
+# Overlay for shared Kind `data` namespace (replaces Bitnami postgresql-ha + Pgpool).
+# Preserves historical Service name + MetalLB IP used by loadlinker / sesame / rerp.
+#
+# Example:
+#   helm upgrade --install postgres ./charts/postgres \
+#     -n data -f values/shared-kind.yaml
+
+fullnameOverride: postgres
+
+primary:
+  # Match historical shared-kind / shared-k8s-cluster resource name.
+  name: postgres-primary
+  persistence:
+    size: 20Gi
+    storageClass: zfs-iscsi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+service:
+  name: postgres
+  type: LoadBalancer
+  port: 5432
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "10.177.76.224"
+
+auth:
+  existingSecret: postgres-credentials
+  passwordKey: postgres-password
+  replicationPasswordKey: postgres-replication-password
+
+postgresql:
+  maxConnections: "200"
+
+# Stability first — no standbys on the shared multi-tenant cluster.
+replica:
+  enabled: false
+  count: 0
+
+initScripts:
+  enabled: true
+  # Optional Pact monitor role for borrowed exporter snippets.
+  extraFiles:
+    - 10-pact-role.sql
+
+exporter:
+  enabled: true

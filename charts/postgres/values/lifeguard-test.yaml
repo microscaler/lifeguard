@@ -1,0 +1,34 @@
+# Overlay matching config/k8s/test-infrastructure (lifeguard-test namespace).
+
+fullnameOverride: postgresql
+
+primary:
+  name: postgresql-primary
+  persistence:
+    size: 1Gi
+
+service:
+  name: postgresql-primary
+  type: ClusterIP
+
+auth:
+  # Chart creates Secret when existingSecret is empty (dev defaults).
+  existingSecret: ""
+  passwordKey: postgresql-password
+  replicationPasswordKey: postgresql-replication-password
+  password: postgres
+  replicationPassword: postgres
+
+replica:
+  enabled: true
+  count: 2
+  namePrefix: postgresql-replica
+  masterHost: postgresql-primary
+
+initScripts:
+  enabled: true
+  extraFiles:
+    - 10-pact-role.sql
+
+exporter:
+  enabled: false
