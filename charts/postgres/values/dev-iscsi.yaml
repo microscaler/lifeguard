@@ -10,7 +10,7 @@ primary:
   name: postgres-primary
   persistence:
     storageClass: zfs-iscsi
-    size: 10Gi
+    size: 20Gi
     # Static rebind example (after PV is Released / claimRef cleared):
     # volumeName: pvc-7410f9b7-ba1c-495b-bd27-956663b84c37
   resources:
