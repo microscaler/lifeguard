@@ -7,7 +7,8 @@ fullnameOverride: ""
 image:
   registry: docker.io
   repository: bitnamilegacy/postgresql
-  tag: "15"
+  # Match shared-dev HA data (postgresql-repmgr 17.x) so retained iSCSI PVs can remount.
+  tag: "17"
   pullPolicy: IfNotPresent
 
 # Bitnami runs as UID 1001.

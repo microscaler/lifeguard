@@ -11,7 +11,7 @@ primary:
   # Match historical shared-kind / shared-k8s-cluster resource name.
   name: postgres-primary
   persistence:
-    size: 20Gi
+    size: 10Gi
     storageClass: zfs-iscsi
   resources:
     requests:

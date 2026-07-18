@@ -7,7 +7,7 @@ description: >
   config/k8s/test-infrastructure.
 type: application
 version: 0.1.0
-appVersion: "15"
+appVersion: "17"
 keywords:
   - postgresql
   - lifeguard
