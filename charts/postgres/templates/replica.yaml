@@ -51,6 +51,9 @@ metadata:
     app: {{ $name }}
 spec:
   replicas: 1
+  # RWO iSCSI/PD: RollingUpdate leaves two pods fighting one volume.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ $name }}
