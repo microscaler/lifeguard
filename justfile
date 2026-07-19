@@ -7,13 +7,13 @@ set shell := ["bash", "-uc"]
 # Set dotenv loading
 set dotenv-load := true
 
-shared_k8s_root := "../shared-k8s-cluster"
+shared_k8s_root := "../shared-gitops-k8s-cluster"
 shared_k8s_kubeconfig := shared_k8s_root + "/kubeconfig/shared-k8s.yaml"
 LIFEGUARD_TILT_PORT := env_var_or_default("LIFEGUARD_TILT_PORT", "10355")
 
 # Variables
-# **Local dev:** use microscaler/shared-k8s-cluster (`just systemd-tilt-up` there); Postgres LoadBalancer is **10.177.76.224:5432** (or port-forward svc/postgres).
-# **shared-k8s-cluster** platform exposes Redis/Postgres via MetalLB (see that repo’s `config/loadbalancer-ips.env`). Manual `kubectl port-forward` if you prefer localhost.
+# **Local dev:** use microscaler/shared-gitops-k8s-cluster (`just systemd-tilt-up` there); Postgres LoadBalancer is **10.177.76.224:5432** (or port-forward svc/postgres).
+# **shared-gitops-k8s-cluster** platform exposes Redis/Postgres via MetalLB (see that repo’s `config/loadbalancer-ips.env`). Manual `kubectl port-forward` if you prefer localhost.
 # **CI / docker-compose** uses host **6543** — set `LIFEGUARD_PG_PORT=6543` when running `just` against that stack only.
 # libpq `options`: `search_path=lifeguard` (create schema once: `CREATE SCHEMA IF NOT EXISTS lifeguard;` on shared Postgres).
 LG_PG_SEARCH_PATH := "?options=-c%20search_path%3Dlifeguard"
@@ -46,7 +46,7 @@ dev-up:
 dev-down:
     @python3 scripts/dev_down.py
 
-# Install Kind systemd override (see shared-k8s-cluster/config/systemd-kind-override.example).
+# Install Kind systemd override (see shared-gitops-k8s-cluster/config/systemd-kind-override.example).
 dev-enable-kind:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -65,7 +65,7 @@ dev-disable-kind:
     systemctl --user restart tilt-lifeguard.service
     echo "Lifeguard Tilt restored to shared-k8s default"
 
-# Wait for shared **data** plane (microscaler/shared-k8s-cluster) — namespace `data`
+# Wait for shared **data** plane (microscaler/shared-gitops-k8s-cluster) — namespace `data`
 dev-wait-db:
     @echo "⏳ Waiting for Postgres primary + replicas + Redis (namespace data)..."
     @kubectl wait --for=condition=available --timeout=300s deployment/postgres-primary deployment/postgres-replica-0 deployment/postgres-replica-1 deployment/redis -n data || \
@@ -94,7 +94,7 @@ dev-port-forward:
 
 # Start Tilt (shared-k8s systemd or foreground on Kind)
 tilt-up:
-    @echo "🎯 Starting Lifeguard Tilt (shared-k8s-cluster platform)..."
+    @echo "🎯 Starting Lifeguard Tilt (shared-gitops-k8s-cluster platform)..."
     @echo "   Tilt UI: http://0.0.0.0:{{LIFEGUARD_TILT_PORT}}/ (systemd: tilt-lifeguard.service)"
     @systemctl --user start tilt-lifeguard.service || tilt up --host 0.0.0.0 --port {{LIFEGUARD_TILT_PORT}}
 
@@ -383,7 +383,7 @@ clean:
 status:
     @echo "📊 Cluster Status..."
     @kubectl get nodes 2>/dev/null || echo "⚠️  No Kind cluster running"
-    @kubectl get pods -n data 2>/dev/null || echo "⚠️  No pods in data namespace (start shared-k8s platform: cd ../shared-k8s-cluster && just systemd-tilt-up)"
+    @kubectl get pods -n data 2>/dev/null || echo "⚠️  No pods in data namespace (start shared-k8s platform: cd ../shared-gitops-k8s-cluster && just systemd-tilt-up)"
 
 # Show PostgreSQL logs
 logs-db:

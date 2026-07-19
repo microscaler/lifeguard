@@ -1,8 +1,8 @@
 # Lifeguard Tiltfile
 #
 # Builds, tests, and examples only — **no** Postgres/Redis/observability manifests here.
-# Platform infra: **shared-k8s-cluster** (Tilt UI :10349) or legacy Kind (TILT_K8S_CLUSTER=kind).
-# systemd: tilt-lifeguard.service (port 10355) from shared-k8s-cluster/deploy/.
+# Platform infra: **shared-gitops-k8s-cluster** (Tilt UI :10349) or legacy Kind (TILT_K8S_CLUSTER=kind).
+# systemd: tilt-lifeguard.service (port 10355) from shared-gitops-k8s-cluster/deploy/.
 #
 # Usage: tilt up
 #
@@ -21,7 +21,7 @@
 # ====================
 
 # Restrict kubectl context when DB helpers use cluster API (cargo-only Tilt otherwise).
-_SHARED_K8S_KCFG = os.path.abspath('../shared-k8s-cluster/kubeconfig/shared-k8s.yaml')
+_SHARED_K8S_KCFG = os.path.abspath('../shared-gitops-k8s-cluster/kubeconfig/shared-k8s.yaml')
 _k8s_mode = os.environ.get('TILT_K8S_CLUSTER', '').strip().lower()
 if _k8s_mode in ('kind', 'kind-kind'):
     allow_k8s_contexts(['kind-kind', 'kind-lifeguard-test'])

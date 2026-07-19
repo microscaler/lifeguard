@@ -10,7 +10,7 @@ from pathlib import Path
 
 KUBECONFIG = (
     Path.home()
-    / "Workspace/microscaler/shared-k8s-cluster/kubeconfig/shared-k8s.yaml"
+    / "Workspace/microscaler/shared-gitops-k8s-cluster/kubeconfig/shared-k8s.yaml"
 )
 
 

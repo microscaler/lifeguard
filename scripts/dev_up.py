@@ -3,7 +3,7 @@
 Development environment startup for Lifeguard.
 
 Default (ms02): shared-k8s platform + systemd tilt-lifeguard.service (port 10355).
-Kind fallback: set TILT_K8S_CLUSTER=kind (see shared-k8s-cluster/config/systemd-kind-override.example).
+Kind fallback: set TILT_K8S_CLUSTER=kind (see shared-gitops-k8s-cluster/config/systemd-kind-override.example).
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-SHARED_K8S = Path.home() / "Workspace/microscaler/shared-k8s-cluster"
+SHARED_K8S = Path.home() / "Workspace/microscaler/shared-gitops-k8s-cluster"
 KUBECONFIG = SHARED_K8S / "kubeconfig/shared-k8s.yaml"
 TILT_UNIT = "tilt-lifeguard.service"
 TILT_PORT = "10355"

@@ -32,7 +32,7 @@ def ensure_kubeconfig() -> None:
         return
     default = (
         Path.home()
-        / "Workspace/microscaler/shared-k8s-cluster/kubeconfig/shared-k8s.yaml"
+        / "Workspace/microscaler/shared-gitops-k8s-cluster/kubeconfig/shared-k8s.yaml"
     )
     if default.is_file():
         os.environ["KUBECONFIG"] = str(default)
