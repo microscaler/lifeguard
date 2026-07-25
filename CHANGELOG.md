@@ -30,13 +30,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     mutually exclusive, last write wins; a staged NULL counts as dirty, and
     `null_columns()` reports them.
 
+  **Reach beyond `update()`.** Every mutation in the crate is built by the
+  derive's `insert` / `update` / `delete`; there is no second statement
+  builder, so the fix covers the ORM rather than only hand-written SQL:
+
+  - **Soft delete restore.** `delete()` on a `#[soft_delete]` entity was never
+    affected (it builds its own `UPDATE ... SET deleted_at = now()`), but there
+    is no `restore()` API — un-deleting means clearing `deleted_at`, which was
+    the operation that vanished. Soft-deleted rows could not be brought back
+    through the ORM at all, and since `find()` filters on `deleted_at IS NULL`
+    they stayed invisible to every generated query.
+  - **Identity map / session flush.** `flush_dirty` persists via a
+    caller-supplied `Record::update()` and so inherited the bug; a change-set
+    whose only pending change was a NULL is now correctly dirty and flushes.
+  - **Row Level Security.** A clear is now a real write, so `WITH CHECK`
+    policies adjudicate it. Previously the SET clause was dropped, the policy
+    never saw the write, and the statement reported success — the application
+    believed it had cleared a column the database would have refused to let it
+    clear. `USING` row scoping is unchanged: a clear still cannot reach a row
+    the policy hides.
+
   **Migration:** code that called `set_x(None)` expecting "leave unchanged" now
   writes NULL. In the full-record rebuild pattern (`from_model` → set → update)
   the value written equals the value read, so behaviour is unchanged. Two real
   call sites in this workspace were already *relying* on the intended
   semantics and silently doing nothing. Covered by
   `tests/db_integration/nullable_null_update.rs` (6 tests that fail without the
-  fix, 5 that pin the "leave untouched columns alone" contract).
+  fix, 5 that pin the "leave untouched columns alone" contract) and
+  `tests/db_integration/nullable_orm_and_rls.rs` (soft-delete restore, session
+  flush, and RLS under both `USING` and `WITH CHECK`).
 
 ### Added
 
