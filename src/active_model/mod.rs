@@ -46,9 +46,9 @@ pub mod traits;
 pub use traits::{ActiveModelBehavior, ActiveModelTrait};
 
 // Value wrapper
-pub mod value;
+pub mod field_state;
 #[doc(inline)]
-pub use value::ActiveValue;
+pub use field_state::{ActiveValue, ColumnValue};
 
 // Error types
 pub mod error;

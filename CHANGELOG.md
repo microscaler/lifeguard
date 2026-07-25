@@ -6,67 +6,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### Fixed
+### Changed — BREAKING
 
-- **`LifeRecord`: staged SQL `NULL` is now actually written (data-loss bug).**
-  A record field is `Option<T>` and statements only include fields that were
-  touched, so `None` was ambiguous — "never touched" and "set me to NULL" were
-  indistinguishable. `update()` emitted **no SET clause** for `set_x(None)`, so
-  the old value survived while the call reported success; when a NULL was the
-  *only* staged change the generated statement was `UPDATE ... WHERE`, a syntax
-  error. Records now track explicitly staged NULLs (`__null_columns`) and emit
-  a correctly **typed** null per column (`Value::String(None)` bound to an
-  INTEGER or UUID column is a parameter-type error, not a NULL).
+- **`LifeRecord` fields are `ActiveValue<T>`, not `Option<T>`.**
 
-  - `set_x(None)` on an `Option<T>` field means SQL `NULL`. Calling a setter
-    always has an effect; to leave a column alone, do not call its setter.
-  - `from_model` is unchanged and deliberately asymmetric: a model field that
-    is `None` arrives as *unset*, not as a staged NULL, so a read-modify-write
-    does not clear columns as a side effect. Clearing stays explicit at the
-    call site.
-  - New `set_x_null()` on every nullable column — the only way to express NULL
-    for a `T` + `#[nullable]` field, whose setter takes `T`. Non-nullable
-    columns get no such method, so "clear this" fails to compile.
-  - On INSERT an explicit NULL beats the column DEFAULT; an untouched column
-    still takes the DEFAULT.
-  - `take()` un-stages a NULL (it removes the column from the change-set);
-    `reset()` clears staged NULLs; `set_x_expr()` and a staged NULL are
-    mutually exclusive, last write wins; a staged NULL counts as dirty, and
-    `null_columns()` reports them.
+  A change-set records *intentions* about a row. Each column answers two
+  independent questions — will we write it, and what will we write — and
+  `Option<T>` has one slot for two answers, so "leave this column alone" and
+  "write NULL to it" collided on `None` and no statement builder could tell
+  them apart. The field now carries the state directly:
 
-  **Reach beyond `update()`.** Every mutation in the crate is built by the
-  derive's `insert` / `update` / `delete`; there is no second statement
-  builder, so the fix covers the ORM rather than only hand-written SQL:
+  | State | INSERT | UPDATE |
+  | --- | --- | --- |
+  | `NotSet` | omitted (column DEFAULT applies) | omitted |
+  | `Unchanged(v)` | written (it is a real value) | omitted |
+  | `Set(v)` | written | written |
+  | `SetNull` | written as NULL (beats the DEFAULT) | written as NULL |
+  | `Expr(e)` | rejected, naming the field | written as the expression |
 
-  - **Soft delete restore.** `delete()` on a `#[soft_delete]` entity was never
-    affected (it builds its own `UPDATE ... SET deleted_at = now()`), but there
-    is no `restore()` API — un-deleting means clearing `deleted_at`, which was
-    the operation that vanished. Soft-deleted rows could not be brought back
-    through the ORM at all, and since `find()` filters on `deleted_at IS NULL`
-    they stayed invisible to every generated query.
-  - **Identity map / session flush.** `flush_dirty` persists via a
-    caller-supplied `Record::update()` and so inherited the bug; a change-set
-    whose only pending change was a NULL is now correctly dirty and flushes.
-  - **Row Level Security.** A clear is now a real write, so `WITH CHECK`
-    policies adjudicate it. Previously the SET clause was dropped, the policy
-    never saw the write, and the statement reported success — the application
-    believed it had cleared a column the database would have refused to let it
-    clear. `USING` row scoping is unchanged: a clear still cannot reach a row
-    the policy hides.
+  Two rules follow, and both are load-bearing:
 
-  **Migration:** code that called `set_x(None)` expecting "leave unchanged" now
-  writes NULL. In the full-record rebuild pattern (`from_model` → set → update)
-  the value written equals the value read, so behaviour is unchanged. Two real
-  call sites in this workspace were already *relying* on the intended
-  semantics and silently doing nothing. Covered by
-  `tests/db_integration/nullable_null_update.rs` (6 tests that fail without the
-  fix, 5 that pin the "leave untouched columns alone" contract) and
-  `tests/db_integration/nullable_orm_and_rls.rs` (soft-delete restore, session
-  flush, and RLS under both `USING` and `WITH CHECK`).
+  - **Calling a setter always has an effect.** `set_x(None)` writes SQL NULL;
+    to leave a column alone, do not call its setter. New `set_x_null()` on
+    every nullable column — the only way to express NULL for a `T` +
+    `#[nullable]` field, whose setter takes `T`. Non-nullable columns get no
+    such method, so "clear this" fails to compile.
+  - **A loaded value is not a pending write.** `from_model` marks every column
+    `Unchanged`, so an `UPDATE` from an edited row touches only the columns
+    that were set and cannot clobber a concurrent edit to the rest of the row.
 
-### Added
+- **`Record::overwrite(&model)`** (new) stages every column, writing the model
+  back wholesale. This is what a unit-of-work flush wants, and saying so at the
+  call site distinguishes it from the read-modify-write that `from_model` now
+  expresses.
 
-- **Chrono (`DateTime<Utc>` / `Local`, `NaiveDateTime`, …):** Derive `type_conversion` and `LifeModel` / `LifeRecord` align `sea_query::Value` variants with PostgreSQL time types; `FromRow` uses direct `try_get` for tz-aware chrono types; soft-delete `UPDATE` emits typed “now” for `deleted_at` / `updated_at` by model field type. See [`docs/CHRONO_AND_POSTGRES_TYPES.md`](./docs/CHRONO_AND_POSTGRES_TYPES.md) and [`docs/COMPLETE_CHRONO_IMPLEMENTATION.md`](./docs/COMPLETE_CHRONO_IMPLEMENTATION.md). **Additive:** existing `NaiveDateTime` / `timestamp without time zone` usage is unchanged.
+- **`update()` with no staged columns is an error**, naming the record and
+  pointing at `overwrite`. Previously this produced `UPDATE ... WHERE`, which
+  the database rejects with a syntax error that points nowhere useful.
+
+- **`insert()` rejects a staged expression per field**, naming the setter
+  involved, rather than reporting a generic failure for the whole record.
+
+- **`ActiveValue` is now the typed, per-field enum.** The former untyped
+  `ActiveValue` (a `Set`/`NotSet`/`Unset` view over `sea_query::Value`) is
+  renamed `ColumnValue`, and `ActiveModelTrait::into_active_value` becomes
+  `into_column_value`. The internal `__update_exprs` map and the record's
+  `null_columns` side table are gone: one field, one source of truth.
+
+  **Migrating.** Code that goes through the generated setters needs no change —
+  in hauliage and sesame-idam that was every call site. Two behaviour changes
+  are worth checking:
+
+  1. `set_x(None)` now writes NULL where it previously did nothing. Several
+     call sites in both repos were already relying on the intended meaning:
+     clearing an expiry after verification, clearing a draft payload after
+     publishing, clearing an org's VAT or registration number when the field
+     is submitted blank. All were silent no-ops; all now work.
+  2. A `from_model(&m).update()` that sets nothing is now an error rather than
+     a malformed statement. Unit-of-work flushes should use `overwrite`.
 
 ### Documentation
 

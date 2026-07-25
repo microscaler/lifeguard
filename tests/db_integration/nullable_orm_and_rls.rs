@@ -1,24 +1,22 @@
-//! Staged SQL `NULL` across the ORM surfaces that are not plain `update()`:
-//! soft-delete restore, identity-map / session flush, and Row Level Security.
+//! Change-set semantics across the ORM surfaces that are not a plain
+//! `update()`: soft-delete restore, identity-map / session flush, and Row
+//! Level Security.
 //!
-//! # Why these need their own tests
+//! `nullable_null_update.rs` covers the change-set → statement path directly.
+//! These are the paths that build on it and have their own failure modes:
 //!
-//! `nullable_null_update.rs` proves the change-set → statement path. But the
-//! bug's blast radius was never limited to a bare `record.update()`:
-//!
-//! - **Soft delete has no `restore()` API.** Un-deleting a row means setting
-//!   `deleted_at` back to NULL, which is exactly the operation that used to
-//!   vanish — so soft-deleted rows could not be brought back through the ORM
-//!   at all. `delete()` itself was never affected: it builds its own UPDATE
-//!   with an explicit `deleted_at = now()`.
-//! - **Identity-map / session flush** persists through a caller-supplied
-//!   `Record::update()`, so it inherited the bug, and a record whose *only*
-//!   change was a NULL had nothing to flush.
-//! - **RLS** decides which rows an UPDATE may target (`USING`) and what a row
-//!   may become (`WITH CHECK`). A dropped SET clause meant a clear could
-//!   silently do nothing where the policy would have rejected it — the
-//!   statement "succeeded" and the caller believed the column was cleared.
-//!   Now the write is real, so the policy actually adjudicates it.
+//! - **Soft delete.** `delete()` stamps `deleted_at`; there is no `restore()`,
+//!   because clearing `deleted_at` *is* the restore. Since `find()` filters on
+//!   `deleted_at IS NULL`, a restore that failed to write would leave the row
+//!   intact but invisible to every query the ORM generates.
+//! - **Identity map / session flush.** Persistence goes through a
+//!   caller-supplied `Record::update()`, and a change-set whose only staged
+//!   column is a NULL still has to count as dirty — otherwise save-if-dirty
+//!   code drops the write before any SQL exists.
+//! - **RLS.** `USING` decides which rows an UPDATE may target and `WITH CHECK`
+//!   what a row may become. A clear is a real write, so the policy adjudicates
+//!   it: permitted clears land, forbidden ones are refused by the database
+//!   rather than quietly skipped by the ORM.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;

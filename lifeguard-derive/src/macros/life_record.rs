@@ -122,6 +122,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut ignored_field_names = Vec::new();
     let mut ignored_field_defaults = Vec::new();
     let mut from_model_fields = Vec::new();
+    let mut overwrite_fields = Vec::new();
     let mut to_model_lets: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut to_model_struct_fields: Vec<proc_macro2::TokenStream> = Vec::new();
     let mut dirty_fields_check = Vec::new();
@@ -159,7 +160,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut update_expr_setters: Vec<proc_macro2::TokenStream> = Vec::new(); // set_<field>_expr for UPDATE SET expr RHS (F-style)
     let mut null_setters: Vec<proc_macro2::TokenStream> = Vec::new(); // set_<field>_null for explicit SQL NULL
     let mut null_value_match_arms: Vec<proc_macro2::TokenStream> = Vec::new(); // typed NULL per column
-    let mut insert_null_checks: Vec<proc_macro2::TokenStream> = Vec::new(); // explicit NULLs on INSERT
+    let mut null_column_collectors: Vec<proc_macro2::TokenStream> = Vec::new(); // null_columns() accessor
 
     for field in fields.iter() {
         let field_name = match utils::field_ident(field) {
@@ -310,7 +311,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Extract returned value for readonly #field_name
                 let readonly_val: #inner_type = row.get(returning_idx);
                 returning_idx += 1;
-                updated_record.#field_name = Some(readonly_val);
+                updated_record.#field_name = lifeguard::ActiveValue::Unchanged(Some(readonly_val));
             });
         }
 
@@ -320,13 +321,12 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Generate record field type
         // If field is already Option<T>, use it directly (don't wrap in Option<> again)
         // Otherwise, wrap in Option<>
-        let record_field_type = if is_already_option {
-            // Field is already Option<T>, use it directly
-            quote! { #field_type }
-        } else {
-            // Field is T, wrap in Option<T>
-            quote! { Option<#field_type> }
-        };
+        // Every field is an `ActiveValue<Inner>` regardless of whether the
+        // model field is `T` or `Option<T>`: nullability is a property of the
+        // column, while "was this staged for writing" is a property of the
+        // change-set, and conflating them is what caused staged NULLs to be
+        // dropped.
+        let record_field_type = quote! { lifeguard::ActiveValue<#inner_type> };
 
         record_fields.push(quote! {
             pub #field_name: #record_field_type,
@@ -340,28 +340,34 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Otherwise, wrap in Some()
         if is_already_option {
             from_model_fields.push(quote! {
-                #field_name: model.#field_name.clone(),
+                #field_name: lifeguard::ActiveValue::Unchanged(model.#field_name.clone()),
+            });
+            overwrite_fields.push(quote! {
+                #field_name: lifeguard::ActiveValue::from_option(model.#field_name.clone()),
             });
         } else {
             from_model_fields.push(quote! {
-                #field_name: Some(model.#field_name.clone()),
+                #field_name: lifeguard::ActiveValue::Unchanged(Some(model.#field_name.clone())),
+            });
+            overwrite_fields.push(quote! {
+                #field_name: lifeguard::ActiveValue::Set(model.#field_name.clone()),
             });
         }
 
         // Generate to_model bindings + struct fields (Result-based; no runtime expect on required fields)
         if is_already_option {
             to_model_lets.push(quote! {
-                let #field_name = self.#field_name.clone();
+                let #field_name = self.#field_name.clone().to_model_value();
             });
             to_model_struct_fields.push(quote! { #field_name, });
         } else if is_nullable {
             to_model_lets.push(quote! {
-                let #field_name = self.#field_name.clone().unwrap_or_default();
+                let #field_name = self.#field_name.clone().to_model_value().unwrap_or_default();
             });
             to_model_struct_fields.push(quote! { #field_name, });
         } else {
             to_model_lets.push(quote! {
-                let #field_name = self.#field_name.clone().ok_or_else(|| lifeguard::ActiveModelError::FieldRequired(stringify!(#field_name).to_string()))?;
+                let #field_name = self.#field_name.clone().to_model_value().ok_or_else(|| lifeguard::ActiveModelError::FieldRequired(stringify!(#field_name).to_string()))?;
             });
             to_model_struct_fields.push(quote! { #field_name, });
         }
@@ -369,16 +375,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Generate dirty field check: literal set, or F-style expression scheduled for UPDATE
         if is_primary_key {
             dirty_fields_check.push(quote! {
-                if self.#field_name.is_some() {
+                if self.#field_name.is_staged() {
                     dirty.push(stringify!(#field_name).to_string());
                 }
             });
         } else {
             dirty_fields_check.push(quote! {
-                if self.#field_name.is_some()
-                    || self.__update_exprs.contains_key(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)
-                    || self.__null_columns.contains(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)
-                {
+                if self.#field_name.is_staged() {
                     dirty.push(stringify!(#field_name).to_string());
                 }
             });
@@ -401,13 +404,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 /// calling a setter always has an effect. To leave a column
                 /// alone, do not call its setter at all.
                 pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
-                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    if value.is_none() {
-                        self.__null_columns.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    } else {
-                        self.__null_columns.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    }
-                    self.#field_name = value;
+                    self.#field_name = lifeguard::ActiveValue::from_option(value);
                     #session_notify
                     self
                 }
@@ -416,9 +413,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             setter_methods.push(quote! {
                 /// Set the #field_name field
                 pub fn #setter_name(&mut self, value: #field_type) -> &mut Self {
-                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    self.__null_columns.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    self.#field_name = Some(value);
+                    self.#field_name = lifeguard::ActiveValue::Set(value);
                     #session_notify
                     self
                 }
@@ -440,9 +435,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 /// Distinct from never touching the field: an untouched field
                 /// is omitted from the statement, while this writes `NULL`.
                 pub fn #null_setter_name(&mut self) -> &mut Self {
-                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    self.__null_columns.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    self.#field_name = None;
+                    self.#field_name = lifeguard::ActiveValue::SetNull;
                     #null_session_notify
                     self
                 }
@@ -460,9 +453,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 /// Schedule a database expression for this column on [`ActiveModelTrait::update`](lifeguard::ActiveModelTrait::update) (e.g. [`ColumnTrait::f_add`](lifeguard::ColumnTrait::f_add)).
                 /// Clears any literal value previously set for this field.
                 pub fn #expr_setter_name(&mut self, expr: sea_query::SimpleExpr) -> &mut Self {
-                    self.#field_name = None;
-                    self.__null_columns.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    self.__update_exprs.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr);
+                    self.#field_name = lifeguard::ActiveValue::Expr(expr);
                     #expr_session_notify
                     self
                 }
@@ -473,9 +464,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // For get(), convert directly from Option<T> to Option<Value> (optimized, no to_model() needed)
         // Use inner_type for type conversion (e.g., String from Option<String>)
         let field_to_value_conversion =
-            type_conversion::generate_option_field_to_value(field_name, inner_type);
+            type_conversion::generate_option_field_to_value(&quote! { __lg_field }, inner_type);
         active_model_get_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                let __lg_field = self.#field_name.value().cloned();
                 #field_to_value_conversion
             }
         });
@@ -485,15 +477,25 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // right null for the column's type — a bare `Value::String(None)`
         // would be the wrong type for an INTEGER or UUID column.
         let null_value_conversion =
-            type_conversion::generate_option_field_to_value_with_default(field_name, inner_type);
+            type_conversion::generate_option_field_to_value_with_default(&quote! { __lg_field }, inner_type);
+        null_column_collectors.push(quote! {
+            if self.#field_name.is_null() {
+                out.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+            }
+        });
+
         null_value_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
+                // Deliberately `None`: the *_with_default conversion then
+                // yields this column's correctly typed NULL.
+                let __lg_field: Option<#inner_type> = None;
                 #null_value_conversion
             }
         });
 
         active_model_get_col_match_arms.push(quote! {
             #db_column_name => {
+                let __lg_field = self.#field_name.value().cloned();
                 #field_to_value_conversion
             }
         });
@@ -501,56 +503,44 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // For set(), generate type conversion code
         // Use inner_type for type conversion (e.g., String from Option<String>)
         let value_to_field_conversion = type_conversion::generate_value_to_option_field(
-            field_name,
+            &quote! { __lg_converted },
             inner_type,
             &column_variant,
         );
+        // Assigning a value through the dynamic API stages a write, and an
+        // incoming NULL stages a NULL — consistent with the typed setters.
+        let set_arm_body = quote! {
+            let mut __lg_converted: Option<#inner_type> = None;
+            let __lg_set_column_result = #value_to_field_conversion;
+            if __lg_set_column_result.is_ok() {
+                self.#field_name = lifeguard::ActiveValue::from_option(__lg_converted);
+            }
+            __lg_set_column_result
+        };
         active_model_set_match_arms.push(quote! {
             <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                let __lg_set_column_result = #value_to_field_conversion;
-                if __lg_set_column_result.is_ok() {
-                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    // A NULL `Value` assigns NULL; anything else clears the marker.
-                    if self.#field_name.is_none() {
-                        self.__null_columns.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    } else {
-                        self.__null_columns.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    }
-                }
-                __lg_set_column_result
+                #set_arm_body
             }
         });
-
         active_model_set_col_match_arms.push(quote! {
             #db_column_name => {
-                let __lg_set_column_result = #value_to_field_conversion;
-                if __lg_set_column_result.is_ok() {
-                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    if self.#field_name.is_none() {
-                        self.__null_columns.insert(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    } else {
-                        self.__null_columns.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    }
-                }
-                __lg_set_column_result
+                #set_arm_body
             }
         });
 
         // For take(), convert directly from Option<T> to Option<Value> and set field to None (optimized)
         // Use inner_type for type conversion (e.g., String from Option<String>)
         let field_to_value_conversion =
-            type_conversion::generate_option_field_to_value(field_name, inner_type);
+            type_conversion::generate_option_field_to_value(&quote! { __lg_field }, inner_type);
         if has_primary_keys {
             active_model_take_match_arms.push(quote! {
                 <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                    let __lg_take_notify = self.#field_name.is_some()
-                        || self.__update_exprs.contains_key(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)
-                        || self.__null_columns.contains(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    // `take` un-stages the column; it does not stage a NULL.
-                    self.__null_columns.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    let __lg_take_notify = self.#field_name.is_staged();
+                    let __lg_field = self.#field_name.value().cloned();
                     let value = #field_to_value_conversion;
-                    self.#field_name = None;
+                    // `take` removes the column from the change-set; it does
+                    // not stage a NULL.
+                    self.#field_name = lifeguard::ActiveValue::NotSet;
                     if __lg_take_notify {
                         self.__lg_session_notify_dirty();
                     }
@@ -560,34 +550,17 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         } else {
             active_model_take_match_arms.push(quote! {
                 <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant => {
-                    self.__update_exprs.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    self.__null_columns.remove(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                    let __lg_field = self.#field_name.value().cloned();
                     let value = #field_to_value_conversion;
-                    self.#field_name = None;
+                    self.#field_name = lifeguard::ActiveValue::NotSet;
                     value
                 }
             });
         }
 
         active_model_reset_fields.push(quote! {
-            self.#field_name = None;
+            self.#field_name = lifeguard::ActiveValue::NotSet;
         });
-
-        // On INSERT an unset column is already NULL, but an explicitly staged
-        // NULL must still be written: it is the difference between "let the
-        // column default apply" and "this really is NULL".
-        if !is_readonly && !(is_primary_key && is_auto_increment) {
-            insert_null_checks.push(quote! {
-                if record_for_hooks.__null_columns.contains(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)
-                    && record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_none()
-                {
-                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    exprs.push(sea_query::Expr::val(
-                        record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant),
-                    ));
-                }
-            });
-        }
 
         // Generate INSERT column/value collection
         // Skip auto-increment primary keys if not set
@@ -607,15 +580,41 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             // This means save_as on auto-increment PKs will prevent the database from generating
             // the value when a value is explicitly provided. Users should be aware of this behavior.
             insert_column_checks.push(quote! {
-                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    // Check for save_as expression
-                    if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
-                        use lifeguard::query::column::definition::get_static_expr;
-                        let static_str = get_static_expr(&save_expr);
-                        exprs.push(sea_query::Expr::cust(static_str));
-                    } else {
-                        exprs.push(sea_query::Expr::val(value));
+                match &record_for_hooks.#field_name {
+                    lifeguard::ActiveValue::NotSet => {}
+                    lifeguard::ActiveValue::Expr(_) => {
+                        return Err(lifeguard::ActiveModelError::Other(format!(
+                            "`set_{}_expr` applies only to `update()`: an expression usually reads the column's current value, which does not exist yet on insert",
+                            stringify!(#field_name)
+                        )));
+                    }
+                    // An explicit NULL beats the column DEFAULT; an untouched
+                    // column (NotSet, above) is what lets the DEFAULT apply.
+                    lifeguard::ActiveValue::SetNull => {
+                        columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                        exprs.push(sea_query::Expr::val(
+                            record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant),
+                        ));
+                    }
+                    // `Unchanged` is a value we hold, so an insert writes it.
+                    lifeguard::ActiveValue::Set(_) | lifeguard::ActiveValue::Unchanged(_) => {
+                        if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                            columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                            if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                                use lifeguard::query::column::definition::get_static_expr;
+                                let static_str = get_static_expr(&save_expr);
+                                exprs.push(sea_query::Expr::cust(static_str));
+                            } else {
+                                exprs.push(sea_query::Expr::val(value));
+                            }
+                        } else {
+                            // `Unchanged(None)` — a NULL we loaded, not one we
+                            // were asked to write. Still a real column value.
+                            columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                            exprs.push(sea_query::Expr::val(
+                                record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant),
+                            ));
+                        }
                     }
                 }
             });
@@ -634,36 +633,88 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     // Extract returned value for #field_name (database returns T, wrap in Some())
                     let pk_value: #inner_type = row.get(returning_idx);
                     returning_idx += 1;
-                    updated_record.#field_name = Some(pk_value);
+                    updated_record.#field_name = lifeguard::ActiveValue::Unchanged(Some(pk_value));
                 }
             });
         } else if !is_primary_key {
             // Non-PK field: include if set
             insert_column_checks.push(quote! {
-                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    // Check for save_as expression
-                    if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
-                        use lifeguard::query::column::definition::get_static_expr;
-                        let static_str = get_static_expr(&save_expr);
-                        exprs.push(sea_query::Expr::cust(static_str));
-                    } else {
-                        exprs.push(sea_query::Expr::val(value));
+                match &record_for_hooks.#field_name {
+                    lifeguard::ActiveValue::NotSet => {}
+                    lifeguard::ActiveValue::Expr(_) => {
+                        return Err(lifeguard::ActiveModelError::Other(format!(
+                            "`set_{}_expr` applies only to `update()`: an expression usually reads the column's current value, which does not exist yet on insert",
+                            stringify!(#field_name)
+                        )));
+                    }
+                    // An explicit NULL beats the column DEFAULT; an untouched
+                    // column (NotSet, above) is what lets the DEFAULT apply.
+                    lifeguard::ActiveValue::SetNull => {
+                        columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                        exprs.push(sea_query::Expr::val(
+                            record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant),
+                        ));
+                    }
+                    // `Unchanged` is a value we hold, so an insert writes it.
+                    lifeguard::ActiveValue::Set(_) | lifeguard::ActiveValue::Unchanged(_) => {
+                        if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                            columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                            if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                                use lifeguard::query::column::definition::get_static_expr;
+                                let static_str = get_static_expr(&save_expr);
+                                exprs.push(sea_query::Expr::cust(static_str));
+                            } else {
+                                exprs.push(sea_query::Expr::val(value));
+                            }
+                        } else {
+                            // `Unchanged(None)` — a NULL we loaded, not one we
+                            // were asked to write. Still a real column value.
+                            columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                            exprs.push(sea_query::Expr::val(
+                                record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant),
+                            ));
+                        }
                     }
                 }
             });
         } else {
             // Non-auto-increment PK: include if set (required for composite keys)
             insert_column_checks.push(quote! {
-                if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                    columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
-                    // Check for save_as expression
-                    if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
-                        use lifeguard::query::column::definition::get_static_expr;
-                        let static_str = get_static_expr(&save_expr);
-                        exprs.push(sea_query::Expr::cust(static_str));
-                    } else {
-                        exprs.push(sea_query::Expr::val(value));
+                match &record_for_hooks.#field_name {
+                    lifeguard::ActiveValue::NotSet => {}
+                    lifeguard::ActiveValue::Expr(_) => {
+                        return Err(lifeguard::ActiveModelError::Other(format!(
+                            "`set_{}_expr` applies only to `update()`: an expression usually reads the column's current value, which does not exist yet on insert",
+                            stringify!(#field_name)
+                        )));
+                    }
+                    // An explicit NULL beats the column DEFAULT; an untouched
+                    // column (NotSet, above) is what lets the DEFAULT apply.
+                    lifeguard::ActiveValue::SetNull => {
+                        columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                        exprs.push(sea_query::Expr::val(
+                            record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant),
+                        ));
+                    }
+                    // `Unchanged` is a value we hold, so an insert writes it.
+                    lifeguard::ActiveValue::Set(_) | lifeguard::ActiveValue::Unchanged(_) => {
+                        if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                            columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                            if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                                use lifeguard::query::column::definition::get_static_expr;
+                                let static_str = get_static_expr(&save_expr);
+                                exprs.push(sea_query::Expr::cust(static_str));
+                            } else {
+                                exprs.push(sea_query::Expr::val(value));
+                            }
+                        } else {
+                            // `Unchanged(None)` — a NULL we loaded, not one we
+                            // were asked to write. Still a real column value.
+                            columns.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);
+                            exprs.push(sea_query::Expr::val(
+                                record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant),
+                            ));
+                        }
                     }
                 }
             });
@@ -673,67 +724,64 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // Skip primary keys to prevent altering identity.
         // Skip readonly columns to prevent Postgres constraint violations on GENERATED fields.
         if !is_primary_key && !is_readonly {
-            // SET clause using self (for backward compatibility, though not used in update() anymore)
-            // Check for save_as expression
-            let has_save_as = col_attrs.save_as.is_some();
-            if has_save_as {
-                update_set_clauses.push(quote! {
-                    if let Some(expr_entry) = self.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
-                    } else if self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
-                        use lifeguard::query::column::definition::get_static_expr;
-                        if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
-                            let static_str = get_static_expr(&save_expr);
-                            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::cust(static_str));
+            // SET clause built from `self` (kept for API compatibility).
+            update_set_clauses.push(quote! {
+                    match &self.#field_name {
+                        lifeguard::ActiveValue::NotSet | lifeguard::ActiveValue::Unchanged(_) => {
+                            // Untouched: omitted, so a read-modify-write emits
+                            // a minimal statement instead of rewriting the row
+                            // and clobbering columns it never looked at.
+                        }
+                        lifeguard::ActiveValue::Expr(expr) => {
+                            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr.clone());
+                        }
+                        lifeguard::ActiveValue::SetNull => {
+                            query.value(
+                                <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant,
+                                sea_query::Expr::val(self.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)),
+                            );
+                        }
+                        lifeguard::ActiveValue::Set(_) => {
+                            if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                                use lifeguard::query::column::definition::get_static_expr;
+                                let static_str = get_static_expr(&save_expr);
+                                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::cust(static_str));
+                            } else if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
+                            }
                         }
                     }
-                });
-            } else {
-                update_set_clauses.push(quote! {
-                    if let Some(expr_entry) = self.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
-                    } else if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
-                    }
-                });
-            }
+            });
 
-            // SET clause using record_for_hooks (includes before_update() changes)
-            // This is the one actually used in update() method
-            if has_save_as {
-                update_set_clauses_from_hooks.push(quote! {
-                    if let Some(expr_entry) = record_for_hooks.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
-                    } else if record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant).is_some() {
-                        use lifeguard::query::column::definition::get_static_expr;
-                        if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
-                            let static_str = get_static_expr(&save_expr);
-                            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::cust(static_str));
+            // SET clause built from `record_for_hooks`, which includes any
+            // changes `before_update()` made. This is the one `update()` uses.
+            update_set_clauses_from_hooks.push(quote! {
+                    match &record_for_hooks.#field_name {
+                        lifeguard::ActiveValue::NotSet | lifeguard::ActiveValue::Unchanged(_) => {
+                            // Untouched: omitted, so a read-modify-write emits
+                            // a minimal statement instead of rewriting the row
+                            // and clobbering columns it never looked at.
                         }
-                    } else if record_for_hooks.__null_columns.contains(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        // NULL bypasses `save_as`: there is nothing to transform.
-                        query.value(
-                            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant,
-                            sea_query::Expr::val(record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)),
-                        );
+                        lifeguard::ActiveValue::Expr(expr) => {
+                            query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr.clone());
+                        }
+                        lifeguard::ActiveValue::SetNull => {
+                            query.value(
+                                <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant,
+                                sea_query::Expr::val(record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)),
+                            );
+                        }
+                        lifeguard::ActiveValue::Set(_) => {
+                            if let Some(save_expr) = <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant.column_save_as() {
+                                use lifeguard::query::column::definition::get_static_expr;
+                                let static_str = get_static_expr(&save_expr);
+                                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::cust(static_str));
+                            } else if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
+                                query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
+                            }
+                        }
                     }
-                });
-            } else {
-                update_set_clauses_from_hooks.push(quote! {
-                    if let Some(expr_entry) = record_for_hooks.__update_exprs.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, expr_entry.clone());
-                    } else if let Some(value) = record_for_hooks.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        query.value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant, sea_query::Expr::val(value));
-                    } else if record_for_hooks.__null_columns.contains(&<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
-                        // Staged NULL. Without this the assignment silently
-                        // vanished and the old value survived the update.
-                        query.value(
-                            <#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant,
-                            sea_query::Expr::val(record_for_hooks.__lg_null_value(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant)),
-                        );
-                    }
-                });
-            }
+            });
         }
 
         // Generate DELETE WHERE clause (only for primary keys)
@@ -850,7 +898,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let mut save_pk_checks = Vec::new();
     for field_name in primary_key_field_names.iter() {
         save_pk_checks.push(quote! {
-            record_for_hooks.#field_name.is_some() &&
+            record_for_hooks.#field_name.value().is_some() &&
         });
     }
 
@@ -892,7 +940,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         quote! {
             // Check primary key is set
             #(
-                if self.#primary_key_field_names.is_none() {
+                if self.#primary_key_field_names.value().is_none() {
                     return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
                 }
             )*
@@ -920,8 +968,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let before_insert_impl = if let Some(hook_ts) = parse_hook(&table_attrs.before_insert) {
         if table_attrs.auto_timestamp {
             quote! {
-                self.created_at = Some(chrono::Utc::now().naive_utc().to_string());
-                self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+                self.created_at = lifeguard::ActiveValue::Set(chrono::Utc::now().naive_utc().to_string());
+                self.updated_at = lifeguard::ActiveValue::Set(chrono::Utc::now().naive_utc().to_string());
                 #hook_ts(self)?;
                 Ok(())
             }
@@ -933,8 +981,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
     } else if table_attrs.auto_timestamp {
         quote! {
-            self.created_at = Some(chrono::Utc::now().naive_utc().to_string());
-            self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+            self.created_at = lifeguard::ActiveValue::Set(chrono::Utc::now().naive_utc().to_string());
+            self.updated_at = lifeguard::ActiveValue::Set(chrono::Utc::now().naive_utc().to_string());
             Ok(())
         }
     } else {
@@ -944,7 +992,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
     let before_update_impl = if let Some(hook_ts) = parse_hook(&table_attrs.before_update) {
         if table_attrs.auto_timestamp {
             quote! {
-                self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+                self.updated_at = lifeguard::ActiveValue::Set(chrono::Utc::now().naive_utc().to_string());
                 #hook_ts(self)?;
                 Ok(())
             }
@@ -956,7 +1004,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         }
     } else if table_attrs.auto_timestamp {
         quote! {
-            self.updated_at = Some(chrono::Utc::now().naive_utc().to_string());
+            self.updated_at = lifeguard::ActiveValue::Set(chrono::Utc::now().naive_utc().to_string());
             Ok(())
         }
     } else {
@@ -1226,17 +1274,6 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         pub struct #record_name {
             #(#record_fields)*
             #session_link_struct_field
-            /// F-style `UPDATE SET col = <expr>` assignments (see `set_*_expr` methods). Cleared on `reset` / `from_model`.
-            pub __update_exprs: std::collections::HashMap<<#entity_name as lifeguard::LifeModelTrait>::Column, sea_query::SimpleExpr>,
-            /// Columns explicitly staged as SQL `NULL` (see `set_*_null` and
-            /// `set_*(None)`).
-            ///
-            /// A record field of `None` is ambiguous — it may mean "never
-            /// touched" or "set to NULL" — and statements only include fields
-            /// that were touched. This set is what disambiguates them, so a
-            /// staged NULL is actually written instead of silently dropped.
-            /// Cleared on `reset` / `from_model`.
-            pub __null_columns: std::collections::HashSet<<#entity_name as lifeguard::LifeModelTrait>::Column>,
             pub __graph: lifeguard::active_model::graph::GraphContainer<Self>,
         }
 
@@ -1250,39 +1287,60 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     .as_mut()
             }
 
-            /// Create a new empty record (all fields None)
-            /// Useful for inserts where you set only the fields you need
+            /// An empty change-set: every column [`NotSet`], so a statement
+            /// built from it touches only the columns you go on to set.
+            ///
+            /// [`NotSet`]: lifeguard::ActiveValue::NotSet
             pub fn new() -> Self {
                 Self {
                     #(
-                        #record_field_names: None,
+                        #record_field_names: lifeguard::ActiveValue::NotSet,
                     )*
                     #(
                         #ignored_field_names: #ignored_field_defaults,
                     )*
                     #session_new_init
-                    __update_exprs: std::collections::HashMap::new(),
-                    __null_columns: std::collections::HashSet::new(),
                     __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
 
-            /// Create a record from a Model (for updates).
+            /// A change-set that writes the whole model back.
             ///
-            /// A model field that is `None` arrives here as **unset**, not as
-            /// a staged SQL `NULL`: `from_model(&m).update()` writes the
-            /// populated columns and leaves the null ones at whatever the row
-            /// currently holds. This is deliberate — `from_model` is a
-            /// starting point for edits, and clearing a column should be
-            /// visible at the call site rather than a side effect of a
-            /// round-trip. To clear, call `set_x(None)` or `set_x_null()`
-            /// explicitly.
+            /// Every column is staged: values as [`Set`], `None`s as
+            /// [`SetNull`]. This is what a unit-of-work flush wants — the
+            /// in-memory model is the intended state of the row, including
+            /// its NULLs.
+            ///
+            /// Prefer [`from_model`](Self::from_model) when you are editing a
+            /// row: it stages nothing, so the resulting `UPDATE` touches only
+            /// the columns you set and cannot clobber a concurrent edit to
+            /// the rest of the row.
+            ///
+            /// [`Set`]: lifeguard::ActiveValue::Set
+            /// [`SetNull`]: lifeguard::ActiveValue::SetNull
+            pub fn overwrite(model: &#model_name) -> Self {
+                Self {
+                    #(#overwrite_fields)*
+                    #(
+                        #ignored_field_names: model.#ignored_field_names.clone(),
+                    )*
+                    #session_new_init
+                    __graph: lifeguard::active_model::graph::GraphContainer::default(),
+                }
+            }
+
+            /// A change-set seeded from a loaded row.
+            ///
+            /// Every column starts [`Unchanged`]: the values are available to
+            /// read, but nothing is staged for writing. An `update()` from
+            /// here therefore touches only the columns you explicitly set,
+            /// leaving concurrent edits to the rest of the row intact.
+            ///
+            /// [`Unchanged`]: lifeguard::ActiveValue::Unchanged
             pub fn from_model(model: &#model_name) -> Self {
                 Self {
                     #(#from_model_fields)*
                     #session_new_init
-                    __update_exprs: std::collections::HashMap::new(),
-                    __null_columns: std::collections::HashSet::new(),
                     __graph: lifeguard::active_model::graph::GraphContainer::default(),
                 }
             }
@@ -1334,7 +1392,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
             /// Columns explicitly staged as SQL `NULL` by this change-set.
             pub fn null_columns(&self) -> Vec<<#entity_name as lifeguard::LifeModelTrait>::Column> {
-                self.__null_columns.iter().copied().collect()
+                let mut out = Vec::new();
+                #(#null_column_collectors)*
+                out
             }
         }
 
@@ -1369,8 +1429,6 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             #active_model_set_col_impl
 
             fn reset(&mut self) {
-                self.__update_exprs.clear();
-                self.__null_columns.clear();
                 #(#active_model_reset_fields)*
             }
 
@@ -1394,13 +1452,6 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     lifeguard::active_model::validate_op::ValidateOp::Insert,
                 )?;
 
-                if !record_for_hooks.__update_exprs.is_empty() {
-                    return Err(lifeguard::ActiveModelError::Other(
-                        "`set_*_expr` / `__update_exprs` apply only to `update()`; clear them with `reset()` or use `update()`"
-                            .to_string(),
-                    ));
-                }
-
                 // Build INSERT statement
                 let mut query = Query::insert();
                 let entity = #entity_name::default();
@@ -1416,7 +1467,6 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 let mut exprs = Vec::new();
 
                 #(#insert_column_checks)*
-                #(#insert_null_checks)*
 
                 if columns.is_empty() {
                     return Err(lifeguard::ActiveModelError::Other("No fields set for insert".to_string()));
@@ -1559,6 +1609,18 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                         return Err(lifeguard::ActiveModelError::PrimaryKeyRequired);
                     }
                 )*
+
+                // An UPDATE with no assignments is not a no-op worth
+                // guessing at: either the caller forgot a setter, or they
+                // meant `overwrite`. Say so instead of emitting `UPDATE ...
+                // WHERE`, which the database rejects with a syntax error that
+                // points nowhere useful.
+                if record_for_hooks.dirty_fields().is_empty() {
+                    return Err(lifeguard::ActiveModelError::Other(format!(
+                        "update() on {}: no columns staged. `from_model` seeds values without staging writes — call the setters for the columns you mean to change, or use `overwrite` to write the whole model back.",
+                        stringify!(#record_name)
+                    )));
+                }
 
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);

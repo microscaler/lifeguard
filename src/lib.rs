@@ -141,8 +141,8 @@ pub use query::{
 pub mod active_model;
 pub use active_model::{
     predicates, run_validators, run_validators_with_strategy, with_converted_params,
-    ActiveModelBehavior, ActiveModelError, ActiveModelTrait, ActiveValue, ValidateOp,
-    ValidationError, ValidationStrategy,
+    ActiveModelBehavior, ActiveModelError, ActiveModelTrait, ActiveValue, ColumnValue,
+    ValidateOp, ValidationError, ValidationStrategy,
 };
 
 // Model trait - Core Traits & Types

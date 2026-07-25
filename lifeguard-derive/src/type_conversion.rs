@@ -451,65 +451,71 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
 /// # Returns
 ///
 /// Returns a `TokenStream` that generates code to convert `Option<T>` to `Value`.
+/// Emit `Option<T>` → `Value` conversion, falling back to the column's
+/// correctly typed NULL when the source is `None`.
+///
+/// `src` is the expression to read. `LifeModel` passes `self.<field>`, whose
+/// fields are plain values; `LifeRecord` passes a local, because its fields
+/// are [`lifeguard::ActiveValue`] change-set states rather than bare options.
 pub fn generate_option_field_to_value_with_default(
-    field_name: &syn::Ident,
+    src: &TokenStream,
     inner_type: &Type,
 ) -> TokenStream {
     // Check for serde_json::Value first
     if is_json_value_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None))
+            #src.as_ref().map(|v| sea_query::Value::Json(Some(Box::new(v.clone())))).unwrap_or(sea_query::Value::Json(None))
         };
     }
 
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref().map(|v| sea_query::Value::Bytes(Some(v.clone()))).unwrap_or(sea_query::Value::Bytes(None))
+            #src.as_ref().map(|v| sea_query::Value::Bytes(Some(v.clone()))).unwrap_or(sea_query::Value::Bytes(None))
         };
     }
 
     // Check for rust_decimal::Decimal
     if is_decimal_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref().map(|v| sea_query::Value::Decimal(Some(*v))).unwrap_or(sea_query::Value::Decimal(None))
+            #src.as_ref().map(|v| sea_query::Value::Decimal(Some(*v))).unwrap_or(sea_query::Value::Decimal(None))
         };
     }
 
     // Check for rusty_money::Money
     if is_money_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.amount().to_string()))).unwrap_or(sea_query::Value::String(None))
+            #src.as_ref().map(|v| sea_query::Value::String(Some(v.amount().to_string()))).unwrap_or(sea_query::Value::String(None))
         };
     }
 
     if is_uuid_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::Uuid(Some(v))).unwrap_or(sea_query::Value::Uuid(None))
+            #src.map(|v| sea_query::Value::Uuid(Some(v))).unwrap_or(sea_query::Value::Uuid(None))
         };
     }
 
     if is_datetime_utc_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeUtc(Some(v))).unwrap_or(sea_query::Value::ChronoDateTimeUtc(None))
+            #src.map(|v| sea_query::Value::ChronoDateTimeUtc(Some(v))).unwrap_or(sea_query::Value::ChronoDateTimeUtc(None))
         };
     }
 
     if is_datetime_local_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeLocal(Some(v))).unwrap_or(sea_query::Value::ChronoDateTimeLocal(None))
+            #src.map(|v| sea_query::Value::ChronoDateTimeLocal(Some(v))).unwrap_or(sea_query::Value::ChronoDateTimeLocal(None))
         };
     }
 
     if is_naive_datetime_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v))).unwrap_or(sea_query::Value::ChronoDateTime(None))
+            #src.map(|v| sea_query::Value::ChronoDateTime(Some(v))).unwrap_or(sea_query::Value::ChronoDateTime(None))
         };
     }
 
     if is_naive_date_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDate(Some(v))).unwrap_or(sea_query::Value::ChronoDate(None))
+            #src.map(|v| sea_query::Value::ChronoDate(Some(v))).unwrap_or(sea_query::Value::ChronoDate(None))
         };
     }
 
@@ -519,40 +525,40 @@ pub fn generate_option_field_to_value_with_default(
             let ident_str = segment.ident.to_string();
             match ident_str.as_str() {
                 "i32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None))
+                    #src.map(|v| sea_query::Value::Int(Some(v))).unwrap_or(sea_query::Value::Int(None))
                 },
                 "i64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None))
+                    #src.map(|v| sea_query::Value::BigInt(Some(v))).unwrap_or(sea_query::Value::BigInt(None))
                 },
                 "i16" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None))
+                    #src.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None))
                 },
                 "i8" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::TinyInt(Some(v as i8))).unwrap_or(sea_query::Value::TinyInt(None))
+                    #src.map(|v| sea_query::Value::TinyInt(Some(v as i8))).unwrap_or(sea_query::Value::TinyInt(None))
                 },
                 "u8" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16))).unwrap_or(sea_query::Value::SmallInt(None))
+                    #src.map(|v| sea_query::Value::SmallInt(Some(v as i16))).unwrap_or(sea_query::Value::SmallInt(None))
                 },
                 "u16" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32))).unwrap_or(sea_query::Value::Int(None))
+                    #src.map(|v| sea_query::Value::Int(Some(v as i32))).unwrap_or(sea_query::Value::Int(None))
                 },
                 "u32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None))
+                    #src.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None))
                 },
                 "u64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigUnsigned(Some(v))).unwrap_or(sea_query::Value::BigUnsigned(None))
+                    #src.map(|v| sea_query::Value::BigUnsigned(Some(v))).unwrap_or(sea_query::Value::BigUnsigned(None))
                 },
                 "f32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None))
+                    #src.map(|v| sea_query::Value::Float(Some(v))).unwrap_or(sea_query::Value::Float(None))
                 },
                 "f64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None))
+                    #src.map(|v| sea_query::Value::Double(Some(v))).unwrap_or(sea_query::Value::Double(None))
                 },
                 "bool" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None))
+                    #src.map(|v| sea_query::Value::Bool(Some(v))).unwrap_or(sea_query::Value::Bool(None))
                 },
                 "String" => quote! {
-                    self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None))
+                    #src.as_ref().map(|v| sea_query::Value::String(Some(v.clone()))).unwrap_or(sea_query::Value::String(None))
                 },
                 _ => quote! {
                     sea_query::Value::String(None)
@@ -583,11 +589,14 @@ pub fn generate_option_field_to_value_with_default(
 /// Returns `None` when the field is `None`, and `Some(Value::...)` when the field is `Some(v)`.
 /// This allows `get()` to correctly detect unset fields for CRUD operations.
 #[allow(clippy::too_many_lines)]
-pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type) -> TokenStream {
+/// Emit `Option<T>` → `Option<Value>` conversion reading the local
+/// `#src` rather than the record field, which is now an
+/// [`lifeguard::ActiveValue`] rather than a bare `Option`.
+pub fn generate_option_field_to_value(src: &TokenStream, inner_type: &Type) -> TokenStream {
     // Check for serde_json::Value first
     if is_json_value_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref()
+            #src.as_ref()
                 .map(|v| sea_query::Value::Json(Some(Box::new(v.clone()))))
         };
     }
@@ -595,7 +604,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
     // Check for Vec<u8> (binary data)
     if is_vec_u8_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref()
+            #src.as_ref()
                 .map(|v| sea_query::Value::Bytes(Some(v.clone())))
         };
     }
@@ -603,7 +612,7 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
     // Check for rust_decimal::Decimal
     if is_decimal_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref()
+            #src.as_ref()
                 .map(|v| sea_query::Value::Decimal(Some(*v)))
         };
     }
@@ -611,38 +620,38 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
     // Check for rusty_money::Money
     if is_money_type(inner_type) {
         return quote! {
-            self.#field_name.as_ref()
+            #src.as_ref()
                 .map(|v| sea_query::Value::String(Some(v.amount().to_string())))
         };
     }
 
     if is_uuid_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::Uuid(Some(v)))
+            #src.map(|v| sea_query::Value::Uuid(Some(v)))
         };
     }
 
     if is_datetime_utc_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeUtc(Some(v)))
+            #src.map(|v| sea_query::Value::ChronoDateTimeUtc(Some(v)))
         };
     }
 
     if is_datetime_local_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDateTimeLocal(Some(v)))
+            #src.map(|v| sea_query::Value::ChronoDateTimeLocal(Some(v)))
         };
     }
 
     if is_naive_datetime_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDateTime(Some(v)))
+            #src.map(|v| sea_query::Value::ChronoDateTime(Some(v)))
         };
     }
 
     if is_naive_date_type(inner_type) {
         return quote! {
-            self.#field_name.map(|v| sea_query::Value::ChronoDate(Some(v)))
+            #src.map(|v| sea_query::Value::ChronoDate(Some(v)))
         };
     }
 
@@ -652,57 +661,57 @@ pub fn generate_option_field_to_value(field_name: &syn::Ident, inner_type: &Type
             let ident_str = segment.ident.to_string();
             match ident_str.as_str() {
                 "i32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Int(Some(v)))
+                    #src.map(|v| sea_query::Value::Int(Some(v)))
                 },
                 "i64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v)))
+                    #src.map(|v| sea_query::Value::BigInt(Some(v)))
                 },
                 "i16" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v)))
+                    #src.map(|v| sea_query::Value::SmallInt(Some(v)))
                 },
                 "i8" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::TinyInt(Some(v as i8)))
+                    #src.map(|v| sea_query::Value::TinyInt(Some(v as i8)))
                 },
                 "u8" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::SmallInt(Some(v as i16)))
+                    #src.map(|v| sea_query::Value::SmallInt(Some(v as i16)))
                 },
                 "u16" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Int(Some(v as i32)))
+                    #src.map(|v| sea_query::Value::Int(Some(v as i32)))
                 },
                 "u32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigInt(Some(v as i64)))
+                    #src.map(|v| sea_query::Value::BigInt(Some(v as i64)))
                 },
                 "u64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::BigUnsigned(Some(v)))
+                    #src.map(|v| sea_query::Value::BigUnsigned(Some(v)))
                 },
                 "f32" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Float(Some(v)))
+                    #src.map(|v| sea_query::Value::Float(Some(v)))
                 },
                 "f64" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Double(Some(v)))
+                    #src.map(|v| sea_query::Value::Double(Some(v)))
                 },
                 "bool" => quote! {
-                    self.#field_name.map(|v| sea_query::Value::Bool(Some(v)))
+                    #src.map(|v| sea_query::Value::Bool(Some(v)))
                 },
                 "String" => quote! {
-                    self.#field_name.as_ref().map(|v| sea_query::Value::String(Some(v.clone())))
+                    #src.as_ref().map(|v| sea_query::Value::String(Some(v.clone())))
                 },
                 _ => quote! {
                     // Unknown type: return None for unset fields, Some(String(None)) for set but None inner value
                     // This is a fallback - ideally the type should be known
-                    self.#field_name.as_ref().map(|_| sea_query::Value::String(None))
+                    #src.as_ref().map(|_| sea_query::Value::String(None))
                 },
             }
         } else {
             quote! {
                 // Path segment not found: return None for unset fields
-                self.#field_name.as_ref().map(|_| sea_query::Value::String(None))
+                #src.as_ref().map(|_| sea_query::Value::String(None))
             }
         }
     } else {
         quote! {
             // Non-path type: return None for unset fields
-            self.#field_name.as_ref().map(|_| sea_query::Value::String(None))
+            #src.as_ref().map(|_| sea_query::Value::String(None))
         }
     }
 }
@@ -1260,8 +1269,15 @@ pub fn generate_value_to_field(
 ///
 /// Returns a `TokenStream` that generates code to convert `Value` to `Option<T>`.
 #[allow(clippy::too_many_lines)]
+/// Emit `Value` → `Option<T>` conversion that assigns the local
+/// `__lg_converted`, NOT the record field directly.
+///
+/// The caller wraps the result in [`lifeguard::ActiveValue`]: a record field
+/// is a change-set state, not a bare `Option`, and the conversion has no way
+/// to know whether an incoming NULL should mean "staged NULL" or "untouched".
+/// That decision belongs to the caller.
 pub fn generate_value_to_option_field(
-    field_name: &syn::Ident,
+    dst: &TokenStream,
     inner_type: &Type,
     column_variant: &syn::Ident,
 ) -> TokenStream {
@@ -1270,11 +1286,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::Json(Some(v)) => {
-                    self.#field_name = Some(*v);
+                    #dst = Some(*v);
                     Ok(())
                 }
                 sea_query::Value::Json(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1291,11 +1307,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::Bytes(Some(v)) => {
-                    self.#field_name = Some(v);
+                    #dst = Some(v);
                     Ok(())
                 }
                 sea_query::Value::Bytes(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1312,11 +1328,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::Decimal(Some(v)) => {
-                    self.#field_name = Some(v);
+                    #dst = Some(v);
                     Ok(())
                 }
                 sea_query::Value::Decimal(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1332,11 +1348,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::Uuid(Some(v)) => {
-                    self.#field_name = Some(v);
+                    #dst = Some(v);
                     Ok(())
                 }
                 sea_query::Value::Uuid(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1352,11 +1368,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::ChronoDateTimeUtc(Some(v)) => {
-                    self.#field_name = Some(v);
+                    #dst = Some(v);
                     Ok(())
                 }
                 sea_query::Value::ChronoDateTimeUtc(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1372,11 +1388,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::ChronoDateTimeLocal(Some(v)) => {
-                    self.#field_name = Some(v);
+                    #dst = Some(v);
                     Ok(())
                 }
                 sea_query::Value::ChronoDateTimeLocal(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1392,11 +1408,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::ChronoDate(Some(v)) => {
-                    self.#field_name = Some(v);
+                    #dst = Some(v);
                     Ok(())
                 }
                 sea_query::Value::ChronoDate(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1412,11 +1428,11 @@ pub fn generate_value_to_option_field(
         return quote! {
             match value {
                 sea_query::Value::ChronoDateTime(Some(v)) => {
-                    self.#field_name = Some(v);
+                    #dst = Some(v);
                     Ok(())
                 }
                 sea_query::Value::ChronoDateTime(None) => {
-                    self.#field_name = None;
+                    #dst = None;
                     Ok(())
                 }
                 _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1440,11 +1456,11 @@ pub fn generate_value_to_option_field(
                 "i32" => quote! {
                     match value {
                         sea_query::Value::Int(Some(v)) => {
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::Int(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1457,11 +1473,11 @@ pub fn generate_value_to_option_field(
                 "i64" => quote! {
                     match value {
                         sea_query::Value::BigInt(Some(v)) => {
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::BigInt(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1481,11 +1497,11 @@ pub fn generate_value_to_option_field(
                                     actual: format!("SmallInt({})", v),
                                 });
                             }
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::SmallInt(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1505,11 +1521,11 @@ pub fn generate_value_to_option_field(
                                     actual: format!("TinyInt({})", v),
                                 });
                             }
-                            self.#field_name = Some(v as i8);
+                            #dst = Some(v as i8);
                             Ok(())
                         }
                         sea_query::Value::TinyInt(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1529,11 +1545,11 @@ pub fn generate_value_to_option_field(
                                     actual: format!("SmallInt({})", v),
                                 });
                             }
-                            self.#field_name = Some(v as u8);
+                            #dst = Some(v as u8);
                             Ok(())
                         }
                         sea_query::Value::SmallInt(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1553,11 +1569,11 @@ pub fn generate_value_to_option_field(
                                     actual: format!("Int({})", v),
                                 });
                             }
-                            self.#field_name = Some(v as u16);
+                            #dst = Some(v as u16);
                             Ok(())
                         }
                         sea_query::Value::Int(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1577,11 +1593,11 @@ pub fn generate_value_to_option_field(
                                     actual: format!("BigInt({})", v),
                                 });
                             }
-                            self.#field_name = Some(v as u32);
+                            #dst = Some(v as u32);
                             Ok(())
                         }
                         sea_query::Value::BigInt(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1594,11 +1610,11 @@ pub fn generate_value_to_option_field(
                 "u64" => quote! {
                     match value {
                         sea_query::Value::BigUnsigned(Some(v)) => {
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::BigUnsigned(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         sea_query::Value::BigInt(Some(v)) => {
@@ -1609,11 +1625,11 @@ pub fn generate_value_to_option_field(
                                     actual: format!("BigInt({})", v),
                                 });
                             }
-                            self.#field_name = Some(v as u64);
+                            #dst = Some(v as u64);
                             Ok(())
                         }
                         sea_query::Value::BigInt(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1626,11 +1642,11 @@ pub fn generate_value_to_option_field(
                 "f32" => quote! {
                     match value {
                         sea_query::Value::Float(Some(v)) => {
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::Float(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1643,11 +1659,11 @@ pub fn generate_value_to_option_field(
                 "f64" => quote! {
                     match value {
                         sea_query::Value::Double(Some(v)) => {
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::Double(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1660,11 +1676,11 @@ pub fn generate_value_to_option_field(
                 "bool" => quote! {
                     match value {
                         sea_query::Value::Bool(Some(v)) => {
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::Bool(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {
@@ -1677,11 +1693,11 @@ pub fn generate_value_to_option_field(
                 "String" => quote! {
                     match value {
                         sea_query::Value::String(Some(v)) => {
-                            self.#field_name = Some(v);
+                            #dst = Some(v);
                             Ok(())
                         }
                         sea_query::Value::String(None) => {
-                            self.#field_name = None;
+                            #dst = None;
                             Ok(())
                         }
                         _ => Err(lifeguard::ActiveModelError::InvalidValueType {

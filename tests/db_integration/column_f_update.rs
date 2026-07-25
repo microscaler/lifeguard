@@ -112,12 +112,12 @@ fn insert_rejects_when_set_expr_pending() {
 
     let err = rec
         .insert(&executor)
-        .expect_err("insert must reject pending __update_exprs");
+        .expect_err("insert must reject a staged expression");
     match err {
         ActiveModelError::Other(msg) => {
             assert!(
-                msg.contains("set_*_expr") || msg.contains("__update_exprs"),
-                "unexpected message: {msg}"
+                msg.contains("set_n_expr") && msg.contains("update()"),
+                "the message should name the field and point at update(): {msg}"
             );
         }
         e => panic!("expected Other, got {e:?}"),

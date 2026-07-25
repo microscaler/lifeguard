@@ -1,4 +1,10 @@
-//! PRD §9: `ModelIdentityMap` / `Session` + `flush_dirty` / `flush_dirty_in_transaction` with derived `LifeRecord::update`.
+//! PRD §9: `ModelIdentityMap` / `Session` + `flush_dirty` /
+//! `flush_dirty_in_transaction` with derived `LifeRecord::update`.
+//!
+//! Flush callbacks use `Record::overwrite(&model)`: a unit of work tracks the
+//! in-memory model as the intended state of the row, so the whole model is
+//! written back. `from_model` is the read-modify-write constructor — it stages
+//! nothing, which is right for editing a row but would make a flush a no-op.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -53,7 +59,7 @@ fn identity_map_flush_dirty_persists_via_update() {
 
     map.flush_dirty(&executor, |ex, mrc| {
         let model = mrc.borrow().clone();
-        let rec = CounterRecord::from_model(&model);
+        let rec = CounterRecord::overwrite(&model);
         let _ = rec.update(ex)?;
         Ok(())
     })
@@ -87,7 +93,7 @@ fn identity_map_flush_dirty_with_mark_dirty_key_and_identity_map_key() {
 
     map.flush_dirty(&executor, |ex, mrc| {
         let model = mrc.borrow().clone();
-        let rec = CounterRecord::from_model(&model);
+        let rec = CounterRecord::overwrite(&model);
         let _ = rec.update(ex)?;
         Ok(())
     })
@@ -120,7 +126,7 @@ fn session_flush_dirty_after_attach_session_and_set_n_on_record() {
     session
         .flush_dirty(&executor, |ex, mrc| {
             let model = mrc.borrow().clone();
-            let r = CounterRecord::from_model(&model);
+            let r = CounterRecord::overwrite(&model);
             let _ = r.update(ex)?;
             Ok(())
         })
@@ -151,7 +157,9 @@ fn session_flush_dirty_in_transaction_persists_via_update() {
     session
         .flush_dirty_in_transaction(&executor, |ex, mrc| {
             let model = mrc.borrow().clone();
-            let rec = CounterRecord::from_model(&model);
+            // A unit-of-work flush writes the in-memory model back as the
+            // intended state of the row, so the whole model is staged.
+            let rec = CounterRecord::overwrite(&model);
             let _ = rec.update(ex)?;
             Ok(())
         })
@@ -183,7 +191,9 @@ fn session_flush_dirty_in_transaction_pooled_persists_via_update() {
     session
         .flush_dirty_in_transaction_pooled(&pool, |ex, mrc| {
             let model = mrc.borrow().clone();
-            let rec = CounterRecord::from_model(&model);
+            // A unit-of-work flush writes the in-memory model back as the
+            // intended state of the row, so the whole model is staged.
+            let rec = CounterRecord::overwrite(&model);
             let _ = rec.update(ex)?;
             Ok(())
         })

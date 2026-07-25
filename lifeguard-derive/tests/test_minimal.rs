@@ -2916,9 +2916,7 @@ mod active_model_trait_tests {
         record.set_email("e@example.com".to_string());
         // Non-PK column: F-style expr is only generated for non-primary-key fields.
         record.set_name_expr(Expr::cust("1"));
-        assert!(record
-            .__update_exprs
-            .contains_key(&<Entity as LifeModelTrait>::Column::Name));
+        assert!(record.name.is_staged(), "expression is staged for update");
 
         let err = record
             .set(
@@ -2932,9 +2930,7 @@ mod active_model_trait_tests {
         ));
 
         assert!(
-            record
-                .__update_exprs
-                .contains_key(&<Entity as LifeModelTrait>::Column::Name),
+            matches!(record.name, lifeguard::ActiveValue::Expr(_)),
             "failed set() must not clear scheduled F-style expression"
         );
     }
@@ -2949,9 +2945,7 @@ mod active_model_trait_tests {
         record.set_name("a".to_string());
         record.set_email("e@example.com".to_string());
         record.set_name_expr(Expr::cust("1"));
-        assert!(record
-            .__update_exprs
-            .contains_key(&<Entity as LifeModelTrait>::Column::Name));
+        assert!(record.name.is_staged(), "expression is staged for update");
 
         let err = record
             .set_col("name", sea_query::Value::Int(Some(42)))
@@ -2962,9 +2956,7 @@ mod active_model_trait_tests {
         ));
 
         assert!(
-            record
-                .__update_exprs
-                .contains_key(&<Entity as LifeModelTrait>::Column::Name),
+            matches!(record.name, lifeguard::ActiveValue::Expr(_)),
             "failed set_col() must not clear scheduled F-style expression"
         );
     }
@@ -3549,8 +3541,15 @@ mod active_model_trait_tests {
         // Create record from model
         let record = UserRecord::from_model(&model);
 
-        // Verify all fields are set
-        assert_eq!(record.dirty_fields().len(), 3);
+        // A loaded row is not a pending write: every column is `Unchanged`,
+        // so nothing is staged and an update from here would touch nothing
+        // until a setter is called.
+        assert_eq!(
+            record.dirty_fields().len(),
+            0,
+            "from_model seeds values without staging writes"
+        );
+        assert!(record.id.is_unchanged());
 
         // Convert back to model
         let model2 = record.to_model().expect("to_model");
@@ -6099,7 +6098,8 @@ mod active_model_trait_tests {
         };
 
         let record = UserRecord::from_model(&model);
-        assert_eq!(record.dirty_fields().len(), 3);
+        // Values survive the round-trip without being staged for writing.
+        assert_eq!(record.dirty_fields().len(), 0);
 
         let model2 = record.to_model().expect("to_model");
         assert_eq!(model.id, model2.id);
@@ -6229,101 +6229,77 @@ mod active_model_trait_tests {
 
     #[test]
     fn test_active_value_set() {
-        // Test ActiveValue::Set variant
         use lifeguard::ActiveValue;
 
-        let value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
-        assert!(value.is_set());
+        let value = ActiveValue::Set(42);
+        assert!(value.is_staged(), "Set is written");
         assert!(!value.is_not_set());
-        assert!(!value.is_unset());
-
-        let extracted = value.into_value();
-        assert!(extracted.is_some());
-        match extracted.unwrap() {
-            sea_query::Value::Int(Some(v)) => assert_eq!(v, 42),
-            _ => panic!("Expected Int(Some(42))"),
-        }
+        assert!(!value.is_null());
+        assert_eq!(value.value(), Some(&42));
+        assert_eq!(value.into_value(), Some(42));
     }
 
     #[test]
     fn test_active_value_not_set() {
-        // Test ActiveValue::NotSet variant
         use lifeguard::ActiveValue;
 
-        let value = ActiveValue::NotSet;
-        assert!(!value.is_set());
+        let value: ActiveValue<i32> = ActiveValue::NotSet;
+        assert!(!value.is_staged(), "NotSet is omitted from statements");
         assert!(value.is_not_set());
-        assert!(!value.is_unset());
-
-        let extracted = value.into_value();
-        assert!(extracted.is_none());
+        assert!(!value.is_null());
+        assert_eq!(value.into_value(), None);
     }
 
     #[test]
-    fn test_active_value_unset() {
-        // Test ActiveValue::Unset variant
+    fn test_active_value_set_null() {
         use lifeguard::ActiveValue;
 
-        let value = ActiveValue::Unset;
-        assert!(!value.is_set());
-        assert!(!value.is_not_set());
-        assert!(value.is_unset());
-
-        let extracted = value.into_value();
-        assert!(extracted.is_none());
+        let value: ActiveValue<i32> = ActiveValue::SetNull;
+        assert!(value.is_staged(), "SetNull IS written — as NULL");
+        assert!(value.is_null());
+        assert!(!value.is_not_set(), "an instruction, not an absence");
+        assert_eq!(value.into_value(), None);
     }
 
     #[test]
-    fn test_active_value_from_value() {
-        // Test conversion from Option<Value>
+    fn test_active_value_unchanged() {
         use lifeguard::ActiveValue;
 
-        let value = ActiveValue::from_value(Some(sea_query::Value::Int(Some(42))));
-        assert!(value.is_set());
-
-        let value = ActiveValue::from_value(None);
-        assert!(value.is_not_set());
+        let value = ActiveValue::Unchanged(Some(7));
+        assert!(!value.is_staged(), "UPDATE skips it");
+        assert!(value.is_insertable(), "INSERT includes it");
+        assert_eq!(value.value(), Some(&7));
     }
 
     #[test]
-    fn test_active_value_from_trait() {
-        // Test From trait implementations
+    fn test_active_value_from_option() {
         use lifeguard::ActiveValue;
 
-        // From<Value>
-        let value: ActiveValue = sea_query::Value::Int(Some(42)).into();
-        assert!(value.is_set());
+        // The setter rule: passing `None` is an instruction to write NULL.
+        assert!(ActiveValue::from_option(Some(1)).is_staged());
+        assert!(ActiveValue::from_option(None::<i32>).is_null());
+    }
 
-        // From<Option<Value>>
-        let value: ActiveValue = Some(sea_query::Value::String(Some("test".to_string()))).into();
-        assert!(value.is_set());
+    /// `ColumnValue` is the column-erased view used where the concrete field
+    /// type is not known at compile time.
+    #[test]
+    fn test_column_value_states() {
+        use lifeguard::ColumnValue;
 
-        let value: ActiveValue = None.into();
-        assert!(value.is_not_set());
+        let set = ColumnValue::Set(sea_query::Value::Int(Some(42)));
+        assert!(set.is_set());
+        assert_eq!(set.clone().into_value(), Some(sea_query::Value::Int(Some(42))));
+        assert!(set.as_value().is_some());
 
-        // From<ActiveValue> for Option<Value>
-        let active_value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
-        let option_value: Option<sea_query::Value> = active_value.into();
-        assert!(option_value.is_some());
+        assert!(ColumnValue::Null.is_null());
+        assert!(ColumnValue::Null.into_value().is_none());
+        assert!(ColumnValue::NotSet.is_not_set());
+        assert!(ColumnValue::NotSet.as_value().is_none());
     }
 
     #[test]
-    fn test_active_value_as_value() {
-        // Test as_value() method
-        use lifeguard::ActiveValue;
-
-        let value = ActiveValue::Set(sea_query::Value::Int(Some(42)));
-        let ref_value = value.as_value();
-        assert!(ref_value.is_some());
-
-        let value = ActiveValue::NotSet;
-        let ref_value = value.as_value();
-        assert!(ref_value.is_none());
-    }
-
-    #[test]
-    fn test_active_model_trait_into_active_value() {
-        // Test into_active_value() method on ActiveModelTrait
+    fn test_active_model_trait_into_column_value() {
+        // Test into_column_value() method on ActiveModelTrait
         use lifeguard::{ActiveModelTrait, LifeModelTrait};
 
         let mut record = UserRecord::new();
@@ -6332,49 +6308,40 @@ mod active_model_trait_tests {
         record.set_email("john@example.com".to_string());
 
         // Test with set field
-        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Id);
+        let active_value = record.into_column_value(<Entity as LifeModelTrait>::Column::Id);
         assert!(active_value.is_set());
 
         // Test with another set field
-        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Name);
+        let active_value = record.into_column_value(<Entity as LifeModelTrait>::Column::Name);
         assert!(active_value.is_set());
 
         // Test with unset field (after reset)
         record.reset();
-        let active_value = record.into_active_value(<Entity as LifeModelTrait>::Column::Id);
+        let active_value = record.into_column_value(<Entity as LifeModelTrait>::Column::Id);
         assert!(active_value.is_not_set());
     }
 
+    /// The four states are mutually distinct — that is the whole point of the
+    /// type. `NotSet` and `SetNull` in particular must never compare equal:
+    /// one means "leave this column alone", the other "write NULL to it".
     #[test]
-    fn test_active_value_conversion_roundtrip() {
-        // Test roundtrip conversion: Value -> ActiveValue -> Option<Value>
+    fn test_active_value_all_variants_are_distinct() {
         use lifeguard::ActiveValue;
 
-        let original = sea_query::Value::Int(Some(42));
-        let active_value: ActiveValue = original.clone().into();
-        let converted: Option<sea_query::Value> = active_value.into();
+        let set = ActiveValue::Set("test".to_string());
+        let not_set: ActiveValue<String> = ActiveValue::NotSet;
+        let set_null: ActiveValue<String> = ActiveValue::SetNull;
+        let unchanged = ActiveValue::Unchanged(Some("test".to_string()));
 
-        assert_eq!(converted, Some(original));
-    }
-
-    #[test]
-    fn test_active_value_all_variants() {
-        // Test all ActiveValue variants
-        use lifeguard::ActiveValue;
-
-        let set = ActiveValue::Set(sea_query::Value::String(Some("test".to_string())));
-        let not_set = ActiveValue::NotSet;
-        let unset = ActiveValue::Unset;
-
-        // Verify they're distinct
         assert_ne!(set, not_set);
-        assert_ne!(set, unset);
-        assert_ne!(not_set, unset);
+        assert_ne!(set, set_null);
+        assert_ne!(not_set, set_null);
+        assert_ne!(set, unchanged, "staged and loaded are different intents");
 
-        // Verify is_* methods
-        assert!(set.is_set());
+        assert!(set.is_staged());
         assert!(not_set.is_not_set());
-        assert!(unset.is_unset());
+        assert!(set_null.is_null());
+        assert!(unchanged.is_unchanged());
     }
 }
 
