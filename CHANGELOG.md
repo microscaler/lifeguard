@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`LifeRecord`: staged SQL `NULL` is now actually written (data-loss bug).**
+  A record field is `Option<T>` and statements only include fields that were
+  touched, so `None` was ambiguous — "never touched" and "set me to NULL" were
+  indistinguishable. `update()` emitted **no SET clause** for `set_x(None)`, so
+  the old value survived while the call reported success; when a NULL was the
+  *only* staged change the generated statement was `UPDATE ... WHERE`, a syntax
+  error. Records now track explicitly staged NULLs (`__null_columns`) and emit
+  a correctly **typed** null per column (`Value::String(None)` bound to an
+  INTEGER or UUID column is a parameter-type error, not a NULL).
+
+  - `set_x(None)` on an `Option<T>` field means SQL `NULL`. Calling a setter
+    always has an effect; to leave a column alone, do not call its setter.
+  - New `set_x_null()` on every nullable column — the only way to express NULL
+    for a `T` + `#[nullable]` field, whose setter takes `T`. Non-nullable
+    columns get no such method, so "clear this" fails to compile.
+  - On INSERT an explicit NULL beats the column DEFAULT; an untouched column
+    still takes the DEFAULT.
+  - `take()` un-stages a NULL (it removes the column from the change-set);
+    `reset()` clears staged NULLs; `set_x_expr()` and a staged NULL are
+    mutually exclusive, last write wins; a staged NULL counts as dirty, and
+    `null_columns()` reports them.
+
+  **Migration:** code that called `set_x(None)` expecting "leave unchanged" now
+  writes NULL. In the full-record rebuild pattern (`from_model` → set → update)
+  the value written equals the value read, so behaviour is unchanged. Two real
+  call sites in this workspace were already *relying* on the intended
+  semantics and silently doing nothing. Covered by
+  `tests/db_integration/nullable_null_update.rs` (6 tests that fail without the
+  fix, 5 that pin the "leave untouched columns alone" contract).
+
 ### Added
 
 - **Chrono (`DateTime<Utc>` / `Local`, `NaiveDateTime`, …):** Derive `type_conversion` and `LifeModel` / `LifeRecord` align `sea_query::Value` variants with PostgreSQL time types; `FromRow` uses direct `try_get` for tz-aware chrono types; soft-delete `UPDATE` emits typed “now” for `deleted_at` / `updated_at` by model field type. See [`docs/CHRONO_AND_POSTGRES_TYPES.md`](./docs/CHRONO_AND_POSTGRES_TYPES.md) and [`docs/COMPLETE_CHRONO_IMPLEMENTATION.md`](./docs/COMPLETE_CHRONO_IMPLEMENTATION.md). **Additive:** existing `NaiveDateTime` / `timestamp without time zone` usage is unchanged.

@@ -27,6 +27,9 @@ mod replication_sync;
 #[path = "db_integration/active_model_crud.rs"]
 mod active_model_crud;
 
+#[path = "db_integration/nullable_null_update.rs"]
+mod nullable_null_update;
+
 #[path = "db_integration/column_f_update.rs"]
 mod column_f_update;
 
