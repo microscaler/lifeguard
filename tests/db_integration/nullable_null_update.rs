@@ -322,6 +322,49 @@ fn value_after_null_wins() {
     assert_eq!(note_of(&executor, id).as_deref(), Some("replaced"));
 }
 
+/// `from_model` treats a model's `None` as *unset*, not as a staged NULL.
+///
+/// Decided deliberately (see the `from_model` rustdoc): it is a starting point
+/// for edits, so clearing a column stays visible at the call site instead of
+/// happening as a side effect of a read-modify-write. Pinned here because the
+/// asymmetry with `set_x(None)` is exactly the kind of thing a later "make it
+/// consistent" change would flip without noticing the blast radius.
+#[test]
+fn from_model_does_not_clear_null_columns() {
+    let _guard = lock();
+    let ctx = get_test_context();
+    let mut db = TestDatabase::with_url(&ctx.pg_url);
+    let executor = db.executor().expect("executor");
+    setup(&executor).expect("setup");
+
+    let id = seed(&executor);
+
+    // A model that claims `note` is NULL, written back wholesale.
+    let mut model = fetch(&executor, id);
+    model.note = None;
+    let mut record = WidgetRecord::from_model(&model);
+    assert!(
+        record.null_columns().is_empty(),
+        "from_model must not stage NULLs"
+    );
+    record.set_count(Some(99));
+    record.update(&executor).expect("update");
+
+    let after = fetch(&executor, id);
+    assert_eq!(after.count, Some(99), "explicit change applied");
+    assert_eq!(
+        after.note.as_deref(),
+        Some("original note"),
+        "a None field carried in by from_model must not clear the column"
+    );
+
+    // The explicit spelling still clears it.
+    let mut record = WidgetRecord::from_model(&after);
+    record.set_note(None);
+    record.update(&executor).expect("update");
+    assert_eq!(note_of(&executor, id), None);
+}
+
 /// `take()` removes a column from the change-set entirely; it is not a way to
 /// stage a NULL.
 #[test]

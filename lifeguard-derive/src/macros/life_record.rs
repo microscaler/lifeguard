@@ -1267,8 +1267,16 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
             }
 
-            /// Create a record from a Model (for updates)
-            /// All fields are set to Some(value) from the model
+            /// Create a record from a Model (for updates).
+            ///
+            /// A model field that is `None` arrives here as **unset**, not as
+            /// a staged SQL `NULL`: `from_model(&m).update()` writes the
+            /// populated columns and leaves the null ones at whatever the row
+            /// currently holds. This is deliberate — `from_model` is a
+            /// starting point for edits, and clearing a column should be
+            /// visible at the call site rather than a side effect of a
+            /// round-trip. To clear, call `set_x(None)` or `set_x_null()`
+            /// explicitly.
             pub fn from_model(model: &#model_name) -> Self {
                 Self {
                     #(#from_model_fields)*

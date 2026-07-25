@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
   - `set_x(None)` on an `Option<T>` field means SQL `NULL`. Calling a setter
     always has an effect; to leave a column alone, do not call its setter.
+  - `from_model` is unchanged and deliberately asymmetric: a model field that
+    is `None` arrives as *unset*, not as a staged NULL, so a read-modify-write
+    does not clear columns as a side effect. Clearing stays explicit at the
+    call site.
   - New `set_x_null()` on every nullable column — the only way to express NULL
     for a `T` + `#[nullable]` field, whose setter takes `T`. Non-nullable
     columns get no such method, so "clear this" fails to compile.
