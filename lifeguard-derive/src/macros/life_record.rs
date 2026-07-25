@@ -372,20 +372,15 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             to_model_struct_fields.push(quote! { #field_name, });
         }
 
-        // Generate dirty field check: literal set, or F-style expression scheduled for UPDATE
-        if is_primary_key {
-            dirty_fields_check.push(quote! {
-                if self.#field_name.is_staged() {
-                    dirty.push(stringify!(#field_name).to_string());
-                }
-            });
-        } else {
-            dirty_fields_check.push(quote! {
-                if self.#field_name.is_staged() {
-                    dirty.push(stringify!(#field_name).to_string());
-                }
-            });
-        }
+        // Generate dirty field check.
+        //
+        // "Dirty" is now just "staged for writing", which is the same question
+        // for a primary key as for any other column.
+        dirty_fields_check.push(quote! {
+            if self.#field_name.is_staged() {
+                dirty.push(stringify!(#field_name).to_string());
+            }
+        });
 
         // Generate setter method
         // If field is already Option<T>, setter accepts Option<T> directly

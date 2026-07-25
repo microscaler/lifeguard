@@ -97,7 +97,7 @@ fn soft_deleted_row_can_be_restored_through_the_orm() {
 
     // Soft delete: builds its own UPDATE with an explicit timestamp, so this
     // half was never affected by the bug.
-    let mut record = DocRecord::from_model(&doc);
+    let record = DocRecord::from_model(&doc);
     record.delete(&executor).expect("soft delete");
     assert!(
         DocEntity::find()
@@ -136,7 +136,7 @@ fn soft_delete_still_stamps_and_set_null_still_restores() {
     record.set_title("memo".to_string());
     let doc = record.insert(&executor).expect("insert");
 
-    let mut record = DocRecord::from_model(&doc);
+    let record = DocRecord::from_model(&doc);
     record.delete(&executor).expect("soft delete");
 
     let row = executor

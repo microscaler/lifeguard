@@ -50,8 +50,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`ActiveValue` is now the typed, per-field enum.** The former untyped
   `ActiveValue` (a `Set`/`NotSet`/`Unset` view over `sea_query::Value`) is
   renamed `ColumnValue`, and `ActiveModelTrait::into_active_value` becomes
-  `into_column_value`. The internal `__update_exprs` map and the record's
-  `null_columns` side table are gone: one field, one source of truth.
+  `into_column_value`. Expressions and NULLs live in the field's own state
+  rather than in side tables beside it, so there is nothing to keep in sync:
+  one field, one source of truth.
 
   **Migrating.** Code that goes through the generated setters needs no change —
   in hauliage and sesame-idam that was every call site. Two behaviour changes
