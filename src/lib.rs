@@ -132,7 +132,7 @@ pub use query::{
     index_key_parts_coverage_columns, ColumnDefinition, ColumnTrait, FromRow, IndexBtreeNulls,
     IndexBtreeSort, IndexDefinition, IndexKeyPart, IntoScope, LifeEntityName, LifeModelTrait,
     ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn, PrimaryKeyTrait,
-    SelectModel, SelectQuery, StoredProcedure, TableDefinition,
+    NotifyDefinition, SelectModel, SelectQuery, StoredProcedure, TableDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules

@@ -502,6 +502,24 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         },
     );
 
+    let notify_expr = match table_attrs.notify_channel.as_ref() {
+        None => quote! { None },
+        Some(channel) => {
+            let channel_lit = syn::LitStr::new(channel, struct_name.span());
+            let on_insert = syn::LitBool::new(table_attrs.notify_on_insert, struct_name.span());
+            let on_update = syn::LitBool::new(table_attrs.notify_on_update, struct_name.span());
+            let on_delete = syn::LitBool::new(table_attrs.notify_on_delete, struct_name.span());
+            quote! {
+                Some(lifeguard::NotifyDefinition {
+                    channel: #channel_lit.to_string(),
+                    on_insert: #on_insert,
+                    on_update: #on_update,
+                    on_delete: #on_delete,
+                })
+            }
+        }
+    };
+
     let table_definition_expr = quote! {
         lifeguard::TableDefinition {
             table_comment: #table_comment_expr,
@@ -510,6 +528,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             check_constraints: #check_constraints_expr,
             is_view: #is_view_expr,
             view_query: #view_query_expr,
+            notify: #notify_expr,
         }
     };
     let mut model_get_match_arms = Vec::new();

@@ -94,7 +94,8 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
         validate,
         validation_strategy,
         require_index_coverage,
-        view
+        view,
+        notify
     )
 )]
 pub fn derive_life_model(input: TokenStream) -> TokenStream {

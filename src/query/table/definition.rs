@@ -227,6 +227,68 @@ pub struct TableDefinition {
     pub is_view: bool,
     /// The select query backing the view (used for schema generation)
     pub view_query: Option<String>,
+    /// Declarative `pg_notify` emission on row change. See [`NotifyDefinition`].
+    pub notify: Option<NotifyDefinition>,
+}
+
+/// **SPIKE — the shape of this is expected to change with use.**
+///
+/// Declarative `pg_notify` on row change.
+///
+/// Generates *both* the trigger function and the trigger, so no PL/pgSQL is
+/// hand-written anywhere. An attribute that merely referenced an existing
+/// function would leave the body as hand-maintained SQL inside a generated
+/// migration — which is precisely the drift this exists to remove.
+///
+/// The payload is a fixed JSON object rather than a configurable expression:
+///
+/// ```json
+/// {"table": "notification_events", "op": "INSERT", "id": "7f40d003-…"}
+/// ```
+///
+/// One shape serves both known consumers. Cache coherence
+/// (`LifeReflector`) needs table, operation and primary key; a queue consumer
+/// reads `.id` and ignores the rest. Two formats would mean two parsers and
+/// two sets of tests for the same event.
+///
+/// Limited to single-column primary keys for now — composite keys have no
+/// obvious JSON representation that a consumer could rely on, and no caller
+/// needs one yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotifyDefinition {
+    /// The `LISTEN` channel to publish on.
+    pub channel: String,
+    /// Fire on `INSERT`.
+    pub on_insert: bool,
+    /// Fire on `UPDATE`.
+    pub on_update: bool,
+    /// Fire on `DELETE`.
+    pub on_delete: bool,
+}
+
+impl NotifyDefinition {
+    /// The `INSERT OR UPDATE OR DELETE` fragment for the trigger definition.
+    ///
+    /// Returns `None` when no operation was selected, which the generator
+    /// treats as a configuration error rather than emitting a trigger that
+    /// can never fire.
+    #[must_use]
+    pub fn events_sql(&self) -> Option<String> {
+        let mut events = Vec::new();
+        if self.on_insert {
+            events.push("INSERT");
+        }
+        if self.on_update {
+            events.push("UPDATE");
+        }
+        if self.on_delete {
+            events.push("DELETE");
+        }
+        if events.is_empty() {
+            return None;
+        }
+        Some(events.join(" OR "))
+    }
 }
 
 /// Index definition metadata

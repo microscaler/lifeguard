@@ -23,6 +23,7 @@
 //!   when the table is first created; they are **not** re-evaluated when `IF NOT EXISTS` skips.
 //! - **`COMMENT ON`** is naturally re-runnable (replaces the comment).
 
+use lifeguard::NotifyDefinition;
 use lifeguard::{
     index_key_parts_coverage_columns, query::column::column_trait::ColumnDefHelper, ColumnTrait,
     LifeEntityName, LifeModelTrait, TableDefinition,
@@ -393,6 +394,43 @@ where
         .map_err(|e| format!("Failed to write SQL: {}", e))?;
     }
 
+    // SPIKE: notify trigger, generated from #[notify(...)] on the entity.
+    if let Some(ref notify) = table_def.notify {
+        if table_def.is_view {
+            return Err(format!(
+                "notify is not supported on view {table_name}: a view has no rows to trigger on"
+            ));
+        }
+        let pk_column = match primary_key_cols.as_slice() {
+            [single] => single.clone(),
+            [] => {
+                return Err(format!(
+                    "notify on {table_name} requires a primary key to identify the changed row"
+                ))
+            }
+            many => {
+                return Err(format!(
+                    "notify on {table_name} needs a single-column primary key, found {}: \
+                     the payload has no agreed shape for composite keys",
+                    many.join(", ")
+                ))
+            }
+        };
+        writeln!(sql).map_err(|e| format!("Failed to write SQL: {}", e))?;
+        write!(
+            sql,
+            "{}",
+            generate_notify_sql(
+                notify,
+                schema_name.as_deref(),
+                &table_name,
+                &full_table_name,
+                &pk_column,
+            )?
+        )
+        .map_err(|e| format!("Failed to write SQL: {}", e))?;
+    }
+
     Ok(sql)
 }
 
@@ -494,6 +532,87 @@ fn infer_zero_default_for_sql_type(col_type: &str) -> Option<&'static str> {
             _ => None,
         },
     }
+}
+
+
+/// **SPIKE — expected to change with use.**
+///
+/// Emit the trigger function and trigger backing `#[notify(...)]`.
+///
+/// Both are generated: a trigger that referenced a hand-written function would
+/// leave the interesting part as unmanaged SQL living inside a generated
+/// migration, which is the exact failure this is meant to remove.
+///
+/// Idempotent by construction. `CREATE OR REPLACE FUNCTION` is naturally
+/// re-appliable, and the trigger is dropped before creation because
+/// `CREATE OR REPLACE TRIGGER` needs PostgreSQL 14+ and these migrations are
+/// re-applied routinely.
+///
+/// `pk_column` is the entity's single primary key. Composite keys are rejected
+/// rather than guessed at: there is no payload shape a consumer could rely on,
+/// and nothing needs one yet.
+fn generate_notify_sql(
+    notify: &NotifyDefinition,
+    schema_name: Option<&str>,
+    table_name: &str,
+    full_table_name: &str,
+    pk_column: &str,
+) -> Result<String, String> {
+    let Some(events) = notify.events_sql() else {
+        return Err(format!(
+            "notify on {table_name} selects no operations; expected at least one of insert, update, delete"
+        ));
+    };
+
+    // Name both objects after the table so repeated generation is stable and a
+    // reader can tell at a glance what a trigger belongs to.
+    let object_name = format!("lifeguard_notify_{table_name}");
+    let qualified_fn = match schema_name {
+        Some(schema) => format!("{schema}.{object_name}"),
+        None => object_name.clone(),
+    };
+
+    // DELETE has no NEW row, so the key has to come from OLD.
+    let record = if notify.on_delete && !notify.on_insert && !notify.on_update {
+        "OLD".to_string()
+    } else if notify.on_delete {
+        format!("(CASE WHEN TG_OP = 'DELETE' THEN OLD.{pk_column} ELSE NEW.{pk_column} END)")
+    } else {
+        format!("NEW.{pk_column}")
+    };
+    let key_expr = if record == "OLD" {
+        format!("OLD.{pk_column}")
+    } else {
+        record
+    };
+
+    Ok(format!(
+        r#"-- Declarative pg_notify for {table_name} (generated from #[notify]).
+CREATE OR REPLACE FUNCTION {qualified_fn}() RETURNS trigger
+LANGUAGE plpgsql
+AS $lifeguard_notify$
+BEGIN
+    PERFORM pg_notify(
+        '{channel}',
+        json_build_object(
+            'table', TG_TABLE_NAME,
+            'op', TG_OP,
+            'id', {key_expr}
+        )::text
+    );
+    RETURN NULL;
+END;
+$lifeguard_notify$;
+
+DROP TRIGGER IF EXISTS {object_name} ON {full_table_name};
+
+CREATE TRIGGER {object_name}
+    AFTER {events} ON {full_table_name}
+    FOR EACH ROW
+    EXECUTE FUNCTION {qualified_fn}();
+"#,
+        channel = notify.channel,
+    ))
 }
 
 #[cfg(test)]

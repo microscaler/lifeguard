@@ -545,6 +545,14 @@ pub struct TableAttributes {
     pub is_view: bool,
     /// The select query backing the view (used for generation)
     pub view_query: Option<String>,
+    /// SPIKE: `pg_notify` channel from `#[notify(channel = "...", on = "...")]`.
+    pub notify_channel: Option<String>,
+    /// SPIKE: row operations that fire the notify.
+    pub notify_on_insert: bool,
+    /// SPIKE: row operations that fire the notify.
+    pub notify_on_update: bool,
+    /// SPIKE: row operations that fire the notify.
+    pub notify_on_delete: bool,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -762,6 +770,67 @@ pub fn parse_table_attributes(
                         "require_index_coverage must be a unit attribute: #[require_index_coverage]",
                     ));
                 }
+            }
+        } else if attr.path().is_ident("notify") {
+            // SPIKE: #[notify(channel = "chan", on = "insert,update,delete")]
+            let meta = attr.meta.require_list().map_err(|_| {
+                syn::Error::new_spanned(
+                    attr,
+                    r#"notify must be a list: #[notify(channel = "my_channel", on = "insert")]"#,
+                )
+            })?;
+            let nested = meta.parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )?;
+            for nested_meta in nested {
+                if let syn::Meta::NameValue(nv) = nested_meta {
+                    let syn::Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }) = &nv.value
+                    else {
+                        continue;
+                    };
+                    if nv.path.is_ident("channel") {
+                        table_attrs.notify_channel = Some(s.value());
+                    } else if nv.path.is_ident("on") {
+                        // Unknown operations are rejected rather than ignored: a
+                        // silently-dropped "insrt" would produce a trigger that
+                        // never fires, which is invisible until something
+                        // downstream quietly stops working.
+                        for op in s.value().split(',') {
+                            match op.trim().to_ascii_lowercase().as_str() {
+                                "insert" => table_attrs.notify_on_insert = true,
+                                "update" => table_attrs.notify_on_update = true,
+                                "delete" => table_attrs.notify_on_delete = true,
+                                "" => {}
+                                other => {
+                                    return Err(syn::Error::new_spanned(
+                                        &nv.value,
+                                        format!(
+                                            "unknown notify operation {other:?}; \
+                                             expected insert, update or delete"
+                                        ),
+                                    ))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if table_attrs.notify_channel.is_none() {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "notify requires a channel: #[notify(channel = \"my_channel\", on = \"insert\")]",
+                ));
+            }
+            if !(table_attrs.notify_on_insert
+                || table_attrs.notify_on_update
+                || table_attrs.notify_on_delete)
+            {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "notify requires at least one operation: on = \"insert\" / \"update\" / \"delete\"",
+                ));
             }
         } else if attr.path().is_ident("view") {
             table_attrs.is_view = true;
