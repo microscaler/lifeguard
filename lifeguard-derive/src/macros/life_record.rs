@@ -1435,7 +1435,11 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     .as_mut()
             }
 
-            fn insert(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {
+            fn insert_inner(
+                &self,
+                executor: &dyn lifeguard::LifeExecutor,
+                on_conflict: Option<sea_query::OnConflict>,
+            ) -> Result<Option<Self::Model>, lifeguard::ActiveModelError> {
                 use sea_query::{Query, PostgresQueryBuilder};
                 use lifeguard::{LifeEntityName, ActiveModelBehavior};
 
@@ -1473,6 +1477,14 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 query.columns(columns.iter().copied());
                 query.values_panic(exprs.iter().cloned());
 
+                // ON CONFLICT must be attached after the values. `conflict_handled`
+                // tells the execution arms below that a zero-row result is the
+                // expected DO NOTHING outcome rather than a failed write.
+                let conflict_handled = on_conflict.is_some();
+                if let Some(oc) = on_conflict {
+                    query.on_conflict(oc);
+                }
+
                 // Check if we need RETURNING clause for auto-increment primary keys
                 // Track which auto-increment PKs were not set and need RETURNING
                 // NOTE: Check record_for_hooks to see if PK is still unset after before_insert() hook
@@ -1501,6 +1513,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
+                if std::env::var("LIFEGUARD_DEBUG_SQL").is_ok() { eprintln!("[lifeguard-sql] {}", sql); }
 
                 // Create a mutable copy of self to update with returned PK values
                 // Use the record that went through before_insert hook
@@ -1509,18 +1522,32 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Execute query and handle RETURNING if needed
                 // Use *_values so pooled executors can marshal binds across the pool channel.
                 if needs_returning {
-                    let row = executor.query_one_values(&sql, &sql_values).map_err(|e| {
+                    let mut rows = executor.query_all_values(&sql, &sql_values).map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
+                    if rows.is_empty() {
+                        if conflict_handled {
+                            // An existing row matched the conflict target and the
+                            // action was DO NOTHING. Nothing was written.
+                            return Ok(None);
+                        }
+                        return Err(lifeguard::ActiveModelError::DatabaseError(
+                            "INSERT ... RETURNING produced no row".to_string(),
+                        ));
+                    }
+                    let row = rows.swap_remove(0);
 
                     // Extract returned primary key values and update the record
                     let mut returning_idx = 0usize;
                     #(#pk_returning_extractors)*
                     #(#readonly_returning_extractors)*
                 } else {
-                    executor.execute_values(&sql, &sql_values).map_err(|e| {
+                    let affected = executor.execute_values(&sql, &sql_values).map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
+                    if affected == 0 && conflict_handled {
+                        return Ok(None);
+                    }
                 }
 
                 // Construct the model from the updated record
@@ -1548,7 +1575,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 }
 
                 // Return the model
-                Ok(model)
+                Ok(Some(model))
             }
 
             fn update(&self, executor: &dyn lifeguard::LifeExecutor) -> Result<Self::Model, lifeguard::ActiveModelError> {

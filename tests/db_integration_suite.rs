@@ -26,6 +26,8 @@ mod replication_sync;
 
 #[path = "db_integration/active_model_crud.rs"]
 mod active_model_crud;
+#[path = "db_integration/insert_on_conflict.rs"]
+mod insert_on_conflict;
 
 #[path = "db_integration/nullable_orm_and_rls.rs"]
 mod nullable_orm_and_rls;

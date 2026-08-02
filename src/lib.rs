@@ -151,6 +151,9 @@ pub use model::{ModelError, ModelTrait, TryIntoModel};
 
 // Export sea_query types that are required by the external Lifeguard API
 pub use sea_query::Order;
+/// Re-exported so callers of [`ActiveModelTrait::insert_on_conflict`] do not need
+/// a direct `sea-query` dependency just to name the conflict clause.
+pub use sea_query::OnConflict;
 
 // Session / identity map (PRD Phase E v0)
 pub mod session;
