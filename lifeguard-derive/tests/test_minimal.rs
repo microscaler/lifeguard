@@ -6288,7 +6288,10 @@ mod active_model_trait_tests {
 
         let set = ColumnValue::Set(sea_query::Value::Int(Some(42)));
         assert!(set.is_set());
-        assert_eq!(set.clone().into_value(), Some(sea_query::Value::Int(Some(42))));
+        assert_eq!(
+            set.clone().into_value(),
+            Some(sea_query::Value::Int(Some(42)))
+        );
         assert!(set.as_value().is_some());
 
         assert!(ColumnValue::Null.is_null());

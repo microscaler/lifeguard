@@ -131,8 +131,8 @@ pub use query::{
     from_row_unsigned_try_from_failed, index_definition_to_derive_index_value,
     index_key_parts_coverage_columns, ColumnDefinition, ColumnTrait, FromRow, IndexBtreeNulls,
     IndexBtreeSort, IndexDefinition, IndexKeyPart, IntoScope, LifeEntityName, LifeModelTrait,
-    ModelManager, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn, PrimaryKeyTrait,
-    NotifyDefinition, SelectModel, SelectQuery, StoredProcedure, TableDefinition,
+    ModelManager, NotifyDefinition, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn,
+    PrimaryKeyTrait, SelectModel, SelectQuery, StoredProcedure, TableDefinition,
 };
 
 // query_old.rs has been removed - all code migrated to query/ modules
@@ -141,8 +141,8 @@ pub use query::{
 pub mod active_model;
 pub use active_model::{
     predicates, run_validators, run_validators_with_strategy, with_converted_params,
-    ActiveModelBehavior, ActiveModelError, ActiveModelTrait, ActiveValue, ColumnValue,
-    ValidateOp, ValidationError, ValidationStrategy,
+    ActiveModelBehavior, ActiveModelError, ActiveModelTrait, ActiveValue, ColumnValue, ValidateOp,
+    ValidationError, ValidationStrategy,
 };
 
 // Model trait - Core Traits & Types
@@ -150,10 +150,10 @@ pub mod model;
 pub use model::{ModelError, ModelTrait, TryIntoModel};
 
 // Export sea_query types that are required by the external Lifeguard API
-pub use sea_query::Order;
 /// Re-exported so callers of [`ActiveModelTrait::insert_on_conflict`] do not need
 /// a direct `sea-query` dependency just to name the conflict clause.
 pub use sea_query::OnConflict;
+pub use sea_query::Order;
 
 // Session / identity map (PRD Phase E v0)
 pub mod session;

@@ -4,8 +4,8 @@
 //! model operations including field access, `CRUD` operations, and lifecycle hooks.
 
 use super::error::ActiveModelError;
-use super::validate_op::{ValidateOp, ValidationStrategy};
 use super::field_state::ColumnValue;
+use super::validate_op::{ValidateOp, ValidationStrategy};
 use crate::model::ModelTrait;
 use crate::query::LifeModelTrait;
 use sea_query::Value;

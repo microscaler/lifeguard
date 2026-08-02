@@ -42,7 +42,7 @@ path = "examples/find_related_scope_example.rs"
 # Coroutine runtime
 may = "0.3"
 # Pinned rev: `user_column_decode_failed` API (merge branch `user-column-decode-failed` or bump rev after rebase).
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "6c92ef8b1e756741f3726fb94cc49af54f0f8596", features = ["with-chrono-0_4"] }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "8f7df1e6470c8d1afb1835323e6811680a134ea4", features = ["with-chrono-0_4"] }
 
 # Procedural macros for ORM
 lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }

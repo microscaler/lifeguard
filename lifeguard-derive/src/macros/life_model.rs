@@ -893,7 +893,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                         // Handle Option<T> - extract inner type from generic arguments
                         if let Some(inner_type) = extract_option_inner_type(field_type) {
                             type_conversion::generate_option_field_to_value_with_default(
-                                        &quote! { self.#field_name },
+                                &quote! { self.#field_name },
                                 inner_type,
                             )
                         } else {
@@ -1877,7 +1877,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     // Option<T> - use the same conversion as get() method
                     value_exprs.push(
                         type_conversion::generate_option_field_to_value_with_default(
-                                        &quote! { self.#field_name },
+                            &quote! { self.#field_name },
                             inner_type,
                         ),
                     );

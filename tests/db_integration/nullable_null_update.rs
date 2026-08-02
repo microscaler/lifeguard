@@ -33,7 +33,8 @@ static LOCK: Mutex<()> = Mutex::new(());
 /// one real failure would look like ten mysterious ones. Ignore the poison
 /// and keep the serialisation.
 fn lock() -> std::sync::MutexGuard<'static, ()> {
-    LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[derive(LifeModel, LifeRecord, Debug, Clone)]
@@ -279,7 +280,10 @@ fn insert_writes_unchanged_values_but_not_untouched_ones() {
     assert_eq!(copy.name, original.name, "Unchanged values are inserted");
     assert_eq!(copy.note, original.note);
     assert_eq!(copy.count, original.count);
-    assert_eq!(copy.tag, original.tag, "not silently replaced by the DEFAULT");
+    assert_eq!(
+        copy.tag, original.tag,
+        "not silently replaced by the DEFAULT"
+    );
 
     // A record that never touches `tag` gets the DEFAULT instead.
     let fresh_id = Uuid::new_v4();
@@ -302,7 +306,10 @@ fn staged_null_counts_as_dirty() {
     record.set_note(None);
     assert!(record.is_dirty(), "staging a NULL is a change");
     assert!(record.dirty_fields().iter().any(|f| f == "note"));
-    assert_eq!(record.null_columns(), vec![<Entity as LifeModelTrait>::Column::Note]);
+    assert_eq!(
+        record.null_columns(),
+        vec![<Entity as LifeModelTrait>::Column::Note]
+    );
 }
 
 // ─────────────────── negative: NULL is NOT written ───────────────────────────
@@ -477,7 +484,10 @@ fn expression_and_null_are_mutually_exclusive() {
     let mut record = WidgetRecord::new();
     record.set_id(id).set_count_null();
     record.set_count_expr(<Entity as LifeModelTrait>::Column::Count.f_add(1));
-    assert!(record.null_columns().is_empty(), "expression clears the NULL");
+    assert!(
+        record.null_columns().is_empty(),
+        "expression clears the NULL"
+    );
     record.update(&executor).expect("update");
     assert_eq!(fetch(&executor, id).count, Some(42), "41 + 1");
 
@@ -488,5 +498,9 @@ fn expression_and_null_are_mutually_exclusive() {
     record.set_count_expr(<Entity as LifeModelTrait>::Column::Count.f_add(1));
     record.set_count_null();
     record.update(&executor).expect("update");
-    assert_eq!(fetch(&executor, id).count, None, "NULL clears the expression");
+    assert_eq!(
+        fetch(&executor, id).count,
+        None,
+        "NULL clears the expression"
+    );
 }

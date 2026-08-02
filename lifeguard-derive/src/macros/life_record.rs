@@ -471,8 +471,10 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
         // `Value::X(None)` when the field is `None`, which is exactly the
         // right null for the column's type — a bare `Value::String(None)`
         // would be the wrong type for an INTEGER or UUID column.
-        let null_value_conversion =
-            type_conversion::generate_option_field_to_value_with_default(&quote! { __lg_field }, inner_type);
+        let null_value_conversion = type_conversion::generate_option_field_to_value_with_default(
+            &quote! { __lg_field },
+            inner_type,
+        );
         null_column_collectors.push(quote! {
             if self.#field_name.is_null() {
                 out.push(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant);

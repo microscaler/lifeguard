@@ -3738,17 +3738,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd8f3f50b848df28f887acb68e41201b5aea6bc8a8dacc00fb40635ff9a72fea"
 
 [[patch.unused]]
-name = "brrtrouter"
-version = "0.1.0-alpha.1"
-
-[[patch.unused]]
-name = "brrtrouter_macros"
-version = "0.1.0"
-
-[[patch.unused]]
 name = "microscaler-observability"
 version = "0.1.0"
 
 [[patch.unused]]
 name = "sesame-idam-client"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "brrtrouter"
+version = "0.1.0-alpha.1"
+
+[[patch.unused]]
+name = "brrtrouter_macros"
 version = "0.1.0"

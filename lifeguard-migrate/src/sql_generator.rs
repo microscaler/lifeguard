@@ -534,7 +534,6 @@ fn infer_zero_default_for_sql_type(col_type: &str) -> Option<&'static str> {
     }
 }
 
-
 /// **SPIKE — expected to change with use.**
 ///
 /// Emit the trigger function and trigger backing `#[notify(...)]`.
