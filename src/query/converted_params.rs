@@ -72,6 +72,12 @@ where
 
     // Typed SQL NULLs: `Option<i32>::None` must not be used for UUID/timestamp params —
     // `ToSql::accepts` for `Option<T>` delegates to `T::accepts` (postgres-types).
+    // NUMERIC/DECIMAL NULLs need Option<Decimal> storage for the same reason as
+    // UUID and chrono above: ToSql::accepts for Option<T> delegates to T::accepts,
+    // so a NULL parked in the generic Option<i32> bucket is rejected by Postgres
+    // with "cannot convert between the Rust type core::option::Option<i32> and the
+    // Postgres type numeric". That made every INSERT carrying a NULL money column fail.
+    let mut null_decimals: Vec<Option<rust_decimal::Decimal>> = Vec::new();
     let mut null_uuids: Vec<Option<uuid::Uuid>> = Vec::new();
     let mut null_chrono_dates: Vec<Option<chrono::NaiveDate>> = Vec::new();
     let mut null_chrono_times: Vec<Option<chrono::NaiveTime>> = Vec::new();
@@ -136,7 +142,7 @@ where
             | Value::Float(None)
             | Value::Double(None) => nulls.push(None),
 
-            Value::Decimal(None) => nulls.push(None),
+            Value::Decimal(None) => null_decimals.push(None),
 
             Value::ChronoDate(None) => null_chrono_dates.push(None),
             Value::ChronoTime(None) => null_chrono_times.push(None),
@@ -179,6 +185,7 @@ where
     let mut string_null_idx = 0;
     let mut bytes_null_idx = 0;
 
+    let mut decimal_null_idx = 0;
     let mut uuid_null_idx = 0;
     let mut chrono_date_null_idx = 0;
     let mut chrono_time_null_idx = 0;
@@ -287,8 +294,8 @@ where
                 null_idx += 1;
             }
             Value::Decimal(None) => {
-                params.push(&nulls[null_idx] as &dyn ToSql);
-                null_idx += 1;
+                params.push(&null_decimals[decimal_null_idx] as &dyn ToSql);
+                decimal_null_idx += 1;
             }
 
             Value::ChronoDate(None) => {
@@ -445,6 +452,45 @@ mod tests {
             "Decimal conversion failed with error: {:?}",
             result.err()
         );
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)] // literal decimal string; crate denies unwrap in non-test paths only
+    fn null_decimal_binds_to_a_numeric_column() {
+        use postgres_types::{IsNull, Type};
+
+        // Regression: `Value::Decimal(None)` was parked in the generic
+        // `nulls: Vec<Option<i32>>` bucket. `ToSql::accepts` for `Option<T>`
+        // delegates to `T::accepts`, so Postgres refused the bind with
+        // "cannot convert between the Rust type core::option::Option<i32> and
+        // the Postgres type numeric" — every INSERT that left a nullable money
+        // column empty failed. Counting bind parameters, as the older decimal
+        // test did, cannot catch this: the count was always right.
+        let dec = Decimal::from_str("123.45").unwrap();
+        let values = vec![Value::Decimal(Some(dec)), Value::Decimal(None)];
+
+        let result = with_converted_value_slice(
+            &values,
+            |e| e,
+            |params| {
+                let mut buf = bytes::BytesMut::new();
+                match params[0].to_sql_checked(&Type::NUMERIC, &mut buf) {
+                    Ok(IsNull::No) => {}
+                    Ok(IsNull::Yes) => return Err("decimal bound as NULL".to_string()),
+                    Err(e) => return Err(format!("decimal should bind to numeric: {e}")),
+                }
+
+                let mut nbuf = bytes::BytesMut::new();
+                match params[1].to_sql_checked(&Type::NUMERIC, &mut nbuf) {
+                    Ok(IsNull::Yes) => {}
+                    Ok(IsNull::No) => return Err("expected numeric NULL".to_string()),
+                    Err(e) => return Err(format!("Decimal(None) should be a numeric NULL: {e}")),
+                }
+                Ok::<(), String>(())
+            },
+        );
+
+        assert!(result.is_ok(), "{:?}", result.err());
     }
 
     #[test]
