@@ -78,6 +78,7 @@ where
     // with "cannot convert between the Rust type core::option::Option<i32> and the
     // Postgres type numeric". That made every INSERT carrying a NULL money column fail.
     let mut null_decimals: Vec<Option<rust_decimal::Decimal>> = Vec::new();
+    let mut null_bools: Vec<Option<bool>> = Vec::new();
     let mut null_uuids: Vec<Option<uuid::Uuid>> = Vec::new();
     let mut null_chrono_dates: Vec<Option<chrono::NaiveDate>> = Vec::new();
     let mut null_chrono_times: Vec<Option<chrono::NaiveTime>> = Vec::new();
@@ -130,8 +131,7 @@ where
             Value::Bytes(None) => null_bytes.push(None),
 
             #[allow(clippy::match_same_arms)]
-            Value::Bool(None)
-            | Value::Int(None)
+            Value::Int(None)
             | Value::BigInt(None)
             | Value::TinyInt(None)
             | Value::SmallInt(None)
@@ -142,6 +142,7 @@ where
             | Value::Float(None)
             | Value::Double(None) => nulls.push(None),
 
+            Value::Bool(None) => null_bools.push(None),
             Value::Decimal(None) => null_decimals.push(None),
 
             Value::ChronoDate(None) => null_chrono_dates.push(None),
@@ -186,6 +187,7 @@ where
     let mut bytes_null_idx = 0;
 
     let mut decimal_null_idx = 0;
+    let mut bool_null_idx = 0;
     let mut uuid_null_idx = 0;
     let mut chrono_date_null_idx = 0;
     let mut chrono_time_null_idx = 0;
@@ -247,7 +249,11 @@ where
                 uuid_idx += 1;
             }
 
-            Value::Bool(None) | Value::Int(None) | Value::BigInt(None) => {
+            Value::Bool(None) => {
+                params.push(&null_bools[bool_null_idx] as &dyn ToSql);
+                bool_null_idx += 1;
+            }
+            Value::Int(None) | Value::BigInt(None) => {
                 params.push(&nulls[null_idx] as &dyn ToSql);
                 null_idx += 1;
             }
