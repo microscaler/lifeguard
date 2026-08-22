@@ -372,6 +372,11 @@ pub fn build_service_migration_body_from_accumulated(
             }
         }
 
+        // Qualified where the CREATE was qualified, bare otherwise - so
+        // schema-less projects emit exactly what they did before.
+        let alter_target =
+            qualified_table_name(new_sql).unwrap_or_else(|| table_name.clone());
+
         let new_cols = parse_column_defs_from_create_body(&new_body);
 
         let mut table_delta = String::new();
@@ -380,7 +385,7 @@ pub fn build_service_migration_body_from_accumulated(
                 continue;
             }
             table_delta.push_str(&format!(
-                "ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col} {def};\n"
+                "ALTER TABLE {alter_target} ADD COLUMN IF NOT EXISTS {col} {def};\n"
             ));
         }
 
@@ -429,6 +434,28 @@ pub fn extract_table_sections(sql: &str) -> BTreeMap<String, String> {
 }
 
 /// Extract `(table_bare, create_body, tail_after_create)` from a single table section.
+/// The table name AS WRITTEN in the CREATE, schema prefix intact.
+///
+/// [`extract_create_and_tail`] deliberately returns the BARE name, because it
+/// keys the baseline map and callers compare bare names across files. Delta
+/// statements need the opposite. An unqualified ALTER TABLE resolves against
+/// whatever search_path the migrating connection happens to have, so one
+/// migration can alter public.foo on one connection and myschema.foo on
+/// another - and neither fails loudly. The CREATE it was derived from is
+/// always qualified, so the information is right there to use.
+fn qualified_table_name(section: &str) -> Option<String> {
+    let key = "CREATE TABLE IF NOT EXISTS ";
+    let idx = section.find(key)?;
+    let after = section[idx + key.len()..].trim_start();
+    let open = after.find('(')?;
+    let raw = after[..open].trim().trim_matches('\"');
+    if raw.is_empty() {
+        None
+    } else {
+        Some(raw.to_string())
+    }
+}
+
 fn extract_create_and_tail(section: &str) -> Option<(String, String, String)> {
     let key = "CREATE TABLE IF NOT EXISTS ";
     let idx = section.find(key)?;
@@ -876,5 +903,64 @@ CREATE INDEX IF NOT EXISTS idx_t_col ON t(col);
         let body = build_service_migration_body(Some(old), &[("t".into(), new.into())]);
         assert!(body.contains("CREATE INDEX IF NOT EXISTS idx_t_col"));
         assert!(!body.contains("IF NOT EXISTS IF NOT EXISTS"));
+    }
+}
+
+#[cfg(test)]
+mod schema_qualified_delta_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    /// A delta ALTER must carry the schema the CREATE carried.
+    ///
+    /// Without it the statement resolves against the migrating connection-s
+    /// search_path, so the same file alters a different table depending on who
+    /// runs it - and succeeds either way, which is the dangerous part.
+    #[test]
+    fn delta_alter_keeps_the_schema_prefix() {
+        let mut acc: BTreeMap<String, TableBaselineParts> = BTreeMap::new();
+        acc.insert(
+            "widgets".to_string(),
+            TableBaselineParts {
+                last_create_section: Some(
+                    "CREATE TABLE IF NOT EXISTS shop.widgets (id INT);".to_string(),
+                ),
+                delta_section_fragments: vec![],
+            },
+        );
+        let tables = vec![(
+            "widgets".to_string(),
+            "CREATE TABLE IF NOT EXISTS shop.widgets (id INT, sku VARCHAR(50));".to_string(),
+        )];
+
+        let body = build_service_migration_body_from_accumulated(&acc, &tables);
+        assert!(
+            body.contains("ALTER TABLE shop.widgets ADD COLUMN IF NOT EXISTS sku"),
+            "expected a schema-qualified ALTER, got: {body}"
+        );
+    }
+
+    /// Projects that never qualify their CREATEs must emit exactly what they
+    /// emitted before - this fix adds a prefix, it does not invent one.
+    #[test]
+    fn an_unqualified_create_still_yields_an_unqualified_alter() {
+        let mut acc: BTreeMap<String, TableBaselineParts> = BTreeMap::new();
+        acc.insert(
+            "widgets".to_string(),
+            TableBaselineParts {
+                last_create_section: Some(
+                    "CREATE TABLE IF NOT EXISTS widgets (id INT);".to_string(),
+                ),
+                delta_section_fragments: vec![],
+            },
+        );
+        let tables = vec![(
+            "widgets".to_string(),
+            "CREATE TABLE IF NOT EXISTS widgets (id INT, sku VARCHAR(50));".to_string(),
+        )];
+
+        let body = build_service_migration_body_from_accumulated(&acc, &tables);
+        assert!(body.contains("ALTER TABLE widgets ADD COLUMN IF NOT EXISTS sku"));
+        assert!(!body.contains("ALTER TABLE ."));
     }
 }
