@@ -85,6 +85,9 @@ struct WorkerPool {
     next_worker: AtomicUsize,
     pool_size: usize,
     acquire_timeout: Duration,
+    /// Deadline for a job's reply once enqueued (`None` = unbounded). A wedged worker
+    /// yields [`LifeError::PoolReplyTimeout`] instead of hanging the caller forever.
+    reply_timeout: Option<Duration>,
     /// `primary` or `replica` for [`crate::metrics::METRICS`] `pool_tier` labels.
     metrics_tier: &'static str,
 }
@@ -149,6 +152,7 @@ impl WorkerPool {
             next_worker: AtomicUsize::new(0),
             pool_size,
             acquire_timeout: settings.acquire_timeout,
+            reply_timeout: settings.reply_timeout,
             metrics_tier: tier,
         })
     }
@@ -239,11 +243,37 @@ impl WorkerPool {
             }
         }
 
-        match reply_rx.recv() {
-            Ok(r) => r,
-            Err(_) => Err(LifeError::Pool(
-                "pool reply channel closed unexpectedly".to_string(),
-            )),
+        // The reply wait is bounded separately from the acquire budget: the
+        // acquire timeout only covers ENQUEUEING; once the job is on a worker
+        // queue, only this deadline stands between a wedged worker and an
+        // infinite caller hang (2026-08-29 pool starvation incident). The
+        // worker may still be executing when we give up — the dropped receiver
+        // makes its eventual reply a no-op, and connectivity errors on the
+        // worker side heal the slot independently.
+        match self.reply_timeout {
+            None => match reply_rx.recv() {
+                Ok(r) => r,
+                Err(_) => Err(LifeError::Pool(
+                    "pool reply channel closed unexpectedly".to_string(),
+                )),
+            },
+            Some(limit) => match reply_rx.recv_timeout(limit) {
+                Ok(r) => r,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    #[cfg(feature = "metrics")]
+                    METRICS.record_pool_reply_timeout(self.metrics_tier);
+                    log::warn!(
+                        "lifeguard pool ({}): no worker reply within {limit:?}; returning bounded error (worker wedged or statement overran the reply budget)",
+                        self.metrics_tier
+                    );
+                    Err(LifeError::PoolReplyTimeout {
+                        waited: wait_start.elapsed(),
+                    })
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(LifeError::Pool(
+                    "pool reply channel closed unexpectedly".to_string(),
+                )),
+            },
         }
     }
 }

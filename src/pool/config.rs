@@ -50,6 +50,13 @@ pub struct DatabaseConfig {
     /// for sub-second intervals in tests.
     #[serde(default = "default_idle_liveness_interval_ms")]
     pub idle_liveness_interval_ms: u64,
+    /// Deadline for a dispatched job's **reply** once it has been enqueued on a worker
+    /// (separate from `pool_timeout_seconds`, which only bounds enqueueing). A wedged
+    /// worker yields a bounded [`crate::LifeError::PoolReplyTimeout`] instead of hanging
+    /// the caller forever (2026-08-29 pool starvation incident). **`0`** disables the
+    /// bound; raise it for workloads with legitimately long statements. Default **120**.
+    #[serde(default = "default_pool_reply_timeout_seconds")]
+    pub pool_reply_timeout_seconds: u64,
 }
 
 fn default_db_url() -> String {
@@ -80,6 +87,10 @@ fn default_idle_liveness_interval_ms() -> u64 {
     0
 }
 
+fn default_pool_reply_timeout_seconds() -> u64 {
+    120
+}
+
 /// Matches `config/config.toml` `[database]` table (single source for file + env merge).
 #[derive(Debug, Deserialize)]
 struct ConfigRoot {
@@ -101,6 +112,7 @@ impl Default for DatabaseConfig {
             max_connection_lifetime_seconds: 0,
             max_connection_lifetime_jitter_ms: 0,
             idle_liveness_interval_ms: default_idle_liveness_interval_ms(),
+            pool_reply_timeout_seconds: default_pool_reply_timeout_seconds(),
         }
     }
 }
@@ -129,6 +141,7 @@ impl DatabaseConfig {
     /// | `wal_lag_monitor_max_connect_retries` | `LIFEGUARD__DATABASE__WAL_LAG_MONITOR_MAX_CONNECT_RETRIES` |
     /// | `max_connection_lifetime_seconds` | `LIFEGUARD__DATABASE__MAX_CONNECTION_LIFETIME_SECONDS` |
     /// | `max_connection_lifetime_jitter_ms` | `LIFEGUARD__DATABASE__MAX_CONNECTION_LIFETIME_JITTER_MS` |
+    /// | `pool_reply_timeout_seconds` | `LIFEGUARD__DATABASE__POOL_REPLY_TIMEOUT_SECONDS` |
     /// | `idle_liveness_interval_ms` | `LIFEGUARD__DATABASE__IDLE_LIVENESS_INTERVAL_MS` |
     ///
     /// The environment layer is merged **after** the file and overrides matching keys (PRD R2.2).
@@ -166,6 +179,10 @@ pub struct LifeguardPoolSettings {
     /// When **Some**, workers that are **idle** (no queued work) run `SELECT 1` on this interval
     /// so half-open TCP sessions are detected and healed (PRD R4.2). **`None`** disables probes.
     pub idle_liveness_interval: Option<Duration>,
+    /// Deadline for a dispatched job's reply once enqueued on a worker. **`None`** = unbounded
+    /// (pre-incident behavior); the default is **120s** so a wedged worker can never hang a
+    /// caller forever.
+    pub reply_timeout: Option<Duration>,
 }
 
 impl Default for LifeguardPoolSettings {
@@ -180,6 +197,7 @@ impl Default for LifeguardPoolSettings {
             max_connection_lifetime: None,
             max_connection_lifetime_jitter: Duration::ZERO,
             idle_liveness_interval: None,
+            reply_timeout: Some(Duration::from_secs(default_pool_reply_timeout_seconds())),
         }
     }
 }
@@ -212,6 +230,13 @@ impl LifeguardPoolSettings {
         };
         let max_connection_lifetime_jitter =
             Duration::from_millis(cfg.max_connection_lifetime_jitter_ms.min(3_600_000));
+        let reply_timeout = if cfg.pool_reply_timeout_seconds == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(
+                cfg.pool_reply_timeout_seconds.clamp(1, 86_400),
+            ))
+        };
         Self {
             acquire_timeout: Duration::from_secs(cfg.pool_timeout_seconds.max(1)),
             job_queue_capacity_per_worker: cfg.pool_job_queue_depth_per_worker.max(1),
@@ -222,6 +247,7 @@ impl LifeguardPoolSettings {
             max_connection_lifetime,
             max_connection_lifetime_jitter,
             idle_liveness_interval,
+            reply_timeout,
         }
     }
 }

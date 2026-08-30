@@ -17,6 +17,7 @@
 //! - `lifeguard_query_errors_total` (counter, optional `pool_tier`): Query errors
 //! - `lifeguard_wal_monitor_replica_routing_disabled` (gauge): 1 if WAL lag monitor gave up on replica connect
 //! - `lifeguard_pool_acquire_timeout_total` (counter, `pool_tier`): `PoolAcquireTimeout` dispatches
+//! - `lifeguard_pool_reply_timeout_total` (counter, `pool_tier`): `PoolReplyTimeout` dispatches (enqueued job, no worker reply in budget)
 //! - `lifeguard_pool_slot_heal_total` (counter, `pool_tier`): Connectivity-class slot heal reconnects
 //! - `lifeguard_pool_connection_rotated_total` (counter, `pool_tier`): `max_connection_lifetime` rotations
 //!
@@ -66,6 +67,7 @@ pub struct LifeguardMetrics {
     /// 1 when [`crate::pool::wal::WalLagMonitor`] gave up connecting (replica reads use primary only)
     pub wal_monitor_replica_routing_disabled: Gauge<u64>,
     pub pool_acquire_timeout_total: Counter<u64>,
+    pub pool_reply_timeout_total: Counter<u64>,
     pub pool_slot_heal_total: Counter<u64>,
     pub pool_connection_rotated_total: Counter<u64>,
 }
@@ -140,6 +142,11 @@ impl LifeguardMetrics {
             .with_description("Pool acquire timeouts waiting for a worker slot")
             .build();
 
+        let pool_reply_timeout_total = meter
+            .u64_counter("lifeguard_pool_reply_timeout_total")
+            .with_description("Dispatched jobs whose worker reply missed the reply deadline (wedged worker or overlong statement)")
+            .build();
+
         let pool_slot_heal_total = meter
             .u64_counter("lifeguard_pool_slot_heal_total")
             .with_description("Slot heal reconnects after connectivity errors")
@@ -161,6 +168,7 @@ impl LifeguardMetrics {
             query_errors,
             wal_monitor_replica_routing_disabled,
             pool_acquire_timeout_total,
+            pool_reply_timeout_total,
             pool_slot_heal_total,
             pool_connection_rotated_total,
         }
@@ -226,6 +234,10 @@ impl LifeguardMetrics {
         self.pool_acquire_timeout_total.add(1, &Self::tier_kv(tier));
     }
 
+    pub fn record_pool_reply_timeout(&self, tier: &str) {
+        self.pool_reply_timeout_total.add(1, &Self::tier_kv(tier));
+    }
+
     pub fn record_pool_slot_heal(&self, tier: &str) {
         self.pool_slot_heal_total.add(1, &Self::tier_kv(tier));
     }
@@ -272,6 +284,7 @@ impl LifeguardMetrics {
     pub fn set_active_connections(&self, _count: u64) {}
     pub fn set_wal_monitor_replica_routing_disabled(&self, _v: u64) {}
     pub fn record_pool_acquire_timeout(&self, _tier: &str) {}
+    pub fn record_pool_reply_timeout(&self, _tier: &str) {}
     pub fn record_pool_slot_heal(&self, _tier: &str) {}
     pub fn record_pool_connection_rotated(&self, _tier: &str) {}
 }

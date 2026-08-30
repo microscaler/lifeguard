@@ -75,6 +75,8 @@ mod pool_read_replica;
 
 #[path = "db_integration/pool_idle_liveness.rs"]
 mod pool_idle_liveness;
+#[path = "db_integration/pool_worker_death.rs"]
+mod pool_worker_death;
 
 #[path = "db_integration/readonly.rs"]
 mod readonly;

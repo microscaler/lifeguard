@@ -48,6 +48,14 @@ pub enum LifeError {
         /// Wall time spent waiting before giving up.
         waited: Duration,
     },
+    /// The job was enqueued on a pool worker but no reply arrived within the
+    /// reply deadline. The worker is wedged or the statement overran the
+    /// budget; either way the caller gets a bounded, retryable error instead
+    /// of an infinite hang (2026-08-29 pool starvation incident).
+    PoolReplyTimeout {
+        /// Wall time from dispatch start until giving up on the reply.
+        waited: Duration,
+    },
 }
 
 impl fmt::Display for LifeError {
@@ -72,6 +80,12 @@ impl fmt::Display for LifeError {
                 write!(
                     f,
                     "Pool error: timed out acquiring a worker after {waited:?}"
+                )
+            }
+            LifeError::PoolReplyTimeout { waited } => {
+                write!(
+                    f,
+                    "Pool error: timed out waiting for a worker reply after {waited:?}"
                 )
             }
         }
