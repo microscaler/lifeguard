@@ -45,7 +45,7 @@ regex = "1.10"
 # Lifeguard derive (needed for entities)
 lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
 # Postgres driver (needed for macro expansion - FromRow uses may_postgres::Row)
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "46ce7472770222b36495eeab6955a02e9b785ce1" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "2d4127c0a05b6fb7fc8ad7c16100dfe290972f48" }
 
 [dev-dependencies]
 # Same async-graphql as lifeguard graphql feature — required when `LifeModel` expands with graphql enabled.
@@ -54,7 +54,7 @@ async-graphql.workspace = true
 tempfile = "3.27"
 # For testing with entities
 lifeguard-derive = { path = "../lifeguard-derive", version = "0.1.0" }
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "46ce7472770222b36495eeab6955a02e9b785ce1" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "2d4127c0a05b6fb7fc8ad7c16100dfe290972f48" }
 serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "1.23", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }

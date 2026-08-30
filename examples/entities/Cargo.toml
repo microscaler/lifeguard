@@ -26,7 +26,7 @@ rust_decimal = { version = "1.33", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sea-query = { version = "1.0.0-rc.29", features = ["with-json"] }
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "46ce7472770222b36495eeab6955a02e9b785ce1" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "2d4127c0a05b6fb7fc8ad7c16100dfe290972f48" }
 
 [lib]
 name = "example_entities"
