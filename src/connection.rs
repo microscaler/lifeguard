@@ -118,11 +118,42 @@ pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
     // Validate connection string format
     validate_connection_string(connection_string)?;
 
-    // Connect using may_postgres
-    // Note: may_postgres::connect is a blocking call that works within coroutines
-    // It returns a Client directly (no separate connection handle to manage)
-    let client =
-        may_postgres::connect(connection_string).map_err(ConnectionError::PostgresError)?;
+    // Connect using may_postgres - ALWAYS from inside a coroutine.
+    //
+    // may_postgres::connect drives the wire handshake through may coroutine
+    // IO. Called from a PLAIN OS THREAD - which is exactly where the pool
+    // rotation and heal paths run - the freshly created stream is not
+    // registered with the coroutine reactor, and the connection I/O
+    // coroutine then never wakes: the client accepts requests and answers
+    // none, wedging the slot forever (2026-08-30 market outage: every pool
+    // worker parked in prepare -> Responses::next on a freshly ROTATED
+    // slot; reproduced in ~50s with DB_MAX_CONN_LIFETIME_SECONDS=45).
+    // Pool INIT dodged it only because the first acquire runs inside a
+    // request coroutine. Spawning + joining is a few microseconds on a
+    // path taken once per connection lifetime, and is correct from both
+    // coroutine and thread context.
+    let owned = connection_string.to_string();
+    let spawned = may::go!(
+        may::coroutine::Builder::new()
+            .name("lifeguard-connect".to_owned())
+            .stack_size(0x100000),
+        move || may_postgres::connect(&owned)
+    );
+    let client = match spawned {
+        Err(e) => {
+            return Err(ConnectionError::Other(format!(
+                "spawn connect coroutine: {e}"
+            )))
+        }
+        Ok(handle) => match handle.join() {
+            Ok(r) => r.map_err(ConnectionError::PostgresError)?,
+            Err(_) => {
+                return Err(ConnectionError::Other(
+                    "connect coroutine panicked during handshake".to_string(),
+                ))
+            }
+        },
+    };
 
     let duration = start.elapsed();
     #[cfg(feature = "metrics")]
