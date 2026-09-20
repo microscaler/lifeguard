@@ -208,7 +208,7 @@ impl WorkerPool {
         build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::acquire_connection_span().entered();
+        let _span = tracing_helpers::acquire_connection_span(); // created, not entered: see tracing_helpers
 
         let wait_start = Instant::now();
         let deadline = wait_start + self.acquire_timeout;
@@ -761,7 +761,7 @@ fn exec_with_optional_heal<T>(
                     && attempt + 1 < POOL_HEAL_MAX_ATTEMPTS;
                 if can_heal {
                     #[cfg(feature = "tracing")]
-                    let _heal_span = tracing_helpers::pool_slot_heal_span().entered();
+                    let _heal_span = tracing_helpers::pool_slot_heal_span(); // created, not entered: see tracing_helpers
                     match connect(connection_string) {
                         Ok(c) => {
                             *client = c;
@@ -1148,7 +1148,7 @@ fn exec_on_client<T>(
     let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
 
     #[cfg(feature = "tracing")]
-    let _span = tracing_helpers::execute_query_span(query).entered();
+    let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
     let start = Instant::now();
     let out = op(client, query, &refs);

@@ -150,7 +150,7 @@ impl Transaction {
         isolation_level: IsolationLevel,
     ) -> Result<Self, TransactionError> {
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::begin_transaction_span().entered();
+        let _span = tracing_helpers::begin_transaction_span(); // created, not entered: see tracing_helpers
 
         // Use PostgreSQL's BEGIN ISOLATION LEVEL syntax so the isolation
         // level takes effect inside the transaction (SET TRANSACTION ISOLATION
@@ -195,7 +195,7 @@ impl Transaction {
         ctx: Option<crate::executor::SessionContext>,
     ) -> Result<Self, TransactionError> {
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::begin_transaction_span().entered();
+        let _span = tracing_helpers::begin_transaction_span(); // created, not entered: see tracing_helpers
 
         // Use PostgreSQL's BEGIN ISOLATION LEVEL syntax so the isolation
         // level takes effect inside the transaction (SET TRANSACTION ISOLATION
@@ -308,7 +308,7 @@ impl Transaction {
         }
 
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::commit_transaction_span().entered();
+        let _span = tracing_helpers::commit_transaction_span(); // created, not entered: see tracing_helpers
 
         if self.depth == 0 {
             // Top-level transaction: commit
@@ -342,7 +342,7 @@ impl Transaction {
         }
 
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::rollback_transaction_span().entered();
+        let _span = tracing_helpers::rollback_transaction_span(); // created, not entered: see tracing_helpers
 
         if self.depth == 0 {
             // Top-level transaction: rollback
@@ -380,7 +380,7 @@ impl LifeExecutor for Transaction {
         }
 
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::execute_query_span(query).entered();
+        let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
         let result = self.client.execute(query, params).map_err(|e| {
@@ -402,7 +402,7 @@ impl LifeExecutor for Transaction {
         }
 
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::execute_query_span(query).entered();
+        let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
         let result = self.client.query_one(query, params).map_err(|e| {
@@ -424,7 +424,7 @@ impl LifeExecutor for Transaction {
         }
 
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::execute_query_span(query).entered();
+        let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
         let result = self.client.query(query, params).map_err(|e| {

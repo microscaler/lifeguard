@@ -292,19 +292,29 @@ impl LifeguardMetrics {
 #[cfg(not(feature = "metrics"))]
 pub static METRICS: LifeguardMetrics = LifeguardMetrics;
 
-/// Tracing helpers for database operations
+/// Tracing helpers for database operations.
+///
+/// Every span here has `parent: None` and callers do NOT enter it: lifeguard
+/// runs on `may` coroutines, which can resume on another OS thread after a
+/// yield, and tracing-subscriber keeps the "current span" per thread. A span
+/// entered on one thread and exited on another leaves a closed span on the
+/// first thread's stack; the next span created there is cloned from it and
+/// tracing-subscriber panics ("tried to clone a span that already closed").
+/// Creating and dropping the span (no enter) keeps the OTEL export - start,
+/// end, fields - and never touches the per-thread stack.
 #[cfg(feature = "tracing")]
 pub mod tracing_helpers {
     use tracing::Span;
 
     /// Create a span for connection acquisition
     pub fn acquire_connection_span() -> Span {
-        tracing::span!(tracing::Level::INFO, "lifeguard.acquire_connection")
+        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.acquire_connection")
     }
 
     /// Create a span for query execution
     pub fn execute_query_span(query: &str) -> Span {
         tracing::span!(
+            parent: None,
             tracing::Level::INFO,
             "lifeguard.execute_query",
             query = %query
@@ -313,32 +323,32 @@ pub mod tracing_helpers {
 
     /// Create a span for connection release
     pub fn release_connection_span() -> Span {
-        tracing::span!(tracing::Level::INFO, "lifeguard.release_connection")
+        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.release_connection")
     }
 
     /// Create a span for beginning a transaction
     pub fn begin_transaction_span() -> Span {
-        tracing::span!(tracing::Level::INFO, "lifeguard.begin_transaction")
+        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.begin_transaction")
     }
 
     /// Create a span for committing a transaction
     pub fn commit_transaction_span() -> Span {
-        tracing::span!(tracing::Level::INFO, "lifeguard.commit_transaction")
+        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.commit_transaction")
     }
 
     /// Create a span for rolling back a transaction
     pub fn rollback_transaction_span() -> Span {
-        tracing::span!(tracing::Level::INFO, "lifeguard.rollback_transaction")
+        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.rollback_transaction")
     }
 
     /// Create a span for connection health check
     pub fn health_check_span() -> Span {
-        tracing::span!(tracing::Level::INFO, "lifeguard.health_check")
+        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.health_check")
     }
 
     /// Slot replaced after connectivity-class error (PRD R5.2 / R8.2).
     pub fn pool_slot_heal_span() -> Span {
-        tracing::span!(tracing::Level::INFO, "lifeguard.pool_slot_heal")
+        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.pool_slot_heal")
     }
 }
 

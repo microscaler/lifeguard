@@ -111,7 +111,7 @@ impl From<PostgresError> for ConnectionError {
 /// - Database is unavailable
 pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
     #[cfg(feature = "tracing")]
-    let _span = tracing_helpers::acquire_connection_span().entered();
+    let _span = tracing_helpers::acquire_connection_span(); // created, not entered: see tracing_helpers
 
     let start = Instant::now();
 
@@ -244,7 +244,7 @@ pub fn validate_connection_string(connection_string: &str) -> Result<(), Connect
 /// ```
 pub fn check_connection_health(client: &Client) -> Result<bool, ConnectionError> {
     #[cfg(feature = "tracing")]
-    let _span = tracing_helpers::health_check_span().entered();
+    let _span = tracing_helpers::health_check_span(); // created, not entered: see tracing_helpers
 
     // Execute a simple query to check if the connection is alive
     // If the query succeeds, the connection is healthy
