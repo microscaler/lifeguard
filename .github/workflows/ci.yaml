@@ -53,6 +53,12 @@ jobs:
 
       - name: Lint
         run: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic
+      - name: ADR-0001 span discipline (may_tracing)
+        # Spans are created, never entered (may coroutines migrate between OS threads).
+        run: |
+          cargo fetch
+          SCRIPT="$(find ~/.cargo/git/checkouts -path '*/may_tracing-*/*/scripts/check-span-discipline.sh' | head -1)"; test -n "$SCRIPT" || { echo "may_tracing >= v0.1.1 not fetched"; exit 1; }
+          sh "$SCRIPT" src lifeguard-derive/src lifeguard-migrate/src
 
       # Migration tooling: drop committed generated SQL, regenerate from `examples/entities`, apply
       # with psql before any job step that uses Postgres (workspace tests, db_integration_suite, coverage).
