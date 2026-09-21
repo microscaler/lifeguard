@@ -78,7 +78,7 @@ pub enum ReadPreference {
 
 /// One tier of workers (primary or replica) with round-robin dispatch.
 struct WorkerPool {
-    worker_txs: Arc<[crossbeam_channel::Sender<WorkerJob>]>,
+    worker_txs: Arc<[crossbeam_channel::Sender<Envelope>]>,
     /// One mutex per slot: held for the duration of each dispatched job, or for the whole lifetime
     /// of [`ExclusivePrimaryLifeExecutor`] (U-4 pin-slot) so other dispatchers block on that slot.
     slot_locks: Arc<[Mutex<()>]>,
@@ -115,7 +115,7 @@ impl WorkerPool {
                 LifeError::Other(format!("{tier} pool connection slot {slot}: {e}"))
             })?;
 
-            let (job_tx, job_rx) = crossbeam_channel::bounded::<WorkerJob>(qcap);
+            let (job_tx, job_rx) = crossbeam_channel::bounded::<Envelope>(qcap);
 
             let max_lifetime = settings.max_connection_lifetime;
             let lifetime_jitter = settings.max_connection_lifetime_jitter;
@@ -141,7 +141,7 @@ impl WorkerPool {
             txs.push(job_tx);
         }
 
-        let worker_txs: Arc<[crossbeam_channel::Sender<WorkerJob>]> = txs.into();
+        let worker_txs: Arc<[crossbeam_channel::Sender<Envelope>]> = txs.into();
 
         let slot_locks: Vec<Mutex<()>> = (0..pool_size).map(|_| Mutex::new(())).collect();
         let slot_locks: Arc<[Mutex<()>]> = slot_locks.into_boxed_slice().into();
@@ -204,7 +204,7 @@ impl WorkerPool {
 
     fn dispatch_on_sender<T: Send + 'static>(
         &self,
-        tx: &crossbeam_channel::Sender<WorkerJob>,
+        tx: &crossbeam_channel::Sender<Envelope>,
         build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         #[cfg(feature = "tracing")]
@@ -230,10 +230,10 @@ impl WorkerPool {
             // instant so the worker can measure queue wait (time behind prior jobs), not just
             // `send_timeout` blocking on a full queue.
             current_job = current_job.with_enqueued_at(Instant::now());
-            match tx.send_timeout(current_job, slice) {
+            match tx.send_timeout(Envelope::new(current_job), slice) {
                 Ok(()) => break,
-                Err(SendTimeoutError::Timeout(j)) => {
-                    current_job = j;
+                Err(SendTimeoutError::Timeout(e)) => {
+                    current_job = e.job;
                 }
                 Err(SendTimeoutError::Disconnected(_)) => {
                     return Err(LifeError::Pool(
@@ -786,6 +786,28 @@ fn exec_with_optional_heal<T>(
     ))
 }
 
+/// A job plus the enqueuing coroutine's tracing context.
+///
+/// Pool workers are OS threads with no context of their own; the caller's current span
+/// (`may_tracing::current()`, i.e. the request or the push tick) rides here so the
+/// worker creates `lifeguard.execute_query` as its child. Set on the worker with
+/// `may_tracing::set_current` — a thread-local slot there, never an entered guard.
+struct Envelope {
+    job: WorkerJob,
+    #[cfg(feature = "tracing")]
+    ctx: tracing::Span,
+}
+
+impl Envelope {
+    fn new(job: WorkerJob) -> Self {
+        Self {
+            job,
+            #[cfg(feature = "tracing")]
+            ctx: may_tracing::current(),
+        }
+    }
+}
+
 enum WorkerJob {
     Execute {
         /// When this job was last stamped for enqueue (`dispatch`); used for queue-wait metrics.
@@ -861,7 +883,7 @@ impl WorkerJob {
 struct WorkerThreadStart {
     connection_string: String,
     client: Client,
-    job_rx: crossbeam_channel::Receiver<WorkerJob>,
+    job_rx: crossbeam_channel::Receiver<Envelope>,
     idle_liveness: Option<Duration>,
     max_connection_lifetime: Option<Duration>,
     max_connection_lifetime_jitter: Duration,
@@ -1059,8 +1081,13 @@ fn dispatch_worker_job(
     tier: &'static str,
     connection_string: &str,
     client: &mut Client,
-    job: WorkerJob,
+    envelope: Envelope,
 ) {
+    // The caller's span is this worker thread's context for the job (thread-local slot;
+    // restored when `_ctx` drops at the end of the job).
+    #[cfg(feature = "tracing")]
+    let _ctx = may_tracing::set_current(envelope.ctx);
+    let job = envelope.job;
     #[cfg(feature = "metrics")]
     {
         let enqueued_at = match &job {

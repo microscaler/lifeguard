@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   beneath `http_request` again. `LIFEGUARD_SPAN_NESTING` now defaults to on;
   `0|false|off|no` turns it off (`set_span_nesting(false)` still works). The query stream's
   cursor coroutine inherits the caller's context. (may_tracing Epic 02.2)
+- **Pool worker threads run each job under the enqueuing coroutine's span.** The job
+  channel carries an `Envelope { job, ctx: may_tracing::current() }`; the worker sets
+  `ctx` as its thread-local context for the job, so `lifeguard.execute_query` created on
+  the worker is a child of the request (or of pricewhisperer_push's tick) instead of a
+  root. Found in OpenSearch after the first deploy: 0 of 1377 query spans had a parent.
 
 ### Fixed
 
