@@ -204,3 +204,7 @@ pub use migration::{
 // Cache Coherence Architecture - Epic 07 Phase 4
 pub mod cache;
 pub use cache::{CacheError, CacheProvider, CachedResult, DefaultCacheProvider};
+
+/// Whether `lifeguard.*` tracing spans nest under the caller's current span
+/// (default: root spans; see `metrics::tracing_helpers`).
+pub use metrics::tracing_helpers::{set_span_nesting, span_nesting};

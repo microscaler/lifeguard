@@ -294,67 +294,132 @@ pub static METRICS: LifeguardMetrics = LifeguardMetrics;
 
 /// Tracing helpers for database operations.
 ///
-/// Every span here has `parent: None` and callers do NOT enter it: lifeguard
-/// runs on `may` coroutines, which can resume on another OS thread after a
-/// yield, and tracing-subscriber keeps the "current span" per thread. A span
-/// entered on one thread and exited on another leaves a closed span on the
-/// first thread's stack; the next span created there is cloned from it and
+/// The spans are never *entered* by lifeguard: it runs on `may` coroutines,
+/// which can resume on another OS thread after a yield, and
+/// tracing-subscriber keeps the "current span" per thread. A span entered on
+/// one thread and exited on another leaves a closed span on the first
+/// thread's stack; the next span created there is cloned from it and
 /// tracing-subscriber panics ("tried to clone a span that already closed").
-/// Creating and dropping the span (no enter) keeps the OTEL export - start,
-/// end, fields - and never touches the per-thread stack.
+/// Creating and dropping the span keeps the OTEL export - start, end,
+/// fields - and never touches the per-thread stack.
+///
+/// Whether a span is *linked to the caller's current span* (nested under the
+/// request span in a trace) is a runtime switch, [`set_span_nesting`] /
+/// `LIFEGUARD_SPAN_NESTING=1`, **off by default**. Nesting reads the
+/// thread's current span at creation, which is exactly the stale entry the
+/// hazard above leaves behind when *the caller's runtime* enters spans
+/// across coroutine yields (BRRTRouter's request span does). Turn it on for
+/// a process that never does that - a Tokio or plain-thread service, or a
+/// BRRTRouter build once its request span is coroutine-safe - and the
+/// `lifeguard.*` spans nest under the request again; leave it off on `may`
+/// otherwise.
 #[cfg(feature = "tracing")]
 pub mod tracing_helpers {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::OnceLock;
     use tracing::Span;
+
+    static NESTING: AtomicBool = AtomicBool::new(false);
+    static ENV_READ: OnceLock<()> = OnceLock::new();
+
+    /// Link the `lifeguard.*` spans to the caller's current span (`true`) or
+    /// create them as root spans (`false`, the default). See the module docs
+    /// for when `true` is safe. `LIFEGUARD_SPAN_NESTING=1|true|on` in the
+    /// environment turns it on at first use unless this was called first.
+    pub fn set_span_nesting(nested: bool) {
+        let _ = ENV_READ.set(());
+        NESTING.store(nested, Ordering::Relaxed);
+    }
+
+    /// Current setting (after applying the environment variable once).
+    pub fn span_nesting() -> bool {
+        ENV_READ.get_or_init(|| {
+            if let Ok(v) = std::env::var("LIFEGUARD_SPAN_NESTING") {
+                let v = v.trim().to_ascii_lowercase();
+                NESTING.store(matches!(v.as_str(), "1" | "true" | "on" | "yes"), Ordering::Relaxed);
+            }
+        });
+        NESTING.load(Ordering::Relaxed)
+    }
+
+    macro_rules! lifeguard_span {
+        ($name:literal) => {
+            if span_nesting() {
+                tracing::span!(tracing::Level::INFO, $name)
+            } else {
+                tracing::span!(parent: None, tracing::Level::INFO, $name)
+            }
+        };
+    }
 
     /// Create a span for connection acquisition
     pub fn acquire_connection_span() -> Span {
-        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.acquire_connection")
+        lifeguard_span!("lifeguard.acquire_connection")
     }
 
     /// Create a span for query execution
     pub fn execute_query_span(query: &str) -> Span {
-        tracing::span!(
-            parent: None,
-            tracing::Level::INFO,
-            "lifeguard.execute_query",
-            query = %query
-        )
+        if span_nesting() {
+            tracing::span!(tracing::Level::INFO, "lifeguard.execute_query", query = %query)
+        } else {
+            tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.execute_query", query = %query)
+        }
     }
 
     /// Create a span for connection release
     pub fn release_connection_span() -> Span {
-        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.release_connection")
+        lifeguard_span!("lifeguard.release_connection")
     }
 
     /// Create a span for beginning a transaction
     pub fn begin_transaction_span() -> Span {
-        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.begin_transaction")
+        lifeguard_span!("lifeguard.begin_transaction")
     }
 
     /// Create a span for committing a transaction
     pub fn commit_transaction_span() -> Span {
-        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.commit_transaction")
+        lifeguard_span!("lifeguard.commit_transaction")
     }
 
     /// Create a span for rolling back a transaction
     pub fn rollback_transaction_span() -> Span {
-        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.rollback_transaction")
+        lifeguard_span!("lifeguard.rollback_transaction")
     }
 
     /// Create a span for connection health check
     pub fn health_check_span() -> Span {
-        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.health_check")
+        lifeguard_span!("lifeguard.health_check")
     }
 
     /// Slot replaced after connectivity-class error (PRD R5.2 / R8.2).
     pub fn pool_slot_heal_span() -> Span {
-        tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.pool_slot_heal")
+        lifeguard_span!("lifeguard.pool_slot_heal")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn nesting_defaults_off_and_is_settable() {
+            // the env var is not set in the test process
+            set_span_nesting(false);
+            assert!(!span_nesting());
+            set_span_nesting(true);
+            assert!(span_nesting());
+            set_span_nesting(false);
+            assert!(!span_nesting());
+        }
     }
 }
 
 /// No-op tracing helpers when tracing feature is disabled
 #[cfg(not(feature = "tracing"))]
 pub mod tracing_helpers {
+    pub fn set_span_nesting(_nested: bool) {}
+    pub fn span_nesting() -> bool {
+        false
+    }
     pub fn acquire_connection_span() {}
     pub fn execute_query_span(_query: &str) {}
     pub fn release_connection_span() {}
