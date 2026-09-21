@@ -56,6 +56,9 @@ opentelemetry-prometheus = { version = "0.31.0", optional = true }
 opentelemetry_sdk = { version = "0.31", default-features = false, features = ["metrics"], optional = true }
 prometheus = { version = "0.14", optional = true }
 tracing = { version = "0.1.41", optional = true }
+# Coroutine-scoped span context (ADR-0001/0002): lifeguard spans nest under the may
+# coroutine's current span without ever reading the thread's span stack.
+may_tracing = { git = "https://github.com/microscaler/may_tracing.git", tag = "v0.1.0", optional = true }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["std", "registry"], optional = true }
 
 # Utilities
@@ -113,7 +116,7 @@ metrics = [
     "dep:prometheus",
 ]
 # Enable `tracing` + `tracing-subscriber` (metrics span helpers + logging `channel_layer`)
-tracing = ["dep:tracing", "dep:tracing-subscriber"]
+tracing = ["dep:tracing", "dep:tracing-subscriber", "dep:may_tracing"]
 mock = []
 # Enable test helpers for integration tests
 test-helpers = []

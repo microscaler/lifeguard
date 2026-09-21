@@ -648,7 +648,7 @@ impl MayPostgresExecutor {
 impl LifeExecutor for MayPostgresExecutor {
     fn execute(&self, query: &str, params: &[&dyn ToSql]) -> Result<u64, LifeError> {
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::execute_query_span(query).entered();
+        let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
@@ -668,7 +668,7 @@ impl LifeExecutor for MayPostgresExecutor {
 
     fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::execute_query_span(query).entered();
+        let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
@@ -688,7 +688,7 @@ impl LifeExecutor for MayPostgresExecutor {
 
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
         #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::execute_query_span(query).entered();
+        let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {

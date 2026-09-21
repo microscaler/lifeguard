@@ -301,31 +301,34 @@ pub static METRICS: LifeguardMetrics = LifeguardMetrics;
 /// thread's stack; the next span created there is cloned from it and
 /// tracing-subscriber panics ("tried to clone a span that already closed").
 /// Creating and dropping the span keeps the OTEL export - start, end,
-/// fields - and never touches the per-thread stack.
+/// fields - and never touches the per-thread stack. This is
+/// [may_tracing ADR-0001](https://github.com/microscaler/may_tracing/blob/main/docs/ADR/ADR-0001-no-entered-guard-across-a-yield.md).
 ///
 /// Whether a span is *linked to the caller's current span* (nested under the
 /// request span in a trace) is a runtime switch, [`set_span_nesting`] /
-/// `LIFEGUARD_SPAN_NESTING=1`, **off by default**. Nesting reads the
-/// thread's current span at creation, which is exactly the stale entry the
-/// hazard above leaves behind when *the caller's runtime* enters spans
-/// across coroutine yields (BRRTRouter's request span does). Turn it on for
-/// a process that never does that - a Tokio or plain-thread service, or a
-/// BRRTRouter build once its request span is coroutine-safe - and the
-/// `lifeguard.*` spans nest under the request again; leave it off on `may`
-/// otherwise.
+/// `LIFEGUARD_SPAN_NESTING`, **on by default** since the switch reads the
+/// **coroutine's** context (`may_tracing::current()`) and never the thread's
+/// span stack: it is safe on `may` whatever the host does. A host that never
+/// sets a context (a plain-thread or Tokio service without `may_tracing`)
+/// simply gets root spans. `LIFEGUARD_SPAN_NESTING=0|false|off` or
+/// `set_span_nesting(false)` forces root spans for every `lifeguard.*` span.
+///
+/// Pool worker threads (`lifeguard-pool-<tier>-<slot>`) are OS threads, not
+/// coroutines; nothing sets a context there, so worker-side spans
+/// (`lifeguard.pool_slot_heal`, keepalive, rotation) are pool-scoped roots.
 #[cfg(feature = "tracing")]
 pub mod tracing_helpers {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::OnceLock;
     use tracing::Span;
 
-    static NESTING: AtomicBool = AtomicBool::new(false);
+    static NESTING: AtomicBool = AtomicBool::new(true);
     static ENV_READ: OnceLock<()> = OnceLock::new();
 
-    /// Link the `lifeguard.*` spans to the caller's current span (`true`) or
-    /// create them as root spans (`false`, the default). See the module docs
-    /// for when `true` is safe. `LIFEGUARD_SPAN_NESTING=1|true|on` in the
-    /// environment turns it on at first use unless this was called first.
+    /// Link the `lifeguard.*` spans to the coroutine's current span
+    /// (`may_tracing::current()`; `true`, the default) or create them as root
+    /// spans (`false`). `LIFEGUARD_SPAN_NESTING=0|false|off|no` in the
+    /// environment turns it off at first use unless this was called first.
     pub fn set_span_nesting(nested: bool) {
         let _ = ENV_READ.set(());
         NESTING.store(nested, Ordering::Relaxed);
@@ -336,18 +339,25 @@ pub mod tracing_helpers {
         ENV_READ.get_or_init(|| {
             if let Ok(v) = std::env::var("LIFEGUARD_SPAN_NESTING") {
                 let v = v.trim().to_ascii_lowercase();
-                NESTING.store(matches!(v.as_str(), "1" | "true" | "on" | "yes"), Ordering::Relaxed);
+                NESTING.store(
+                    !matches!(v.as_str(), "0" | "false" | "off" | "no"),
+                    Ordering::Relaxed,
+                );
             }
         });
         NESTING.load(Ordering::Relaxed)
     }
 
+    /// A `lifeguard.*` span: a child of the coroutine's current span when
+    /// nesting is on (`may_tracing::child_span!`, which yields a root span when
+    /// there is no context), an explicit root otherwise. Never entered. Fields
+    /// are forwarded as token trees so `%x` / `?x` work.
     macro_rules! lifeguard_span {
-        ($name:literal) => {
+        ($name:literal $(, $($fields:tt)*)?) => {
             if span_nesting() {
-                tracing::span!(tracing::Level::INFO, $name)
+                may_tracing::child_span!(tracing::Level::INFO, $name $(, $($fields)*)?)
             } else {
-                tracing::span!(parent: None, tracing::Level::INFO, $name)
+                tracing::span!(parent: None, tracing::Level::INFO, $name $(, $($fields)*)?)
             }
         };
     }
@@ -359,11 +369,7 @@ pub mod tracing_helpers {
 
     /// Create a span for query execution
     pub fn execute_query_span(query: &str) -> Span {
-        if span_nesting() {
-            tracing::span!(tracing::Level::INFO, "lifeguard.execute_query", query = %query)
-        } else {
-            tracing::span!(parent: None, tracing::Level::INFO, "lifeguard.execute_query", query = %query)
-        }
+        lifeguard_span!("lifeguard.execute_query", query = %query)
     }
 
     /// Create a span for connection release
@@ -400,15 +406,64 @@ pub mod tracing_helpers {
     mod tests {
         use super::*;
 
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+        use tracing::span::{Attributes, Id};
+        use tracing_subscriber::layer::{Context, Layer};
+        use tracing_subscriber::prelude::*;
+        use tracing_subscriber::registry::LookupSpan;
+
+        /// Records explicit parents only (never the thread's contextual span).
+        #[derive(Clone, Default)]
+        struct Parents(Arc<Mutex<HashMap<u64, Option<u64>>>>);
+        impl<S: tracing::Subscriber + for<'a> LookupSpan<'a>> Layer<S> for Parents {
+            fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, _: Context<'_, S>) {
+                if let Ok(mut m) = self.0.lock() {
+                    m.insert(id.into_u64(), attrs.parent().map(Id::into_u64));
+                }
+            }
+        }
+        fn parent_of(p: &Parents, s: &Span) -> Option<u64> {
+            let id = s.id().map(|i| i.into_u64())?;
+            p.0.lock().ok()?.get(&id).copied().flatten()
+        }
+
         #[test]
-        fn nesting_defaults_off_and_is_settable() {
-            // the env var is not set in the test process
+        fn nesting_is_settable() {
             set_span_nesting(false);
             assert!(!span_nesting());
             set_span_nesting(true);
             assert!(span_nesting());
+        }
+
+        #[test]
+        fn query_span_nests_under_coroutine_context() {
+            let parents = Parents::default();
+            let _s = tracing::subscriber::set_default(
+                tracing_subscriber::registry().with(parents.clone()),
+            );
+            set_span_nesting(true);
+            let req = tracing::info_span!(parent: None, "http_request");
+            let req_id = req.id().map(|i| i.into_u64());
+            // under a context: children of it
+            let (q, a, h) = may_tracing::with_span(req.clone(), || {
+                (
+                    execute_query_span("select 1"),
+                    acquire_connection_span(),
+                    pool_slot_heal_span(),
+                )
+            });
+            assert_eq!(parent_of(&parents, &q), req_id);
+            assert_eq!(parent_of(&parents, &a), req_id);
+            assert_eq!(parent_of(&parents, &h), req_id);
+            // no context: roots
+            let q = execute_query_span("select 2");
+            assert_eq!(parent_of(&parents, &q), None);
+            // nesting off: roots even under a context
             set_span_nesting(false);
-            assert!(!span_nesting());
+            let q = may_tracing::with_span(req, || execute_query_span("select 3"));
+            assert_eq!(parent_of(&parents, &q), None);
+            set_span_nesting(true);
         }
     }
 }

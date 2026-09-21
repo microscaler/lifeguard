@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Tracing spans nest under the coroutine's context via `may_tracing`; nesting is on by
+  default.** `tracing_helpers` create every `lifeguard.*` span with
+  `may_tracing::child_span!`, which parents on `may_tracing::current()` — the *coroutine's*
+  span, never the thread's span stack — so under a BRRTRouter request the query spans sit
+  beneath `http_request` again. `LIFEGUARD_SPAN_NESTING` now defaults to on;
+  `0|false|off|no` turns it off (`set_span_nesting(false)` still works). The query stream's
+  cursor coroutine inherits the caller's context. (may_tracing Epic 02.2)
+
+### Fixed
+
+- `MayPostgresExecutor::{execute, query_one, query_all}` still held an
+  `execute_query_span(..).entered()` guard across may_postgres I/O — the ADR-0001 hazard
+  c9673d7 removed elsewhere. Spans there are now created, not entered.
+
 ### Changed — BREAKING
 
 - **`LifeRecord` fields are `ActiveValue<T>`, not `Option<T>`.**

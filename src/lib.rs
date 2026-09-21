@@ -74,6 +74,9 @@ pub mod transaction;
 
 pub mod metrics;
 
+/// Coroutine spawn helpers carrying the tracing context (internal).
+pub(crate) mod spawn;
+
 // Channel-backed logging (may `mpsc` singleton)
 pub mod logging;
 #[cfg(feature = "tracing")]

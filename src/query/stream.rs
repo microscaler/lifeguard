@@ -146,7 +146,7 @@ where
 
         // `may::coroutine::spawn` is `unsafe` in the `may` crate; `may::go!` is the supported wrapper.
         // `StreamCursorValues` satisfies the `Send` bound for `Values` (see struct + `unsafe impl`).
-        let _stream_co = may::go!(move || {
+        let _stream_co = crate::spawn::go_with_context(move || {
             // Establish the dedicated transactional socket mapping the Cursor boundaries.
             let txn = match local_exec.begin() {
                 Ok(t) => t,

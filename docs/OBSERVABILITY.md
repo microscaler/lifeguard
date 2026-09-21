@@ -156,6 +156,13 @@ When the `tracing` feature is enabled, Lifeguard creates OpenTelemetry spans for
 - **`lifeguard.release_connection`**: Created when releasing a connection (future pool implementation)
 - **`lifeguard.pool_slot_heal`**: Created when a pool worker replaces a `Client` after a connectivity-class error (PRD R8.2)
 
+Spans are **created, never entered** (lifeguard runs on `may` coroutines, which migrate between OS
+threads; an entered span across a yield corrupts tracing-subscriber's per-thread stack — see
+[may_tracing ADR-0001](https://github.com/microscaler/may_tracing/blob/main/docs/ADR/ADR-0001-no-entered-guard-across-a-yield.md)).
+They are parented on the **coroutine's** current span (`may_tracing::current()`), so under a
+BRRTRouter request they nest beneath `http_request`; with no context they are root spans.
+`LIFEGUARD_SPAN_NESTING=0` (or `lifeguard::set_span_nesting(false)`) forces root spans.
+
 ### Setting Up Tracing
 
 To use tracing, you need to initialize a tracing subscriber. Here's an example using `tracing-subscriber`:
@@ -214,9 +221,10 @@ For custom instrumentation:
 ```rust
 use lifeguard::metrics::{METRICS, tracing_helpers};
 
-// Create a custom span
+// Create a custom span — created, not entered (see "Spans" above); make it the
+// coroutine's context with may_tracing::with_span if work should nest under it
 #[cfg(feature = "tracing")]
-let span = tracing_helpers::execute_query_span("SELECT custom_query").entered();
+let span = tracing_helpers::execute_query_span("SELECT custom_query");
 
 // Record custom metrics
 #[cfg(feature = "metrics")]
