@@ -72,6 +72,18 @@ pub struct LifeguardMetrics {
     pub pool_connection_rotated_total: Counter<u64>,
 }
 
+/// Histogram bucket bounds for the `*_seconds` histograms, in **seconds**.
+///
+/// The OpenTelemetry SDK's default explicit boundaries (0, 5, 10, 25, … 10000) are sized
+/// for milliseconds; with values recorded in seconds every observation fell into the
+/// first bucket and the bucket-derived percentiles were meaningless while `_sum` was
+/// correct (found in PriceWhisperer US_37_08, 20 Sep 2026). 100 µs to 10 s.
+#[cfg(feature = "metrics")]
+const SECONDS_BOUNDARIES: [f64; 15] = [
+    0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5,
+    10.0,
+];
+
 #[cfg(feature = "metrics")]
 impl LifeguardMetrics {
     /// Initialize metrics collector
@@ -120,11 +132,13 @@ impl LifeguardMetrics {
             .with_description(
                 "Pool: time from successful job enqueue to worker start (queue dwell); direct connect: handshake wait",
             )
+            .with_boundaries(SECONDS_BOUNDARIES.to_vec())
             .build();
 
         let query_duration = meter
             .f64_histogram("lifeguard_query_duration_seconds")
             .with_description("Query execution time")
+            .with_boundaries(SECONDS_BOUNDARIES.to_vec())
             .build();
 
         let query_errors = meter

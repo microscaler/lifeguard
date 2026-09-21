@@ -18,6 +18,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `lifeguard_connection_wait_time_seconds` and `lifeguard_query_duration_seconds` now carry
+  explicit bucket boundaries in seconds (100 µs … 10 s). The OTEL SDK defaults are sized
+  for milliseconds, so every observation in seconds fell into the first bucket and
+  bucket-derived percentiles were meaningless while `_sum` was right (PriceWhisperer
+  US_37_08).
 - `MayPostgresExecutor::{execute, query_one, query_all}` still held an
   `execute_query_span(..).entered()` guard across may_postgres I/O — the ADR-0001 hazard
   c9673d7 removed elsewhere. Spans there are now created, not entered.
