@@ -23,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Pool slot locks are `may::sync::Mutex`, not `std::sync::Mutex`.** The per-slot lock is
+  held across the reply wait (a coroutine park), so an OS-thread mutex made every same-slot
+  caller block its `may` worker thread; under a 100-stream open storm enough workers were
+  blocked that the holder could never be resumed — the whole service wedged (`/health`
+  timing out, liveness restarts) with the CPU idle. Waiters now park their coroutine.
 - `lifeguard_connection_wait_time_seconds` and `lifeguard_query_duration_seconds` now carry
   explicit bucket boundaries in seconds (100 µs … 10 s). The OTEL SDK defaults are sized
   for milliseconds, so every observation in seconds fell into the first bucket and

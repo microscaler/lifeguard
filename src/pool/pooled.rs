@@ -28,11 +28,12 @@ use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
 use crate::pool::wal::{WalLagMonitor, WalLagPolicy};
 use crossbeam_channel::{RecvTimeoutError, SendTimeoutError};
+use may::sync::{Mutex, MutexGuard};
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Row};
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -170,11 +171,14 @@ impl WorkerPool {
     /// unrelated traffic that round-robins onto that slot. Larger [`Self::pool_size`] spreads load;
     /// keeping exclusive transactions short reduces head-of-line blocking.
     ///
-    /// **Scheduling:** [`std::sync::Mutex`] is an OS-thread lock. Blocking here blocks the **calling
-    /// thread** (including a `may` worker thread if your coroutine runs on one), not the pool’s
-    /// dedicated DB worker threads. That matches this pool’s synchronous “submit job → wait for
-    /// reply” API; cooperative runtimes should avoid holding the pool across very long critical
-    /// sections on shared executor threads.
+    /// **Scheduling:** the slot lock is a [`may::sync::Mutex`], so a caller that finds the slot
+    /// busy *parks its coroutine* and frees the worker thread. The guard is held across
+    /// `reply_rx.recv()` — a coroutine park — so it must never be an OS-thread lock: with a
+    /// `std::sync::Mutex` every same-slot caller blocked its `may` worker thread on the futex
+    /// while the holder sat parked waiting for the DB reply, and once enough worker threads were
+    /// blocked the holder could not be resumed to release it (PriceWhisperer market pod wedged
+    /// under a 100-stream open storm, 21 Sep 2026: 10+ workers in `Mutex::lock_contended`
+    /// under `WorkerPool::dispatch`, `/health` timing out, liveness restarts).
     fn dispatch<T: Send + 'static>(
         &self,
         build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
