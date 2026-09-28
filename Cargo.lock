@@ -1525,9 +1525,9 @@ dependencies = [
  "may_postgres",
  "may_tracing",
  "once_cell",
- "opentelemetry 0.31.0",
+ "opentelemetry",
  "opentelemetry-prometheus",
- "opentelemetry_sdk 0.31.0",
+ "opentelemetry_sdk",
  "postgres-types",
  "prometheus",
  "protobuf",
@@ -1538,7 +1538,7 @@ dependencies = [
  "sea-query",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.0",
  "testcontainers",
  "testcontainers-modules",
  "tracing",
@@ -1873,24 +1873,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0142c63252a9e054e68a4c61a5778f7b14f576274d593f8ce883d191a099682"
-dependencies = [
- "js-sys",
- "tracing",
-]
-
-[[package]]
 name = "opentelemetry-prometheus"
-version = "0.32.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c0359983e7f79cf33c9abd89e5d7ddf67c46c419d0148598022d70e70c01aba"
+checksum = "14095eb06b569eb5d538fa4555969f7e8a410ed7910c903bfd295f9e1a50d7ea"
 dependencies = [
  "once_cell",
- "opentelemetry 0.32.0",
- "opentelemetry_sdk 0.32.1",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "prometheus",
  "tracing",
 ]
@@ -1903,21 +1893,7 @@ dependencies = [
  "futures-channel",
  "futures-executor",
  "futures-util",
- "opentelemetry 0.31.0",
- "portable-atomic",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.32.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b59f80e1ac4d5ff7a2db8fb6c80badb7f0f3f858211fba08dd9aaec750894f9"
-dependencies = [
- "futures-channel",
- "futures-executor",
- "futures-util",
- "opentelemetry 0.32.0",
+ "opentelemetry",
  "portable-atomic",
  "thiserror 2.0.17",
 ]
