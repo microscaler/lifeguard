@@ -32,7 +32,7 @@ use may::sync::{Mutex, MutexGuard};
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Row};
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -79,7 +79,15 @@ pub enum ReadPreference {
 
 /// One tier of workers (primary or replica) with round-robin dispatch.
 struct WorkerPool {
-    worker_txs: Arc<[crossbeam_channel::Sender<Envelope>]>,
+    /// Per-slot job sender. Behind a lock so a wedged slot can be REPLACED (fresh worker thread,
+    /// fresh connection) without stopping the pool - see [`WorkerPool::replace_wedged_slot`].
+    /// The lock is only held to clone or swap the sender, never across a park.
+    worker_txs: Arc<[std::sync::RwLock<crossbeam_channel::Sender<Envelope>>]>,
+    /// Bumped each time a slot is replaced; a timed-out caller only replaces the generation it
+    /// dispatched on, so N callers timing out on one wedged slot replace it once.
+    slot_generation: Arc<[AtomicU64]>,
+    /// What a replacement worker needs (urls per slot, queue capacity, liveness and lifetime knobs).
+    spawn: WorkerSpawnSpec,
     /// One mutex per slot: held for the duration of each dispatched job, or for the whole lifetime
     /// of [`ExclusivePrimaryLifeExecutor`] (U-4 pin-slot) so other dispatchers block on that slot.
     slot_locks: Arc<[Mutex<()>]>,
@@ -91,6 +99,49 @@ struct WorkerPool {
     reply_timeout: Option<Duration>,
     /// `primary` or `replica` for [`crate::metrics::METRICS`] `pool_tier` labels.
     metrics_tier: &'static str,
+}
+
+/// Everything needed to start one slot's worker (at pool start, or to replace a wedged one).
+struct WorkerSpawnSpec {
+    urls: Arc<[String]>,
+    queue_capacity: usize,
+    idle_liveness: Option<Duration>,
+    max_connection_lifetime: Option<Duration>,
+    max_connection_lifetime_jitter: Duration,
+    tier: &'static str,
+}
+
+impl WorkerSpawnSpec {
+    /// Connect, start the worker thread for `slot`, and return its job sender.
+    fn spawn_worker(&self, slot: usize) -> Result<crossbeam_channel::Sender<Envelope>, LifeError> {
+        let tier = self.tier;
+        let url = self.urls[slot].clone();
+        let client = connect(&url)
+            .map_err(|e| LifeError::Other(format!("{tier} pool connection slot {slot}: {e}")))?;
+        let (job_tx, job_rx) = crossbeam_channel::bounded::<Envelope>(self.queue_capacity);
+        let idle = self.idle_liveness;
+        let max_lifetime = self.max_connection_lifetime;
+        let lifetime_jitter = self.max_connection_lifetime_jitter;
+        let name = format!("lifeguard-pool-{tier}-{slot}");
+        let handle = thread::Builder::new()
+            .name(name)
+            .spawn(move || {
+                run_worker(WorkerThreadStart {
+                    connection_string: url,
+                    client,
+                    job_rx,
+                    idle_liveness: idle,
+                    max_connection_lifetime: max_lifetime,
+                    max_connection_lifetime_jitter: lifetime_jitter,
+                    slot,
+                    tier,
+                });
+            })
+            .map_err(|e| LifeError::Other(format!("{tier} pool worker thread {slot}: {e}")))?;
+        #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
+        std::mem::forget(handle);
+        Ok(job_tx)
+    }
 }
 
 impl WorkerPool {
@@ -106,49 +157,29 @@ impl WorkerPool {
             )));
         }
 
+        let spawn = WorkerSpawnSpec {
+            urls: (0..pool_size).map(&mut url_for_slot).collect::<Vec<_>>().into(),
+            queue_capacity: settings.job_queue_capacity_per_worker,
+            idle_liveness: settings.idle_liveness_interval,
+            max_connection_lifetime: settings.max_connection_lifetime,
+            max_connection_lifetime_jitter: settings.max_connection_lifetime_jitter,
+            tier,
+        };
         let mut txs = Vec::with_capacity(pool_size);
-        let qcap = settings.job_queue_capacity_per_worker;
-
-        let idle = settings.idle_liveness_interval;
         for slot in 0..pool_size {
-            let url = url_for_slot(slot);
-            let client = connect(&url).map_err(|e| {
-                LifeError::Other(format!("{tier} pool connection slot {slot}: {e}"))
-            })?;
-
-            let (job_tx, job_rx) = crossbeam_channel::bounded::<Envelope>(qcap);
-
-            let max_lifetime = settings.max_connection_lifetime;
-            let lifetime_jitter = settings.max_connection_lifetime_jitter;
-            let name = format!("lifeguard-pool-{tier}-{slot}");
-            let handle = thread::Builder::new()
-                .name(name)
-                .spawn(move || {
-                    run_worker(WorkerThreadStart {
-                        connection_string: url,
-                        client,
-                        job_rx,
-                        idle_liveness: idle,
-                        max_connection_lifetime: max_lifetime,
-                        max_connection_lifetime_jitter: lifetime_jitter,
-                        slot,
-                        tier,
-                    });
-                })
-                .map_err(|e| LifeError::Other(format!("{tier} pool worker thread {slot}: {e}")))?;
-            #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
-            std::mem::forget(handle);
-
-            txs.push(job_tx);
+            txs.push(std::sync::RwLock::new(spawn.spawn_worker(slot)?));
         }
 
-        let worker_txs: Arc<[crossbeam_channel::Sender<Envelope>]> = txs.into();
+        let worker_txs: Arc<[std::sync::RwLock<crossbeam_channel::Sender<Envelope>>]> = txs.into();
+        let slot_generation: Arc<[AtomicU64]> = (0..pool_size).map(|_| AtomicU64::new(0)).collect::<Vec<_>>().into();
 
         let slot_locks: Vec<Mutex<()>> = (0..pool_size).map(|_| Mutex::new(())).collect();
         let slot_locks: Arc<[Mutex<()>]> = slot_locks.into_boxed_slice().into();
 
         Ok(Self {
             worker_txs,
+            slot_generation,
+            spawn,
             slot_locks,
             next_worker: AtomicUsize::new(0),
             pool_size,
@@ -187,7 +218,12 @@ impl WorkerPool {
         let _slot_guard = self.slot_locks[slot]
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        self.dispatch_locked(slot, build)
+        self.check_slot(slot)?;
+        // An ordinary job owns nothing on the slot beyond itself: if the worker never answers,
+        // the slot is replaced. (Pinned transactions go through `dispatch_locked`, which never
+        // replaces: swapping the connection under an open BEGIN would run the rest of the unit
+        // outside its transaction and RLS context.)
+        self.dispatch_on_slot(slot, true, build)
     }
 
     /// Dispatch to `slot` without acquiring [`Self::slot_locks`]. Caller must already hold the
@@ -197,20 +233,79 @@ impl WorkerPool {
         slot: usize,
         build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
+        self.check_slot(slot)?;
+        self.dispatch_on_slot(slot, false, build)
+    }
+
+    fn check_slot(&self, slot: usize) -> Result<(), LifeError> {
         if slot >= self.pool_size {
             return Err(LifeError::Pool(format!(
                 "internal pool error: slot {slot} out of range (pool_size {})",
                 self.pool_size
             )));
         }
-        self.dispatch_on_sender(&self.worker_txs[slot], build)
+        Ok(())
     }
 
-    fn dispatch_on_sender<T: Send + 'static>(
+    /// The live sender for `slot` and the generation it belongs to.
+    fn slot_sender(&self, slot: usize) -> (crossbeam_channel::Sender<Envelope>, u64) {
+        let generation = self.slot_generation[slot].load(Ordering::Acquire);
+        let tx = self.worker_txs[slot]
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        (tx, generation)
+    }
+
+    /// Replace a slot whose worker did not answer within the reply budget.
+    ///
+    /// The old worker thread is stuck inside a job (PriceWhisperer orders, 1 Oct 2026: 30 of 32
+    /// workers parked on a futex mid-transaction, the server showing `idle in transaction` /
+    /// ClientRead for 25+ minutes; terminating the backends did NOT wake them, so the in-worker
+    /// heal path never ran and only a pod restart recovered). Waiting for it is pointless: start
+    /// a fresh worker with a fresh connection on the slot and let the old thread go. Its queue
+    /// is disconnected once its sender is dropped, so if it ever wakes it exits; its server
+    /// session is left for `idle_in_transaction_session_timeout` to reap.
+    ///
+    /// Only the caller that wins the generation bump replaces; others see a newer generation.
+    fn replace_wedged_slot(&self, slot: usize, seen_generation: u64) {
+        if self.slot_generation[slot]
+            .compare_exchange(seen_generation, seen_generation + 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        match self.spawn.spawn_worker(slot) {
+            Ok(tx) => {
+                *self.worker_txs[slot]
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = tx;
+                #[cfg(feature = "metrics")]
+                METRICS.record_pool_slot_heal(self.metrics_tier);
+                log::error!(
+                    "lifeguard pool ({}): slot {slot} wedged past the reply budget; replaced with a fresh worker and connection",
+                    self.metrics_tier
+                );
+            }
+            Err(e) => {
+                // Let the next timeout on this slot try again.
+                self.slot_generation[slot].store(seen_generation, Ordering::Release);
+                log::error!(
+                    "lifeguard pool ({}): slot {slot} is wedged and could not be replaced: {e}",
+                    self.metrics_tier
+                );
+            }
+        }
+    }
+
+    fn dispatch_on_slot<T: Send + 'static>(
         &self,
-        tx: &crossbeam_channel::Sender<Envelope>,
+        slot: usize,
+        replace_on_timeout: bool,
         build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
+        let (tx, generation) = self.slot_sender(slot);
+        let tx = &tx;
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::acquire_connection_span(); // created, not entered: see tracing_helpers
 
@@ -270,6 +365,9 @@ impl WorkerPool {
                         "lifeguard pool ({}): no worker reply within {limit:?}; returning bounded error (worker wedged or statement overran the reply budget)",
                         self.metrics_tier
                     );
+                    if replace_on_timeout {
+                        self.replace_wedged_slot(slot, generation);
+                    }
                     Err(LifeError::PoolReplyTimeout {
                         waited: wait_start.elapsed(),
                     })
