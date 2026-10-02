@@ -32,10 +32,16 @@ use may::sync::{Mutex, MutexGuard};
 use may_postgres::types::ToSql;
 use may_postgres::{Client, Row};
 use std::fmt;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+
+/// Milliseconds since the first call (monotonic, never 0), for cheap atomics-only timestamps.
+fn mono_ms() -> u64 {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
 
 const RLS_SET_SESSION_SQL: &str = "SELECT public.rls_set_session($1::text, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)";
 
@@ -86,6 +92,16 @@ struct WorkerPool {
     /// Bumped each time a slot is replaced; a timed-out caller only replaces the generation it
     /// dispatched on, so N callers timing out on one wedged slot replace it once.
     slot_generation: Arc<[AtomicU64]>,
+    /// True while a background thread is replacing the slot: dispatch skips it rather than
+    /// queueing behind a worker already known not to answer.
+    replacing: Arc<[AtomicBool]>,
+    /// When the slot was last replaced ([`mono_ms`]; 0 = never). A fresh connection that times
+    /// out again soon after is the signature of a starved runtime, not a bad connection.
+    replaced_at_ms: Arc<[AtomicU64]>,
+    /// Rate limit for the stderr report of reply timeouts ([`mono_ms`] of the last line, and how
+    /// many timeouts happened since).
+    last_timeout_report_ms: AtomicU64,
+    timeouts_since_report: AtomicU64,
     /// What a replacement worker needs (urls per slot, queue capacity, liveness and lifetime knobs).
     spawn: WorkerSpawnSpec,
     /// One mutex per slot: held for the duration of each dispatched job, or for the whole lifetime
@@ -102,6 +118,7 @@ struct WorkerPool {
 }
 
 /// Everything needed to start one slot's worker (at pool start, or to replace a wedged one).
+#[derive(Clone)]
 struct WorkerSpawnSpec {
     urls: Arc<[String]>,
     queue_capacity: usize,
@@ -158,7 +175,10 @@ impl WorkerPool {
         }
 
         let spawn = WorkerSpawnSpec {
-            urls: (0..pool_size).map(&mut url_for_slot).collect::<Vec<_>>().into(),
+            urls: (0..pool_size)
+                .map(&mut url_for_slot)
+                .collect::<Vec<_>>()
+                .into(),
             queue_capacity: settings.job_queue_capacity_per_worker,
             idle_liveness: settings.idle_liveness_interval,
             max_connection_lifetime: settings.max_connection_lifetime,
@@ -171,7 +191,18 @@ impl WorkerPool {
         }
 
         let worker_txs: Arc<[std::sync::RwLock<crossbeam_channel::Sender<Envelope>>]> = txs.into();
-        let slot_generation: Arc<[AtomicU64]> = (0..pool_size).map(|_| AtomicU64::new(0)).collect::<Vec<_>>().into();
+        let slot_generation: Arc<[AtomicU64]> = (0..pool_size)
+            .map(|_| AtomicU64::new(0))
+            .collect::<Vec<_>>()
+            .into();
+        let replacing: Arc<[AtomicBool]> = (0..pool_size)
+            .map(|_| AtomicBool::new(false))
+            .collect::<Vec<_>>()
+            .into();
+        let replaced_at_ms: Arc<[AtomicU64]> = (0..pool_size)
+            .map(|_| AtomicU64::new(0))
+            .collect::<Vec<_>>()
+            .into();
 
         let slot_locks: Vec<Mutex<()>> = (0..pool_size).map(|_| Mutex::new(())).collect();
         let slot_locks: Arc<[Mutex<()>]> = slot_locks.into_boxed_slice().into();
@@ -179,6 +210,10 @@ impl WorkerPool {
         Ok(Self {
             worker_txs,
             slot_generation,
+            replacing,
+            replaced_at_ms,
+            last_timeout_report_ms: AtomicU64::new(0),
+            timeouts_since_report: AtomicU64::new(0),
             spawn,
             slot_locks,
             next_worker: AtomicUsize::new(0),
@@ -214,7 +249,7 @@ impl WorkerPool {
         &self,
         build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
-        let slot = self.pick_worker_index();
+        let slot = self.pick_serviceable_slot()?;
         let _slot_guard = self.slot_locks[slot]
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -235,6 +270,22 @@ impl WorkerPool {
     ) -> Result<T, LifeError> {
         self.check_slot(slot)?;
         self.dispatch_on_slot(slot, false, build)
+    }
+
+    /// Round-robin, skipping slots a background thread is replacing. When every slot is being
+    /// replaced the pool fails fast instead of queueing on workers already known not to answer.
+    fn pick_serviceable_slot(&self) -> Result<usize, LifeError> {
+        for _ in 0..self.pool_size {
+            let slot = self.pick_worker_index();
+            if !self.replacing[slot].load(Ordering::Acquire) {
+                return Ok(slot);
+            }
+        }
+        Err(LifeError::Pool(format!(
+            "lifeguard pool ({}): all {} slots are being replaced after reply timeouts; no connection is being serviced. \
+             If this persists the may runtime that drives connection I/O is starved - look for OS-blocking calls in coroutines",
+            self.metrics_tier, self.pool_size
+        )))
     }
 
     fn check_slot(&self, slot: usize) -> Result<(), LifeError> {
@@ -267,34 +318,101 @@ impl WorkerPool {
     /// is disconnected once its sender is dropped, so if it ever wakes it exits; its server
     /// session is left for `idle_in_transaction_session_timeout` to reap.
     ///
+    /// The replacement runs on its OWN thread; the caller returns its timeout at once. It used to
+    /// connect inline, on the request coroutine, holding the slot lock - and a connect needs the
+    /// same may runtime whose starvation is the usual reason a slot stops answering (orders,
+    /// 2 Oct 2026: may workers blocked by OS-waits in the broker adapter), so the heal itself
+    /// hung, the slot lock with it, and every later caller on the slot waited forever. While a
+    /// slot is being replaced, dispatch skips it.
+    ///
     /// Only the caller that wins the generation bump replaces; others see a newer generation.
     fn replace_wedged_slot(&self, slot: usize, seen_generation: u64) {
         if self.slot_generation[slot]
-            .compare_exchange(seen_generation, seen_generation + 1, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(
+                seen_generation,
+                seen_generation + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
             .is_err()
         {
             return;
         }
-        match self.spawn.spawn_worker(slot) {
-            Ok(tx) => {
-                *self.worker_txs[slot]
-                    .write()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = tx;
-                #[cfg(feature = "metrics")]
-                METRICS.record_pool_slot_heal(self.metrics_tier);
-                log::error!(
-                    "lifeguard pool ({}): slot {slot} wedged past the reply budget; replaced with a fresh worker and connection",
-                    self.metrics_tier
-                );
-            }
-            Err(e) => {
-                // Let the next timeout on this slot try again.
-                self.slot_generation[slot].store(seen_generation, Ordering::Release);
-                log::error!(
-                    "lifeguard pool ({}): slot {slot} is wedged and could not be replaced: {e}",
-                    self.metrics_tier
-                );
-            }
+        if self.replacing[slot].swap(true, Ordering::AcqRel) {
+            return; // a replacement for this slot is already running
+        }
+        let tier = self.metrics_tier;
+        let last = self.replaced_at_ms[slot].load(Ordering::Acquire);
+        let recent = self.reply_timeout.map_or(Duration::from_secs(60), |t| {
+            (t * 3).max(Duration::from_secs(60))
+        });
+        if last != 0 && mono_ms().saturating_sub(last) < recent.as_millis() as u64 {
+            let msg = format!(
+                "lifeguard pool ({tier}): slot {slot} was replaced {}s ago and its FRESH connection missed the reply budget too. \
+                 The database is not the problem: the may runtime that drives connection I/O is starved - something is making \
+                 OS-blocking calls in coroutines (a crossbeam/std channel wait, a std Mutex held across a park, blocking I/O)",
+                mono_ms().saturating_sub(last) / 1000
+            );
+            eprintln!("{msg}");
+            log::error!("{msg}");
+        }
+        let spec = self.spawn.clone();
+        let txs = Arc::clone(&self.worker_txs);
+        let generations = Arc::clone(&self.slot_generation);
+        let replacing = Arc::clone(&self.replacing);
+        let replaced_at = Arc::clone(&self.replaced_at_ms);
+        let started = std::thread::Builder::new()
+            .name(format!("lifeguard-heal-{tier}-{slot}"))
+            .spawn(move || {
+                let t0 = Instant::now();
+                match spec.spawn_worker(slot) {
+                    Ok(tx) => {
+                        *txs[slot].write().unwrap_or_else(|poisoned| poisoned.into_inner()) = tx;
+                        replaced_at[slot].store(mono_ms(), Ordering::Release);
+                        #[cfg(feature = "metrics")]
+                        METRICS.record_pool_slot_heal(tier);
+                        let msg = format!(
+                            "lifeguard pool ({tier}): slot {slot} wedged past the reply budget; replaced with a fresh worker and connection in {:?}",
+                            t0.elapsed()
+                        );
+                        eprintln!("{msg}");
+                        log::error!("{msg}");
+                    }
+                    Err(e) => {
+                        // Let the next timeout on this slot try again.
+                        generations[slot].store(seen_generation, Ordering::Release);
+                        let msg = format!("lifeguard pool ({tier}): slot {slot} is wedged and could not be replaced: {e}");
+                        eprintln!("{msg}");
+                        log::error!("{msg}");
+                    }
+                }
+                replacing[slot].store(false, Ordering::Release);
+            });
+        if let Err(e) = started {
+            self.slot_generation[slot].store(seen_generation, Ordering::Release);
+            self.replacing[slot].store(false, Ordering::Release);
+            log::error!("lifeguard pool ({tier}): could not start the replacement thread for slot {slot}: {e}");
+        }
+    }
+
+    /// One stderr line per 10 s for reply timeouts, with the count since the last line: the
+    /// `log` output of embedders can go to an exporter that is not the pod log, and on 2 Oct 2026
+    /// seven hours of timeouts left no trace there.
+    fn report_reply_timeout(&self, slot: usize, limit: Duration) {
+        let n = self.timeouts_since_report.fetch_add(1, Ordering::AcqRel) + 1;
+        let now = mono_ms();
+        let last = self.last_timeout_report_ms.load(Ordering::Acquire);
+        if (last == 0 || now.saturating_sub(last) >= 10_000)
+            && self
+                .last_timeout_report_ms
+                .compare_exchange(last, now, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            self.timeouts_since_report.store(0, Ordering::Release);
+            eprintln!(
+                "lifeguard pool ({}): {n} job(s) missed the {limit:?} reply budget since the last report (latest on slot {slot}); replacing wedged slots",
+                self.metrics_tier
+            );
         }
     }
 
@@ -365,6 +483,7 @@ impl WorkerPool {
                         "lifeguard pool ({}): no worker reply within {limit:?}; returning bounded error (worker wedged or statement overran the reply budget)",
                         self.metrics_tier
                     );
+                    self.report_reply_timeout(slot, limit);
                     if replace_on_timeout {
                         self.replace_wedged_slot(slot, generation);
                     }
@@ -630,7 +749,7 @@ impl LifeguardPool {
     pub fn exclusive_primary_write_executor(
         &self,
     ) -> Result<ExclusivePrimaryLifeExecutor<'_>, LifeError> {
-        let slot = self.primary.pick_worker_index();
+        let slot = self.primary.pick_serviceable_slot()?;
         let _guard = self.primary.slot_locks[slot]
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
