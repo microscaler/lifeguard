@@ -1,4 +1,4 @@
-//! Reproducer for the PriceWhisperer orders wedge of 2 Oct 2026.
+//! Reproducer for the `PriceWhisperer` orders wedge of 2 Oct 2026.
 //!
 //! The pool's workers are OS threads, but every byte a `may_postgres::Client` reads or writes is
 //! moved by that connection's I/O coroutine, and that coroutine runs on - and is woken by the
@@ -22,8 +22,11 @@
 //! connect needs the starved runtime too.
 //!
 //! Run with:
-//!   TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres \
-//!     cargo test --test worker_starvation_repro -- --nocapture --test-threads=1
+//!
+//! ```text
+//! TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres \
+//!   cargo test --test worker_starvation_repro -- --nocapture --test-threads=1
+//! ```
 
 use lifeguard::{
     LifeError, LifeExecutor, LifeguardPool, LifeguardPoolSettings, PooledLifeExecutor,
@@ -75,7 +78,7 @@ fn os_blocking_calls_in_coroutines_starve_pool_io() {
 
     // A consumer that has hung (the IBKR connection manager stuck on a dead gateway): its bounded
     // queue is full and nobody drains it. Keep the receiver alive so sends block rather than fail.
-    let (tx, _hung_consumer) = crossbeam_channel::bounded::<u32>(1);
+    let (tx, _hung_consumer) = crossbeam_channel::bounded::<usize>(1);
     tx.send(0).expect("fill the queue");
     for i in 0..(WORKERS - 1) {
         let tx = tx.clone();
@@ -83,7 +86,7 @@ fn os_blocking_calls_in_coroutines_starve_pool_io() {
         // may worker thread it runs on, forever.
         let _ = unsafe {
             may::coroutine::spawn(move || {
-                let _ = tx.send(i as u32 + 1);
+                let _ = tx.send(i + 1);
             })
         };
         std::thread::sleep(Duration::from_millis(50));
@@ -96,24 +99,24 @@ fn os_blocking_calls_in_coroutines_starve_pool_io() {
     let ok = Arc::new(AtomicUsize::new(0));
     let timed_out = Arc::new(AtomicUsize::new(0));
     let other = Arc::new(AtomicUsize::new(0));
-    let (o, t, x) = (Arc::clone(&ok), Arc::clone(&timed_out), Arc::clone(&other));
+    let (ok_n, timeout_n, other_n) = (Arc::clone(&ok), Arc::clone(&timed_out), Arc::clone(&other));
     let started = Instant::now();
     std::thread::spawn(move || {
         for i in 0..ROUNDS {
             let call = Instant::now();
-            let r = exec.query_one("SELECT 1", &[]);
-            let what = match &r {
+            let result = exec.query_one("SELECT 1", &[]);
+            let what = match &result {
                 Ok(_) => {
-                    o.fetch_add(1, Ordering::SeqCst);
+                    ok_n.fetch_add(1, Ordering::SeqCst);
                     "ok".to_string()
                 }
                 Err(LifeError::PoolReplyTimeout { .. }) => {
-                    t.fetch_add(1, Ordering::SeqCst);
+                    timeout_n.fetch_add(1, Ordering::SeqCst);
                     "PoolReplyTimeout".to_string()
                 }
-                Err(e) => {
-                    x.fetch_add(1, Ordering::SeqCst);
-                    format!("error: {e}")
+                Err(err) => {
+                    other_n.fetch_add(1, Ordering::SeqCst);
+                    format!("error: {err}")
                 }
             };
             eprintln!("REPRO call {i:2}: {what} in {:?}", call.elapsed());
