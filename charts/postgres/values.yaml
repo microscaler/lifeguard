@@ -26,6 +26,10 @@ auth:
   replicationPassword: postgres
 
 postgresql:
+  # /dev/shm for the server's dynamic shared memory (parallel query workers, parallel hashes). The container
+  # default is 64Mi, which concurrent analytical reads exhaust ("could not resize shared memory segment ... No space
+  # left on device", 5 Oct 2026). A memory-backed emptyDir; it counts against the pod's memory limit. "" disables it.
+  shmSizeLimit: 1Gi
   maxConnections: "200"
 
 ## Persistence contract (primary and each replica):

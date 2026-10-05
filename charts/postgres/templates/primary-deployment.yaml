@@ -70,6 +70,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /bitnami/postgresql
+            {{- if .Values.postgresql.shmSizeLimit }}
+            - name: dshm
+              mountPath: /dev/shm
+            {{- end }}
           livenessProbe:
             exec:
               command:
@@ -106,3 +110,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "postgres.primaryClaimName" . }}
+        {{- if .Values.postgresql.shmSizeLimit }}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.postgresql.shmSizeLimit }}
+        {{- end }}
