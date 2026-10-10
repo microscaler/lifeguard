@@ -27,3 +27,7 @@ scripts/__pycache__/
 
 # Optional local clone of microscaler/may_postgres for fork work; crates pin `rev` in Cargo.toml.
 /may_postgres/
+
+# NFS silly-rename files: a file deleted while still open on an NFS mount lingers as .nfs<id>
+# (or .nfs.<id>.<n>) until it is closed. Never source.
+.nfs*
