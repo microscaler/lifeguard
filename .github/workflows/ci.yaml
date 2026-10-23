@@ -15,18 +15,34 @@ jobs:
     # Started via hoverkraft-tech/compose-action (up: `-d --wait`; post hook: `compose down -v`). See https://github.com/marketplace/actions/docker-compose-action
     # No `jobs.*.services` — avoids duplicating Postgres/Redis and conflicting ports with Compose.
     # `TEST_DATABASE_URL` / `TEST_REPLICA_URL` / Redis URLs for `tests/context.rs`; `DATABASE_URL` for `TestDatabase::get_connection_string`.
-    # Repository secret `PGPASSWORD`: exported to steps; Compose file interpolates `${PGPASSWORD}`; URLs / `psql` use the same. Not available to workflows from fork PRs.
+    # PGPASSWORD and the database URLs come from the first step ($GITHUB_ENV): the repository secret, or a per-run
+    # random password where the run has no secrets. Compose interpolates `${PGPASSWORD}`; URLs / `psql` use the same.
     env:
-      PGPASSWORD: ${{ secrets.PGPASSWORD }}
-      DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres?options=-c%20search_path%3Dlifeguard
-      TEST_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6543/postgres?options=-c%20search_path%3Dlifeguard
-      TEST_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@localhost:6547/postgres?options=-c%20search_path%3Dlifeguard
       TOXIPROXY_API: http://127.0.0.1:8474
       REDIS_URL: redis://127.0.0.1:6545
       TEST_REDIS_URL: redis://127.0.0.1:6545
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Database password for the throwaway CI stack
+        # The repository secret when the run has it; Dependabot and fork pull requests get no repository secrets
+        # (every Dependabot PR failed at "PGPASSWORD must be set"), so they get a random one for this run. The
+        # Compose stack lives only for this job.
+        env:
+          SECRET_PGPASSWORD: ${{ secrets.PGPASSWORD }}
+        run: |
+          pw="${SECRET_PGPASSWORD:-$(openssl rand -hex 24)}"
+          echo "::add-mask::$pw"
+          q="options=-c%20search_path%3Dlifeguard"
+          {
+            echo "PGPASSWORD=$pw"
+            echo "DATABASE_URL=postgres://postgres:$pw@localhost:6543/postgres?$q"
+            echo "TEST_DATABASE_URL=postgres://postgres:$pw@localhost:6543/postgres?$q"
+            echo "TEST_REPLICA_URL=postgres://postgres:$pw@localhost:6547/postgres?$q"
+            echo "PERF_DATABASE_URL=postgres://postgres:$pw@127.0.0.1:6543/postgres?$q"
+            echo "PERF_REPLICA_URL=postgres://postgres:$pw@127.0.0.1:6547/postgres?$q"
+          } >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -138,11 +154,27 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     # Same `.github/docker/docker-compose.yml` and hoverkraft-tech/compose-action pattern as `test`.
-    env:
-      PGPASSWORD: ${{ secrets.PGPASSWORD }}
-
     steps:
       - uses: actions/checkout@v4
+
+      - name: Database password for the throwaway CI stack
+        # The repository secret when the run has it; Dependabot and fork pull requests get no repository secrets
+        # (every Dependabot PR failed at "PGPASSWORD must be set"), so they get a random one for this run. The
+        # Compose stack lives only for this job.
+        env:
+          SECRET_PGPASSWORD: ${{ secrets.PGPASSWORD }}
+        run: |
+          pw="${SECRET_PGPASSWORD:-$(openssl rand -hex 24)}"
+          echo "::add-mask::$pw"
+          q="options=-c%20search_path%3Dlifeguard"
+          {
+            echo "PGPASSWORD=$pw"
+            echo "DATABASE_URL=postgres://postgres:$pw@localhost:6543/postgres?$q"
+            echo "TEST_DATABASE_URL=postgres://postgres:$pw@localhost:6543/postgres?$q"
+            echo "TEST_REPLICA_URL=postgres://postgres:$pw@localhost:6547/postgres?$q"
+            echo "PERF_DATABASE_URL=postgres://postgres:$pw@127.0.0.1:6543/postgres?$q"
+            echo "PERF_REPLICA_URL=postgres://postgres:$pw@127.0.0.1:6547/postgres?$q"
+          } >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -166,8 +198,6 @@ jobs:
       # perf-orm: Compose host ports :6543 / :6547 (replica via Toxiproxy) / :6545 (see `.github/docker/docker-compose.yml`).
       - name: Run perf-orm
         env:
-          PERF_DATABASE_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6543/postgres?options=-c%20search_path%3Dlifeguard
-          PERF_REPLICA_URL: postgres://postgres:${{ secrets.PGPASSWORD }}@127.0.0.1:6547/postgres?options=-c%20search_path%3Dlifeguard
           REDIS_URL: redis://127.0.0.1:6545
           TEST_REDIS_URL: redis://127.0.0.1:6545
           PERF_RESET: "1" # destructive DDL on perf_* tables
