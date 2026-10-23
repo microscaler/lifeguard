@@ -5,7 +5,7 @@
 //! baseline each iteration. If it climbs, the connection outlives the handle.
 //!
 //! Run with:
-//!   TEST_DATABASE_URL=postgresql://... cargo test --test conn_leak_probe -- --nocapture
+//!   `TEST_DATABASE_URL=postgresql://... cargo test --test conn_leak_probe -- --nocapture`
 
 use lifeguard::{query_value, MayPostgresExecutor};
 
@@ -53,7 +53,7 @@ fn dropping_a_connection_releases_its_backend() {
     );
 }
 
-/// Same probe with NO lifeguard wrapper at all - a bare may_postgres::Client,
+/// Same probe with NO lifeguard wrapper at all - a bare `may_postgres::Client`,
 /// used and dropped. Discriminates between lifeguard-s executor and the
 /// underlying driver.
 #[test]
