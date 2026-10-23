@@ -23,7 +23,7 @@ jobs:
       TEST_REDIS_URL: redis://127.0.0.1:6545
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Database password for the throwaway CI stack
         # The repository secret when the run has it; Dependabot and fork pull requests get no repository secrets
@@ -155,7 +155,7 @@ jobs:
     runs-on: ubuntu-latest
     # Same `.github/docker/docker-compose.yml` and hoverkraft-tech/compose-action pattern as `test`.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Database password for the throwaway CI stack
         # The repository secret when the run has it; Dependabot and fork pull requests get no repository secrets
