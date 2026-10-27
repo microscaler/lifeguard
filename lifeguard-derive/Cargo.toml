@@ -15,7 +15,7 @@ quote = "1.0"
 proc-macro2 = "1.0"
 
 [dev-dependencies]
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "15b4ab8d717ac92abe8472c2312900753c35e8e6" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "cb92eff897539ebf5c1ac2b5d533b57b48342fee" }
 lifeguard = { path = "..", version = "0.1.0", features = ["graphql"] }
 # Same async-graphql as lifeguard graphql feature — required for nested `SimpleObject` expansion on `LifeModel`.
 async-graphql.workspace = true

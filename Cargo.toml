@@ -41,7 +41,7 @@ path = "examples/find_related_scope_example.rs"
 # Coroutine runtime
 may = "0.3"
 # Pinned rev: `user_column_decode_failed` API (merge branch `user-column-decode-failed` or bump rev after rebase).
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "15b4ab8d717ac92abe8472c2312900753c35e8e6", features = ["with-chrono-0_4"] }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "cb92eff897539ebf5c1ac2b5d533b57b48342fee", features = ["with-chrono-0_4"] }
 
 # Procedural macros for ORM
 lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }
@@ -129,3 +129,7 @@ graphql = ["lifeguard-derive/graphql", "dep:async-graphql"]
 [patch.crates-io]
 opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "965078315b58ae14725721735f1c8e2bc2d3b445" }
 opentelemetry_sdk = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "965078315b58ae14725721735f1c8e2bc2d3b445" }
+# One `may` for this workspace's own builds and tests: the microscaler fork's integration branch
+# (crates.io may plus fixes not yet released upstream, such as sub-millisecond park timeouts).
+# It applies only when building this workspace; dependents choose their own `may`.
+may = { git = "https://github.com/microscaler/may.git", branch = "master" }

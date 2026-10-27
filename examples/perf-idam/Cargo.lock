@@ -780,9 +780,9 @@ dependencies = [
 
 [[package]]
 name = "generator"
-version = "0.8.8"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52f04ae4152da20c76fe800fa48659201d5cf627c5149ca0b707b69d7eef6cf9"
+checksum = "1be81b31c9ce4caf7f3178eeb90662bb1864d3ad363ec6bdada3201adff19c37"
 dependencies = [
  "cc",
  "cfg-if",
@@ -1244,8 +1244,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 [[package]]
 name = "may"
 version = "0.3.51"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a812e25193d07288695d0e12e30ec5cd52f9fefc3c55038b89f1ef906dcab078"
+source = "git+https://github.com/microscaler/may.git?branch=master#719a78df9275ca5afc29e68d5b462b54833ef9cc"
 dependencies = [
  "cfg-if",
  "core_affinity",
@@ -1259,8 +1258,8 @@ dependencies = [
  "parking_lot",
  "rustversion",
  "smallvec",
- "socket2",
- "windows-sys 0.59.0",
+ "socket2 0.6.5",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1281,7 +1280,7 @@ dependencies = [
 [[package]]
 name = "may_postgres"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/may_postgres.git?rev=15b4ab8d717ac92abe8472c2312900753c35e8e6#15b4ab8d717ac92abe8472c2312900753c35e8e6"
+source = "git+https://github.com/microscaler/may_postgres.git?rev=cb92eff897539ebf5c1ac2b5d533b57b48342fee#cb92eff897539ebf5c1ac2b5d533b57b48342fee"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1301,9 +1300,8 @@ dependencies = [
 
 [[package]]
 name = "may_queue"
-version = "0.1.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7026ba39000f40c16ba8ea206967380471726dd26fc34f51491b47fba9d84a94"
+version = "0.1.24"
+source = "git+https://github.com/microscaler/may.git?branch=master#719a78df9275ca5afc29e68d5b462b54833ef9cc"
 dependencies = [
  "crossbeam-utils",
  "rustversion",
@@ -1352,9 +1350,9 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "nix"
-version = "0.30.1"
+version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -1829,7 +1827,7 @@ dependencies = [
  "percent-encoding",
  "ryu",
  "sha1_smol",
- "socket2",
+ "socket2 0.5.10",
  "url",
 ]
 
@@ -2151,6 +2149,16 @@ checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "socket2"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
