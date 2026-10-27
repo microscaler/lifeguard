@@ -76,6 +76,17 @@ fn generate_life_model_trait_impl(
 
             #find_impl
 
+            fn __lg_has_select_as() -> bool {
+                static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                *V.get_or_init(|| {
+                    <Self as lifeguard::LifeModelTrait>::all_columns().iter().any(|col| {
+                        <<Self as lifeguard::LifeModelTrait>::Column as lifeguard::query::column::column_trait::ColumnDefHelper>::column_def(*col)
+                            .select_as
+                            .is_some()
+                    })
+                })
+            }
+
             fn __lg_entity_metrics() -> Option<&'static lifeguard::metrics::entity::EntityMetrics> {
                 // One handle set per entity, created on first use; recording is atomics only.
                 static M: std::sync::OnceLock<lifeguard::metrics::entity::EntityMetrics> =

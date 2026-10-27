@@ -1,4 +1,7 @@
-# Lifeguard performance baseline and first-pass findings
+# Lifeguard performance baseline and findings
+
+Phase 1 (sections 1–5) measured the ORM and fixed the small things. Phase 2 (section 6) rebuilt
+the pool and added batching and the reflector; its gate against Phase 1 is in §6.1.
 
 27 Oct 2026. The method follows BRRTRouter's `docs/perf/copy-and-borrow-audit.md`: measure, then
 find where the time goes against a raw-driver floor, then fix what is small and safe, with numbers
@@ -21,7 +24,9 @@ PERF_NO_DEFAULT_FEATURES=1 ./run.sh noobs                    # lifeguard without
 
 Knobs: `PERF_ITERATIONS` (3000), `PERF_WARMUP` (300), `PERF_POOL_SIZE` (8),
 `PERF_CONCURRENCY` (`1,16,128,1024`), `PERF_CONTENTION_MS` (3000), `PERF_MAY_WORKERS` (8),
-`PERF_REFLECT_*` (reflector prototype). The suite refuses to run without `PERF_RESET=1`, and it
+`PERF_REFLECT_*` (reflector prototype), `PERF_BATCH_SIZES` (`100,1000,10000`), `PERF_BATCH_REPS`
+(5), `PERF_REPLY_TIMEOUT_OFF=1` (pool without a reply deadline), `PERF_QUEUE_DEPTH` (statements in
+flight per slot). The suite refuses to run without `PERF_RESET=1`, and it
 reads only `PERF_DATABASE_URL`, never `DATABASE_URL`.
 
 Scenarios. All use synthetic tables: `perf_items` (7 columns, 101k rows), `perf_wide` (40
@@ -39,6 +44,8 @@ columns), `perf_ledger` (RLS) and `perf_reflect`.
 | `obs_overhead_cpu` | the per-operation instrumentation alone, in a tight loop | the same with `--no-default-features` |
 | `redis`, `cache_read` | `may_redis` `SET EX` (single and 64-deep pipeline) and `GET` | ORM pk select |
 | `notify_payload_limit`, `reflector_*` | NOTIFY trigger → LISTEN → refresh `SELECT` → Redis, per-key and batched | — |
+| `batch_{100,1000,10000}` | `insert_many` (VALUES, unnest, default), `upsert_many`, `update_many`, `find_by_ids`, `delete_many`, `BatchWriter` with 16 producers | the same rows one ORM call at a time; `COPY FROM STDIN` |
+| `reflector_crate_e2e` | the `lifeguard-reflector` service: trigger → NOTIFY → batched `UNLINK` | — |
 
 Sqlx and Diesel were left out: tokio-postgres already gives the driver floor. Flamegraphs are made
 with `perf record --call-graph dwarf` + `inferno` (`docs/perf/flamegraphs/`, see §5).
@@ -160,3 +167,149 @@ So once the statement cache removes the second round trip, the CPU left on the O
 connection's I/O coroutine. That is finding 1. Allocation (9.5 %) is the next target (finding 5).
 Coroutine-aware call stacks need frame pointers (`RUSTFLAGS="-C force-frame-pointers=yes"` plus
 `perf --call-graph fp`) or an in-process sampler. That is a follow-up for the harness.
+
+## 6. Phase 2: coroutine-native pool, one-round-trip RLS, `RETURNING`, executor cache, batching
+
+27 Oct 2026, same machine and harness. Findings 1–5 and 9 of §4 are done; 7 and 8 are partly
+done (see §6.5). The public API is unchanged; batching is additive.
+
+### 6.1 The gate: every suite row against `cb953eb`
+
+`base` is `cb953eb` (the Phase 1 commit) run with its own harness; `new` is this commit. They
+were run interleaved (base, new, base, new, base, new) on the shared box, and each cell is the
+median of the three runs. The machine's load average was 15–50 during these runs (other
+workloads), so absolute numbers are noisier and mostly higher than in §2; compare the columns
+with each other, not with §2. **Every row is better on p50, p99 and ops/s.**
+
+Sequential, one caller (µs):
+
+| Scenario (k=1) | p50 base → new | p99 base → new | ops/s base → new |
+|---|---:|---:|---:|
+| pk_select `orm_pool` | 78 → **36** | 831 → **98** | 7.6k → **25.7k** |
+| pk_select `orm_direct_client` | 66 → **33** | 334 → **75** | 12.8k → **28.7k** |
+| list_10 `orm_pool` | 81 → **39** | 1135 → **72** | 6.7k → **24.7k** |
+| list_100 `orm_pool` | 148 → **84** | 1184 → **361** | 4.1k → **10.6k** |
+| list_1000 `orm_pool` | 620 → **530** | 2144 → **864** | 1.4k → **1.9k** |
+| insert `orm_pool` | 84 → **39** | 1194 → **115** | 6.3k → **23.4k** |
+| update `orm_pool` (model returned) | 158 → **48** | 1716 → **272** | 3.3k → **16.8k** |
+| upsert `orm_pool` | 91 → **45** | 1205 → **122** | 5.8k → **21.5k** |
+| rls_pk_select `orm_pool_session_ctx` | 233 → **69** | 2662 → **172** | 2.3k → **13.3k** |
+| rls_pk_select `orm_pool_session_tx` | 308 → **121** | 2833 → **422** | 2.1k → **7.5k** |
+| wide_list_1000 `orm_pool` | 2987 → **2919** | 5168 → **5123** | 0.30k → **0.33k** |
+
+Pool under contention (8 slots, `pk_contention`):
+
+| Callers | ORM ops/s base → new | p50 µs base → new | p99 µs base → new | raw `may_postgres`, 8 conns (ops/s, p99 µs) | new, reply deadline off (ops/s) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 6.9k → **20.3k** | 78 → **35** | 1204 → **281** | 23k, 242 | 23k |
+| 16 | 76.8k → **165.1k** | 91 → **88** | 1740 → **247** | 142k, 267 | 175k |
+| 128 | 89.7k → **310.3k** | 546 → **360** | 10474 → **1548** | 433k, 1491 | 388k |
+| 1024 | 86.3k → **324.9k** | 11984 → **2873** | 83118 → **5831** | 573k, 3480 | 389k |
+
+Under contention the old pool's p50 was low because it was unfair: at k=128 its mean latency was
+1.4 ms while its p50 was 0.14–0.55 ms, i.e. most callers were fast and a tail waited behind busy
+slots for tens of milliseconds. The new pool serves callers in order, so p50 sits near the mean
+and p99 drops by 5–14×.
+
+Reliability checks on the new pool, all green: the full DB suite (152 tests), RLS context isolation
+under concurrency (`test_p1`–`test_p7`) 10 runs, `worker_starvation_repro`, `pool_worker_death`
+(including a new coroutine-caller reply-timeout test), and `conn_leak_probe` 10 runs in a row.
+`conn_leak_probe` counts backends database-wide, so it can fail when another test binary connects
+to the same database at the same moment (it did once in a whole-workspace run, as in Phase 1);
+alone it passes every time.
+
+### 6.2 What changed, item by item
+
+1. **Coroutine-native pool** (finding 1). A slot is one connection that many callers use at once:
+   each caller takes a `Client` handle of the slot's connection and `may_postgres` pipelines the
+   requests. The least-loaded open slot is chosen; at most `job_queue_capacity_per_worker`
+   statements are in flight per slot (a semaphore, with the acquire timeout). Transactions and
+   RLS units pin a slot exclusively; concurrent pins claim distinct slots with a compare-and-swap,
+   so two transactions never queue on one slot while another is idle (that deadlock was caught by
+   `test_p6` while building this). The slot gate is a poison-free atomic: a panic inside
+   `with_session_transaction` no longer leaves a poisoned lock behind. The worker threads, their
+   queues and the thread hand-offs are gone.
+
+   The reply deadline is kept, but no longer costs a coroutine, a channel and a timer per
+   statement. A coroutine caller runs its statement inline and registers it with the slot's
+   watchdog (the pool's maintenance thread); past the deadline the watchdog shuts the
+   connection's socket down, `may_postgres` fails every request waiting on it, and the caller gets
+   `PoolReplyTimeout` (the slot is then replaced in the background). An OS-thread caller still
+   waits on a helper coroutine with a timeout, which holds even when every `may` worker is
+   blocked (the starvation reproducer). Measured: with the helper coroutine on every statement
+   the pool was 30–50 % slower sequentially and had 2–4× worse p99; with the watchdog it is
+   within noise of running with no deadline at all (last column above).
+
+2. **RLS units in one round trip** (finding 2). `BEGIN`, `rls_set_session(..)`, the statement and
+   `COMMIT` are written together with cached statements and read back in order: 233 → 69 µs p50.
+   Statements that return only a row count take three round trips, because `may_postgres`'s
+   streaming API does not expose the count.
+
+3. **`update()` is one `UPDATE … RETURNING *`** (finding 3): 158 → 48 µs p50, and the
+   read-your-own-write hazard with replicas is gone. Entities with `select_as` columns or soft
+   delete keep the two-statement path.
+
+4. **Statement cache in `MayPostgresExecutor`** (finding 4): pk_select through the direct
+   executor 66 → 33 µs p50.
+
+5. **Allocations** (finding 5): `select_as` detection per query allocated a `ColumnDefinition` per
+   column; it is now computed once per entity. RLS session arguments are built once per executor,
+   not per statement. SQL travels as `Arc<str>`.
+
+### 6.3 Batching
+
+`lifeguard::batch` (guide: [`docs/BATCHING.md`](../BATCHING.md)). Rows per second, pool of 8,
+one caller (the `BatchWriter` row has 16 producers), median of 5:
+
+| Operation | 100 rows | 1,000 rows | 10,000 rows |
+|---|---:|---:|---:|
+| `insert` one row per call | 16.5k | 17.2k | — |
+| `insert_many`, multi-row `VALUES` | 187k | 201k | 244k |
+| `insert_many`, `unnest` arrays | 177k | 302k | 320k |
+| `insert_many`, default options | **231k** | **317k** | **292k** |
+| raw `COPY FROM STDIN` (context) | 221k | 294k | 391k |
+| `upsert` one row per call | 15.4k | 15.8k | — |
+| `upsert_many` (existing keys, `DO UPDATE`) | **137k** | **160k** | **153k** |
+| `update` one row per call | 15.1k | 13.3k | — |
+| `update_many` | **167k** | **211k** | **209k** |
+| `find_one` by key, one per row (the N+1) | 19.9k | 19.1k | — |
+| `find_by_ids` | **581k** | **1,059k** | **913k** |
+| `delete_many` | 338k | 1,008k | 1,112k |
+| `BatchWriter`, 16 producers, upsert, until `close()` | 131k | 151k | 157k |
+
+So batched writes are 10–16× single-row calls on loopback, and `insert_many` is within 0–25 % of
+`COPY` while keeping hooks, validators, `ON CONFLICT` and `RETURNING`. `find_by_ids` replaces an
+N+1 loop at 30–55× the rate. Over a real network each single-row call also pays the RTT, so the
+gap grows with distance to the database.
+
+### 6.4 LifeReflector
+
+The `lifeguard-reflector` crate (README in the crate) measured end to end: a writer commits a row
+with the generated trigger, the reflector `UNLINK`s its key.
+
+| Load | Keys/s | e2e p50 | e2e p99 | Notes |
+|---|---:|---:|---:|---|
+| 1 writer, 500 rows/s | 422 | 0.78 ms | 2.6 ms | 1,994 flushes for 2,000 changes: each change goes out on its own |
+| 16 writers, as fast as they go | 75.9k | 0.32 ms | 2.1 ms | 34k flushes (about 7 keys each): batches grow with load |
+| same, 1M unrelated keys in Redis, writes start during the start-up catch-up | 77.1k (burst), 419 (paced) | 0.32 ms / 0.84 ms | 2.1 ms / 2.8 ms | the catch-up `SCAN`s a page per loop pass between live flushes, so it does not delay them |
+
+For comparison, the Phase 1 prototype that re-read each row and `SET` it fell behind under the
+same burst (8.4k keys/s, lag growing to 26 s); its batched variant kept up (82.6k/s, p99 2.2 ms),
+which is the shape the crate now has, minus the re-read. Writers are unaffected by the trigger's
+extra `v` and `ts` fields (the INSERT's p50 stays at ~0.18–0.21 ms in both scenarios).
+
+Two earlier paced runs showed an e2e p50 of 2.5 s. In the first, the start-up catch-up ran to
+completion before live changes were served (it is now incremental). The second used the old
+harness, which started writing on a fixed 1.5 s timer; it was not reproduced once the harness
+waited for leadership, so its cause is not fully pinned down. The third row starts writing during
+a long catch-up on purpose and shows no delay; rerun it after any change to the loop.
+
+### 6.5 Still open
+
+| # | Finding | State |
+|---|---|---|
+| 6 | SeaQuery builds the SQL string per call | open |
+| 7 | No notification wake-up in `may_postgres` | open (other repository); the reflector polls every 500 µs |
+| 8 | `RedisCacheProvider` on the blocking `redis` crate; two `may` schedulers with `may_redis` | the scheduler half is fixed (workspace `[patch]` to the fork `may_redis` uses); the provider is unchanged |
+| 10 | Test crates as normal dependencies | `rand` removed (unused); `fake`, `csv`, `may_minihttp` and `redis` remain |
+| — | Execute-kind RLS statements take 3 round trips | needs a row count from `may_postgres`'s streaming API (other repository) |

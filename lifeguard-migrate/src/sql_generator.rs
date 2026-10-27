@@ -547,6 +547,17 @@ fn infer_zero_default_for_sql_type(col_type: &str) -> Option<&'static str> {
 /// `CREATE OR REPLACE TRIGGER` needs PostgreSQL 14+ and these migrations are
 /// re-applied routinely.
 ///
+/// Payload: `{"table", "op", "id", "v", "ts"}`, always far below the 8000-byte
+/// NOTIFY limit because it carries the key, never the row.
+///
+/// - `v` is the WAL insert position when the trigger ran, as a bigint. Two
+///   writes to the same row are serialised by its row lock, so the second
+///   trigger always runs after the first commit and sees a larger `v`: it is
+///   monotonic per key, which is what a consumer needs to drop stale events.
+///   It is not a commit order across different keys.
+/// - `ts` is the trigger's wall-clock time in milliseconds since the epoch;
+///   consumers use it for lag and as the catch-up watermark.
+///
 /// `pk_column` is the entity's single primary key. Composite keys are rejected
 /// rather than guessed at: there is no payload shape a consumer could rely on,
 /// and nothing needs one yet.
@@ -596,7 +607,9 @@ BEGIN
         json_build_object(
             'table', TG_TABLE_NAME,
             'op', TG_OP,
-            'id', {key_expr}
+            'id', {key_expr},
+            'v', (pg_current_wal_insert_lsn() - '0/0'::pg_lsn)::bigint,
+            'ts', (extract(epoch FROM clock_timestamp()) * 1000)::bigint
         )::text
     );
     RETURN NULL;

@@ -251,6 +251,37 @@ pub trait LifeExecutor {
     fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
         None
     }
+
+    /// Execute with owned parameters. The batch APIs use this to pass array parameters
+    /// ([`crate::pool::OwnedArray`]), which `sea_query::Values` cannot carry, through any executor.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::execute`].
+    #[doc(hidden)]
+    fn __lg_execute_owned(
+        &self,
+        query: &str,
+        params: Vec<crate::pool::OwnedParam>,
+    ) -> Result<u64, LifeError> {
+        let refs: Vec<&dyn ToSql> = params.iter().map(crate::pool::OwnedParam::as_sql_ref).collect();
+        self.execute(query, &refs)
+    }
+
+    /// Query with owned parameters (see [`Self::__lg_execute_owned`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_all`].
+    #[doc(hidden)]
+    fn __lg_query_all_owned(
+        &self,
+        query: &str,
+        params: Vec<crate::pool::OwnedParam>,
+    ) -> Result<Vec<Row>, LifeError> {
+        let refs: Vec<&dyn ToSql> = params.iter().map(crate::pool::OwnedParam::as_sql_ref).collect();
+        self.query_all(query, &refs)
+    }
 }
 
 /// Blanket implementation to allow trait objects (`&dyn LifeExecutor`) to be passed
@@ -287,6 +318,22 @@ impl LifeExecutor for &dyn LifeExecutor {
     fn cache_provider(&self) -> Option<std::sync::Arc<dyn crate::cache::CacheProvider>> {
         (*self).cache_provider()
     }
+
+    fn __lg_execute_owned(
+        &self,
+        query: &str,
+        params: Vec<crate::pool::OwnedParam>,
+    ) -> Result<u64, LifeError> {
+        (*self).__lg_execute_owned(query, params)
+    }
+
+    fn __lg_query_all_owned(
+        &self,
+        query: &str,
+        params: Vec<crate::pool::OwnedParam>,
+    ) -> Result<Vec<Row>, LifeError> {
+        (*self).__lg_query_all_owned(query, params)
+    }
 }
 
 /// Implementation of `LifeExecutor` for `may_postgres::Client`
@@ -301,6 +348,8 @@ impl LifeExecutor for &dyn LifeExecutor {
 pub struct MayPostgresExecutor {
     client: Client,
     session_context: Option<SessionContext>,
+    /// Statements prepared on `client`'s connection (one round trip per query instead of two).
+    stmts: crate::pool::stmt_cache::StatementCache,
 }
 
 impl MayPostgresExecutor {
@@ -312,7 +361,21 @@ impl MayPostgresExecutor {
         Self {
             client,
             session_context: None,
+            stmts: crate::pool::stmt_cache::StatementCache::new(),
         }
+    }
+
+    /// Run `op` with the cached prepared statement for `query`.
+    fn with_stmt<T>(
+        &self,
+        query: &str,
+        op: impl FnMut(&may_postgres::Statement) -> Result<T, PostgresError>,
+    ) -> Result<T, PostgresError> {
+        let (v, lookup) = self.stmts.with_statement(&self.client, query, op)?;
+        #[cfg(feature = "metrics")]
+        METRICS.record_statement_cache(lookup == crate::pool::stmt_cache::Lookup::Hit, "direct");
+        let _ = lookup;
+        Ok(v)
     }
 
     /// Get a reference to the underlying client
@@ -361,32 +424,40 @@ impl MayPostgresExecutor {
         self
     }
 
-    /// Runs `SELECT public.rls_set_session($1, ..., $8)` on the underlying
-    /// client.
-    ///
-    /// This method is called only after the executor has opened a transaction. When
-    /// `session_context` is `None` it returns immediately, preserving the non-RLS path.
-    /// If a context is attached but the helper fails for any reason (including a missing
-    /// function), the error is propagated and the enclosing transaction is rolled back.
-    ///
-    /// # Errors
-    ///
-    /// Returns `LifeError` if:
-    /// - Permissions cannot be serialised to JSON.
-    /// - A session context is attached but the `rls_set_session` call fails.
-    fn run_set_session(&self) -> Result<(), LifeError> {
+    /// `BEGIN` and `rls_set_session(..)` pipelined on the client: one round trip.
+    fn begin_pipelined_session(&self) -> Result<(), LifeError> {
         let Some(ctx) = self.session_context.as_ref() else {
             return Ok(());
         };
         let args = ctx.to_sql_args()?;
         let args_refs: Vec<&dyn may_postgres::types::ToSql> =
             args.iter().map(|a| a.as_ref()).collect();
-        self.client.execute(
-            "SELECT public.rls_set_session($1::text, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)",
-            &args_refs,
-        )
-        .map(|_| ())
-        .map_err(LifeError::PostgresError)
+        let (begin, _) = self
+            .stmts
+            .get_or_prepare(&self.client, "BEGIN")
+            .map_err(LifeError::PostgresError)?;
+        let (set, _) = self
+            .stmts
+            .get_or_prepare(
+                &self.client,
+                "SELECT public.rls_set_session($1::text, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)",
+            )
+            .map_err(LifeError::PostgresError)?;
+        let sb = self
+            .client
+            .query_raw(&begin, &[])
+            .map_err(LifeError::PostgresError)?;
+        let ss = self.client.query_raw(&set, &args_refs);
+        let drain = |s: may_postgres::RowStream| -> Result<(), PostgresError> {
+            for r in s {
+                r?;
+            }
+            Ok(())
+        };
+        let rb = drain(sb);
+        let rs = ss.and_then(drain);
+        rb.map_err(LifeError::PostgresError)?;
+        rs.map_err(LifeError::PostgresError)
     }
 
     /// Run one application operation inside the transaction that owns its RLS context.
@@ -398,13 +469,12 @@ impl MayPostgresExecutor {
             return operation(&self.client);
         }
 
-        self.client
-            .batch_execute("BEGIN")
-            .map_err(LifeError::PostgresError)?;
-
-        let result = self
-            .run_set_session()
-            .and_then(|()| operation(&self.client));
+        // BEGIN and the context go out together (one round trip). If BEGIN itself failed nothing
+        // is open; otherwise a context failure leaves an open transaction, rolled back below.
+        let result = match self.begin_pipelined_session() {
+            Ok(()) => operation(&self.client),
+            Err(e) => Err(e),
+        };
 
         match result {
             Ok(value) => match self.client.batch_execute("COMMIT") {
@@ -652,7 +722,7 @@ impl LifeExecutor for MayPostgresExecutor {
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
-            client.execute(query, params).map_err(|e| {
+            self.with_stmt(query, |st| client.execute(st, params)).map_err(|e| {
                 #[cfg(feature = "metrics")]
                 METRICS.record_query_error(None);
                 LifeError::PostgresError(e)
@@ -672,7 +742,7 @@ impl LifeExecutor for MayPostgresExecutor {
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
-            client.query_one(query, params).map_err(|e| {
+            self.with_stmt(query, |st| client.query_one(st, params)).map_err(|e| {
                 #[cfg(feature = "metrics")]
                 METRICS.record_query_error(None);
                 LifeError::PostgresError(e)
@@ -692,7 +762,7 @@ impl LifeExecutor for MayPostgresExecutor {
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
-            client.query(query, params).map_err(|e| {
+            self.with_stmt(query, |st| client.query(st, params)).map_err(|e| {
                 #[cfg(feature = "metrics")]
                 METRICS.record_query_error(None);
                 LifeError::PostgresError(e)

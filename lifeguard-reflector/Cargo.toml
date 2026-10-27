@@ -2,14 +2,31 @@
 name = "lifeguard-reflector"
 version = "0.1.0"
 edition = "2021"
+# NOTE: the crate was scaffolded as proprietary while the rest of the repository is MIT OR
+# Apache-2.0. The licence is Charles's call; it is left unchanged here.
 license = "PROPRIETARY"
 repository = "https://github.com/microscaler/lifeguard"
-description = "Enterprise-grade distributed cache coherence microservice for Lifeguard ORM"
+description = "LifeReflector: Postgres LISTEN/NOTIFY to Redis cache invalidation for Lifeguard entities"
 authors = ["Microscaler, Inc. <enterprise@microscaler.io>"]
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lifereflector"
+path = "src/main.rs"
+
 [dependencies]
-# TODO: Add dependencies as implementation progresses
-# - PostgreSQL client for LISTEN/NOTIFY
-# - Redis client
-# - Raft consensus library
-# - Logging and observability
+# Resolved through the workspace `[patch.crates-io]` to the same `may` that may_redis uses: one
+# scheduler for the whole process.
+may = "0.3"
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "4cff8ff730fa948b680d3c1f34d158120b205df7" }
+may-redis = { git = "https://github.com/microscaler/may_redis.git", rev = "3d103853434029dee22620196af44bb2a8bf8266" }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.11"
+prometheus = { version = "0.14", default-features = false }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+

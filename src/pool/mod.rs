@@ -40,6 +40,6 @@ pub mod stmt_cache;
 pub mod wal;
 
 pub use config::{DatabaseConfig, LifeguardPoolSettings};
-pub use owned_param::OwnedParam;
+pub use owned_param::{OwnedArray, OwnedParam};
 pub use pooled::{ExclusivePrimaryLifeExecutor, LifeguardPool, PooledLifeExecutor, ReadPreference};
 pub use wal::WalLagPolicy;

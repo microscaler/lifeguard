@@ -1437,6 +1437,31 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     .as_mut()
             }
 
+            fn __lg_insert_row(
+                &self,
+            ) -> Result<
+                (
+                    Vec<<#entity_name as lifeguard::LifeModelTrait>::Column>,
+                    Vec<sea_query::Expr>,
+                ),
+                lifeguard::ActiveModelError,
+            > {
+                use lifeguard::ActiveModelBehavior;
+                let mut record_for_hooks = self.clone();
+                record_for_hooks.before_insert()?;
+                lifeguard::active_model::validation::run_validators(
+                    &record_for_hooks,
+                    lifeguard::active_model::validate_op::ValidateOp::Insert,
+                )?;
+                let mut columns = Vec::new();
+                let mut exprs = Vec::new();
+                #(#insert_column_checks)*
+                if columns.is_empty() {
+                    return Err(lifeguard::ActiveModelError::Other("No fields set for insert".to_string()));
+                }
+                Ok((columns, exprs))
+            }
+
             fn insert_inner(
                 &self,
                 executor: &dyn lifeguard::LifeExecutor,
@@ -1659,6 +1684,15 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     )));
                 }
 
+                // `UPDATE ... RETURNING *` gives the updated row in the same statement (one round
+                // trip, and on the primary, so never a stale replica read). Entities whose SELECT
+                // differs from their columns (`select_as`) or that soft-delete keep the read-back.
+                let __lg_returning = !<#entity_name as lifeguard::LifeModelTrait>::__lg_has_select_as()
+                    && <#entity_name as lifeguard::LifeModelTrait>::soft_delete_column().is_none();
+                if __lg_returning {
+                    query.returning_all();
+                }
+
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
 
@@ -1666,28 +1700,41 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     <#entity_name as lifeguard::LifeModelTrait>::__lg_entity_metrics(),
                     lifeguard::metrics::entity::Op::Update,
                 );
-                let __lg_res = executor.execute_values(&sql, &sql_values);
-                __lg_timer.finish(*__lg_res.as_ref().unwrap_or(&0), __lg_res.is_ok());
-                let rows_affected = __lg_res.map_err(|e| {
-                    lifeguard::ActiveModelError::DatabaseError(e.to_string())
-                })?;
+                let model = if __lg_returning {
+                    let __lg_res = executor.query_all_values(&sql, &sql_values);
+                    __lg_timer.finish(__lg_res.as_ref().map_or(0, |r| r.len() as u64), __lg_res.is_ok());
+                    let rows = __lg_res.map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                    })?;
+                    let row = rows.into_iter().next().ok_or(lifeguard::ActiveModelError::RecordNotFound)?;
+                    <<#entity_name as lifeguard::LifeModelTrait>::Model as lifeguard::FromRow>::from_row(&row)
+                        .map_err(|e| lifeguard::ActiveModelError::DatabaseError(e.to_string()))?
+                } else {
 
-                // Check if any rows were affected
-                if rows_affected == 0 {
-                    return Err(lifeguard::ActiveModelError::RecordNotFound);
-                }
+                    let __lg_res = executor.execute_values(&sql, &sql_values);
+                    __lg_timer.finish(*__lg_res.as_ref().unwrap_or(&0), __lg_res.is_ok());
+                    let rows_affected = __lg_res.map_err(|e| {
+                        lifeguard::ActiveModelError::DatabaseError(e.to_string())
+                    })?;
 
-                // Construct the model by fetching it from the database to ensure all fields are properly loaded
-                let mut find_query = <#entity_name as lifeguard::LifeModelTrait>::find();
-                #(
-                    if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
-                        use lifeguard::ColumnTrait;
-                        find_query = find_query.filter(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants.eq(pk_value.clone()));
+                    // Check if any rows were affected
+                    if rows_affected == 0 {
+                        return Err(lifeguard::ActiveModelError::RecordNotFound);
                     }
-                )*
-                let model = find_query.find_one(&executor)
-                    .map_err(|e| lifeguard::ActiveModelError::DatabaseError(e.to_string()))?
-                    .ok_or(lifeguard::ActiveModelError::RecordNotFound)?;
+
+                    // Construct the model by fetching it from the database to ensure all fields are properly loaded
+                    let mut find_query = <#entity_name as lifeguard::LifeModelTrait>::find();
+                    #(
+                        if let Some(pk_value) = original_pk_values.get(&<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants) {
+                            use lifeguard::ColumnTrait;
+                            find_query = find_query.filter(<#entity_name as lifeguard::LifeModelTrait>::Column::#primary_key_column_variants.eq(pk_value.clone()));
+                        }
+                    )*
+                    let model = find_query.find_one(&executor)
+                        .map_err(|e| lifeguard::ActiveModelError::DatabaseError(e.to_string()))?
+                        .ok_or(lifeguard::ActiveModelError::RecordNotFound)?;
+                    model
+                };
 
                 // The record used in the after_update hook needs to represent the updated state
                 // We recreate it from the fetched model

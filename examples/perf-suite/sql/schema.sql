@@ -87,7 +87,9 @@ CREATE FUNCTION perf_reflect_notify() RETURNS trigger LANGUAGE plpgsql AS $fn$
 BEGIN
     PERFORM pg_notify(
         'perf_reflect',
-        json_build_object('table', TG_TABLE_NAME, 'op', TG_OP, 'id', NEW.id)::text
+        json_build_object('table', TG_TABLE_NAME, 'op', TG_OP, 'id', NEW.id,
+                          'v', (pg_current_wal_insert_lsn() - '0/0'::pg_lsn)::bigint,
+                          'ts', (extract(epoch FROM clock_timestamp()) * 1000)::bigint)::text
     );
     RETURN NULL;
 END;

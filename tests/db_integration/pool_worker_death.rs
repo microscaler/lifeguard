@@ -293,3 +293,57 @@ fn reply_timeout_bounds_wedged_dispatch() {
     ex.query_one_values("SELECT 1", &Values(Vec::new()))
         .expect("slot usable after reply-timeout episode");
 }
+
+/// The same bound for a caller that is a coroutine: the statement runs inline on the caller and
+/// the pool's watchdog shuts the wedged connection down at the deadline, so the caller wakes with
+/// `PoolReplyTimeout` instead of waiting out the statement.
+#[test]
+fn reply_timeout_bounds_wedged_statement_for_coroutine_callers() {
+    let ctx = get_test_context();
+    let settings = LifeguardPoolSettings {
+        reply_timeout: Some(Duration::from_secs(1)),
+        ..LifeguardPoolSettings::default()
+    };
+    let pool =
+        LifeguardPool::new_with_settings(&ctx.pg_url, 1, vec![], 0, &settings).expect("pool");
+    let ex = Arc::new(PooledLifeExecutor::new(Arc::new(pool)));
+
+    let e2 = Arc::clone(&ex);
+    let (err, waited) = may::go!(
+        may::coroutine::Builder::new().stack_size(0x8000),
+        move || {
+            let started = Instant::now();
+            let r = e2.query_one_values("SELECT pg_sleep(6)", &Values(Vec::new()));
+            (r.err(), started.elapsed())
+        }
+    )
+    .expect("spawn")
+    .join()
+    .expect("join");
+    assert!(
+        matches!(err, Some(LifeError::PoolReplyTimeout { .. })),
+        "expected PoolReplyTimeout, got {err:?}"
+    );
+    assert!(
+        waited < Duration::from_secs(3),
+        "reply timeout must be bounded for a coroutine caller, waited {waited:?}"
+    );
+
+    // The wedged connection was shut down and is replaced in the background.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let e3 = Arc::clone(&ex);
+        let ok = may::go!(
+            may::coroutine::Builder::new().stack_size(0x8000),
+            move || e3.query_one_values("SELECT 1", &Values(Vec::new())).is_ok()
+        )
+        .expect("spawn")
+        .join()
+        .expect("join");
+        if ok {
+            break;
+        }
+        assert!(Instant::now() < deadline, "slot not usable again after the watchdog closed it");
+        thread::sleep(Duration::from_millis(100));
+    }
+}

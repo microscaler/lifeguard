@@ -1,5 +1,8 @@
 //! `LifeReflector` Architecture Placeholder
 //!
+//! Superseded by the `lifeguard-reflector` crate (advisory-lock leadership, batched invalidation,
+//! catch-up); this scaffold is kept only so existing imports keep compiling.
+//!
 //! Provides the core `LifeReflector` background worker loop. This relies on `PostgreSQL`
 //! LISTEN/NOTIFY and Redis Distributed Locks (Redlock) for leader election.
 

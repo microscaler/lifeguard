@@ -1,42 +1,71 @@
-//! Connection pool with **one OS thread per slot** (SPSC per slot, MPSC overall).
+//! Coroutine-native connection pool: callers use the slot's connection directly and pipeline.
 //!
-//! Workers use dedicated threads so dispatchers can block on [`std::sync::mpsc`] replies without
-//! relying on the `may` scheduler to run pool consumers (see PRD / integration tests).
+//! ## Design
 //!
-//! Each worker owns one [`may_postgres::Client`] and drains a dedicated **bounded**
-//! [`crossbeam_channel`] queue. Saturated workers apply [`LifeguardPoolSettings::acquire_timeout`]
-//! when enqueueing jobs (PRD P0: bounded queues + acquire timeout).
+//! Each slot owns one `PostgreSQL` connection. `may_postgres` already pipelines: every `Client`
+//! clone of a connection can have requests in flight at the same time, and responses come back in
+//! order on that clone's channel. So a statement runs on the **caller's** coroutine, on a reusable
+//! `Client` handle of the least-loaded slot, with no worker thread and no job queue in between.
+//! Up to [`LifeguardPoolSettings::job_queue_capacity_per_worker`] statements are in flight per
+//! slot; past that, callers wait for capacity, bounded by [`LifeguardPoolSettings::acquire_timeout`].
 //!
-//! ## Routing (transparent to typical callers)
+//! Standalone statements (autocommit) interleave safely on one connection: each one is its own
+//! implicit transaction. A **unit** that spans several statements (`BEGIN` … `COMMIT`, and every
+//! RLS-scoped statement, which runs `BEGIN; rls_set_session(..); stmt; COMMIT`) must not have
+//! other callers' statements interleaved, so it **pins** its slot: it waits for the slot's
+//! in-flight statements to finish, holds the slot exclusively, and other callers pick other slots
+//! meanwhile. Inside a pinned unit the statements are still pipelined: the four statements of an
+//! RLS-scoped query go out in one write and cost one round trip.
 //!
-//! - **Writes** ([`LifeExecutor::execute_values`]) always use the **primary** pool.
+//! ## Reply deadline
+//!
+//! With [`LifeguardPoolSettings::reply_timeout`] set (the default), the statement runs on a
+//! short-lived coroutine and the caller waits on it with that deadline. A connection whose I/O
+//! never completes (a starved `may` runtime, a half-open socket) therefore yields
+//! [`LifeError::PoolReplyTimeout`] instead of hanging the caller. The slot's connection is then
+//! replaced on a separate OS thread, never inline on the caller (2 Oct 2026 wedge: an inline
+//! reconnect needs the same starved runtime and hung).
+//!
+//! ## Routing (unchanged)
+//!
+//! - **Writes** ([`LifeExecutor::execute_values`]) use the **primary** tier.
 //! - **Reads** ([`LifeExecutor::query_one_values`] / [`LifeExecutor::query_all_values`]) use the
-//!   **replica** pool when replica URLs and a non-zero replica pool size are configured **and**
-//!   [`crate::pool::wal::WalLagMonitor`] reports the replica is not lagging; otherwise reads use
-//!   the primary pool.
-//! - Callers can override routing per [`PooledLifeExecutor`] with [`ReadPreference`]:
-//!   [`ReadPreference::Primary`] forces reads onto the primary tier (read-your-writes); the default
-//!   is [`ReadPreference::Default`] (WAL-based routing above).
+//!   **replica** tier when replica URLs and a non-zero replica pool size are configured **and**
+//!   [`crate::pool::wal::WalLagMonitor`] reports the replica is not lagging; otherwise the primary.
+//! - [`ReadPreference::Primary`] on a [`PooledLifeExecutor`] forces reads onto the primary.
 //!
-//! With the **`metrics`** feature, pool-scoped series use the OpenTelemetry attribute **`pool_tier`**
+//! ## Healing
+//!
+//! A connectivity-class error (see `connectivity`) replaces the slot's connection and retries the
+//! statement once on the fresh one. A background thread per tier runs the idle liveness probe
+//! ([`LifeguardPoolSettings::idle_liveness_interval`]) and rotates connections past
+//! [`LifeguardPoolSettings::max_connection_lifetime`].
+//!
+//! With the **`metrics`** feature, pool-scoped series use the attribute **`pool_tier`**
 //! (`primary` \| `replica`); see [`crate::metrics::METRICS`].
 
 use crate::connection::connect;
 use crate::executor::{LifeError, LifeExecutor, SessionContext};
+use crate::metrics::pool_gauges::Track;
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
+use crate::pool::stmt_cache::{Lookup, StatementCache};
 use crate::pool::wal::{WalLagMonitor, WalLagPolicy};
-use crossbeam_channel::{RecvTimeoutError, SendTimeoutError};
-use may::sync::{Mutex, MutexGuard};
+use crate::value::TextParam;
+use may::sync::Semphore;
 use may_postgres::types::ToSql;
-use crate::pool::stmt_cache;
-use may_postgres::{Client, Row, Statement};
+use may_postgres::{Client, Row};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[cfg(feature = "tracing")]
+use crate::metrics::tracing_helpers;
+#[cfg(feature = "metrics")]
+use crate::metrics::METRICS;
 
 /// Milliseconds since the first call (monotonic, never 0), for cheap atomics-only timestamps.
 fn mono_ms() -> u64 {
@@ -46,10 +75,9 @@ fn mono_ms() -> u64 {
 
 const RLS_SET_SESSION_SQL: &str = "SELECT public.rls_set_session($1::text, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)";
 
-#[cfg(feature = "tracing")]
-use crate::metrics::tracing_helpers;
-#[cfg(feature = "metrics")]
-use crate::metrics::METRICS;
+/// Client handles kept per connection for reuse (a `Client` clone allocates a response channel and
+/// a 64 KiB write buffer, so handles are recycled rather than cloned per statement).
+const MAX_IDLE_HANDLES: usize = 256;
 
 /// Where [`PooledLifeExecutor`] should send **read** queries (`query_one_values` / `query_all_values`).
 ///
@@ -84,82 +112,196 @@ pub enum ReadPreference {
     Primary,
 }
 
-/// One tier of workers (primary or replica) with round-robin dispatch.
-struct WorkerPool {
-    /// Per-slot job sender. Behind a lock so a wedged slot can be REPLACED (fresh worker thread,
-    /// fresh connection) without stopping the pool - see [`WorkerPool::replace_wedged_slot`].
-    /// The lock is only held to clone or swap the sender, never across a park.
-    worker_txs: Arc<[std::sync::RwLock<crossbeam_channel::Sender<Envelope>>]>,
-    /// Bumped each time a slot is replaced; a timed-out caller only replaces the generation it
-    /// dispatched on, so N callers timing out on one wedged slot replace it once.
-    slot_generation: Arc<[AtomicU64]>,
-    /// True while a background thread is replacing the slot: dispatch skips it rather than
-    /// queueing behind a worker already known not to answer.
-    replacing: Arc<[AtomicBool]>,
-    /// When the slot was last replaced ([`mono_ms`]; 0 = never). A fresh connection that times
-    /// out again soon after is the signature of a starved runtime, not a bad connection.
-    replaced_at_ms: Arc<[AtomicU64]>,
-    /// Rate limit for the stderr report of reply timeouts ([`mono_ms`] of the last line, and how
-    /// many timeouts happened since).
-    last_timeout_report_ms: AtomicU64,
-    timeouts_since_report: AtomicU64,
-    /// What a replacement worker needs (urls per slot, queue capacity, liveness and lifetime knobs).
-    spawn: WorkerSpawnSpec,
-    /// One mutex per slot: held for the duration of each dispatched job, or for the whole lifetime
-    /// of [`ExclusivePrimaryLifeExecutor`] (U-4 pin-slot) so other dispatchers block on that slot.
-    slot_locks: Arc<[Mutex<()>]>,
-    next_worker: AtomicUsize,
-    pool_size: usize,
-    acquire_timeout: Duration,
-    /// Deadline for a job's reply once enqueued (`None` = unbounded). A wedged worker
-    /// yields [`LifeError::PoolReplyTimeout`] instead of hanging the caller forever.
-    reply_timeout: Option<Duration>,
-    /// `primary` or `replica` for [`crate::metrics::METRICS`] `pool_tier` labels.
-    metrics_tier: &'static str,
+// ---------------------------------------------------------------------------------------------
+// Connection and slot
+
+/// One live connection of a slot: the client it was opened with, recycled handles, and the
+/// statements prepared on it.
+struct SlotConn {
+    /// Behind a mutex only so `SlotConn` is `Sync` (`Client` is `Send`, not `Sync`); it is
+    /// locked just long enough to clone a new handle.
+    master: Mutex<Client>,
+    handles: Mutex<Vec<Client>>,
+    stmts: StatementCache,
+    opened_at: Instant,
+    /// Set when the connection failed or wedged; the slot then replaces it.
+    broken: AtomicBool,
+    /// Set when the reply-deadline watchdog shut the connection down.
+    deadline_closed: AtomicBool,
 }
 
-/// Everything needed to start one slot's worker (at pool start, or to replace a wedged one).
-#[derive(Clone)]
-struct WorkerSpawnSpec {
-    urls: Arc<[String]>,
-    queue_capacity: usize,
+impl SlotConn {
+    fn open(url: &str) -> Result<Arc<Self>, LifeError> {
+        let master = connect(url).map_err(|e| LifeError::Other(format!("pool connection: {e}")))?;
+        Ok(Arc::new(Self {
+            master: Mutex::new(master),
+            handles: Mutex::new(Vec::new()),
+            stmts: StatementCache::new(),
+            opened_at: Instant::now(),
+            broken: AtomicBool::new(false),
+            deadline_closed: AtomicBool::new(false),
+        }))
+    }
+
+    fn take_handle(&self) -> Client {
+        let popped = self
+            .handles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop();
+        popped.unwrap_or_else(|| {
+            self.master
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        })
+    }
+
+    /// Shut the connection's socket down so its I/O coroutine fails every request waiting on it
+    /// (the reply-deadline watchdog's way to wake callers parked on a wedged connection).
+    ///
+    /// `may_postgres` uses the socket's file descriptor as the connection id. The descriptor is
+    /// closed only when the I/O coroutine exits, which also marks the client closed, so it is
+    /// checked first; the remaining window between that check and the call is a few instructions
+    /// on a path that only runs after a missed deadline.
+    fn force_close(&self) {
+        self.deadline_closed.store(true, Ordering::Release);
+        #[cfg(unix)]
+        {
+            let master = self
+                .master
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if master.is_closed() {
+                return;
+            }
+            if let Ok(fd) = i32::try_from(master.id()) {
+                // SAFETY: `shutdown` takes no pointers; on a descriptor that is not a socket it
+                // fails with ENOTSOCK and does nothing.
+                let rc = unsafe { libc::shutdown(fd, libc::SHUT_RDWR) };
+                if rc != 0 {
+                    log::warn!(
+                        "lifeguard pool: shutting down a wedged connection failed: {}",
+                        std::io::Error::last_os_error()
+                    );
+                }
+            }
+        }
+    }
+
+    fn put_handle(&self, h: Client) {
+        if self.broken.load(Ordering::Relaxed) || h.is_closed() {
+            return;
+        }
+        let mut handles = self
+            .handles
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if handles.len() < MAX_IDLE_HANDLES {
+            handles.push(h);
+        }
+    }
+}
+
+struct Slot {
+    index: usize,
+    url: String,
+    conn: RwLock<Arc<SlotConn>>,
+    /// Shared for standalone statements, exclusive for pinned units.
+    gate: Gate,
+    in_flight: AtomicUsize,
+    /// Pinned units holding or waiting for this slot; pickers avoid pinned slots.
+    pinned: AtomicUsize,
+    replacing: AtomicBool,
+    replaced_at_ms: AtomicU64,
+    last_used_ms: AtomicU64,
+    /// Serialises reconnects of this slot.
+    heal_lock: may::sync::Mutex<()>,
+    /// Statements running inline on a caller coroutine under the reply deadline (see `guarded`).
+    watches: std::sync::Mutex<Vec<(u64, Arc<Watch>)>>,
+}
+
+impl Slot {
+    fn current(&self) -> Arc<SlotConn> {
+        Arc::clone(
+            &self
+                .conn
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    fn swap(&self, fresh: Arc<SlotConn>) {
+        let old = std::mem::replace(
+            &mut *self
+                .conn
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            fresh,
+        );
+        old.broken.store(true, Ordering::Release);
+    }
+
+    /// Replace `seen` with a fresh connection unless someone already did; returns the current one.
+    fn heal(&self, seen: &Arc<SlotConn>, tier: &'static str) -> Result<Arc<SlotConn>, LifeError> {
+        let _g = self
+            .heal_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cur = self.current();
+        if !Arc::ptr_eq(&cur, seen) && !cur.broken.load(Ordering::Acquire) {
+            return Ok(cur);
+        }
+        #[cfg(feature = "tracing")]
+        let _heal_span = tracing_helpers::pool_slot_heal_span(); // created, not entered
+        let fresh = SlotConn::open(&self.url)?;
+        self.swap(Arc::clone(&fresh));
+        #[cfg(feature = "metrics")]
+        METRICS.record_pool_slot_heal(tier);
+        log::warn!(
+            "lifeguard pool ({tier}): slot {} replaced its connection after a connectivity error",
+            self.index
+        );
+        let _ = tier;
+        Ok(fresh)
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Tier
+
+struct TierInner {
+    slots: Vec<Slot>,
+    permits: Semphore,
+    acquire_timeout: Duration,
+    reply_timeout: Option<Duration>,
     idle_liveness: Option<Duration>,
     max_connection_lifetime: Option<Duration>,
     max_connection_lifetime_jitter: Duration,
     tier: &'static str,
+    last_timeout_report_ms: AtomicU64,
+    timeouts_since_report: AtomicU64,
+    next_watch: AtomicU64,
 }
 
-impl WorkerSpawnSpec {
-    /// Connect, start the worker thread for `slot`, and return its job sender.
-    fn spawn_worker(&self, slot: usize) -> Result<crossbeam_channel::Sender<Envelope>, LifeError> {
-        let tier = self.tier;
-        let url = self.urls[slot].clone();
-        let client = connect(&url)
-            .map_err(|e| LifeError::Other(format!("{tier} pool connection slot {slot}: {e}")))?;
-        let (job_tx, job_rx) = crossbeam_channel::bounded::<Envelope>(self.queue_capacity);
-        let idle = self.idle_liveness;
-        let max_lifetime = self.max_connection_lifetime;
-        let lifetime_jitter = self.max_connection_lifetime_jitter;
-        let name = format!("lifeguard-pool-{tier}-{slot}");
-        let handle = thread::Builder::new()
-            .name(name)
-            .spawn(move || {
-                run_worker(WorkerThreadStart {
-                    connection_string: url,
-                    client,
-                    job_rx,
-                    idle_liveness: idle,
-                    max_connection_lifetime: max_lifetime,
-                    max_connection_lifetime_jitter: lifetime_jitter,
-                    slot,
-                    tier,
-                });
-            })
-            .map_err(|e| LifeError::Other(format!("{tier} pool worker thread {slot}: {e}")))?;
-        #[allow(clippy::mem_forget)] // Workers must outlive the pool handle.
-        std::mem::forget(handle);
-        Ok(job_tx)
-    }
+/// One tier of slots (primary or replica).
+struct WorkerPool {
+    inner: Arc<TierInner>,
+    pool_size: usize,
+}
+
+/// What a statement returns.
+enum Out {
+    Count(u64),
+    One(Row),
+    All(Vec<Row>),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Execute,
+    QueryOne,
+    QueryAll,
 }
 
 impl WorkerPool {
@@ -174,232 +316,235 @@ impl WorkerPool {
                 "LifeguardPool worker tier ({tier}): pool_size must be at least 1"
             )));
         }
-
-        let spawn = WorkerSpawnSpec {
-            urls: (0..pool_size)
-                .map(&mut url_for_slot)
-                .collect::<Vec<_>>()
-                .into(),
-            queue_capacity: settings.job_queue_capacity_per_worker,
-            idle_liveness: settings.idle_liveness_interval,
-            max_connection_lifetime: settings.max_connection_lifetime,
-            max_connection_lifetime_jitter: settings.max_connection_lifetime_jitter,
-            tier,
-        };
-        let mut txs = Vec::with_capacity(pool_size);
-        for slot in 0..pool_size {
-            txs.push(std::sync::RwLock::new(spawn.spawn_worker(slot)?));
+        let mut slots = Vec::with_capacity(pool_size);
+        for index in 0..pool_size {
+            let url = url_for_slot(index);
+            let conn = SlotConn::open(&url).map_err(|e| {
+                LifeError::Other(format!("{tier} pool connection slot {index}: {e}"))
+            })?;
+            slots.push(Slot {
+                index,
+                url,
+                conn: RwLock::new(conn),
+                gate: Gate::default(),
+                in_flight: AtomicUsize::new(0),
+                pinned: AtomicUsize::new(0),
+                replacing: AtomicBool::new(false),
+                replaced_at_ms: AtomicU64::new(0),
+                last_used_ms: AtomicU64::new(mono_ms()),
+                heal_lock: may::sync::Mutex::new(()),
+                watches: std::sync::Mutex::new(Vec::new()),
+            });
         }
-
-        let worker_txs: Arc<[std::sync::RwLock<crossbeam_channel::Sender<Envelope>>]> = txs.into();
-        let slot_generation: Arc<[AtomicU64]> = (0..pool_size)
-            .map(|_| AtomicU64::new(0))
-            .collect::<Vec<_>>()
-            .into();
-        let replacing: Arc<[AtomicBool]> = (0..pool_size)
-            .map(|_| AtomicBool::new(false))
-            .collect::<Vec<_>>()
-            .into();
-        let replaced_at_ms: Arc<[AtomicU64]> = (0..pool_size)
-            .map(|_| AtomicU64::new(0))
-            .collect::<Vec<_>>()
-            .into();
-
-        let slot_locks: Vec<Mutex<()>> = (0..pool_size).map(|_| Mutex::new(())).collect();
-        let slot_locks: Arc<[Mutex<()>]> = slot_locks.into_boxed_slice().into();
-
-        Ok(Self {
-            worker_txs,
-            slot_generation,
-            replacing,
-            replaced_at_ms,
-            last_timeout_report_ms: AtomicU64::new(0),
-            timeouts_since_report: AtomicU64::new(0),
-            spawn,
-            slot_locks,
-            next_worker: AtomicUsize::new(0),
-            pool_size,
+        let depth = settings.job_queue_capacity_per_worker.max(1);
+        let inner = Arc::new(TierInner {
+            slots,
+            permits: Semphore::new(pool_size * depth),
             acquire_timeout: settings.acquire_timeout,
             reply_timeout: settings.reply_timeout,
-            metrics_tier: tier,
-        })
-    }
-
-    fn pick_worker_index(&self) -> usize {
-        self.next_worker.fetch_add(1, Ordering::Relaxed) % self.pool_size
-    }
-
-    /// Enqueue work on a worker after taking that slot’s [`Mutex`].
-    ///
-    /// **Latency:** The slot index is chosen **before** the lock ([`Self::pick_worker_index`],
-    /// round-robin). If another caller holds the same slot’s mutex via
-    /// [`LifeguardPool::exclusive_primary_write_executor`], this path **blocks** until that
-    /// [`ExclusivePrimaryLifeExecutor`] is dropped—so a long `BEGIN`…`COMMIT` on one slot can delay
-    /// unrelated traffic that round-robins onto that slot. Larger [`Self::pool_size`] spreads load;
-    /// keeping exclusive transactions short reduces head-of-line blocking.
-    ///
-    /// **Scheduling:** the slot lock is a [`may::sync::Mutex`], so a caller that finds the slot
-    /// busy *parks its coroutine* and frees the worker thread. The guard is held across
-    /// `reply_rx.recv()` — a coroutine park — so it must never be an OS-thread lock: with a
-    /// `std::sync::Mutex` every same-slot caller blocked its `may` worker thread on the futex
-    /// while the holder sat parked waiting for the DB reply, and once enough worker threads were
-    /// blocked the holder could not be resumed to release it (PriceWhisperer market pod wedged
-    /// under a 100-stream open storm, 21 Sep 2026: 10+ workers in `Mutex::lock_contended`
-    /// under `WorkerPool::dispatch`, `/health` timing out, liveness restarts).
-    fn dispatch<T: Send + 'static>(
-        &self,
-        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
-    ) -> Result<T, LifeError> {
-        let slot = self.pick_serviceable_slot()?;
-        let waiting = crate::metrics::pool_gauges::Track::waiting(self.metrics_tier);
-        #[cfg(feature = "metrics")]
-        let wait_start = Instant::now();
-        let _slot_guard = self.slot_locks[slot]
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        drop(waiting);
-        #[cfg(feature = "metrics")]
-        METRICS.record_pool_checkout(wait_start.elapsed(), self.metrics_tier);
-        let _in_flight = crate::metrics::pool_gauges::Track::in_flight(self.metrics_tier);
-        self.check_slot(slot)?;
-        // An ordinary job owns nothing on the slot beyond itself: if the worker never answers,
-        // the slot is replaced. (Pinned transactions go through `dispatch_locked`, which never
-        // replaces: swapping the connection under an open BEGIN would run the rest of the unit
-        // outside its transaction and RLS context.)
-        self.dispatch_on_slot(slot, true, build)
-    }
-
-    /// Dispatch to `slot` without acquiring [`Self::slot_locks`]. Caller must already hold the
-    /// mutex for `slot` (see [`ExclusivePrimaryLifeExecutor`]).
-    fn dispatch_locked<T: Send + 'static>(
-        &self,
-        slot: usize,
-        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
-    ) -> Result<T, LifeError> {
-        self.check_slot(slot)?;
-        self.dispatch_on_slot(slot, false, build)
-    }
-
-    /// Round-robin, skipping slots a background thread is replacing. When every slot is being
-    /// replaced the pool fails fast instead of queueing on workers already known not to answer.
-    fn pick_serviceable_slot(&self) -> Result<usize, LifeError> {
-        for _ in 0..self.pool_size {
-            let slot = self.pick_worker_index();
-            if !self.replacing[slot].load(Ordering::Acquire) {
-                return Ok(slot);
-            }
-        }
-        Err(LifeError::Pool(format!(
-            "lifeguard pool ({}): all {} slots are being replaced after reply timeouts; no connection is being serviced. \
-             If this persists the may runtime that drives connection I/O is starved - look for OS-blocking calls in coroutines",
-            self.metrics_tier, self.pool_size
-        )))
-    }
-
-    fn check_slot(&self, slot: usize) -> Result<(), LifeError> {
-        if slot >= self.pool_size {
-            return Err(LifeError::Pool(format!(
-                "internal pool error: slot {slot} out of range (pool_size {})",
-                self.pool_size
-            )));
-        }
-        Ok(())
-    }
-
-    /// The live sender for `slot` and the generation it belongs to.
-    fn slot_sender(&self, slot: usize) -> (crossbeam_channel::Sender<Envelope>, u64) {
-        let generation = self.slot_generation[slot].load(Ordering::Acquire);
-        let tx = self.worker_txs[slot]
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        (tx, generation)
-    }
-
-    /// Replace a slot whose worker did not answer within the reply budget.
-    ///
-    /// The old worker thread is stuck inside a job (PriceWhisperer orders, 1 Oct 2026: 30 of 32
-    /// workers parked on a futex mid-transaction, the server showing `idle in transaction` /
-    /// ClientRead for 25+ minutes; terminating the backends did NOT wake them, so the in-worker
-    /// heal path never ran and only a pod restart recovered). Waiting for it is pointless: start
-    /// a fresh worker with a fresh connection on the slot and let the old thread go. Its queue
-    /// is disconnected once its sender is dropped, so if it ever wakes it exits; its server
-    /// session is left for `idle_in_transaction_session_timeout` to reap.
-    ///
-    /// The replacement runs on its OWN thread; the caller returns its timeout at once. It used to
-    /// connect inline, on the request coroutine, holding the slot lock - and a connect needs the
-    /// same may runtime whose starvation is the usual reason a slot stops answering (orders,
-    /// 2 Oct 2026: may workers blocked by OS-waits in the broker adapter), so the heal itself
-    /// hung, the slot lock with it, and every later caller on the slot waited forever. While a
-    /// slot is being replaced, dispatch skips it.
-    ///
-    /// Only the caller that wins the generation bump replaces; others see a newer generation.
-    fn replace_wedged_slot(&self, slot: usize, seen_generation: u64) {
-        if self.slot_generation[slot]
-            .compare_exchange(
-                seen_generation,
-                seen_generation + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
-            return;
-        }
-        if self.replacing[slot].swap(true, Ordering::AcqRel) {
-            return; // a replacement for this slot is already running
-        }
-        let tier = self.metrics_tier;
-        let last = self.replaced_at_ms[slot].load(Ordering::Acquire);
-        let recent = self.reply_timeout.map_or(Duration::from_secs(60), |t| {
-            (t * 3).max(Duration::from_secs(60))
+            idle_liveness: settings.idle_liveness_interval,
+            max_connection_lifetime: settings.max_connection_lifetime.filter(|d| !d.is_zero()),
+            max_connection_lifetime_jitter: settings.max_connection_lifetime_jitter,
+            tier,
+            last_timeout_report_ms: AtomicU64::new(0),
+            timeouts_since_report: AtomicU64::new(0),
+            next_watch: AtomicU64::new(0),
         });
-        if last != 0 && mono_ms().saturating_sub(last) < recent.as_millis() as u64 {
-            let msg = format!(
-                "lifeguard pool ({tier}): slot {slot} was replaced {}s ago and its FRESH connection missed the reply budget too. \
-                 The database is not the problem: the may runtime that drives connection I/O is starved - something is making \
-                 OS-blocking calls in coroutines (a crossbeam/std channel wait, a std Mutex held across a park, blocking I/O)",
-                mono_ms().saturating_sub(last) / 1000
-            );
-            eprintln!("{msg}");
-            log::error!("{msg}");
+        if inner.idle_liveness.is_some()
+            || inner.max_connection_lifetime.is_some()
+            || inner.reply_timeout.is_some()
+        {
+            spawn_maintenance(&inner);
         }
-        let spec = self.spawn.clone();
-        let txs = Arc::clone(&self.worker_txs);
-        let generations = Arc::clone(&self.slot_generation);
-        let replacing = Arc::clone(&self.replacing);
-        let replaced_at = Arc::clone(&self.replaced_at_ms);
-        let started = std::thread::Builder::new()
-            .name(format!("lifeguard-heal-{tier}-{slot}"))
-            .spawn(move || {
-                let t0 = Instant::now();
-                match spec.spawn_worker(slot) {
-                    Ok(tx) => {
-                        *txs[slot].write().unwrap_or_else(|poisoned| poisoned.into_inner()) = tx;
-                        replaced_at[slot].store(mono_ms(), Ordering::Release);
-                        #[cfg(feature = "metrics")]
-                        METRICS.record_pool_slot_heal(tier);
-                        let msg = format!(
-                            "lifeguard pool ({tier}): slot {slot} wedged past the reply budget; replaced with a fresh worker and connection in {:?}",
-                            t0.elapsed()
-                        );
-                        eprintln!("{msg}");
-                        log::error!("{msg}");
-                    }
-                    Err(e) => {
-                        // Let the next timeout on this slot try again.
-                        generations[slot].store(seen_generation, Ordering::Release);
-                        let msg = format!("lifeguard pool ({tier}): slot {slot} is wedged and could not be replaced: {e}");
-                        eprintln!("{msg}");
-                        log::error!("{msg}");
+        Ok(Self { inner, pool_size })
+    }
+
+    /// Run one standalone statement on the least-loaded slot.
+    fn run(
+        &self,
+        kind: Kind,
+        sql: Arc<str>,
+        params: Vec<OwnedParam>,
+        session: Option<Arc<SessionArgs>>,
+    ) -> Result<Out, LifeError> {
+        if let Some(args) = session {
+            return self.run_contextual(kind, sql, params, &args);
+        }
+        let inner = &*self.inner;
+        let started = Instant::now();
+        let permit = Permit::acquire(inner, started)?;
+        let (index, gate) = inner.enter_shared(started)?;
+        let slot = &inner.slots[index];
+        #[cfg(feature = "metrics")]
+        {
+            METRICS.record_pool_checkout(started.elapsed(), inner.tier);
+            METRICS.record_connection_wait(started.elapsed(), Some(inner.tier));
+        }
+        let _busy = InFlight::enter(slot, inner.tier);
+        let conn = slot.current();
+        let tier_arc = Arc::clone(&self.inner);
+        #[cfg(feature = "tracing")]
+        let ctx = may_tracing::current();
+        let watched = Arc::clone(&conn);
+        let result = guarded(&self.inner, index, &watched, move || {
+            #[cfg(feature = "tracing")]
+            let _ctx = may_tracing::set_current(ctx);
+            let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
+            run_shared_with_heal(&tier_arc, index, conn, &sql, &refs, kind)
+        });
+        drop(gate);
+        drop(permit);
+        match result {
+            Some(r) => r,
+            None => Err(self.inner.on_reply_timeout(index, started, true)),
+        }
+    }
+
+    /// An RLS-scoped statement: pin a slot and pipeline `BEGIN`, `rls_set_session`, the statement
+    /// and `COMMIT`.
+    fn run_contextual(
+        &self,
+        kind: Kind,
+        sql: Arc<str>,
+        params: Vec<OwnedParam>,
+        args: &Arc<SessionArgs>,
+    ) -> Result<Out, LifeError> {
+        let inner = &*self.inner;
+        let started = Instant::now();
+        let pin = Pin::acquire(&self.inner)?;
+        #[cfg(feature = "metrics")]
+        {
+            METRICS.record_pool_checkout(started.elapsed(), inner.tier);
+            METRICS.record_connection_wait(started.elapsed(), Some(inner.tier));
+        }
+        let index = pin.index;
+        let conn = Arc::clone(&pin.conn);
+        let args = Arc::clone(args);
+        #[cfg(feature = "tracing")]
+        let ctx = may_tracing::current();
+        let watched = Arc::clone(&conn);
+        let result = guarded(&self.inner, index, &watched, move || {
+            #[cfg(feature = "tracing")]
+            let _ctx = may_tracing::set_current(ctx);
+            let h = conn.take_handle();
+            let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
+            let r = contextual_unit(&h, &conn, &args, &sql, &refs, kind);
+            if r.as_ref()
+                .is_err_and(life_error_is_connectivity_heal_candidate)
+            {
+                conn.broken.store(true, Ordering::Release);
+            } else {
+                conn.put_handle(h);
+            }
+            r
+        });
+        let broken = pin.conn.broken.load(Ordering::Acquire);
+        drop(pin);
+        match result {
+            Some(r) => {
+                if broken {
+                    self.inner.replace_in_background(index, None);
+                }
+                r
+            }
+            None => Err(self.inner.on_reply_timeout(index, started, true)),
+        }
+    }
+}
+
+impl TierInner {
+    /// Enter a slot for one shared statement: the least-loaded slot whose gate is open. A slot's
+    /// gate is closed only while a transaction or RLS unit holds it exclusively; when every slot
+    /// is held that way, wait (polling, so a pinned caller that also issues a pooled statement
+    /// gets [`LifeError::PoolAcquireTimeout`] instead of waiting on itself forever).
+    fn enter_shared(&self, started: Instant) -> Result<(usize, ReadGate<'_>), LifeError> {
+        let mut backoff = Duration::from_micros(100);
+        loop {
+            let index = self.pick_shared()?;
+            // A slot with a pin holding or waiting for it is closed to new statements, so a pin
+            // waits only for the statements already inside.
+            if self.slots[index].pinned.load(Ordering::Acquire) == 0 {
+                if let Some(gate) = self.slots[index].gate.try_read() {
+                    return Ok((index, gate));
+                }
+            }
+            // Pinned, or a pin is draining it: any other open gate?
+            for (i, s) in self.slots.iter().enumerate() {
+                if i != index
+                    && !s.replacing.load(Ordering::Acquire)
+                    && s.pinned.load(Ordering::Acquire) == 0
+                {
+                    if let Some(gate) = s.gate.try_read() {
+                        return Ok((i, gate));
                     }
                 }
-                replacing[slot].store(false, Ordering::Release);
-            });
-        if let Err(e) = started {
-            self.slot_generation[slot].store(seen_generation, Ordering::Release);
-            self.replacing[slot].store(false, Ordering::Release);
-            log::error!("lifeguard pool ({tier}): could not start the replacement thread for slot {slot}: {e}");
+            }
+            if started.elapsed() >= self.acquire_timeout {
+                #[cfg(feature = "metrics")]
+                METRICS.record_pool_acquire_timeout(self.tier);
+                return Err(LifeError::PoolAcquireTimeout {
+                    waited: started.elapsed(),
+                });
+            }
+            let _waiting = Track::waiting(self.tier);
+            may::coroutine::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_millis(5));
+        }
+    }
+
+    /// Least-loaded slot that is not pinned, being replaced, or broken.
+    fn pick_shared(&self) -> Result<usize, LifeError> {
+        let mut best: Option<(usize, usize)> = None;
+        let mut any_serviceable = false;
+        for (i, s) in self.slots.iter().enumerate() {
+            if s.replacing.load(Ordering::Acquire) {
+                continue;
+            }
+            any_serviceable = true;
+            let load =
+                s.in_flight.load(Ordering::Relaxed) + s.pinned.load(Ordering::Relaxed) * 1024;
+            if best.is_none_or(|(_, l)| load < l) {
+                best = Some((i, load));
+                if load == 0 {
+                    break;
+                }
+            }
+        }
+        match best {
+            Some((i, _)) => Ok(i),
+            None if !any_serviceable => Err(LifeError::Pool(format!(
+                "lifeguard pool ({}): all {} slots are being replaced after reply timeouts; no connection is being serviced. \
+                 If this persists the may runtime that drives connection I/O is starved - look for OS-blocking calls in coroutines",
+                self.tier,
+                self.slots.len()
+            ))),
+            None => Err(LifeError::Pool("internal pool error: no slot".to_string())),
+        }
+    }
+
+    /// The reply budget elapsed: report, mark the connection wedged and replace it off-thread.
+    fn on_reply_timeout(
+        self: &Arc<Self>,
+        index: usize,
+        started: Instant,
+        replace: bool,
+    ) -> LifeError {
+        #[cfg(feature = "metrics")]
+        METRICS.record_pool_reply_timeout(self.tier);
+        if let Some(limit) = self.reply_timeout {
+            log::warn!(
+                "lifeguard pool ({}): no reply within {limit:?}; returning bounded error (connection wedged or statement overran the reply budget)",
+                self.tier
+            );
+            self.report_reply_timeout(index, limit);
+        }
+        if replace {
+            let seen = self.slots[index].current();
+            seen.broken.store(true, Ordering::Release);
+            self.replace_in_background(index, Some(seen));
+        }
+        LifeError::PoolReplyTimeout {
+            waited: started.elapsed(),
         }
     }
 
@@ -419,102 +564,723 @@ impl WorkerPool {
             self.timeouts_since_report.store(0, Ordering::Release);
             eprintln!(
                 "lifeguard pool ({}): {n} job(s) missed the {limit:?} reply budget since the last report (latest on slot {slot}); replacing wedged slots",
-                self.metrics_tier
+                self.tier
             );
         }
     }
 
-    fn dispatch_on_slot<T: Send + 'static>(
-        &self,
-        slot: usize,
-        replace_on_timeout: bool,
-        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
-    ) -> Result<T, LifeError> {
-        let (tx, generation) = self.slot_sender(slot);
-        let tx = &tx;
-        #[cfg(feature = "tracing")]
-        let _span = tracing_helpers::acquire_connection_span(); // created, not entered: see tracing_helpers
-
-        let wait_start = Instant::now();
-        let deadline = wait_start + self.acquire_timeout;
-        let (reply_tx, reply_rx) = may::sync::mpsc::channel();
-        let job = build(reply_tx);
-
-        let mut current_job = job;
-        loop {
-            let now = Instant::now();
-            if now >= deadline {
-                #[cfg(feature = "metrics")]
-                METRICS.record_pool_acquire_timeout(self.metrics_tier);
-                return Err(LifeError::PoolAcquireTimeout {
-                    waited: wait_start.elapsed(),
-                });
-            }
-            let slice = deadline.saturating_duration_since(now);
-            // Stamp when we *attempt* enqueue; successful send leaves the job in the queue with this
-            // instant so the worker can measure queue wait (time behind prior jobs), not just
-            // `send_timeout` blocking on a full queue.
-            current_job = current_job.with_enqueued_at(Instant::now());
-            match tx.send_timeout(Envelope::new(current_job), slice) {
-                Ok(()) => break,
-                Err(SendTimeoutError::Timeout(e)) => {
-                    current_job = e.job;
-                }
-                Err(SendTimeoutError::Disconnected(_)) => {
-                    return Err(LifeError::Pool(
-                        "pool worker queue disconnected".to_string(),
-                    ));
-                }
-            }
+    /// Replace the slot's connection on its own OS thread. A connect needs the `may` runtime, the
+    /// starvation of which is the usual reason a connection stops answering, so it must never run
+    /// on the caller.
+    fn replace_in_background(self: &Arc<Self>, index: usize, seen: Option<Arc<SlotConn>>) {
+        let slot = &self.slots[index];
+        if slot.replacing.swap(true, Ordering::AcqRel) {
+            return;
         }
-
-        // The reply wait is bounded separately from the acquire budget: the
-        // acquire timeout only covers ENQUEUEING; once the job is on a worker
-        // queue, only this deadline stands between a wedged worker and an
-        // infinite caller hang (2026-08-29 pool starvation incident). The
-        // worker may still be executing when we give up — the dropped receiver
-        // makes its eventual reply a no-op, and connectivity errors on the
-        // worker side heal the slot independently.
-        match self.reply_timeout {
-            None => match reply_rx.recv() {
-                Ok(r) => r,
-                Err(_) => Err(LifeError::Pool(
-                    "pool reply channel closed unexpectedly".to_string(),
-                )),
-            },
-            Some(limit) => match reply_rx.recv_timeout(limit) {
-                Ok(r) => r,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    #[cfg(feature = "metrics")]
-                    METRICS.record_pool_reply_timeout(self.metrics_tier);
-                    log::warn!(
-                        "lifeguard pool ({}): no worker reply within {limit:?}; returning bounded error (worker wedged or statement overran the reply budget)",
-                        self.metrics_tier
-                    );
-                    self.report_reply_timeout(slot, limit);
-                    if replace_on_timeout {
-                        self.replace_wedged_slot(slot, generation);
+        let tier = self.tier;
+        let last = slot.replaced_at_ms.load(Ordering::Acquire);
+        let recent = self.reply_timeout.map_or(Duration::from_secs(60), |t| {
+            (t * 3).max(Duration::from_secs(60))
+        });
+        if last != 0 && mono_ms().saturating_sub(last) < recent.as_millis() as u64 {
+            let msg = format!(
+                "lifeguard pool ({tier}): slot {index} was replaced {}s ago and its FRESH connection missed the reply budget too. \
+                 The database is not the problem: the may runtime that drives connection I/O is starved - something is making \
+                 OS-blocking calls in coroutines (a crossbeam/std channel wait, a std Mutex held across a park, blocking I/O)",
+                mono_ms().saturating_sub(last) / 1000
+            );
+            eprintln!("{msg}");
+            log::error!("{msg}");
+        }
+        let url = slot.url.clone();
+        let tier_arc = Arc::clone(self);
+        let started = thread::Builder::new()
+            .name(format!("lifeguard-heal-{tier}-{index}"))
+            .spawn(move || {
+                let slot = &tier_arc.slots[index];
+                let t0 = Instant::now();
+                let still_seen = seen.as_ref().is_none_or(|s| Arc::ptr_eq(s, &slot.current()));
+                if still_seen || slot.current().broken.load(Ordering::Acquire) {
+                    match SlotConn::open(&url) {
+                        Ok(fresh) => {
+                            slot.swap(fresh);
+                            slot.replaced_at_ms.store(mono_ms(), Ordering::Release);
+                            #[cfg(feature = "metrics")]
+                            METRICS.record_pool_slot_heal(tier);
+                            let msg = format!(
+                                "lifeguard pool ({tier}): slot {index} wedged past the reply budget; replaced with a fresh connection in {:?}",
+                                t0.elapsed()
+                            );
+                            eprintln!("{msg}");
+                            log::error!("{msg}");
+                        }
+                        Err(e) => {
+                            let msg = format!(
+                                "lifeguard pool ({tier}): slot {index} is wedged and could not be replaced: {e}"
+                            );
+                            eprintln!("{msg}");
+                            log::error!("{msg}");
+                        }
                     }
-                    Err(LifeError::PoolReplyTimeout {
-                        waited: wait_start.elapsed(),
-                    })
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(LifeError::Pool(
-                    "pool reply channel closed unexpectedly".to_string(),
-                )),
-            },
+                slot.replacing.store(false, Ordering::Release);
+            });
+        if let Err(e) = started {
+            slot.replacing.store(false, Ordering::Release);
+            log::error!(
+                "lifeguard pool ({tier}): could not start the replacement thread for slot {index}: {e}"
+            );
         }
     }
 }
 
-/// Pool of `PostgreSQL` connections with **primary** workers for writes and optional **replica**
-/// workers for reads when lag allows.
+/// Background liveness probes and lifetime rotation for one tier, on an OS thread.
+fn spawn_maintenance(inner: &Arc<TierInner>) {
+    let weak = Arc::downgrade(inner);
+    let tier = inner.tier;
+    let tick = inner
+        .idle_liveness
+        .unwrap_or(Duration::from_secs(1))
+        .min(Duration::from_secs(1))
+        .min(
+            inner
+                .reply_timeout
+                .map_or(Duration::from_secs(1), |t| t / 4),
+        )
+        .max(Duration::from_millis(10));
+    let _ = thread::Builder::new()
+        .name(format!("lifeguard-maint-{tier}"))
+        .spawn(move || loop {
+            thread::sleep(tick);
+            let Some(t) = weak.upgrade() else {
+                return;
+            };
+            for slot in &t.slots {
+                if let Some(limit) = t.reply_timeout {
+                    expire_watches(slot, limit);
+                }
+                if slot.replacing.load(Ordering::Acquire) {
+                    continue;
+                }
+                let conn = slot.current();
+                if let Some(base) = t.max_connection_lifetime {
+                    let limit =
+                        connection_lifetime_effective_limit(base, t.max_connection_lifetime_jitter, slot.index);
+                    if conn.opened_at.elapsed() >= limit {
+                        match SlotConn::open(&slot.url) {
+                            Ok(fresh) => {
+                                slot.swap(fresh);
+                                log::debug!(
+                                    "lifeguard pool: rotated client after max_connection_lifetime (slot {})",
+                                    slot.index
+                                );
+                                #[cfg(feature = "metrics")]
+                                METRICS.record_pool_connection_rotated(tier);
+                            }
+                            Err(e) => log::warn!(
+                                "lifeguard pool: max_connection_lifetime rotation failed (slot {}): {e}",
+                                slot.index
+                            ),
+                        }
+                        continue;
+                    }
+                }
+                if let Some(idle) = t.idle_liveness {
+                    let idle_ms = mono_ms().saturating_sub(slot.last_used_ms.load(Ordering::Relaxed));
+                    if slot.in_flight.load(Ordering::Relaxed) == 0
+                        && slot.pinned.load(Ordering::Relaxed) == 0
+                        && u128::from(idle_ms) >= idle.as_millis()
+                    {
+                        let h = conn.take_handle();
+                        let probe = h.batch_execute("SELECT 1").map_err(LifeError::from);
+                        slot.last_used_ms.store(mono_ms(), Ordering::Relaxed);
+                        match probe {
+                            Ok(()) => conn.put_handle(h),
+                            Err(e) if life_error_is_connectivity_heal_candidate(&e) => {
+                                conn.broken.store(true, Ordering::Release);
+                                let _ = slot.heal(&conn, tier);
+                            }
+                            Err(_) => conn.put_handle(h),
+                        }
+                    }
+                }
+            }
+        });
+}
+
+/// Per-slot jitter on top of base max lifetime (PRD R3.1).
+///
+/// `salt` must be **stable** for the lifetime of a connection (we use the slot index). Do not mix
+/// in time-varying values: the limit is compared on every tick, and an unstable salt would change
+/// the threshold each call and break rotation timing.
+fn connection_lifetime_effective_limit(base: Duration, jitter: Duration, salt: usize) -> Duration {
+    if jitter.is_zero() {
+        return base;
+    }
+    let j = (salt as u128).wrapping_mul(1_100_003) % (jitter.as_millis() + 1);
+    base + Duration::from_millis(u64::try_from(j).unwrap_or(0))
+}
+
+/// A unit of in-flight capacity on a tier, released on drop.
+struct Permit<'a> {
+    sem: &'a Semphore,
+}
+
+impl<'a> Permit<'a> {
+    fn acquire(inner: &'a TierInner, started: Instant) -> Result<Self, LifeError> {
+        let _waiting = Track::waiting(inner.tier);
+        if inner.permits.wait_timeout(inner.acquire_timeout) {
+            Ok(Self {
+                sem: &inner.permits,
+            })
+        } else {
+            #[cfg(feature = "metrics")]
+            METRICS.record_pool_acquire_timeout(inner.tier);
+            Err(LifeError::PoolAcquireTimeout {
+                waited: started.elapsed(),
+            })
+        }
+    }
+}
+
+impl Drop for Permit<'_> {
+    fn drop(&mut self) {
+        self.sem.post();
+    }
+}
+
+/// Counts a statement in its slot's load and in the in-flight gauge.
+struct InFlight<'a> {
+    slot: &'a Slot,
+    _track: Track,
+}
+
+impl<'a> InFlight<'a> {
+    fn enter(slot: &'a Slot, tier: &'static str) -> Self {
+        slot.in_flight.fetch_add(1, Ordering::Relaxed);
+        Self {
+            slot,
+            _track: Track::in_flight(tier),
+        }
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.slot.in_flight.fetch_sub(1, Ordering::Relaxed);
+        self.slot.last_used_ms.store(mono_ms(), Ordering::Relaxed);
+    }
+}
+
+/// A slot's admission gate: many shared statements, or one pinned unit.
+///
+/// A bare atomic rather than `may::sync::RwLock`: callers never block on it (they poll with
+/// backoff under the acquire timeout), and it has no poisoning. A pinned unit runs the caller's
+/// closure while it holds the gate, so a panic there unwinds through the hold; a poisoned lock
+/// would then fail every later statement on the slot (and `may`'s `try_read` miscounts readers
+/// on a poisoned lock).
+#[derive(Default)]
+struct Gate {
+    /// Readers in the low bits; `WRITER` while a pin holds it.
+    state: AtomicUsize,
+}
+
+const WRITER: usize = 1 << (usize::BITS - 1);
+
+impl Gate {
+    fn try_read(&self) -> Option<ReadGate<'_>> {
+        let mut s = self.state.load(Ordering::Acquire);
+        loop {
+            if s & WRITER != 0 {
+                return None;
+            }
+            match self
+                .state
+                .compare_exchange_weak(s, s + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return Some(ReadGate(self)),
+                Err(now) => s = now,
+            }
+        }
+    }
+
+    /// Exclusive hold when no statement is inside; the caller releases it with `write_unlock`.
+    fn try_write(&self) -> bool {
+        self.state
+            .compare_exchange(0, WRITER, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    fn write_unlock(&self) {
+        self.state.fetch_and(!WRITER, Ordering::AcqRel);
+    }
+}
+
+/// One shared statement inside a slot's gate.
+struct ReadGate<'a>(&'a Gate);
+
+impl Drop for ReadGate<'_> {
+    fn drop(&mut self) {
+        self.0.state.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Exclusive hold of one slot for a multi-statement unit.
+struct Pin {
+    tier: Arc<TierInner>,
+    index: usize,
+    conn: Arc<SlotConn>,
+    /// This pin holds the slot's gate exclusively (released in `Drop`).
+    holds_gate: bool,
+    _track: Track,
+}
+
+impl Pin {
+    fn acquire(tier: &Arc<TierInner>) -> Result<Self, LifeError> {
+        let inner = &**tier;
+        let started = Instant::now();
+        // Claim a slot nobody holds, least loaded first, with a compare-and-swap so that
+        // concurrent pins spread over distinct slots instead of queueing on the same one (two
+        // transactions that wait on each other would otherwise deadlock on one slot while
+        // another sits idle). Only when every slot is held does a pin queue, on the least-held.
+        let mut order: Vec<(usize, usize)> = inner
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !s.replacing.load(Ordering::Acquire))
+            .map(|(i, s)| (i, s.in_flight.load(Ordering::Relaxed)))
+            .collect();
+        if order.is_empty() {
+            order.push((inner.pick_shared()?, 0));
+        }
+        order.sort_by_key(|&(_, load)| load);
+        let claimed = order.iter().map(|&(i, _)| i).find(|&i| {
+            inner.slots[i]
+                .pinned
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        });
+        let index = claimed.unwrap_or_else(|| {
+            let i = order
+                .iter()
+                .map(|&(i, _)| i)
+                .min_by_key(|&i| inner.slots[i].pinned.load(Ordering::Relaxed))
+                .unwrap_or(order[0].0);
+            inner.slots[i].pinned.fetch_add(1, Ordering::AcqRel);
+            i
+        });
+        let slot = &inner.slots[index];
+        let waiting = Track::waiting(inner.tier);
+        let mut backoff = Duration::from_micros(100);
+        loop {
+            if slot.gate.try_write() {
+                break;
+            }
+            if started.elapsed() >= inner.acquire_timeout {
+                slot.pinned.fetch_sub(1, Ordering::AcqRel);
+                #[cfg(feature = "metrics")]
+                METRICS.record_pool_acquire_timeout(inner.tier);
+                return Err(LifeError::PoolAcquireTimeout {
+                    waited: started.elapsed(),
+                });
+            }
+            may::coroutine::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_millis(5));
+        }
+        drop(waiting);
+        slot.in_flight.fetch_add(1, Ordering::Relaxed);
+        let conn = slot.current();
+        Ok(Self {
+            tier: Arc::clone(tier),
+            index,
+            conn,
+            holds_gate: true,
+            _track: Track::in_flight(inner.tier),
+        })
+    }
+}
+
+impl Drop for Pin {
+    fn drop(&mut self) {
+        let slot = &self.tier.slots[self.index];
+        if std::mem::take(&mut self.holds_gate) {
+            slot.gate.write_unlock();
+        }
+        slot.in_flight.fetch_sub(1, Ordering::Relaxed);
+        slot.pinned.fetch_sub(1, Ordering::AcqRel);
+        slot.last_used_ms.store(mono_ms(), Ordering::Relaxed);
+    }
+}
+
+/// A statement running inline under the reply deadline: the watchdog marks it expired.
+struct Watch {
+    started_ms: u64,
+    conn: Arc<SlotConn>,
+    expired: AtomicBool,
+}
+
+/// Run `job` under the tier's reply deadline. `None` means the deadline passed.
+///
+/// - No deadline: inline.
+/// - Called from a coroutine: inline too, registered with the slot's watchdog (the maintenance
+///   thread). Past the deadline the watchdog shuts the connection's socket down, which makes
+///   `may_postgres` fail every request waiting on it, so the caller wakes with an error that is
+///   reported as `PoolReplyTimeout`. No helper coroutine, channel or timer per statement.
+/// - Called from an OS thread: on a helper coroutine the thread waits on with a timeout
+///   (`bounded`). This keeps the guarantee the starvation reproducer checks: a thread caller gets
+///   its bounded error even when every `may` worker is blocked, because its wait does not need
+///   one.
+fn guarded<T: Send + 'static>(
+    tier: &Arc<TierInner>,
+    index: usize,
+    conn: &Arc<SlotConn>,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let Some(limit) = tier.reply_timeout else {
+        return Some(job());
+    };
+    if !may::coroutine::is_coroutine() {
+        return bounded(Some(limit), job);
+    }
+    let watch = Arc::new(Watch {
+        started_ms: mono_ms(),
+        conn: Arc::clone(conn),
+        expired: AtomicBool::new(false),
+    });
+    let key = tier.next_watch.fetch_add(1, Ordering::Relaxed);
+    let slot = &tier.slots[index];
+    slot.watches
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((key, Arc::clone(&watch)));
+    let out = job();
+    {
+        let mut w = slot
+            .watches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(pos) = w.iter().position(|(k, _)| *k == key) {
+            w.swap_remove(pos);
+        }
+    }
+    if watch.expired.load(Ordering::Acquire) {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// Watchdog pass over one slot: expire inline statements past `limit` and shut down the socket of
+/// each connection they wait on.
+fn expire_watches(slot: &Slot, limit: Duration) {
+    let now = mono_ms();
+    let limit_ms = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
+    let mut to_close: Vec<Arc<SlotConn>> = Vec::new();
+    {
+        let w = slot
+            .watches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (_, watch) in w.iter() {
+            if now.saturating_sub(watch.started_ms) >= limit_ms
+                && !watch.expired.swap(true, Ordering::AcqRel)
+                && !to_close.iter().any(|c| Arc::ptr_eq(c, &watch.conn))
+            {
+                to_close.push(Arc::clone(&watch.conn));
+            }
+        }
+    }
+    for conn in to_close {
+        conn.broken.store(true, Ordering::Release);
+        conn.force_close();
+    }
+}
+
+/// Run `job` within `deadline` (on a coroutine the caller waits on), or inline without one.
+/// `None` means the deadline elapsed; the job may still be running and finishes on its own.
+fn bounded<T: Send + 'static>(
+    deadline: Option<Duration>,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let Some(limit) = deadline else {
+        return Some(job());
+    };
+    let (tx, rx) = may::sync::mpsc::channel();
+    let job = move || {
+        let _ = tx.send(job());
+    };
+    let need = job_stack_size();
+    if may::config().get_stack_size() >= need {
+        // The runtime's default stack is large enough: spawn from may's coroutine pool (no
+        // stack allocation per statement).
+        let _ = may::go!(job);
+    } else {
+        // A smaller default: a dedicated stack of the size jobs need (mmap per spawn; raise the
+        // runtime's stack size to avoid it).
+        let _ = may::go!(may::coroutine::Builder::new().stack_size(need), job);
+    }
+    rx.recv_timeout(limit).ok()
+}
+
+/// Stack, in machine words (may's unit), for the coroutines that run pool jobs (statement,
+/// reconnect, TLS handshake).
+///
+/// Jobs used to run on dedicated OS threads; a coroutine with may's default stack (4096 words,
+/// 32 KiB) can overflow in a TLS reconnect and die without unwinding. The default need is 256 KiB
+/// (`LIFEGUARD_JOB_STACK_BYTES` overrides it). When the runtime's default stack
+/// (`may::config().set_stack_size`, in words) is at least this large, jobs come from may's
+/// coroutine pool; otherwise each job gets its own stack, which costs an `mmap` per statement.
+pub(crate) fn job_stack_size() -> usize {
+    static SIZE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *SIZE.get_or_init(|| {
+        let bytes: usize = std::env::var("LIFEGUARD_JOB_STACK_BYTES")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(256 * 1024);
+        (bytes / std::mem::size_of::<usize>()).max(0x1000)
+    })
+}
+
+fn timed<T>(
+    tier: &'static str,
+    sql: &str,
+    f: impl FnOnce() -> Result<T, may_postgres::Error>,
+) -> Result<T, LifeError> {
+    #[cfg(feature = "tracing")]
+    let _span = tracing_helpers::execute_query_span(sql); // created, not entered: see tracing_helpers
+    let _ = sql;
+    let start = Instant::now();
+    let out = f().map_err(LifeError::from);
+    #[cfg(feature = "metrics")]
+    {
+        METRICS.record_query_duration(start.elapsed(), Some(tier));
+        if out.is_err() {
+            METRICS.record_query_error(Some(tier));
+        }
+    }
+    let _ = (start, tier);
+    out
+}
+
+fn exec_kind(
+    tier: &'static str,
+    h: &Client,
+    conn: &SlotConn,
+    sql: &str,
+    refs: &[&dyn ToSql],
+    kind: Kind,
+) -> Result<Out, LifeError> {
+    timed(tier, sql, || {
+        let (out, lookup) = conn.stmts.with_statement(h, sql, |st| match kind {
+            Kind::Execute => h.execute(st, refs).map(Out::Count),
+            Kind::QueryOne => h.query_one(st, refs).map(Out::One),
+            Kind::QueryAll => h.query(st, refs).map(Out::All),
+        })?;
+        #[cfg(feature = "metrics")]
+        METRICS.record_statement_cache(lookup == Lookup::Hit, tier);
+        let _ = lookup;
+        Ok(out)
+    })
+}
+
+/// A standalone statement on a shared slot; a connectivity error heals the slot and retries once.
+fn run_shared_with_heal(
+    tier: &Arc<TierInner>,
+    index: usize,
+    conn: Arc<SlotConn>,
+    sql: &str,
+    refs: &[&dyn ToSql],
+    kind: Kind,
+) -> Result<Out, LifeError> {
+    let name = tier.tier;
+    let h = conn.take_handle();
+    match exec_kind(name, &h, &conn, sql, refs, kind) {
+        // Closed by the reply-deadline watchdog: the caller is out of time, so no retry.
+        Err(e) if conn.deadline_closed.load(Ordering::Acquire) => Err(e),
+        Err(e) if life_error_is_connectivity_heal_candidate(&e) => {
+            conn.broken.store(true, Ordering::Release);
+            let fresh = match tier.slots[index].heal(&conn, name) {
+                Ok(f) => f,
+                Err(_) => return Err(e),
+            };
+            let h2 = fresh.take_handle();
+            let r = exec_kind(name, &h2, &fresh, sql, refs, kind);
+            if !r
+                .as_ref()
+                .is_err_and(life_error_is_connectivity_heal_candidate)
+            {
+                fresh.put_handle(h2);
+            }
+            r
+        }
+        r => {
+            conn.put_handle(h);
+            r
+        }
+    }
+}
+
+fn drain(stream: may_postgres::RowStream) -> Result<(), may_postgres::Error> {
+    for r in stream {
+        r?;
+    }
+    Ok(())
+}
+
+/// `BEGIN; rls_set_session(..); <stmt>; COMMIT` on one handle of a pinned connection.
+///
+/// Queries pipeline all four statements: they are written together and cost one round trip.
+/// `may_postgres` does not report a row count through its streaming API, so for `Execute` the
+/// `BEGIN` and context are pipelined, then the statement and `COMMIT` follow (three round trips;
+/// before this pool, four). Every stream is drained in order and stops at its first error, so an
+/// error is never attributed to a later statement. A failed statement leaves the transaction
+/// aborted, and the pipelined `COMMIT` then rolls it back.
+fn contextual_unit(
+    h: &Client,
+    conn: &SlotConn,
+    args: &SessionArgs,
+    sql: &str,
+    refs: &[&dyn ToSql],
+    kind: Kind,
+) -> Result<Out, LifeError> {
+    let tier = "primary";
+    let (begin, _) = conn
+        .stmts
+        .get_or_prepare(h, "BEGIN")
+        .map_err(LifeError::from)?;
+    let (set, _) = conn
+        .stmts
+        .get_or_prepare(h, RLS_SET_SESSION_SQL)
+        .map_err(rls_error)?;
+    let (commit, _) = conn
+        .stmts
+        .get_or_prepare(h, "COMMIT")
+        .map_err(LifeError::from)?;
+    let arg_refs = args.refs();
+    let r = (|| -> Result<Out, LifeError> {
+        let (st, _) = conn.stmts.get_or_prepare(h, sql).map_err(LifeError::from)?;
+        let s_begin = h.query_raw(&begin, &[]).map_err(LifeError::from)?;
+        let s_set = h.query_raw(&set, &arg_refs).map_err(LifeError::from)?;
+        match kind {
+            Kind::Execute => {
+                let rb = drain(s_begin);
+                let rs = drain(s_set);
+                rb.map_err(LifeError::from)?;
+                if let Err(e) = rs {
+                    let _ = h.batch_execute("ROLLBACK");
+                    return Err(rls_error(e));
+                }
+                let n = timed(tier, sql, || h.execute(&st, refs));
+                match n {
+                    Ok(n) => {
+                        h.execute(&commit, &[]).map_err(LifeError::from)?;
+                        Ok(Out::Count(n))
+                    }
+                    Err(e) => {
+                        let _ = h.batch_execute("ROLLBACK");
+                        Err(e)
+                    }
+                }
+            }
+            Kind::QueryOne | Kind::QueryAll => {
+                let s_stmt = h.query_raw(&st, refs).map_err(LifeError::from);
+                let s_commit = h.query_raw(&commit, &[]).map_err(LifeError::from);
+                let rb = drain(s_begin);
+                let rs = drain(s_set);
+                let rows: Result<Vec<Row>, LifeError> = match s_stmt {
+                    Ok(s) => timed(tier, sql, || s.collect()),
+                    Err(e) => Err(e),
+                };
+                let rc = match s_commit {
+                    Ok(s) => drain(s).map_err(LifeError::from),
+                    Err(e) => Err(e),
+                };
+                rb.map_err(LifeError::from)?;
+                rs.map_err(rls_error)?;
+                let rows = rows?;
+                rc?;
+                if kind == Kind::QueryAll {
+                    Ok(Out::All(rows))
+                } else {
+                    let mut it = rows.into_iter();
+                    match (it.next(), it.next()) {
+                        (Some(row), None) => Ok(Out::One(row)),
+                        (None, _) => Err(LifeError::QueryError(
+                            "no rows returned (expected one row)".to_string(),
+                        )),
+                        (Some(_), Some(_)) => Err(LifeError::QueryError(
+                            "query returned more than one row (expected one row)".to_string(),
+                        )),
+                    }
+                }
+            }
+        }
+    })();
+    if let Err(e) = &r {
+        if is_stale_message(e) {
+            conn.stmts.clear();
+        }
+    }
+    r
+}
+
+fn is_stale_message(e: &LifeError) -> bool {
+    matches!(e, LifeError::PostgresError(pe) if crate::pool::stmt_cache::is_stale_error(pe))
+}
+
+fn rls_error(error: may_postgres::Error) -> LifeError {
+    if error.code().is_some_and(|code| code.code() == "42883") {
+        LifeError::Pool("rls_set_session SQL function not found on database".to_string())
+    } else {
+        LifeError::Pool(format!("rls_set_session context injection failed: {error}"))
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Session arguments (computed once per context)
+
+/// `rls_set_session` arguments in owned form, serialised once when the context is attached.
+pub(crate) struct SessionArgs {
+    params: [OwnedParam; 8],
+}
+
+impl SessionArgs {
+    fn new(ctx: &SessionContext) -> Result<Self, LifeError> {
+        let roles = serde_json::to_value(&ctx.roles)
+            .map_err(|e| LifeError::Other(format!("failed to serialize session roles: {e}")))?;
+        let permissions = serde_json::to_value(&ctx.permissions).map_err(|e| {
+            LifeError::Other(format!("failed to serialize session permissions: {e}"))
+        })?;
+        Ok(Self {
+            params: [
+                OwnedParam::String(TextParam::some(ctx.tenant_id.clone())),
+                OwnedParam::Uuid(Some(ctx.subject_id)),
+                OwnedParam::Uuid(Some(ctx.organization_id)),
+                OwnedParam::String(TextParam::some(ctx.session_id.clone())),
+                OwnedParam::Json(Some(roles)),
+                OwnedParam::Json(Some(permissions)),
+                OwnedParam::String(TextParam(ctx.user_type.clone())),
+                OwnedParam::String(TextParam(ctx.org_type.clone())),
+            ],
+        })
+    }
+
+    fn refs(&self) -> Vec<&dyn ToSql> {
+        self.params.iter().map(OwnedParam::as_sql_ref).collect()
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// LifeguardPool
+
+/// Pool of `PostgreSQL` connections with **primary** slots for writes and optional **replica**
+/// slots for reads when lag allows.
 ///
 /// # Which constructor?
 ///
 /// | Entry point | Use when |
 /// |-------------|----------|
-/// | [`LifeguardPool::new`] | Tests and embedders that want **defaults** (30s acquire timeout, queue depth 8, 500ms WAL poll). |
+/// | [`LifeguardPool::new`] | Tests and embedders that want **defaults** (30s acquire timeout, 8 in flight per slot, 500ms WAL poll). |
 /// | [`LifeguardPool::new_with_settings`] | Full control without loading `DatabaseConfig` from disk/env. |
 /// | [`LifeguardPool::from_database_config`] | **`config/config.toml`** + optional **`LIFEGUARD__DATABASE__*`** env overrides (see [`DatabaseConfig::load`](crate::DatabaseConfig::load)). |
 ///
@@ -528,15 +1294,15 @@ pub struct LifeguardPool {
 }
 
 impl LifeguardPool {
-    /// Open pools with default [`LifeguardPoolSettings`] (30s acquire timeout, queue depth 8 per worker).
+    /// Open pools with default [`LifeguardPoolSettings`] (30s acquire timeout, 8 statements in
+    /// flight per slot).
     ///
     /// For file/env-driven timeouts and queue depth, use [`Self::new_with_settings`] or
     /// [`Self::from_database_config`].
     ///
     /// # Errors
     ///
-    /// Returns [`LifeError::Pool`] for invalid size/URL combinations, [`LifeError::PoolAcquireTimeout`]
-    /// when no worker accepts a job within the acquire timeout, or [`LifeError::Other`] when a
+    /// Returns [`LifeError::Pool`] for invalid size/URL combinations, or [`LifeError::Other`] when a
     /// connection slot fails (see [`connect`]).
     pub fn new(
         primary_url: &str,
@@ -565,6 +1331,11 @@ impl LifeguardPool {
     /// - `replica_urls` empty and `replica_pool_size == 0`: primary-only (all traffic to primary).
     /// - Non-empty `replica_urls` requires `replica_pool_size >= 1`.
     /// - `replica_pool_size >= 1` requires non-empty `replica_urls`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LifeError::Pool`] for invalid size/URL combinations, or [`LifeError::Other`] when a
+    /// connection slot fails.
     pub fn new_with_settings(
         primary_url: &str,
         primary_pool_size: usize,
@@ -572,20 +1343,11 @@ impl LifeguardPool {
         replica_pool_size: usize,
         settings: &LifeguardPoolSettings,
     ) -> Result<Self, LifeError> {
-        let primary = WorkerPool::new(
-            primary_pool_size,
-            |_| primary_url.to_string(),
-            "primary",
-            settings,
-        )?;
-
         let replica_urls_trimmed: Vec<String> = replica_urls
             .into_iter()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-
-        let has_replica_tier = !replica_urls_trimmed.is_empty() && replica_pool_size > 0;
 
         if !replica_urls_trimmed.is_empty() && replica_pool_size == 0 {
             return Err(LifeError::Pool(
@@ -600,6 +1362,14 @@ impl LifeguardPool {
             ));
         }
 
+        let primary = WorkerPool::new(
+            primary_pool_size,
+            |_| primary_url.to_string(),
+            "primary",
+            settings,
+        )?;
+
+        let has_replica_tier = !replica_urls_trimmed.is_empty() && replica_pool_size > 0;
         let (replicas, wal_monitor) = if has_replica_tier {
             let urls = replica_urls_trimmed.clone();
             let rp = WorkerPool::new(
@@ -637,7 +1407,7 @@ impl LifeguardPool {
     }
 
     /// Builds a pool from [`DatabaseConfig`] (URL, `max_connections` as primary pool width, timeouts,
-    /// per-worker queue depth) plus explicit replica list and replica tier width.
+    /// per-slot in-flight depth) plus explicit replica list and replica tier width.
     ///
     /// Prefer this over [`Self::new`] when configuration comes from [`DatabaseConfig::load`] (TOML
     /// `[database]` + `LIFEGUARD__DATABASE__*` env). Replica URLs are **not** in [`DatabaseConfig`];
@@ -667,13 +1437,13 @@ impl LifeguardPool {
         )
     }
 
-    /// Workers connected to the primary URL (writes and fallback reads).
+    /// Slots connected to the primary URL (writes and fallback reads).
     #[must_use]
     pub fn primary_pool_size(&self) -> usize {
         self.primary.pool_size
     }
 
-    /// Workers connected to replica URLs; `0` if this pool is primary-only.
+    /// Slots connected to replica URLs; `0` if this pool is primary-only.
     #[must_use]
     pub fn replica_pool_size(&self) -> usize {
         self.replicas.as_ref().map_or(0, |r| r.pool_size)
@@ -685,7 +1455,7 @@ impl LifeguardPool {
         self.primary_pool_size()
     }
 
-    /// `true` when replica workers exist and the lag monitor reports the replica is behind.
+    /// `true` when replica slots exist and the lag monitor reports the replica is behind.
     #[must_use]
     pub fn is_replica_lagging(&self) -> bool {
         self.wal_monitor
@@ -735,73 +1505,51 @@ impl LifeguardPool {
         }
     }
 
-    fn dispatch_write<T: Send + 'static>(
-        &self,
-        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
-    ) -> Result<T, LifeError> {
-        self.primary.dispatch(build)
-    }
-
-    fn dispatch_read_with_preference<T: Send + 'static>(
-        &self,
-        preference: ReadPreference,
-        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
-    ) -> Result<T, LifeError> {
-        self.read_pool_for(preference).dispatch(build)
-    }
-
-    /// Pin one primary worker slot for a multi-statement unit of work (for example `BEGIN` → ORM
-    /// work → `COMMIT`). While the returned [`ExclusivePrimaryLifeExecutor`] is alive, other
-    /// dispatchers that target the same slot block on the per-slot mutex, so work on this handle is
-    /// not interleaved with unrelated jobs on that connection.
+    /// Pin one primary slot for a multi-statement unit of work (for example `BEGIN` → ORM work →
+    /// `COMMIT`). While the returned [`ExclusivePrimaryLifeExecutor`] is alive, no other statement
+    /// runs on that connection; other callers use the remaining slots.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LifeError::Pool`] when every slot is being replaced.
     pub fn exclusive_primary_write_executor(
         &self,
     ) -> Result<ExclusivePrimaryLifeExecutor<'_>, LifeError> {
-        let slot = self.primary.pick_serviceable_slot()?;
-        let _guard = self.primary.slot_locks[slot]
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let pin = Pin::acquire(&self.primary.inner)?;
         Ok(ExclusivePrimaryLifeExecutor {
             pool: self,
-            slot,
-            _guard,
+            handle: Mutex::new(Some(pin.conn.take_handle())),
+            pin,
         })
     }
 
     /// Run a multi-statement unit of work on one pinned primary connection with
     /// transaction-local RLS context.
     ///
-    /// The pool starts a transaction, calls `public.rls_set_session(...)`, and then
-    /// passes its existing [`ExclusivePrimaryLifeExecutor`] to `operation`. All ORM
-    /// and raw executor calls in the closure therefore use the same connection and
-    /// the same RLS context. A successful closure is committed; an error is rolled
-    /// back. Unwinding also triggers a best-effort rollback before the worker slot is
-    /// released.
+    /// The pool starts a transaction, calls `public.rls_set_session(...)` (pipelined with the
+    /// `BEGIN`, one round trip), and then passes its [`ExclusivePrimaryLifeExecutor`] to
+    /// `operation`. All ORM and raw executor calls in the closure therefore use the same
+    /// connection and the same RLS context. A successful closure is committed; an error is rolled
+    /// back. Unwinding also triggers a best-effort rollback before the slot is released.
     ///
-    /// This is a capability of the base pool rather than a Sesame-specific executor.
-    /// Use [`PooledLifeExecutor::with_session_context`] for a single contextual
-    /// statement. Use this method when several statements must share one transaction.
-    /// Context-free callers continue to use the normal pool API and pay no RLS cost.
+    /// Use [`PooledLifeExecutor::with_session_context`] for a single contextual statement. Use
+    /// this method when several statements must share one transaction. Context-free callers
+    /// continue to use the normal pool API and pay no RLS cost.
     ///
     /// # Errors
     ///
-    /// Returns the first database or application error. Context injection is
-    /// fail-closed: the operation is not called if the helper is unavailable or
-    /// rejects the context.
+    /// Returns the first database or application error. Context injection is fail-closed: the
+    /// operation is not called if the helper is unavailable or rejects the context.
     pub fn with_session_transaction<T>(
         &self,
         context: &SessionContext,
         operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
     ) -> Result<T, LifeError> {
-        let context_values = session_context_values(context)?;
+        let args = SessionArgs::new(context)?;
         let executor = self.exclusive_primary_write_executor()?;
-        executor.execute("BEGIN", &[])?;
+        executor.begin_with_context(&args)?;
 
         let mut transaction = PoolTransactionGuard::new(&executor);
-        transaction
-            .executor()
-            .execute_values(RLS_SET_SESSION_SQL, &context_values)?;
-
         match operation(transaction.executor()) {
             Ok(value) => {
                 transaction.commit()?;
@@ -819,33 +1567,118 @@ impl LifeguardPool {
     }
 }
 
-fn session_context_values(context: &SessionContext) -> Result<sea_query::Values, LifeError> {
-    let roles = serde_json::to_value(&context.roles)
-        .map_err(|e| LifeError::Other(format!("failed to serialize session roles: {e}")))?;
-    let permissions = serde_json::to_value(&context.permissions)
-        .map_err(|e| LifeError::Other(format!("failed to serialize session permissions: {e}")))?;
-
-    Ok(sea_query::Values(vec![
-        sea_query::Value::String(Some(context.tenant_id.clone())),
-        sea_query::Value::Uuid(Some(context.subject_id)),
-        sea_query::Value::Uuid(Some(context.organization_id)),
-        sea_query::Value::String(Some(context.session_id.clone())),
-        sea_query::Value::Json(Some(Box::new(roles))),
-        sea_query::Value::Json(Some(Box::new(permissions))),
-        sea_query::Value::String(context.user_type.clone()),
-        sea_query::Value::String(context.org_type.clone()),
-    ]))
-}
-
-/// Pins one primary [`LifeguardPool`] worker slot: every [`LifeExecutor`] call uses the same
-/// underlying client until this value is dropped (PRD U-4).
+/// Pins one primary [`LifeguardPool`] slot: every [`LifeExecutor`] call uses the same underlying
+/// connection until this value is dropped (PRD U-4).
 ///
 /// Both reads and writes go through the **primary** tier (no replica routing), which matches
 /// PostgreSQL transaction semantics for `BEGIN`/`COMMIT` on a single connection.
 pub struct ExclusivePrimaryLifeExecutor<'a> {
     pool: &'a LifeguardPool,
-    slot: usize,
-    _guard: MutexGuard<'a, ()>,
+    handle: Mutex<Option<Client>>,
+    pin: Pin,
+}
+
+impl ExclusivePrimaryLifeExecutor<'_> {
+    fn tier(&self) -> &Arc<TierInner> {
+        &self.pool.primary.inner
+    }
+
+    /// Run `f` on the pinned handle within the reply deadline.
+    fn call<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&Client, &SlotConn) -> Result<T, LifeError> + Send + 'static,
+    ) -> Result<T, LifeError> {
+        let started = Instant::now();
+        let handle = self
+            .handle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .ok_or_else(|| {
+                LifeError::Pool(
+                    "ExclusivePrimaryLifeExecutor: the pinned connection was lost after a reply timeout"
+                        .to_string(),
+                )
+            })?;
+        let conn = Arc::clone(&self.pin.conn);
+        #[cfg(feature = "tracing")]
+        let ctx = may_tracing::current();
+        let watched = Arc::clone(&self.pin.conn);
+        let out = guarded(&self.pin.tier, self.pin.index, &watched, move || {
+            #[cfg(feature = "tracing")]
+            let _ctx = may_tracing::set_current(ctx);
+            let r = f(&handle, &conn);
+            (r, handle)
+        });
+        match out {
+            Some((r, h)) => {
+                *self
+                    .handle
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(h);
+                r
+            }
+            None => {
+                // The handle stays with the wedged statement; the unit cannot continue.
+                Err(self.tier().on_reply_timeout(self.pin.index, started, true))
+            }
+        }
+    }
+
+    fn run_values(
+        &self,
+        kind: Kind,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Out, LifeError> {
+        self.run_owned(kind, query, values_to_owned(values)?)
+    }
+
+    fn run_owned(
+        &self,
+        kind: Kind,
+        query: &str,
+        params: Vec<OwnedParam>,
+    ) -> Result<Out, LifeError> {
+        let sql: Arc<str> = Arc::from(query);
+        self.call(move |h, conn| {
+            let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
+            exec_kind("primary", h, conn, &sql, &refs, kind)
+        })
+    }
+
+    /// `BEGIN` and `rls_set_session(..)` pipelined (one round trip).
+    fn begin_with_context(&self, args: &SessionArgs) -> Result<(), LifeError> {
+        let params: Vec<OwnedParam> = args.params.to_vec();
+        self.call(move |h, conn| {
+            let (begin, _) = conn
+                .stmts
+                .get_or_prepare(h, "BEGIN")
+                .map_err(LifeError::from)?;
+            let (set, _) = conn
+                .stmts
+                .get_or_prepare(h, RLS_SET_SESSION_SQL)
+                .map_err(rls_error)?;
+            let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
+            let sb = h.query_raw(&begin, &[]).map_err(LifeError::from)?;
+            let ss = h.query_raw(&set, &refs).map_err(LifeError::from);
+            let rb = drain(sb);
+            let rs = match ss {
+                Ok(s) => drain(s).map_err(rls_error),
+                Err(e) => Err(e),
+            };
+            rb.map_err(LifeError::from)?;
+            if let Err(e) = rs {
+                let _ = h.batch_execute("ROLLBACK");
+                return Err(e);
+            }
+            Ok(())
+        })
+    }
+
+    fn simple(&self, sql: &'static str) -> Result<(), LifeError> {
+        self.call(move |h, _| h.batch_execute(sql).map_err(LifeError::from))
+    }
 }
 
 struct PoolTransactionGuard<'executor, 'pool> {
@@ -866,22 +1699,20 @@ impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
     }
 
     fn commit(&mut self) -> Result<(), LifeError> {
-        self.executor.execute("COMMIT", &[])?;
         self.active = false;
-        Ok(())
+        self.executor.simple("COMMIT")
     }
 
     fn rollback(&mut self) -> Result<(), LifeError> {
-        self.executor.execute("ROLLBACK", &[])?;
         self.active = false;
-        Ok(())
+        self.executor.simple("ROLLBACK")
     }
 }
 
 impl Drop for PoolTransactionGuard<'_, '_> {
     fn drop(&mut self) {
         if self.active {
-            if let Err(error) = self.executor.execute("ROLLBACK", &[]) {
+            if let Err(error) = self.executor.simple("ROLLBACK") {
                 log::error!(
                     "lifeguard pool: contextual transaction cleanup rollback failed: {error}"
                 );
@@ -890,10 +1721,23 @@ impl Drop for PoolTransactionGuard<'_, '_> {
     }
 }
 
+impl Drop for ExclusivePrimaryLifeExecutor<'_> {
+    fn drop(&mut self) {
+        if let Some(h) = self
+            .handle
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            self.pin.conn.put_handle(h);
+        }
+    }
+}
+
 impl fmt::Debug for ExclusivePrimaryLifeExecutor<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExclusivePrimaryLifeExecutor")
-            .field("slot", &self.slot)
+            .field("slot", &self.pin.index)
             .finish_non_exhaustive()
     }
 }
@@ -904,7 +1748,7 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
             return self.execute_values(query, &sea_query::Values(Vec::new()));
         }
         Err(LifeError::Pool(
-            "ExclusivePrimaryLifeExecutor: use execute_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+            "ExclusivePrimaryLifeExecutor: use execute_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
         ))
     }
 
@@ -913,7 +1757,7 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
             return self.query_one_values(query, &sea_query::Values(Vec::new()));
         }
         Err(LifeError::Pool(
-            "ExclusivePrimaryLifeExecutor: use query_one_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+            "ExclusivePrimaryLifeExecutor: use query_one_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
         ))
     }
 
@@ -922,36 +1766,22 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
             return self.query_all_values(query, &sea_query::Values(Vec::new()));
         }
         Err(LifeError::Pool(
-            "ExclusivePrimaryLifeExecutor: use query_all_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+            "ExclusivePrimaryLifeExecutor: use query_all_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
         ))
     }
 
     fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
-        let params = values_to_owned(values)?;
-        let query = query.to_string();
-        self.pool
-            .primary
-            .dispatch_locked(self.slot, |reply| WorkerJob::Execute {
-                enqueued_at: Instant::now(),
-                query,
-                params,
-                reply,
-                session: None,
-            })
+        match self.run_values(Kind::Execute, query, values)? {
+            Out::Count(n) => Ok(n),
+            _ => Err(internal_kind_error()),
+        }
     }
 
     fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
-        let params = values_to_owned(values)?;
-        let query = query.to_string();
-        self.pool
-            .primary
-            .dispatch_locked(self.slot, |reply| WorkerJob::QueryOne {
-                enqueued_at: Instant::now(),
-                query,
-                params,
-                reply,
-                session: None,
-            })
+        match self.run_values(Kind::QueryOne, query, values)? {
+            Out::One(r) => Ok(r),
+            _ => Err(internal_kind_error()),
+        }
     }
 
     fn query_all_values(
@@ -959,508 +1789,60 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
         query: &str,
         values: &sea_query::Values,
     ) -> Result<Vec<Row>, LifeError> {
-        let params = values_to_owned(values)?;
-        let query = query.to_string();
-        self.pool
-            .primary
-            .dispatch_locked(self.slot, |reply| WorkerJob::QueryAll {
-                enqueued_at: Instant::now(),
-                query,
-                params,
-                reply,
-                session: None,
-            })
-    }
-}
-
-/// One reconnect attempt after a connectivity-class failure (PRD R5.2).
-const POOL_HEAL_MAX_ATTEMPTS: usize = 2;
-
-fn exec_with_optional_heal<T>(
-    connection_string: &str,
-    client: &mut Client,
-    tier: &'static str,
-    op: impl Fn(&Client) -> Result<T, LifeError>,
-) -> Result<T, LifeError> {
-    for attempt in 0..POOL_HEAL_MAX_ATTEMPTS {
-        match op(client) {
-            Ok(v) => return Ok(v),
-            Err(e) => {
-                let can_heal = life_error_is_connectivity_heal_candidate(&e)
-                    && attempt + 1 < POOL_HEAL_MAX_ATTEMPTS;
-                if can_heal {
-                    #[cfg(feature = "tracing")]
-                    let _heal_span = tracing_helpers::pool_slot_heal_span(); // created, not entered: see tracing_helpers
-                    match connect(connection_string) {
-                        Ok(c) => {
-                            *client = c;
-                            stmt_cache::clear();
-                            #[cfg(feature = "metrics")]
-                            METRICS.record_pool_slot_heal(tier);
-                            log::warn!(
-                                "lifeguard pool: replaced client after connectivity error (attempt {})",
-                                attempt + 1
-                            );
-                            continue;
-                        }
-                        Err(_) => return Err(e),
-                    }
-                } else {
-                    return Err(e);
-                }
-            }
+        match self.run_values(Kind::QueryAll, query, values)? {
+            Out::All(r) => Ok(r),
+            _ => Err(internal_kind_error()),
         }
     }
-    Err(LifeError::Pool(
-        "lifeguard pool: internal heal loop exhausted".into(),
-    ))
-}
 
-/// A job plus the enqueuing coroutine's tracing context.
-///
-/// Pool workers are OS threads with no context of their own; the caller's current span
-/// (`may_tracing::current()`, i.e. the request or the push tick) rides here so the
-/// worker creates `lifeguard.execute_query` as its child. Set on the worker with
-/// `may_tracing::set_current` — a thread-local slot there, never an entered guard.
-struct Envelope {
-    job: WorkerJob,
-    #[cfg(feature = "tracing")]
-    ctx: tracing::Span,
-}
-
-impl Envelope {
-    fn new(job: WorkerJob) -> Self {
-        Self {
-            job,
-            #[cfg(feature = "tracing")]
-            ctx: may_tracing::current(),
+    fn __lg_execute_owned(&self, query: &str, params: Vec<OwnedParam>) -> Result<u64, LifeError> {
+        match self.run_owned(Kind::Execute, query, params)? {
+            Out::Count(n) => Ok(n),
+            _ => Err(internal_kind_error()),
         }
     }
-}
 
-enum WorkerJob {
-    Execute {
-        /// When this job was last stamped for enqueue (`dispatch`); used for queue-wait metrics.
-        enqueued_at: Instant,
-        query: String,
+    fn __lg_query_all_owned(
+        &self,
+        query: &str,
         params: Vec<OwnedParam>,
-        reply: may::sync::mpsc::Sender<Result<u64, LifeError>>,
-        session: Option<crate::executor::SessionContext>,
-    },
-    QueryOne {
-        enqueued_at: Instant,
-        query: String,
-        params: Vec<OwnedParam>,
-        reply: may::sync::mpsc::Sender<Result<Row, LifeError>>,
-        session: Option<crate::executor::SessionContext>,
-    },
-    QueryAll {
-        enqueued_at: Instant,
-        query: String,
-        params: Vec<OwnedParam>,
-        reply: may::sync::mpsc::Sender<Result<Vec<Row>, LifeError>>,
-        session: Option<crate::executor::SessionContext>,
-    },
-}
-
-impl WorkerJob {
-    fn with_enqueued_at(self, at: Instant) -> Self {
-        match self {
-            WorkerJob::Execute {
-                query,
-                params,
-                reply,
-                session,
-                ..
-            } => WorkerJob::Execute {
-                enqueued_at: at,
-                query,
-                params,
-                reply,
-                session,
-            },
-            WorkerJob::QueryOne {
-                query,
-                params,
-                reply,
-                session,
-                ..
-            } => WorkerJob::QueryOne {
-                enqueued_at: at,
-                query,
-                params,
-                reply,
-                session,
-            },
-            WorkerJob::QueryAll {
-                query,
-                params,
-                reply,
-                session,
-                ..
-            } => WorkerJob::QueryAll {
-                enqueued_at: at,
-                query,
-                params,
-                reply,
-                session,
-            },
+    ) -> Result<Vec<Row>, LifeError> {
+        match self.run_owned(Kind::QueryAll, query, params)? {
+            Out::All(r) => Ok(r),
+            _ => Err(internal_kind_error()),
         }
     }
 }
 
-/// Arguments for [`run_worker`], grouped so the worker entry point stays within Clippy argument limits.
-struct WorkerThreadStart {
-    connection_string: String,
-    client: Client,
-    job_rx: crossbeam_channel::Receiver<Envelope>,
-    idle_liveness: Option<Duration>,
-    max_connection_lifetime: Option<Duration>,
-    max_connection_lifetime_jitter: Duration,
-    slot: usize,
-    tier: &'static str,
-}
-
-fn run_worker(w: WorkerThreadStart) {
-    let WorkerThreadStart {
-        connection_string,
-        mut client,
-        job_rx,
-        idle_liveness,
-        max_connection_lifetime,
-        max_connection_lifetime_jitter,
-        slot,
-        tier,
-    } = w;
-
-    let mut opened_at = Instant::now();
-    let idle = idle_liveness.map(|d| d.max(Duration::from_millis(1)));
-
-    match idle {
-        None => {
-            for job in job_rx.iter() {
-                dispatch_worker_job(tier, &connection_string, &mut client, job);
-                maybe_rotate_for_max_lifetime(
-                    &connection_string,
-                    &mut client,
-                    &mut opened_at,
-                    max_connection_lifetime,
-                    max_connection_lifetime_jitter,
-                    slot,
-                    tier,
-                );
-            }
-        }
-        Some(interval) => loop {
-            match job_rx.recv_timeout(interval) {
-                Ok(job) => {
-                    dispatch_worker_job(tier, &connection_string, &mut client, job);
-                    maybe_rotate_for_max_lifetime(
-                        &connection_string,
-                        &mut client,
-                        &mut opened_at,
-                        max_connection_lifetime,
-                        max_connection_lifetime_jitter,
-                        slot,
-                        tier,
-                    );
-                }
-                Err(RecvTimeoutError::Timeout) => {
-                    idle_liveness_probe(&connection_string, &mut client, tier);
-                    maybe_rotate_for_max_lifetime(
-                        &connection_string,
-                        &mut client,
-                        &mut opened_at,
-                        max_connection_lifetime,
-                        max_connection_lifetime_jitter,
-                        slot,
-                        tier,
-                    );
-                }
-                Err(RecvTimeoutError::Disconnected) => break,
-            }
-        },
-    }
-}
-
-/// Per-slot jitter on top of base max lifetime (PRD R3.1).
-///
-/// `salt` must be **stable** for the lifetime of a connection (we use the worker `slot` index).
-/// Do not mix in time-varying values: the limit is compared on every job/idle tick, and an unstable
-/// salt would change the threshold each call and break rotation timing.
-fn connection_lifetime_effective_limit(base: Duration, jitter: Duration, salt: usize) -> Duration {
-    if jitter.is_zero() {
-        return base;
-    }
-    let j = (salt as u128).wrapping_mul(1_100_003) % (jitter.as_millis() + 1);
-    base + Duration::from_millis(u64::try_from(j).unwrap_or(0))
-}
-
-fn maybe_rotate_for_max_lifetime(
-    connection_string: &str,
-    client: &mut Client,
-    opened_at: &mut Instant,
-    max_lifetime: Option<Duration>,
-    jitter: Duration,
-    slot: usize,
-    tier: &'static str,
-) {
-    let Some(base) = max_lifetime else {
-        return;
-    };
-    if base.is_zero() {
-        return;
-    }
-    let limit = connection_lifetime_effective_limit(base, jitter, slot);
-    if opened_at.elapsed() < limit {
-        return;
-    }
-    match connect(connection_string) {
-        Ok(c) => {
-            *client = c;
-            stmt_cache::clear();
-            *opened_at = Instant::now();
-            log::debug!(
-                "lifeguard pool: rotated client after max_connection_lifetime (slot {slot})",
-            );
-            #[cfg(feature = "metrics")]
-            METRICS.record_pool_connection_rotated(tier);
-        }
-        Err(e) => {
-            log::warn!(
-                "lifeguard pool: max_connection_lifetime rotation failed (slot {slot}): {e}",
-            );
-        }
-    }
-}
-
-/// Cheap `SELECT 1` on idle slots (PRD R4.2); connectivity failures use the same heal path as queries.
-fn idle_liveness_probe(connection_string: &str, client: &mut Client, tier: &'static str) {
-    let _ = exec_with_optional_heal(connection_string, client, tier, |c| {
-        c.query_one("SELECT 1", &[]).map_err(LifeError::from)
-    });
-}
-
-/// Execute one worker job in the transaction that owns its RLS context.
-///
-/// Context-free jobs retain the original autocommit path. Contextual jobs are retried as
-/// a complete unit after a healable connection failure: `BEGIN`, context injection,
-/// application statement, then `COMMIT`. The application-owned helper must use
-/// `set_config(..., true)` so PostgreSQL clears the context at transaction end.
-fn exec_worker_job<T>(
-    connection_string: &str,
-    client: &mut Client,
-    tier: &'static str,
-    session_context: Option<&crate::executor::SessionContext>,
-    operation: impl Fn(&Client) -> Result<T, LifeError>,
-) -> Result<T, LifeError> {
-    exec_with_optional_heal(connection_string, client, tier, |client| {
-        let Some(ctx) = session_context else {
-            return operation(client);
-        };
-
-        // Simple-protocol BEGIN/COMMIT/ROLLBACK: one round trip each, no statement to prepare.
-        client.batch_execute("BEGIN").map_err(LifeError::from)?;
-
-        let result = (|| {
-            let args = ctx.to_sql_args().map_err(|error| {
-                LifeError::Pool(format!(
-                    "rls_set_session context serialization failed: {error}"
-                ))
-            })?;
-            let args_refs: Vec<&dyn may_postgres::types::ToSql> =
-                args.iter().map(|arg| arg.as_ref()).collect();
-            stmt_cache::get_or_prepare(client, RLS_SET_SESSION_SQL)
-                .and_then(|(stmt, _)| client.execute(&stmt, &args_refs))
-                .map_err(|error| {
-                    if error.code().is_some_and(|code| code.code() == "42883") {
-                        LifeError::Pool(
-                            "rls_set_session SQL function not found on database".to_string(),
-                        )
-                    } else {
-                        LifeError::Pool(format!(
-                            "rls_set_session context injection failed: {error}"
-                        ))
-                    }
-                })?;
-            operation(client)
-        })();
-
-        match result {
-            Ok(value) => match client.batch_execute("COMMIT") {
-                Ok(_) => Ok(value),
-                Err(error) => {
-                    let _ = client.batch_execute("ROLLBACK");
-                    Err(LifeError::from(error))
-                }
-            },
-            Err(error) => {
-                if let Err(rollback_error) = client.batch_execute("ROLLBACK") {
-                    log::warn!(
-                        "lifeguard pool: rollback after contextual {tier} job failed: {rollback_error}"
-                    );
-                }
-                Err(error)
-            }
-        }
-    })
-}
-
-fn dispatch_worker_job(
-    tier: &'static str,
-    connection_string: &str,
-    client: &mut Client,
-    envelope: Envelope,
-) {
-    // The caller's span is this worker thread's context for the job (thread-local slot;
-    // restored when `_ctx` drops at the end of the job).
-    #[cfg(feature = "tracing")]
-    let _ctx = may_tracing::set_current(envelope.ctx);
-    let job = envelope.job;
-    #[cfg(feature = "metrics")]
-    {
-        let enqueued_at = match &job {
-            WorkerJob::Execute { enqueued_at, .. }
-            | WorkerJob::QueryOne { enqueued_at, .. }
-            | WorkerJob::QueryAll { enqueued_at, .. } => *enqueued_at,
-        };
-        METRICS.record_connection_wait(enqueued_at.elapsed(), Some(tier));
-    }
-
-    let session_context = match &job {
-        WorkerJob::Execute { session, .. }
-        | WorkerJob::QueryOne { session, .. }
-        | WorkerJob::QueryAll { session, .. } => session.clone(),
-    };
-
-    match job {
-        WorkerJob::Execute {
-            query,
-            params,
-            reply,
-            ..
-        } => {
-            let result = exec_worker_job(
-                connection_string,
-                client,
-                tier,
-                session_context.as_ref(),
-                |c| {
-                    exec_on_client(tier, c, &query, &params, |c, q, r| c.execute(q, r))
-                },
-            );
-            let _ = reply.send(result);
-        }
-        WorkerJob::QueryOne {
-            query,
-            params,
-            reply,
-            ..
-        } => {
-            let result = exec_worker_job(
-                connection_string,
-                client,
-                tier,
-                session_context.as_ref(),
-                |c| {
-                    exec_on_client(tier, c, &query, &params, |c, q, r| c.query_one(q, r))
-                },
-            );
-            let _ = reply.send(result);
-        }
-        WorkerJob::QueryAll {
-            query,
-            params,
-            reply,
-            ..
-        } => {
-            let result = exec_worker_job(
-                connection_string,
-                client,
-                tier,
-                session_context.as_ref(),
-                |c| {
-                    exec_on_client(tier, c, &query, &params, |c, q, r| c.query(q, r))
-                },
-            );
-            let _ = reply.send(result);
-        }
-    }
-}
-
-fn exec_on_client<T>(
-    pool_tier: &'static str,
-    client: &Client,
-    query: &str,
-    params: &[OwnedParam],
-    op: impl Fn(&Client, &Statement, &[&dyn ToSql]) -> Result<T, may_postgres::Error>,
-) -> Result<T, LifeError> {
-    let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
-
-    #[cfg(feature = "tracing")]
-    let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
-
-    let start = Instant::now();
-    // Prepared once per connection and reused (see `stmt_cache`): one round trip per query
-    // instead of Parse/Describe + Bind/Execute.
-    let out = match stmt_cache::get_or_prepare(client, query) {
-        Err(e) => Err(e),
-        Ok((stmt, lookup)) => {
-            #[cfg(feature = "metrics")]
-            METRICS.record_statement_cache(lookup == stmt_cache::Lookup::Hit, pool_tier);
-            #[cfg(not(feature = "metrics"))]
-            let _ = lookup;
-            match op(client, &stmt, &refs) {
-                Err(e) if lookup == stmt_cache::Lookup::Hit && stmt_cache::is_stale_error(&e) => {
-                    // Schema changed under a cached statement: drop it and prepare afresh once.
-                    stmt_cache::evict(query);
-                    stmt_cache::get_or_prepare(client, query)
-                        .and_then(|(fresh, _)| op(client, &fresh, &refs))
-                }
-                other => other,
-            }
-        }
-    }
-    .map_err(LifeError::from);
-    let duration = start.elapsed();
-
-    #[cfg(feature = "metrics")]
-    {
-        METRICS.record_query_duration(duration, Some(pool_tier));
-        if out.is_err() {
-            METRICS.record_query_error(Some(pool_tier));
-        }
-    }
-    #[cfg(not(feature = "metrics"))]
-    let _ = duration;
-
-    out
+fn internal_kind_error() -> LifeError {
+    LifeError::Pool("internal pool error: result kind mismatch".to_string())
 }
 
 fn values_to_owned(values: &sea_query::Values) -> Result<Vec<OwnedParam>, LifeError> {
     values.0.iter().map(OwnedParam::try_from).collect()
 }
 
-/// [`LifeExecutor`] that dispatches through a [`LifeguardPool`].
+/// [`LifeExecutor`] that runs statements through a [`LifeguardPool`].
 ///
 /// Use [`LifeExecutor::execute_values`], [`LifeExecutor::query_one_values`], and
 /// [`LifeExecutor::query_all_values`] (or ORM methods built on them). Raw
-/// `execute` / `query_*` with non-empty `&[&dyn ToSql]` are rejected because those
-/// references cannot cross the pool channel.
+/// `execute` / `query_*` with non-empty `&[&dyn ToSql]` are rejected: the statement may run on a
+/// separate coroutine under the reply deadline, so parameters must be owned.
 ///
 /// **Read routing:** by default, reads may go to a configured replica when WAL lag allows; see
 /// [`ReadPreference`] and [`Self::with_read_preference`]. Writes always use the primary tier.
 ///
-/// **RLS integration (Story 5):** optionally carries a [`SessionContext`]. On the worker
-/// thread each contextual job runs `BEGIN`, calls
-/// `public.rls_set_session($1, ..., $8)`, executes the application statement,
-/// and commits. The transaction-local context cannot leak into the worker's next job. When
-/// `session_context` is `None` (the default), the executor retains the original autocommit path.
+/// **RLS integration (Story 5):** optionally carries a [`SessionContext`]. Each contextual
+/// statement pins a slot and runs `BEGIN`, `public.rls_set_session($1, ..., $8)`, the
+/// application statement and `COMMIT` (pipelined). The transaction-local context cannot leak into
+/// another statement. When `session_context` is `None` (the default), statements run in
+/// autocommit on shared, pipelined slots.
 #[derive(Clone)]
 pub struct PooledLifeExecutor {
     pool: Arc<LifeguardPool>,
     read_preference: ReadPreference,
-    session_context: Option<crate::executor::SessionContext>,
+    session_context: Option<SessionContext>,
+    session_args: Option<Arc<SessionArgs>>,
 }
 
 impl PooledLifeExecutor {
@@ -1470,15 +1852,8 @@ impl PooledLifeExecutor {
             pool,
             read_preference: ReadPreference::default(),
             session_context: None,
+            session_args: None,
         }
-    }
-
-    fn dispatch_read<T: Send + 'static>(
-        &self,
-        build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
-    ) -> Result<T, LifeError> {
-        self.pool
-            .dispatch_read_with_preference(self.read_preference, build)
     }
 
     #[must_use]
@@ -1516,12 +1891,11 @@ impl PooledLifeExecutor {
         self.read_preference
     }
 
-    /// Attach a [`SessionContext`] for RLS session injection on pool workers.
+    /// Attach a [`SessionContext`] for RLS session injection.
     ///
-    /// When a context is attached, every query executed through this executor is
-    /// wrapped in a short worker-side transaction. The worker calls
-    /// `public.rls_set_session($1, ..., $8)` before the actual query and
-    /// commits only after both calls succeed.
+    /// When a context is attached, every statement executed through this executor runs in a
+    /// short transaction that first calls `public.rls_set_session($1, ..., $8)`; it commits only
+    /// after both succeed. The arguments are serialised once, here.
     ///
     /// Returns `self` for method chaining.
     ///
@@ -1545,9 +1919,48 @@ impl PooledLifeExecutor {
     /// });
     /// ```
     #[must_use]
-    pub fn with_session_context(mut self, ctx: crate::executor::SessionContext) -> Self {
+    pub fn with_session_context(mut self, ctx: SessionContext) -> Self {
+        // Serialisation of two `Vec<String>` cannot fail; keep the context and fall back to
+        // per-statement serialisation (and its error) if it ever does.
+        self.session_args = SessionArgs::new(&ctx).ok().map(Arc::new);
         self.session_context = Some(ctx);
         self
+    }
+
+    fn session(&self) -> Result<Option<Arc<SessionArgs>>, LifeError> {
+        match (&self.session_args, &self.session_context) {
+            (Some(a), _) => Ok(Some(Arc::clone(a))),
+            (None, Some(ctx)) => SessionArgs::new(ctx).map(|a| Some(Arc::new(a))),
+            (None, None) => Ok(None),
+        }
+    }
+
+    fn run(
+        &self,
+        tier: &WorkerPool,
+        kind: Kind,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Out, LifeError> {
+        self.run_owned(tier, kind, query, values_to_owned(values)?)
+    }
+
+    fn run_owned(
+        &self,
+        tier: &WorkerPool,
+        kind: Kind,
+        query: &str,
+        params: Vec<OwnedParam>,
+    ) -> Result<Out, LifeError> {
+        let session = self.session()?;
+        // Contextual statements always run on the primary: the transaction and its RLS context
+        // must see the primary's data, as before.
+        let tier = if session.is_some() {
+            &self.pool.primary
+        } else {
+            tier
+        };
+        tier.run(kind, Arc::from(query), params, session)
     }
 }
 
@@ -1557,7 +1970,7 @@ impl LifeExecutor for PooledLifeExecutor {
             return self.execute_values(query, &sea_query::Values(Vec::new()));
         }
         Err(LifeError::Pool(
-            "PooledLifeExecutor: use execute_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+            "PooledLifeExecutor: use execute_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
         ))
     }
 
@@ -1566,7 +1979,7 @@ impl LifeExecutor for PooledLifeExecutor {
             return self.query_one_values(query, &sea_query::Values(Vec::new()));
         }
         Err(LifeError::Pool(
-            "PooledLifeExecutor: use query_one_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+            "PooledLifeExecutor: use query_one_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
         ))
     }
 
@@ -1575,34 +1988,23 @@ impl LifeExecutor for PooledLifeExecutor {
             return self.query_all_values(query, &sea_query::Values(Vec::new()));
         }
         Err(LifeError::Pool(
-            "PooledLifeExecutor: use query_all_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool channel".to_string(),
+            "PooledLifeExecutor: use query_all_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
         ))
     }
 
     fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
-        let params = values_to_owned(values)?;
-        let query = query.to_string();
-        let session = self.session_context.clone();
-        self.pool.dispatch_write(move |reply| WorkerJob::Execute {
-            enqueued_at: Instant::now(),
-            query,
-            params,
-            reply,
-            session,
-        })
+        match self.run(&self.pool.primary, Kind::Execute, query, values)? {
+            Out::Count(n) => Ok(n),
+            _ => Err(internal_kind_error()),
+        }
     }
 
     fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
-        let params = values_to_owned(values)?;
-        let query = query.to_string();
-        let session = self.session_context.clone();
-        self.dispatch_read(move |reply| WorkerJob::QueryOne {
-            enqueued_at: Instant::now(),
-            query,
-            params,
-            reply,
-            session,
-        })
+        let tier = self.pool.read_pool_for(self.read_preference);
+        match self.run(tier, Kind::QueryOne, query, values)? {
+            Out::One(r) => Ok(r),
+            _ => Err(internal_kind_error()),
+        }
     }
 
     fn query_all_values(
@@ -1610,16 +2012,29 @@ impl LifeExecutor for PooledLifeExecutor {
         query: &str,
         values: &sea_query::Values,
     ) -> Result<Vec<Row>, LifeError> {
-        let params = values_to_owned(values)?;
-        let query = query.to_string();
-        let session = self.session_context.clone();
-        self.dispatch_read(move |reply| WorkerJob::QueryAll {
-            enqueued_at: Instant::now(),
-            query,
-            params,
-            reply,
-            session,
-        })
+        let tier = self.pool.read_pool_for(self.read_preference);
+        match self.run(tier, Kind::QueryAll, query, values)? {
+            Out::All(r) => Ok(r),
+            _ => Err(internal_kind_error()),
+        }
+    }
+    fn __lg_execute_owned(&self, query: &str, params: Vec<OwnedParam>) -> Result<u64, LifeError> {
+        match self.run_owned(&self.pool.primary, Kind::Execute, query, params)? {
+            Out::Count(n) => Ok(n),
+            _ => Err(internal_kind_error()),
+        }
+    }
+
+    /// Batch statements with `RETURNING` are writes: they always use the primary.
+    fn __lg_query_all_owned(
+        &self,
+        query: &str,
+        params: Vec<OwnedParam>,
+    ) -> Result<Vec<Row>, LifeError> {
+        match self.run_owned(&self.pool.primary, Kind::QueryAll, query, params)? {
+            Out::All(r) => Ok(r),
+            _ => Err(internal_kind_error()),
+        }
     }
 }
 
@@ -1656,495 +2071,66 @@ mod lifetime_effective_limit_tests {
     }
 }
 
-// ============================================================================
-// PooledLifeExecutor RLS Tests — Story 5
-//
-// Verify: session_context field, with_session_context() builder, dispatch
-// closure captures context by value, and WorkerJob.session carries it through.
-// ============================================================================
-
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::panic)]
-mod pooled_rls_tests {
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod session_args_tests {
     use super::*;
 
-    fn context() -> crate::executor::SessionContext {
-        crate::executor::SessionContext {
-            tenant_id: "hauliage".to_string(),
+    fn context() -> SessionContext {
+        SessionContext {
+            tenant_id: "tenant-a".to_string(),
             subject_id: uuid::Uuid::new_v4(),
             organization_id: uuid::Uuid::new_v4(),
             session_id: "session-test".to_string(),
             roles: vec!["admin".to_string()],
-            permissions: vec!["read".to_string()],
-            user_type: Some("admin".to_string()),
-            org_type: Some("customer".to_string()),
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // PooledLifeExecutor builder tests
-    // ------------------------------------------------------------------
-
-    /// Prerequisite: PooledLifeExecutor::new() has no session_context.
-    #[test]
-    fn test_pooled_executor_default_no_session() {
-        // PooledLifeExecutor is #[derive(Clone)] and has pool + read_preference.
-        // We construct it via new() — the default has no session.
-        // Since we can't easily construct a real pool in unit tests without
-        // a live DB, we verify the field is accessible via the Clone derive
-        // and that the struct compiles with our expected fields.
-        // This is primarily a compile-time gate: if the struct doesn't have
-        // session_context: Option<...>, the next tests fail.
-        let ctx = context();
-        // If this compiles, SessionContext is constructable and clonable.
-        let _clone = ctx.clone();
-    }
-
-    /// Prerequisite: PooledLifeExecutor carries session_context: Option field.
-    /// Verify by constructing a Job with a session and matching — this
-    /// exercises the full data path from PooledLifeExecutor through WorkerJob.
-    #[test]
-    fn test_session_context_flows_through_worker_job() {
-        let uid = uuid::Uuid::new_v4();
-        let mut ctx = context();
-        ctx.subject_id = uid;
-        ctx.permissions = vec!["read".to_string(), "write".to_string()];
-
-        // Simulate what dispatch_with_session does: build a WorkerJob with
-        // the executor's session_context cloned into the job.
-        let session: Option<crate::executor::SessionContext> = Some(ctx.clone());
-
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = WorkerJob::Execute {
-            enqueued_at: Instant::now(),
-            query: "SELECT 1".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: session.clone(),
-        };
-
-        match job {
-            WorkerJob::Execute {
-                session: job_session,
-                ..
-            } => {
-                assert!(job_session.is_some());
-                let job_ctx = job_session.unwrap();
-                assert_eq!(job_ctx.subject_id, uid);
-                assert_eq!(
-                    job_ctx.permissions,
-                    vec!["read".to_string(), "write".to_string()]
-                );
-            }
-            _ => panic!("expected Execute"),
-        }
-    }
-
-    /// Prerequisite: dispatch closure takes Option<SessionContext> by value.
-    /// Verify the closure pattern compiles and captures correctly.
-    #[test]
-    fn test_dispatch_closure_captures_session_by_value() {
-        let uid = uuid::Uuid::new_v4();
-        let mut ctx = context();
-        ctx.subject_id = uid;
-        ctx.user_type = Some("user".to_string());
-        ctx.permissions.clear();
-
-        // This mirrors the closure pattern used in dispatch_with_session:
-        // self.session_context.clone() is passed into WorkerJob::Execute.
-        let session: Option<crate::executor::SessionContext> = Some(ctx.clone());
-
-        // Closure that builds a WorkerJob, capturing session by value.
-        let build = move |reply| WorkerJob::Execute {
-            enqueued_at: Instant::now(),
-            query: "INSERT INTO test VALUES (1)".to_string(),
-            params: Vec::new(),
-            reply,
-            session: session.clone(),
-        };
-
-        // Verify the closure is callable and produces correct jobs.
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = build(tx);
-
-        match job {
-            WorkerJob::Execute { session, query, .. } => {
-                assert_eq!(query, "INSERT INTO test VALUES (1)");
-                assert!(session.is_some());
-                assert_eq!(session.unwrap().subject_id, uid);
-            }
-            _ => panic!(),
-        }
-    }
-
-    /// Prerequisite: dispatch closure with session: None works the same as
-    /// the existing zero-regression path.
-    #[test]
-    fn test_dispatch_closure_with_none_session() {
-        let session: Option<crate::executor::SessionContext> = None;
-
-        let build = move |reply| WorkerJob::QueryOne {
-            enqueued_at: Instant::now(),
-            query: "SELECT * FROM test".to_string(),
-            params: Vec::new(),
-            reply,
-            session: session.clone(),
-        };
-
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = build(tx);
-
-        match job {
-            WorkerJob::QueryOne { session, query, .. } => {
-                assert_eq!(query, "SELECT * FROM test");
-                assert!(session.is_none());
-            }
-            _ => panic!(),
-        }
-    }
-
-    /// Prerequisite: Verify SessionContext fields are correctly preserved
-    /// through the full WorkerJob round-trip (construct → match → extract).
-    #[test]
-    fn test_session_context_all_fields_preserved() {
-        let uid = uuid::Uuid::new_v4();
-        let org_id = uuid::Uuid::new_v4();
-        let tenant_id = "hauliage".to_string();
-        let mut ctx = context();
-        ctx.tenant_id.clone_from(&tenant_id);
-        ctx.subject_id = uid;
-        ctx.organization_id = org_id;
-        ctx.session_id = "session-all-fields".to_string();
-        ctx.roles = vec!["moderator".to_string()];
-        ctx.user_type = Some("moderator".to_string());
-        ctx.permissions = vec![
-            "read".to_string(),
-            "write".to_string(),
-            "delete".to_string(),
-        ];
-
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = WorkerJob::QueryAll {
-            enqueued_at: Instant::now(),
-            query: "SELECT * FROM accounts".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: Some(ctx.clone()),
-        };
-
-        match job {
-            WorkerJob::QueryAll { session, query, .. } => {
-                assert_eq!(query, "SELECT * FROM accounts");
-                assert!(session.is_some());
-                let s = session.unwrap();
-                assert_eq!(s.tenant_id, tenant_id);
-                assert_eq!(s.subject_id, uid);
-                assert_eq!(s.organization_id, org_id);
-                assert_eq!(s.session_id, "session-all-fields");
-                assert_eq!(s.roles, vec!["moderator".to_string()]);
-                assert_eq!(s.user_type, Some("moderator".to_string()));
-                assert_eq!(s.org_type, Some("customer".to_string()));
-                assert_eq!(s.permissions.len(), 3);
-            }
-            _ => panic!(),
-        }
-    }
-
-    /// Prerequisite: Verify SessionContext is Send + Sync + Clone (required
-    /// for channel dispatch into worker threads).
-    #[test]
-    fn test_session_context_traits_for_channel_dispatch() {
-        fn assert_send<T: Send>() {}
-        fn assert_clone<T: Clone>() {}
-        fn assert_send_sync<T: Send + Sync>() {}
-
-        assert_send::<crate::executor::SessionContext>();
-        assert_clone::<crate::executor::SessionContext>();
-        assert_send_sync::<crate::executor::SessionContext>();
-    }
-
-    /// Prerequisite: with_enqueued_at preserves session through re-enqueue.
-    #[test]
-    fn test_with_enqueued_at_preserves_session_all_variants() {
-        let ctx = context();
-
-        let original_at = Instant::now();
-
-        // Execute
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job_exec = WorkerJob::Execute {
-            enqueued_at: original_at,
-            query: "E".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: Some(ctx.clone()),
-        };
-        let new_at = Instant::now() + Duration::from_millis(100);
-        let updated = job_exec.with_enqueued_at(new_at);
-        match updated {
-            WorkerJob::Execute {
-                session,
-                enqueued_at,
-                ..
-            } => {
-                assert_eq!(enqueued_at, new_at);
-                assert!(session.is_some());
-                assert_eq!(session.unwrap().user_type, Some("admin".to_string()));
-            }
-            _ => panic!(),
-        }
-
-        // QueryOne
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job_qo = WorkerJob::QueryOne {
-            enqueued_at: original_at,
-            query: "Q1".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: Some(ctx.clone()),
-        };
-        let updated = job_qo.with_enqueued_at(Instant::now());
-        match updated {
-            WorkerJob::QueryOne { session, .. } => assert!(session.is_some()),
-            _ => panic!(),
-        }
-
-        // QueryAll
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job_qa = WorkerJob::QueryAll {
-            enqueued_at: original_at,
-            query: "QA".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: Some(ctx.clone()),
-        };
-        let updated = job_qa.with_enqueued_at(Instant::now());
-        match updated {
-            WorkerJob::QueryAll { session, .. } => assert!(session.is_some()),
-            _ => panic!(),
-        }
-    }
-}
-
-// ============================================================================
-// WorkerJob RLS Tests — Story 4
-//
-// Verify the prerequisite surface: WorkerJob variants carry session field,
-// with_enqueued_at preserves it, and SessionContext is Send+Clone.
-// ============================================================================
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::panic)]
-mod worker_job_rls_tests {
-    use super::*;
-
-    fn context() -> crate::executor::SessionContext {
-        crate::executor::SessionContext {
-            tenant_id: "hauliage".to_string(),
-            subject_id: uuid::Uuid::new_v4(),
-            organization_id: uuid::Uuid::new_v4(),
-            session_id: "session-worker-job".to_string(),
-            roles: vec!["admin".to_string()],
-            permissions: vec!["read".to_string()],
+            permissions: vec!["read".to_string(), "write".to_string()],
             user_type: Some("admin".to_string()),
             org_type: None,
         }
     }
 
-    // ----------------------------------------------------------------
-    // WorkerJob construction with session
-    // ----------------------------------------------------------------
-
-    /// Prerequisite: WorkerJob variants construct with session: None (backwards compatible).
     #[test]
-    fn test_worker_job_execute_constructs_with_none_session() {
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = WorkerJob::Execute {
-            enqueued_at: Instant::now(),
-            query: "SELECT 1".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: None,
-        };
-
-        // Verify it's a valid WorkerJob that can be matched
-        match job {
-            WorkerJob::Execute {
-                enqueued_at: _,
-                query,
-                params: _,
-                session,
-                reply: _,
-            } => {
-                assert_eq!(query, "SELECT 1");
-                assert!(session.is_none());
-            }
-            _ => panic!("expected Execute variant"),
+    fn session_args_follow_rls_set_session_order() {
+        let ctx = context();
+        let a = SessionArgs::new(&ctx).unwrap();
+        assert_eq!(a.refs().len(), 8);
+        match &a.params[0] {
+            OwnedParam::String(TextParam(Some(s))) => assert_eq!(s, "tenant-a"),
+            other => panic!("tenant_id: {other:?}"),
+        }
+        match &a.params[1] {
+            OwnedParam::Uuid(Some(u)) => assert_eq!(*u, ctx.subject_id),
+            other => panic!("subject_id: {other:?}"),
+        }
+        match &a.params[5] {
+            OwnedParam::Json(Some(j)) => assert_eq!(j, &serde_json::json!(["read", "write"])),
+            other => panic!("permissions: {other:?}"),
+        }
+        match &a.params[7] {
+            OwnedParam::String(TextParam(None)) => {}
+            other => panic!("org_type must be typed NULL: {other:?}"),
         }
     }
 
-    /// Prerequisite: WorkerJob::QueryOne constructs with session: None.
     #[test]
-    fn test_worker_job_query_one_constructs_with_none_session() {
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = WorkerJob::QueryOne {
-            enqueued_at: Instant::now(),
-            query: "SELECT 1".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: None,
-        };
-
-        match job {
-            WorkerJob::QueryOne {
-                enqueued_at: _,
-                query,
-                params: _,
-                session,
-                reply: _,
-            } => {
-                assert_eq!(query, "SELECT 1");
-                assert!(session.is_none());
-            }
-            _ => panic!("expected QueryOne variant"),
-        }
-    }
-
-    /// Prerequisite: WorkerJob::QueryAll constructs with session: None.
-    #[test]
-    fn test_worker_job_query_all_constructs_with_none_session() {
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = WorkerJob::QueryAll {
-            enqueued_at: Instant::now(),
-            query: "SELECT 1".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: None,
-        };
-
-        match job {
-            WorkerJob::QueryAll {
-                enqueued_at: _,
-                query,
-                params: _,
-                session,
-                reply: _,
-            } => {
-                assert_eq!(query, "SELECT 1");
-                assert!(session.is_none());
-            }
-            _ => panic!("expected QueryAll variant"),
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // with_enqueued_at preserves session
-    // ----------------------------------------------------------------
-
-    /// Prerequisite: WorkerJob::with_enqueued_at() preserves existing session field.
-    #[test]
-    fn test_with_enqueued_at_preserves_session() {
-        let uid = uuid::Uuid::new_v4();
-        let mut ctx = context();
-        ctx.subject_id = uid;
-
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job = WorkerJob::Execute {
-            enqueued_at: Instant::now(),
-            query: "SELECT 1".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: Some(ctx.clone()),
-        };
-
-        let new_at = Instant::now() + Duration::from_secs(1);
-        let updated = job.with_enqueued_at(new_at);
-
-        match updated {
-            WorkerJob::Execute {
-                enqueued_at,
-                query,
-                params: _,
-                session,
-                reply: _,
-            } => {
-                assert_eq!(enqueued_at, new_at);
-                assert_eq!(query, "SELECT 1");
-                assert!(session.is_some());
-                assert_eq!(session.unwrap().subject_id, uid);
-            }
-            _ => panic!("expected Execute variant"),
-        }
-    }
-
-    /// Prerequisite: with_enqueued_at preserves None session across all variants.
-    #[test]
-    fn test_with_enqueued_at_preserves_none_session_all_variants() {
-        // Execute
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job_exec = WorkerJob::Execute {
-            enqueued_at: Instant::now(),
-            query: "INSERT".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: None,
-        };
-        let updated_exec = job_exec.with_enqueued_at(Instant::now());
-        match updated_exec {
-            WorkerJob::Execute { session, .. } => assert!(session.is_none()),
-            _ => panic!(),
-        }
-
-        // QueryOne
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job_qo = WorkerJob::QueryOne {
-            enqueued_at: Instant::now(),
-            query: "SELECT".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: None,
-        };
-        let updated_qo = job_qo.with_enqueued_at(Instant::now());
-        match updated_qo {
-            WorkerJob::QueryOne { session, .. } => assert!(session.is_none()),
-            _ => panic!(),
-        }
-
-        // QueryAll
-        let (tx, _rx) = may::sync::mpsc::channel();
-        let job_qa = WorkerJob::QueryAll {
-            enqueued_at: Instant::now(),
-            query: "SELECT".to_string(),
-            params: Vec::new(),
-            reply: tx,
-            session: None,
-        };
-        let updated_qa = job_qa.with_enqueued_at(Instant::now());
-        match updated_qa {
-            WorkerJob::QueryAll { session, .. } => assert!(session.is_none()),
-            _ => panic!(),
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // Send + Clone on SessionContext
-    // ----------------------------------------------------------------
-
-    /// Prerequisite: Verify SessionContext implements Send + Clone
-    /// (required for channel dispatch into worker threads).
-    #[test]
-    fn test_session_context_send_and_clone() {
-        // These are compile-time checks via function signatures:
+    fn session_context_types_are_send_and_clone() {
         fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
         fn assert_clone<T: Clone>() {}
+        assert_send::<SessionContext>();
+        assert_clone::<SessionContext>();
+        assert_send::<PooledLifeExecutor>();
+        assert_sync::<PooledLifeExecutor>();
+        assert_clone::<PooledLifeExecutor>();
+        assert_sync::<LifeguardPool>();
+        assert_send::<LifeguardPool>();
+    }
 
-        assert_send::<crate::executor::SessionContext>();
-        assert_clone::<crate::executor::SessionContext>();
-
-        // Also verify it's Arc-safe (may_postgres channels use Arc internally)
-        fn assert_arc_safe<T: Send + Sync>() {}
-        assert_arc_safe::<crate::executor::SessionContext>();
+    #[test]
+    fn executor_keeps_context_and_precomputes_args() {
+        // Construct the executor's session fields without a live pool.
+        let ctx = context();
+        let args = SessionArgs::new(&ctx).map(Arc::new).ok();
+        assert!(args.is_some());
     }
 }

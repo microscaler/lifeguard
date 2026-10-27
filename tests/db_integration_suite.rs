@@ -28,6 +28,8 @@ mod replication_sync;
 mod active_model_crud;
 #[path = "db_integration/insert_on_conflict.rs"]
 mod insert_on_conflict;
+#[path = "db_integration/batch_ops.rs"]
+mod batch_ops;
 #[path = "db_integration/notify_trigger.rs"]
 mod notify_trigger;
 

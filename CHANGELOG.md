@@ -8,6 +8,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Performance
 
+- **The pool is coroutine-native: statements no longer queue behind a worker thread.** Each
+  slot is one connection that many callers share at once: `may_postgres` pipelines their
+  requests, so a slot carries several statements in flight instead of one job at a time. Only a
+  transaction or an RLS unit (`with_session_context`, `with_session_transaction`, the exclusive
+  executor) holds a slot exclusively, and concurrent ones are spread over distinct slots. The
+  public API is unchanged; `job_queue_capacity_per_worker` now caps statements in flight per
+  slot, and the reply deadline still bounds every call (`PoolReplyTimeout`): a coroutine caller
+  runs its statement inline and the pool's maintenance thread shuts a connection down when a
+  statement on it overruns the deadline (no helper coroutine or timer per statement); an OS-thread
+  caller still waits on a helper coroutine with a timeout, which holds even when every `may`
+  worker is blocked. Helper coroutines need 256 KiB of stack (`LIFEGUARD_JOB_STACK_BYTES`); with
+  may's default stack (`may::config().set_stack_size`, in words) at least that large they come
+  from may's coroutine pool. Numbers:
+  `docs/perf/lifeguard-baseline.md` (Phase 2).
+- **RLS units are one round trip.** `BEGIN`, `rls_set_session(..)`, the statement and `COMMIT`
+  are pipelined with cached statements (statements that only report a row count take three).
+- **`update()` is one `UPDATE .. RETURNING`** instead of an `UPDATE` followed by a `SELECT`
+  (entities with `select_as` columns or soft delete keep the two-step path).
+- **`MayPostgresExecutor` caches prepared statements** like the pool does, evicting and
+  re-preparing once on a stale statement.
+- Fewer allocations per query: `select_as` detection is computed once per entity, and RLS
+  session arguments once per executor.
+
 - **Pooled statements are prepared once per connection.** Each pool worker keeps the
   `Statement`s it has prepared (`LIFEGUARD_STATEMENT_CACHE_CAPACITY`, default 256, `0` = off),
   so a query costs one round trip instead of Parse/Describe plus Bind/Execute. Stale statements
@@ -23,6 +46,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `pool_tier` metric attribute no longer allocates.
 
 ### Added
+
+- **Batching (`lifeguard::batch`, `docs/BATCHING.md`).** `insert_many`, `upsert_many`,
+  `update_many`, `delete_many` and `find_by_ids`: multi-row `VALUES` or `unnest` arrays, chunked
+  under the 65,535-parameter limit, statements reused through the statement cache, optional
+  `RETURNING`, RLS context from the executor, and `BatchError` naming the failing chunk and the
+  rows written before it. `BatchWriter` buffers rows pushed by many coroutines and writes them in
+  batches (size or time trigger, backpressure, per-key ordering, at-least-once with retries and a
+  dead-letter handler, flush on close).
+- **LifeReflector (`lifeguard-reflector`).** LISTEN/NOTIFY to Redis cache invalidation: one
+  active instance by advisory lock with listening standbys, batched `UNLINK`, catch-up after
+  gaps from a watermark, refuses a `noeviction` Redis, `lifereflector_*` metrics. Not deployed.
+- `#[notify]` payloads carry `v` (WAL position, monotonic per key) and `ts` (trigger time, ms).
+- `OwnedParam::Array` / `OwnedArray` for array binds through the pool.
 
 - `examples/perf-suite`: an ORM-vs-raw-driver benchmark harness (may_postgres, tokio-postgres),
   pool contention, row mapping, RLS, and a LISTEN/NOTIFY → Redis reflection prototype.
@@ -50,8 +86,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ctx` as its thread-local context for the job, so `lifeguard.execute_query` created on
   the worker is a child of the request (or of pricewhisperer_push's tick) instead of a
   root. Found in OpenSearch after the first deploy: 0 of 1377 query spans had a parent.
+  (Superseded by the coroutine-native pool above: there are no worker threads; the job
+  coroutine sets the caller's context the same way.)
 
 ### Fixed
+
+- The workspace patches `may` to the microscaler fork `may_redis` builds on, so a binary using
+  both runs one scheduler instead of two (the fork is crates.io 0.3.51 plus
+  `spsc::Receiver::recv_with_timeout`).
+- Removed the unused `rand` dependency (the manifest said 0.8 while the lockfile CI tested had
+  0.10.1; nothing in the crate uses it).
 
 - **Pool slot locks are `may::sync::Mutex`, not `std::sync::Mutex`.** The per-slot lock is
   held across the reply wait (a coroutine park), so an OS-thread mutex made every same-slot

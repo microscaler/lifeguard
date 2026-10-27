@@ -36,11 +36,150 @@ pub enum OwnedParam {
     Json(Option<serde_json::Value>),
     /// Legacy bucket for `Value` variants that still map to a shared placeholder (see `converted_params`).
     GenericNull,
+    /// A PostgreSQL array (`= ANY($1)`, `unnest($1, ..)` batch statements); see [`OwnedArray`].
+    Array(OwnedArray),
+}
+
+/// A typed, nullable PostgreSQL array parameter, built from column values by the batch APIs.
+#[derive(Clone, Debug)]
+pub enum OwnedArray {
+    Bool(Vec<Option<bool>>),
+    SmallInt(Vec<Option<i16>>),
+    Int(Vec<Option<i32>>),
+    BigInt(Vec<Option<i64>>),
+    Float(Vec<Option<f32>>),
+    Double(Vec<Option<f64>>),
+    Text(Vec<Option<String>>),
+    Bytes(Vec<Option<Vec<u8>>>),
+    Date(Vec<Option<chrono::NaiveDate>>),
+    Time(Vec<Option<chrono::NaiveTime>>),
+    DateTime(Vec<Option<chrono::NaiveDateTime>>),
+    DateTimeUtc(Vec<Option<chrono::DateTime<chrono::Utc>>>),
+    Uuid(Vec<Option<uuid::Uuid>>),
+    Decimal(Vec<Option<rust_decimal::Decimal>>),
+    Json(Vec<Option<serde_json::Value>>),
+}
+
+impl OwnedArray {
+    /// An empty array of the element type `value` belongs to, with its SQL array type name
+    /// (`int8`, `text`, ...). `None` for value types that have no array mapping.
+    #[must_use]
+    pub fn for_value(value: &Value) -> Option<(Self, &'static str)> {
+        Some(match value {
+            Value::Bool(_) => (Self::Bool(Vec::new()), "bool"),
+            Value::TinyInt(_) | Value::SmallInt(_) | Value::TinyUnsigned(_) => {
+                (Self::SmallInt(Vec::new()), "int2")
+            }
+            Value::Int(_) | Value::SmallUnsigned(_) => (Self::Int(Vec::new()), "int4"),
+            Value::BigInt(_) | Value::Unsigned(_) | Value::BigUnsigned(_) => {
+                (Self::BigInt(Vec::new()), "int8")
+            }
+            Value::Float(_) => (Self::Float(Vec::new()), "float4"),
+            Value::Double(_) => (Self::Double(Vec::new()), "float8"),
+            Value::String(_) | Value::Char(_) => (Self::Text(Vec::new()), "text"),
+            Value::Bytes(_) => (Self::Bytes(Vec::new()), "bytea"),
+            Value::ChronoDate(_) => (Self::Date(Vec::new()), "date"),
+            Value::ChronoTime(_) => (Self::Time(Vec::new()), "time"),
+            Value::ChronoDateTime(_) => (Self::DateTime(Vec::new()), "timestamp"),
+            Value::ChronoDateTimeUtc(_) | Value::ChronoDateTimeLocal(_) => {
+                (Self::DateTimeUtc(Vec::new()), "timestamptz")
+            }
+            Value::Uuid(_) => (Self::Uuid(Vec::new()), "uuid"),
+            Value::Decimal(_) => (Self::Decimal(Vec::new()), "numeric"),
+            Value::Json(_) => (Self::Json(Vec::new()), "jsonb"),
+            _ => return None,
+        })
+    }
+
+    /// Append `value`; `false` when its type does not match this array's element type.
+    #[allow(clippy::cast_possible_wrap)]
+    pub fn push(&mut self, value: &Value) -> bool {
+        match (self, value) {
+            (Self::Bool(v), Value::Bool(x)) => v.push(*x),
+            (Self::SmallInt(v), Value::TinyInt(x)) => v.push(x.map(i16::from)),
+            (Self::SmallInt(v), Value::SmallInt(x)) => v.push(*x),
+            (Self::SmallInt(v), Value::TinyUnsigned(x)) => v.push(x.map(i16::from)),
+            (Self::Int(v), Value::Int(x)) => v.push(*x),
+            (Self::Int(v), Value::SmallUnsigned(x)) => v.push(x.map(i32::from)),
+            (Self::BigInt(v), Value::BigInt(x)) => v.push(*x),
+            (Self::BigInt(v), Value::Unsigned(x)) => v.push(x.map(i64::from)),
+            (Self::BigInt(v), Value::BigUnsigned(x)) => match x {
+                Some(u) if *u > i64::MAX as u64 => return false,
+                _ => v.push(x.map(|u| u as i64)),
+            },
+            (Self::Float(v), Value::Float(x)) => v.push(*x),
+            (Self::Double(v), Value::Double(x)) => v.push(*x),
+            (Self::Text(v), Value::String(x)) => v.push(x.clone()),
+            (Self::Text(v), Value::Char(x)) => v.push(x.map(|c| c.to_string())),
+            (Self::Bytes(v), Value::Bytes(x)) => v.push(x.clone()),
+            (Self::Date(v), Value::ChronoDate(x)) => v.push(*x),
+            (Self::Time(v), Value::ChronoTime(x)) => v.push(*x),
+            (Self::DateTime(v), Value::ChronoDateTime(x)) => v.push(*x),
+            (Self::DateTimeUtc(v), Value::ChronoDateTimeUtc(x)) => v.push(*x),
+            (Self::DateTimeUtc(v), Value::ChronoDateTimeLocal(x)) => {
+                v.push(x.map(|d| d.with_timezone(&chrono::Utc)));
+            }
+            (Self::Uuid(v), Value::Uuid(x)) => v.push(*x),
+            (Self::Decimal(v), Value::Decimal(x)) => v.push(*x),
+            (Self::Json(v), Value::Json(x)) => v.push(x.as_deref().cloned()),
+            _ => return false,
+        }
+        true
+    }
+
+    /// Number of elements.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Bool(v) => v.len(),
+            Self::SmallInt(v) => v.len(),
+            Self::Int(v) => v.len(),
+            Self::BigInt(v) => v.len(),
+            Self::Float(v) => v.len(),
+            Self::Double(v) => v.len(),
+            Self::Text(v) => v.len(),
+            Self::Bytes(v) => v.len(),
+            Self::Date(v) => v.len(),
+            Self::Time(v) => v.len(),
+            Self::DateTime(v) => v.len(),
+            Self::DateTimeUtc(v) => v.len(),
+            Self::Uuid(v) => v.len(),
+            Self::Decimal(v) => v.len(),
+            Self::Json(v) => v.len(),
+        }
+    }
+
+    /// `true` when empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn as_sql_ref(&self) -> &dyn ToSql {
+        match self {
+            Self::Bool(v) => v as &dyn ToSql,
+            Self::SmallInt(v) => v as &dyn ToSql,
+            Self::Int(v) => v as &dyn ToSql,
+            Self::BigInt(v) => v as &dyn ToSql,
+            Self::Float(v) => v as &dyn ToSql,
+            Self::Double(v) => v as &dyn ToSql,
+            Self::Text(v) => v as &dyn ToSql,
+            Self::Bytes(v) => v as &dyn ToSql,
+            Self::Date(v) => v as &dyn ToSql,
+            Self::Time(v) => v as &dyn ToSql,
+            Self::DateTime(v) => v as &dyn ToSql,
+            Self::DateTimeUtc(v) => v as &dyn ToSql,
+            Self::Uuid(v) => v as &dyn ToSql,
+            Self::Decimal(v) => v as &dyn ToSql,
+            Self::Json(v) => v as &dyn ToSql,
+        }
+    }
 }
 
 impl OwnedParam {
     /// Borrow as `dyn ToSql` for the current statement bind.
-    pub(crate) fn as_sql_ref(&self) -> &dyn ToSql {
+    #[must_use]
+    pub fn as_sql_ref(&self) -> &dyn ToSql {
         match self {
             OwnedParam::Bool(b) => b as &dyn ToSql,
             OwnedParam::Int(i) => i as &dyn ToSql,
@@ -62,6 +201,7 @@ impl OwnedParam {
                 static C: Option<i32> = None;
                 &C as &dyn ToSql
             }
+            OwnedParam::Array(a) => a.as_sql_ref(),
         }
     }
 }

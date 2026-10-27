@@ -210,6 +210,14 @@ fn a_row_change_reaches_a_listening_connection() {
     assert_eq!(parsed["table"], "test_notify_events");
     assert_eq!(parsed["op"], "INSERT");
     assert_eq!(parsed["id"], id.to_string());
+    assert!(
+        parsed["v"].as_i64().is_some_and(|v| v > 0),
+        "payload carries a version stamp: {payload}"
+    );
+    assert!(
+        parsed["ts"].as_i64().is_some_and(|t| t > 1_600_000_000_000),
+        "payload carries a millisecond timestamp: {payload}"
+    );
 }
 
 /// The operation is reported accurately, so a listener can tell an insert from
@@ -248,6 +256,7 @@ fn each_operation_is_reported_with_its_own_op_and_key() {
         .expect("delete");
 
     let mut ops = Vec::new();
+    let mut versions = Vec::new();
     for _ in 0..3 {
         let payload = wait_for_notification(&listener).expect("three notifications expected");
         let parsed: serde_json::Value = serde_json::from_str(&payload).expect("json payload");
@@ -259,9 +268,16 @@ fn each_operation_is_reported_with_its_own_op_and_key() {
             "every operation should report the changed row's key: {payload}"
         );
         ops.push(parsed["op"].as_str().unwrap_or_default().to_string());
+        versions.push(parsed["v"].as_i64().expect("version stamp"));
     }
 
     assert_eq!(ops, vec!["INSERT", "UPDATE", "DELETE"]);
+    // Successive writes to one row carry increasing versions; consumers rely on
+    // this to discard stale events for a key.
+    assert!(
+        versions.windows(2).all(|w| w[0] < w[1]),
+        "versions must increase per key: {versions:?}"
+    );
 }
 
 /// Poll for a notification, giving the connection round trips to surface it.

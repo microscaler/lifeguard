@@ -4,6 +4,17 @@ Status: review, 27 Oct 2026. Companion to [`lifeguard-baseline.md`](lifeguard-ba
 `reflector_*` rows are the evidence quoted here. Everything below is generic: it describes the
 component, not any one application's tables.
 
+> **Update (Phase 2, same day).** The approved design is now built in the `lifeguard-reflector`
+> crate: LISTEN/NOTIFY kept, payload `{"table","op","id","v","ts"}` (the `v`/`ts` stamps are in the
+> generated trigger), invalidate rather than rewrite, batched `UNLINK`, one active instance by a
+> session advisory lock with listening standbys (gapless take-over when the standby's buffer
+> covers the old leader's watermark), catch-up after gaps (ranged by a change column, or a
+> per-table flush), refusal of a `noeviction` Redis, and `lifereflector_*` metrics. The `may` /
+> `may_redis` double scheduler is resolved by patching `may` to the fork workspace-wide (the fork is
+> crates.io 0.3.51 plus one additive API). Still open: a notification wake-up in `may_postgres`
+> (the reflector polls its queue every 500 µs), multi-region fan-out (§5.4), and deployment. The
+> crate's README is the current description; sections 1–2 below describe the state before it.
+
 ## 1. What the design says
 
 The design is in `lifeguard-reflector/README.md`, `VISION.md`, `ARCHITECTURE.md`,

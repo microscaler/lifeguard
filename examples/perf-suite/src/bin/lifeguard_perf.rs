@@ -4,8 +4,10 @@
 //! Every number here is measured against a disposable local database (`PERF_RESET=1`).
 
 use lifeguard::{
-    ActiveModelTrait, ColumnTrait, FromRow, LifeModelTrait, LifeguardPool,
-    MayPostgresExecutor, OnConflict, PooledLifeExecutor, SessionContext,
+    delete_many, find_by_ids, insert_many, update_many, upsert_many, ActiveModelTrait,
+    BatchOptions, BatchWriter, BatchWriterConfig, ColumnTrait, FromRow, LifeModelTrait,
+    LifeguardPool, LifeguardPoolSettings, MayPostgresExecutor, OnConflict, PooledLifeExecutor,
+    SessionContext, WriteMode,
 };
 use lifeguard_perf::entities::{item, ledger, wide};
 use lifeguard_perf::stats::{markdown, summarize, Row};
@@ -169,6 +171,214 @@ fn seq<F: FnMut(usize)>(scn: &str, var: &str, c: &Cfg, note: &str, mut f: F) -> 
     row
 }
 
+/// Pool with default settings, adjusted by `PERF_REPLY_TIMEOUT_OFF=1` (no reply deadline, so no
+/// watchdog coroutine per call) and `PERF_QUEUE_DEPTH` (statements in flight per slot).
+fn open_pool(url: &str, size: usize) -> Result<LifeguardPool, lifeguard::LifeError> {
+    let mut s = LifeguardPoolSettings::default();
+    if matches!(env::var("PERF_REPLY_TIMEOUT_OFF").as_deref(), Ok("1" | "true")) {
+        s.reply_timeout = None;
+    }
+    if let Some(d) = env::var("PERF_QUEUE_DEPTH").ok().and_then(|v| v.parse().ok()) {
+        s.job_queue_capacity_per_worker = d;
+    }
+    LifeguardPool::new_with_settings(url, size, vec![], 0, &s)
+}
+
+// ---------------------------------------------------------------------------------------------
+// batching: single-row ORM calls vs lifeguard::batch vs raw COPY
+
+const BATCH_BASE: i64 = 50_000_000;
+
+fn batch_rec(id: i64, qty: i32) -> item::ItemRecord {
+    let mut r = item::ItemRecord::new();
+    r.set_id(id)
+        .set_account_id(9)
+        .set_name(format!("b{id}"))
+        .set_qty(qty)
+        .set_price(2.5)
+        .set_active(true)
+        .set_updated_at(ts());
+    r
+}
+
+/// Time `reps` runs of `f(n)` (after `prep` each time, untimed). One row per variant; ops/s is
+/// rows per second.
+fn batch_row(
+    var: &str,
+    n: usize,
+    reps: usize,
+    note: &str,
+    mut prep: impl FnMut(),
+    mut f: impl FnMut(usize),
+) -> Row {
+    prep();
+    f(n); // warm-up (prepares statements)
+    let mut s = Vec::with_capacity(reps);
+    let mut total = Duration::ZERO;
+    for _ in 0..reps {
+        prep();
+        let t = Instant::now();
+        f(n);
+        let e = t.elapsed();
+        total += e;
+        s.push(us(e));
+    }
+    let mut row = summarize(&format!("batch_{n}"), var, 1, s, total, note);
+    #[allow(clippy::cast_precision_loss)]
+    {
+        row.ops_per_s = (n * reps) as f64 / total.as_secs_f64();
+    }
+    eprintln!("  batch_{n:<8} {var:<26} p50 {:>10.0}µs  {:>10.0} rows/s", row.p50_us, row.ops_per_s);
+    row
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_batch(
+    c: &Cfg,
+    admin: &may_postgres::Client,
+    orm: &PooledLifeExecutor,
+    pool: &Arc<LifeguardPool>,
+    rows: &mut Vec<Row>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sizes: Vec<usize> = env::var("PERF_BATCH_SIZES")
+        .unwrap_or_else(|_| "100,1000,10000".into())
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .collect();
+    let reps = env_usize("PERF_BATCH_REPS", 5);
+    let single_max = env_usize("PERF_BATCH_SINGLE_MAX", 1000);
+    let clear = || {
+        admin
+            .batch_execute(&format!("DELETE FROM perf_items WHERE id >= {BATCH_BASE}"))
+            .expect("clear");
+    };
+    let seed = |n: usize| {
+        admin
+            .batch_execute(&format!(
+                "DELETE FROM perf_items WHERE id >= {BATCH_BASE};
+                 INSERT INTO perf_items SELECT {BATCH_BASE} + g, 9, 'b' || g, 1, 2.5, true, TIMESTAMP '2026-01-01'
+                 FROM generate_series(0, {}) g",
+                n - 1
+            ))
+            .expect("seed");
+    };
+    let key = |i: usize| BATCH_BASE + i as i64;
+    let raw = may_postgres::connect(&c.admin_url)?;
+    for &n in &sizes {
+        eprintln!("batch n={n}");
+        let recs: Vec<item::ItemRecord> = (0..n).map(|i| batch_rec(key(i), 1)).collect();
+        let ids: Vec<sea_query::Value> = (0..n).map(|i| sea_query::Value::BigInt(Some(key(i)))).collect();
+        if n <= single_max {
+            rows.push(batch_row("insert_single_orm", n, reps, "n x ActiveModel::insert", clear, |n| {
+                for r in &recs[..n] {
+                    r.insert(orm).expect("insert");
+                }
+            }));
+        }
+        let values = BatchOptions { unnest_min_rows: usize::MAX, ..BatchOptions::default() };
+        rows.push(batch_row("insert_many_values", n, reps, "multi-row VALUES, 1000 rows/stmt", clear, |_| {
+            insert_many(orm, &recs, &values).expect("insert_many values");
+        }));
+        let unnest = BatchOptions { unnest_min_rows: 0, max_rows: 10_000, ..BatchOptions::default() };
+        rows.push(batch_row("insert_many_unnest", n, reps, "UNNEST arrays, 10000 rows/stmt", clear, |_| {
+            insert_many(orm, &recs, &unnest).expect("insert_many unnest");
+        }));
+        rows.push(batch_row("insert_many_default", n, reps, "BatchOptions::default()", clear, |_| {
+            insert_many(orm, &recs, &BatchOptions::default()).expect("insert_many");
+        }));
+        rows.push(batch_row("insert_raw_copy", n, reps, "may_postgres COPY FROM STDIN (text)", clear, |n| {
+            let mut sink = raw
+                .copy_in::<_, bytes::Bytes>("COPY perf_items (id, account_id, name, qty, price, active, updated_at) FROM STDIN")
+                .expect("copy");
+            let mut buf = String::with_capacity(n * 48);
+            for i in 0..n {
+                use std::fmt::Write as _;
+                let _ = writeln!(buf, "{}\t9\tb{}\t1\t2.5\tt\t2026-01-01 00:00:00", key(i), i);
+            }
+            sink.send(bytes::Bytes::from(buf)).expect("copy send");
+            sink.finish().expect("copy finish");
+        }));
+        let oc = || {
+            OnConflict::column(item::Column::Id)
+                .update_columns([item::Column::Qty, item::Column::UpdatedAt])
+                .to_owned()
+        };
+        let upd_recs: Vec<item::ItemRecord> = (0..n).map(|i| batch_rec(key(i), 2)).collect();
+        if n <= single_max {
+            rows.push(batch_row("upsert_single_orm", n, reps, "n x insert_on_conflict", || seed(n), |n| {
+                for r in &upd_recs[..n] {
+                    r.insert_on_conflict(orm, oc()).expect("upsert");
+                }
+            }));
+        }
+        rows.push(batch_row("upsert_many", n, reps, "existing keys, DO UPDATE", || seed(n), |_| {
+            upsert_many(orm, &upd_recs, oc(), &BatchOptions::default()).expect("upsert_many");
+        }));
+        let qty_only: Vec<item::ItemRecord> = (0..n)
+            .map(|i| {
+                let mut r = item::ItemRecord::new();
+                r.set_id(key(i)).set_qty(3);
+                r
+            })
+            .collect();
+        if n <= single_max {
+            rows.push(batch_row("update_single_orm", n, reps, "n x ActiveModel::update", || seed(n), |n| {
+                for r in &qty_only[..n] {
+                    r.update(orm).expect("update");
+                }
+            }));
+        }
+        rows.push(batch_row("update_many", n, reps, "UPDATE .. FROM unnest", || seed(n), |_| {
+            update_many(orm, &qty_only, &[item::Column::Qty], &BatchOptions::default()).expect("update_many");
+        }));
+        seed(n);
+        if n <= single_max {
+            rows.push(batch_row("get_single_orm", n, reps, "n x find_one by pk (the N+1)", || {}, |n| {
+                for i in 0..n {
+                    item::Entity::find().filter(item::Column::Id.eq(key(i))).find_one(orm).expect("get");
+                }
+            }));
+        }
+        rows.push(batch_row("find_by_ids", n, reps, "pk = ANY($1), 1000 keys/stmt", || {}, |_| {
+            let got = find_by_ids::<item::Entity>(orm, &ids, &BatchOptions::default()).expect("find_by_ids");
+            assert_eq!(got.len(), ids.len());
+        }));
+        rows.push(batch_row("delete_many", n, reps, "pk = ANY($1)", || seed(n), |_| {
+            delete_many::<item::Entity>(orm, &ids, &BatchOptions::default()).expect("delete_many");
+        }));
+        // Ingest-style: 16 coroutines push concurrently into one BatchWriter; time until closed.
+        let writers = 16usize;
+        rows.push(batch_row("batch_writer_16_producers", n, reps, "500 rows / 50 ms, upsert, close()", clear, |n| {
+            let w: Arc<BatchWriter<item::ItemRecord>> = Arc::new(BatchWriter::new(
+                PooledLifeExecutor::new(pool.clone()),
+                WriteMode::Upsert { on_conflict: oc(), key: vec![item::Column::Id] },
+                BatchWriterConfig::default(),
+                |e, rows| eprintln!("batch writer failure: {e} ({} rows)", rows.len()),
+            ));
+            let hs: Vec<_> = (0..writers)
+                .map(|p| {
+                    let w = w.clone();
+                    may::go!(move || {
+                        let mut i = p;
+                        while i < n {
+                            let _ = w.push(batch_rec(BATCH_BASE + i as i64, 1));
+                            i += writers;
+                        }
+                    })
+                })
+                .collect();
+            for h in hs {
+                let _ = h.join();
+            }
+            let w = Arc::try_unwrap(w).map_err(|_| "writer still shared").expect("unwrap");
+            let st = w.close();
+            assert_eq!(st.failed, 0);
+        }));
+        clear();
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------------------------
 // may side (ORM + raw may_postgres + reflector)
 
@@ -178,7 +388,7 @@ fn run_may(c: &Cfg, rows: &mut Vec<Row>) -> Result<(), Box<dyn std::error::Error
     admin.batch_execute(SCHEMA_SQL)?;
     admin.batch_execute(WIDE_SQL)?;
 
-    let pool = Arc::new(LifeguardPool::new(&c.admin_url, c.pool_size, vec![], 0)?);
+    let pool = Arc::new(open_pool(&c.admin_url, c.pool_size)?);
     let orm = PooledLifeExecutor::new(pool.clone());
     let direct = MayPostgresExecutor::new(may_postgres::connect(&c.admin_url)?);
     let raw = may_postgres::connect(&c.admin_url)?;
@@ -284,9 +494,13 @@ fn run_may(c: &Cfg, rows: &mut Vec<Row>) -> Result<(), Box<dyn std::error::Error
         }));
     }
 
+    if wants(c, "batch") {
+        run_batch(c, &admin, &orm, &pool, rows)?;
+    }
+
     if wants(c, "rls") {
         eprintln!("rls");
-        let app_pool = Arc::new(LifeguardPool::new(&c.app_url, c.pool_size, vec![], 0)?);
+        let app_pool = Arc::new(open_pool(&c.app_url, c.pool_size)?);
         let app = PooledLifeExecutor::new(app_pool.clone()).with_session_context(ctx("tenant-3"));
         rows.push(seq("rls_pk_select", "orm_pool_session_ctx", c, "BEGIN; rls_set_session; SELECT; COMMIT", |i| {
             let m = ledger::Entity::find()
@@ -426,6 +640,12 @@ fn run_may(c: &Cfg, rows: &mut Vec<Row>) -> Result<(), Box<dyn std::error::Error
         match &c.redis {
             None => eprintln!("reflector: PERF_REDIS not set, skipped"),
             Some((h, p)) => reflector(c, h, *p, &admin, &orm, rows)?,
+        }
+    }
+    if wants(c, "reflector_crate") {
+        match &c.redis {
+            None => eprintln!("reflector_crate: PERF_REDIS not set, skipped"),
+            Some((h, p)) => reflector_crate(c, h, *p, &admin, rows)?,
         }
     }
     Ok(())
@@ -632,6 +852,182 @@ fn reflector(
             rows.push(erow);
             base += cap as i64;
         }
+    }
+    Ok(())
+}
+
+/// Wraps the real Redis sink and stamps when each key's invalidation completed.
+struct TimingSink {
+    inner: lifeguard_reflector::RedisSink,
+    base: i64,
+    done_ns: Arc<Vec<AtomicU64>>,
+    reflected: Arc<AtomicUsize>,
+}
+
+impl lifeguard_reflector::CacheSink for TimingSink {
+    fn invalidate(&self, keys: &[String]) -> Result<u64, lifeguard_reflector::SinkError> {
+        let n = self.inner.invalidate(keys)?;
+        for k in keys {
+            if let Some(id) = k.rsplit(':').next().and_then(|s| s.parse::<i64>().ok()) {
+                mark(&self.done_ns, self.base, id);
+            }
+        }
+        self.reflected.fetch_add(keys.len(), Ordering::Relaxed);
+        Ok(n)
+    }
+    fn invalidate_matching_page(&self, p: &str, c: i64) -> Result<(i64, u64), lifeguard_reflector::SinkError> {
+        self.inner.invalidate_matching_page(p, c)
+    }
+    fn get_i64(&self, k: &str) -> Result<Option<i64>, lifeguard_reflector::SinkError> {
+        self.inner.get_i64(k)
+    }
+    fn set_i64(&self, k: &str, v: i64) -> Result<(), lifeguard_reflector::SinkError> {
+        self.inner.set_i64(k, v)
+    }
+    fn ping(&self) -> Result<(), lifeguard_reflector::SinkError> {
+        self.inner.ping()
+    }
+    fn eviction_policy(&self) -> Option<String> {
+        self.inner.eviction_policy()
+    }
+}
+
+/// The `lifeguard-reflector` crate end to end: write -> trigger -> NOTIFY -> batched UNLINK.
+fn reflector_crate(c: &Cfg, host: &str, port: u16, admin: &may_postgres::Client, rows: &mut Vec<Row>) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("reflector_crate (lifeguard-reflector, invalidate)");
+    let writers = env_usize("PERF_REFLECT_WRITERS", 16);
+    let burst_ms = env_usize("PERF_REFLECT_BURST_MS", 3000) as u64;
+    let paced_n = env_usize("PERF_REFLECT_PACED", 2000);
+    let mut base: i64 = 100_000_000;
+    // Optional: a large unrelated keyspace, so the start-up catch-up (a SCAN of every key) is
+    // long, and writes that start immediately show whether live invalidation waits for it.
+    let preload = env_usize("PERF_REFLECT_PRELOAD_KEYS", 0);
+    let no_wait = matches!(env::var("PERF_REFLECT_NO_WAIT").as_deref(), Ok("1"));
+    for (phase, paced) in [("paced_500_per_s", true), ("burst", false)] {
+        if preload > 0 {
+            let r = may_redis::RedisClient::connect(host, port)?;
+            for chunk in (0..preload).collect::<Vec<_>>().chunks(1000) {
+                let mut p = r.pipeline();
+                for i in chunk {
+                    p.add(may_redis::cmd("SET").arg(format!("perf:junk:{i}")).arg("v").arg("EX").arg(600u32));
+                }
+                p.execute_raw()?;
+            }
+            eprintln!("  crate/{phase}: preloaded {preload} unrelated keys");
+        }
+        admin.batch_execute("TRUNCATE perf_reflect")?;
+        let cap = 2_000_000usize;
+        let start_ns: Arc<Vec<AtomicU64>> = Arc::new((0..cap).map(|_| AtomicU64::new(0)).collect());
+        let done_ns: Arc<Vec<AtomicU64>> = Arc::new((0..cap).map(|_| AtomicU64::new(0)).collect());
+        let reflected = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut cfg = lifeguard_reflector::Config::new(c.admin_url.clone(), format!("redis://{host}:{port}"));
+        cfg.channels = vec!["perf_reflect".into()];
+        cfg.key_prefix = "perf:lr:".into();
+        cfg.watermark_key = "perf:lr:__wm".into();
+        cfg.metrics_addr = None;
+        cfg.tables = vec![lifeguard_reflector::TableSpec { table: "perf_reflect".into(), catch_up: lifeguard_reflector::CatchUp::Flush }];
+        cfg.lock_key = 0x5eed_0000 + i64::from(paced);
+        let (url, b, d, r, st) = (cfg.redis_url.clone(), base, done_ns.clone(), reflected.clone(), stop.clone());
+        let h = may::go!(move || {
+            let factory = move || -> Result<Box<dyn lifeguard_reflector::CacheSink>, lifeguard_reflector::SinkError> {
+                Ok(Box::new(TimingSink { inner: lifeguard_reflector::RedisSink::connect(&url)?, base: b, done_ns: d.clone(), reflected: r.clone() }))
+            };
+            lifeguard_reflector::run(cfg, &factory, &st)
+        });
+        // Wait for leadership and the initial catch-up (a full SCAN of the keyspace for a
+        // flush-mode table), so the measurement is of steady-state invalidation.
+        let m = lifeguard_reflector::metrics::metrics();
+        let catch_ups_before = m.catch_ups.with_label_values(&["flush"]).get();
+        let t_ready = Instant::now();
+        while !no_wait
+            && (m.leader.get() != 1 || m.catch_ups.with_label_values(&["flush"]).get() == catch_ups_before)
+            && t_ready.elapsed() < Duration::from_secs(60)
+        {
+            may::coroutine::sleep(Duration::from_millis(10));
+        }
+        if no_wait {
+            // Leadership itself is quick; only the catch-up is left running.
+            while m.leader.get() != 1 && t_ready.elapsed() < Duration::from_secs(10) {
+                may::coroutine::sleep(Duration::from_millis(2));
+            }
+            eprintln!("  crate/{phase}: leader after {:.0} ms; writing during the catch-up", t_ready.elapsed().as_secs_f64() * 1e3);
+        } else {
+            eprintln!("  crate/{phase}: leader and catch-up done after {:.0} ms", t_ready.elapsed().as_secs_f64() * 1e3);
+        }
+        reflected.store(0, Ordering::Relaxed);
+        let written = Arc::new(AtomicUsize::new(0));
+        let t0 = Instant::now();
+        let n_writers = if paced { 1 } else { writers };
+        let deadline = Instant::now() + Duration::from_millis(burst_ms);
+        let mut hs = Vec::new();
+        for w in 0..n_writers {
+            let (url, start_ns, written) = (c.admin_url.clone(), start_ns.clone(), written.clone());
+            hs.push(may::go!(move || {
+                let cl = may_postgres::connect(&url).expect("writer connect");
+                let st = cl.prepare("INSERT INTO perf_reflect (id, version, body) VALUES ($1, 1, $2)").expect("prep");
+                let body = "x".repeat(200);
+                let mut j = 0usize;
+                loop {
+                    let seq = if paced { j } else { j * n_writers + w };
+                    if paced && seq >= paced_n || !paced && Instant::now() >= deadline || seq >= cap {
+                        break;
+                    }
+                    start_ns[seq].store(now_ns(), Ordering::Release);
+                    cl.execute(&st, &[&(base + seq as i64), &body]).expect("insert");
+                    written.fetch_add(1, Ordering::Relaxed);
+                    if paced {
+                        may::coroutine::sleep(Duration::from_millis(2));
+                    }
+                    j += 1;
+                }
+            }));
+        }
+        for h in hs {
+            let _ = h.join();
+        }
+        let write_wall = t0.elapsed();
+        let total = written.load(Ordering::Relaxed);
+        let drain_t = Instant::now();
+        while reflected.load(Ordering::Relaxed) < total && drain_t.elapsed() < Duration::from_secs(30) {
+            may::coroutine::sleep(Duration::from_millis(5));
+        }
+        let all_wall = t0.elapsed();
+        if no_wait {
+            eprintln!(
+                "  crate/{phase}: catch-ups completed so far {} (keys removed {})",
+                m.catch_ups.with_label_values(&["flush"]).get(),
+                m.catch_up_keys.get()
+            );
+        }
+        stop.store(true, Ordering::Relaxed);
+        let _ = h.join();
+        let mut e2e = Vec::with_capacity(total);
+        let mut missing = 0usize;
+        for s in 0..total.min(cap) {
+            let (a, b) = (start_ns[s].load(Ordering::Acquire), done_ns[s].load(Ordering::Acquire));
+            if a == 0 {
+                continue;
+            }
+            if b == 0 {
+                missing += 1;
+            } else {
+                e2e.push((b.saturating_sub(a)) as f64 / 1000.0);
+            }
+        }
+        let batches = lifeguard_reflector::metrics::metrics().flushes.with_label_values(&["ok"]).get();
+        let mut erow = summarize(
+            "reflector_crate_e2e",
+            phase,
+            n_writers,
+            e2e,
+            all_wall,
+            format!("write start -> UNLINK done; written {total}, missing {missing}, flushes so far {batches}, drain {:.0} ms", (all_wall - write_wall).as_secs_f64() * 1e3),
+        );
+        erow.ops_per_s = reflected.load(Ordering::Relaxed) as f64 / all_wall.as_secs_f64();
+        eprintln!("  crate/{phase}: wrote {total}, e2e p50 {:.0}µs p99 {:.0}µs, {:.0} keys/s, missing {missing}", erow.p50_us, erow.p99_us, erow.ops_per_s);
+        rows.push(erow);
+        base += cap as i64;
     }
     Ok(())
 }
