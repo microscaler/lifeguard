@@ -2,9 +2,7 @@
 name = "lifeguard-reflector"
 version = "0.1.0"
 edition = "2021"
-# NOTE: the crate was scaffolded as proprietary while the rest of the repository is MIT OR
-# Apache-2.0. The licence is Charles's call; it is left unchanged here.
-license = "PROPRIETARY"
+license = "FSL-1.1-ALv2"
 repository = "https://github.com/microscaler/lifeguard"
 description = "LifeReflector: Postgres LISTEN/NOTIFY to Redis cache invalidation for Lifeguard entities"
 authors = ["Microscaler, Inc. <enterprise@microscaler.io>"]

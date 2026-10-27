@@ -134,4 +134,4 @@ See [EPICS](./docs/EPICS/) for current development priorities.
 
 ## 📜 License
 
-Licensed under **MIT OR Apache-2.0** at your option (`[Cargo.toml](./Cargo.toml)`). The `[LICENSE](./LICENSE)` file in this repository contains the Apache-2.0 text.
+Licensed under **MIT OR Apache-2.0** at your option (`[Cargo.toml](./Cargo.toml)`). The `[LICENSE](./LICENSE)` file in this repository contains the Apache-2.0 text. The exception is the [`lifeguard-reflector/`](./lifeguard-reflector/) crate (LifeReflector), which is source-available under the **Functional Source License, FSL-1.1-ALv2** (Apache-2.0 future licence); see [its LICENSE](./lifeguard-reflector/LICENSE).

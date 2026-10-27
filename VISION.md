@@ -50,7 +50,7 @@ struct User {
 
 **Distributed cache coherence system**—this is Lifeguard's unique advantage:
 
-> **Note:** LifeReflector is developed as the **`lifeguard-reflector`** workspace crate in this repository ([`./lifeguard-reflector`](./lifeguard-reflector/)). Enterprise licensing may still apply for some distributions; see that crate’s README.
+> **Note:** LifeReflector is developed as the **`lifeguard-reflector`** workspace crate in this repository ([`./lifeguard-reflector`](./lifeguard-reflector/)). Unlike the rest of Lifeguard (MIT OR Apache-2.0), the crate is source-available under FSL-1.1-ALv2; see its [LICENSE](./lifeguard-reflector/LICENSE).
 
 A **standalone microservice** that maintains cluster-wide cache coherence:
 
@@ -72,7 +72,7 @@ A **standalone microservice** that maintains cluster-wide cache coherence:
 
 **Result:** Oracle Coherence–style **coherence for the active set** in Redis: lazy (or warmed) population on reads, plus **notify-driven refresh** only where a stale cache entry could otherwise exist. See the **sequence diagram** below (cache miss branch → Postgres → `SETEX`).
 
-**Enterprise:** commercial or source-available licensing may apply for some LifeReflector deployments. Source and package layout live under [`lifeguard-reflector`](./lifeguard-reflector/); contact enterprise@microscaler.io for licensing questions.
+**Licence:** LifeReflector is source-available under FSL-1.1-ALv2: any use other than a competing product is permitted, and each version converts to Apache-2.0 two years after release. Source and package layout live under [`lifeguard-reflector`](./lifeguard-reflector/).
 
 ### Transparent caching system (target)
 

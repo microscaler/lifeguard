@@ -1,7 +1,7 @@
 # LifeReflector
 
 Keeps a Redis cache of Lifeguard entities coherent with Postgres by **invalidating** cached rows
-when they change. Licence: see [`LICENSE`](LICENSE).
+when they change. Licence: FSL-1.1-ALv2 (see [Licence](#licence)).
 
 ```
 writer ──INSERT/UPDATE/DELETE──▶ Postgres ──trigger: pg_notify(channel, {"table","op","id","v","ts"})──▶
@@ -105,3 +105,12 @@ cargo test -p lifeguard-reflector --test live
 
 They cover batched invalidation, a single active leader with gapless failover to a standby,
 ranged and flush catch-up after downtime, and the `noeviction` refusal.
+
+## Licence
+
+LifeReflector (`lifeguard-reflector`) is source-available under the
+[Functional Source License, Version 1.1, ALv2 Future License](LICENSE)
+(SPDX `FSL-1.1-ALv2`), copyright 2026 Microscaler. Any use other than a competing
+product or service is permitted. Each version converts to the Apache License,
+Version 2.0 two years after it is released. The rest of the Lifeguard workspace is
+MIT OR Apache-2.0.
