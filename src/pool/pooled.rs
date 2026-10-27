@@ -1106,14 +1106,21 @@ fn drain(stream: may_postgres::RowStream) -> Result<(), may_postgres::Error> {
     Ok(())
 }
 
+/// Drains a statement's stream and returns its affected-row count (as `execute` would).
+fn count(mut stream: may_postgres::RowStream) -> Result<u64, may_postgres::Error> {
+    for r in stream.by_ref() {
+        r?;
+    }
+    Ok(stream.rows_affected().unwrap_or(0))
+}
+
 /// `BEGIN; rls_set_session(..); <stmt>; COMMIT` on one handle of a pinned connection.
 ///
-/// Queries pipeline all four statements: they are written together and cost one round trip.
-/// `may_postgres` does not report a row count through its streaming API, so for `Execute` the
-/// `BEGIN` and context are pipelined, then the statement and `COMMIT` follow (three round trips;
-/// before this pool, four). Every stream is drained in order and stops at its first error, so an
-/// error is never attributed to a later statement. A failed statement leaves the transaction
-/// aborted, and the pipelined `COMMIT` then rolls it back.
+/// All four statements are pipelined: they are written together and cost one round trip (before
+/// this pool, four). For `Execute` the affected-row count comes from the statement's
+/// `CommandComplete` via [`may_postgres::RowStream::rows_affected`]. Every stream is drained in
+/// order and stops at its first error, so an error is never attributed to a later statement. A
+/// failed statement leaves the transaction aborted, and the pipelined `COMMIT` then rolls it back.
 fn contextual_unit(
     h: &Client,
     conn: &SlotConn,
@@ -1136,24 +1143,23 @@ fn contextual_unit(
         let s_set = h.query_raw(&set, &arg_refs).map_err(LifeError::from)?;
         match kind {
             Kind::Execute => {
+                let s_stmt = h.query_raw(&st, refs).map_err(LifeError::from);
+                let s_commit = h.query_raw(&commit, &[]).map_err(LifeError::from);
                 let rb = drain(s_begin);
                 let rs = drain(s_set);
+                let n: Result<u64, LifeError> = match s_stmt {
+                    Ok(s) => timed(tier, sql, || count(s)),
+                    Err(e) => Err(e),
+                };
+                let rc = match s_commit {
+                    Ok(s) => drain(s).map_err(LifeError::from),
+                    Err(e) => Err(e),
+                };
                 rb.map_err(LifeError::from)?;
-                if let Err(e) = rs {
-                    let _ = h.batch_execute("ROLLBACK");
-                    return Err(rls_error(e));
-                }
-                let n = timed(tier, sql, || h.execute(&st, refs));
-                match n {
-                    Ok(n) => {
-                        h.execute(&commit, &[]).map_err(LifeError::from)?;
-                        Ok(Out::Count(n))
-                    }
-                    Err(e) => {
-                        let _ = h.batch_execute("ROLLBACK");
-                        Err(e)
-                    }
-                }
+                rs.map_err(rls_error)?;
+                let n = n?;
+                rc?;
+                Ok(Out::Count(n))
             }
             Kind::QueryOne | Kind::QueryAll => {
                 let s_stmt = h.query_raw(&st, refs).map_err(LifeError::from);

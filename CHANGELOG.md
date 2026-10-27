@@ -23,7 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   from may's coroutine pool. Numbers:
   `docs/perf/lifeguard-baseline.md` (Phase 2).
 - **RLS units are one round trip.** `BEGIN`, `rls_set_session(..)`, the statement and `COMMIT`
-  are pipelined with cached statements (statements that only report a row count take three).
+  are pipelined with cached statements, including statements that only report a row count (the
+  count comes from `RowStream::rows_affected`; `may_postgres` is pinned to
+  microscaler/may_postgres 9c55df0).
 - **`update()` is one `UPDATE .. RETURNING`** instead of an `UPDATE` followed by a `SELECT`
   (entities with `select_as` columns or soft delete keep the two-step path).
 - **`MayPostgresExecutor` caches prepared statements** like the pool does, evicting and

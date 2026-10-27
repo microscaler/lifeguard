@@ -1281,7 +1281,7 @@ dependencies = [
 [[package]]
 name = "may_postgres"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/may_postgres.git?rev=4cff8ff730fa948b680d3c1f34d158120b205df7#4cff8ff730fa948b680d3c1f34d158120b205df7"
+source = "git+https://github.com/microscaler/may_postgres.git?rev=9c55df03d536a57b2d52b09132696e34121d36d6#9c55df03d536a57b2d52b09132696e34121d36d6"
 dependencies = [
  "byteorder",
  "bytes",

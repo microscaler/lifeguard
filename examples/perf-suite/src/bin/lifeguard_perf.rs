@@ -1050,7 +1050,6 @@ fn spawn_listener(
     let one = reader.prepare("SELECT id, version, body FROM perf_reflect WHERE id = $1")?;
     let many = reader.prepare("SELECT id, version, body FROM perf_reflect WHERE id = ANY($1)")?;
     let redis = may_redis::RedisClient::connect(host, port)?;
-    let poll = Duration::from_micros(env_usize("PERF_REFLECT_POLL_US", 200) as u64);
     let _ = start_ns;
     Ok(may::go!(move || {
         let mut batch: Vec<i64> = Vec::with_capacity(256);
@@ -1067,9 +1066,15 @@ fn spawn_listener(
                 if stop.load(Ordering::Relaxed) {
                     break;
                 }
-                // may_postgres exposes notifications as a queue with no wake-up: poll it.
-                may::coroutine::sleep(poll);
-                continue;
+                // Block until the connection delivers a notification (no polling); the timeout
+                // only bounds how long a stop request can go unnoticed.
+                if let Some(n) = listen.next_notification(Duration::from_millis(50)) {
+                    let v: serde_json::Value = serde_json::from_str(n.payload()).expect("payload json");
+                    batch.push(v["id"].as_i64().expect("id"));
+                }
+                if batch.is_empty() {
+                    continue;
+                }
             }
             match mode {
                 Mode::PerKey => {

@@ -242,8 +242,8 @@ alone it passes every time.
 
 2. **RLS units in one round trip** (finding 2). `BEGIN`, `rls_set_session(..)`, the statement and
    `COMMIT` are written together with cached statements and read back in order: 233 → 69 µs p50.
-   Statements that return only a row count take three round trips, because `may_postgres`'s
-   streaming API does not expose the count.
+   Statements that return only a row count are pipelined the same way, reading the count from
+   `RowStream::rows_affected` (fork `may_postgres` 9c55df0; before it they took three round trips).
 
 3. **`update()` is one `UPDATE … RETURNING *`** (finding 3): 158 → 48 µs p50, and the
    read-your-own-write hazard with replicas is gone. Entities with `select_as` columns or soft
@@ -309,7 +309,7 @@ a long catch-up on purpose and shows no delay; rerun it after any change to the 
 | # | Finding | State |
 |---|---|---|
 | 6 | SeaQuery builds the SQL string per call | open |
-| 7 | No notification wake-up in `may_postgres` | open (other repository); the reflector polls every 500 µs |
+| 7 | No notification wake-up in `may_postgres` | done: `Client::next_notification` (fork `may_postgres` 9c55df0); the reflector and the perf listener block on it instead of polling |
 | 8 | `RedisCacheProvider` on the blocking `redis` crate; two `may` schedulers with `may_redis` | the scheduler half is fixed (workspace `[patch]` to the fork `may_redis` uses); the provider is unchanged |
 | 10 | Test crates as normal dependencies | `rand` removed (unused); `fake`, `csv`, `may_minihttp` and `redis` remain |
-| — | Execute-kind RLS statements take 3 round trips | needs a row count from `may_postgres`'s streaming API (other repository) |
+| — | Execute-kind RLS statements take 3 round trips | done: one round trip via `RowStream::rows_affected` (fork `may_postgres` 9c55df0) |
