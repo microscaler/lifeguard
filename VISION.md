@@ -50,7 +50,7 @@ struct User {
 
 **Distributed cache coherence system**—this is Lifeguard's unique advantage:
 
-> **Note:** LifeReflector is developed as the **`lifeguard-reflector`** workspace crate in this repository ([`./lifeguard-reflector`](./lifeguard-reflector/)). Unlike the rest of Lifeguard (MIT OR Apache-2.0), the crate is source-available under FSL-1.1-ALv2; see its [LICENSE](./lifeguard-reflector/LICENSE).
+> **Note:** LifeReflector lives in its own repository, [microscaler/lifeguard-reflector](https://github.com/microscaler/lifeguard-reflector) (FSL-1.1-ALv2). It consumes the `#[notify]` trigger payload, a versioned open contract ([docs/NOTIFY_CONTRACT.md](./docs/NOTIFY_CONTRACT.md)).
 
 A **standalone microservice** that maintains cluster-wide cache coherence:
 
@@ -72,7 +72,7 @@ A **standalone microservice** that maintains cluster-wide cache coherence:
 
 **Result:** Oracle Coherence–style **coherence for the active set** in Redis: lazy (or warmed) population on reads, plus **notify-driven refresh** only where a stale cache entry could otherwise exist. See the **sequence diagram** below (cache miss branch → Postgres → `SETEX`).
 
-**Licence:** LifeReflector is source-available under FSL-1.1-ALv2: any use other than a competing product is permitted, and each version converts to Apache-2.0 two years after release. Source and package layout live under [`lifeguard-reflector`](./lifeguard-reflector/).
+**Licence:** LifeReflector is source-available under FSL-1.1-ALv2: any use other than a competing product is permitted, and each version converts to Apache-2.0 two years after release. See [its repository](https://github.com/microscaler/lifeguard-reflector).
 
 ### Transparent caching system (target)
 
@@ -81,11 +81,11 @@ A **standalone microservice** that maintains cluster-wide cache coherence:
 - **Check Redis first:** Sub-millisecond reads if cached
 - **Read from replicas:** When healthy (WAL lag < threshold)
 - **Write to primary:** Always (as PostgreSQL was designed)
-- **LifeReflector keeps cache fresh:** Automatic coherence across microservices ([`lifeguard-reflector`](./lifeguard-reflector/))
+- **LifeReflector keeps cache fresh:** Automatic coherence across microservices ([LifeReflector](https://github.com/microscaler/lifeguard-reflector))
 
 Your application code doesn't need to know about Redis, replicas, or cache coherence. It just calls `User::find_by_id(&pool, 42)?` and Lifeguard handles the rest.
 
-**Note:** For distributed cache coherence across multiple microservices, [`lifeguard-reflector`](./lifeguard-reflector/) provides automatic cache refresh using PostgreSQL LISTEN/NOTIFY.
+**Note:** For distributed cache coherence across multiple microservices, [LifeReflector](https://github.com/microscaler/lifeguard-reflector) provides automatic cache invalidation using PostgreSQL LISTEN/NOTIFY.
 
 ### Replica Read Support
 

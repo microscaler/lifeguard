@@ -67,7 +67,6 @@ LG_NEXTTEST_ENV = (
 # Dependency graph (Cargo):
 #   lifeguard-derive — standalone proc-macro
 #   lifeguard-codegen — standalone CLI (clap/serde only)
-#   lifeguard-reflector — standalone stub (no path deps yet)
 #   lifeguard — depends on lifeguard-derive
 #   lifeguard-migrate — depends on lifeguard + lifeguard-derive (must follow build-lifeguard)
 
@@ -97,23 +96,6 @@ local_resource(
         'lifeguard-codegen/src',
         'lifeguard-codegen/Cargo.toml',
         'lifeguard-codegen/Cargo.lock',
-    ],
-    ignore=[
-        'target/**',
-        '**/target/**',
-    ],
-    resource_deps=[],
-    labels=['build'],
-    allow_parallel=True,
-)
-
-# Build lifeguard-reflector (cache coherence service; workspace member)
-local_resource(
-    'build-reflector',
-    cmd='cargo build -p lifeguard-reflector',
-    deps=[
-        'lifeguard-reflector/src',
-        'lifeguard-reflector/Cargo.toml',
     ],
     ignore=[
         'target/**',
@@ -262,7 +244,6 @@ local_resource(
         'lifeguard-derive',
         'lifeguard-codegen',
         'lifeguard-migrate',
-        'lifeguard-reflector',
         'tests-integration',
         'Cargo.toml',
         'Cargo.lock',
@@ -279,7 +260,6 @@ local_resource(
     ],
     resource_deps=[
         'build-codegen',
-        'build-reflector',
         'build-migrate',
     ],
     labels=['tests'],
@@ -301,7 +281,6 @@ local_resource(
         'lifeguard-derive',
         'lifeguard-codegen',
         'lifeguard-migrate',
-        'lifeguard-reflector',
         'Cargo.toml',
         'Cargo.lock',
         '.config/nextest.toml',
@@ -317,7 +296,6 @@ local_resource(
     ],
     resource_deps=[
         'build-codegen',
-        'build-reflector',
         'build-migrate',
     ],
     labels=['tests'],

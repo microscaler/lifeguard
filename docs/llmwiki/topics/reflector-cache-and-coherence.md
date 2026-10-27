@@ -1,8 +1,8 @@
 # LifeReflector, cache coherence, Redis
 
 - **Status**: `partially-verified`
-- **Source docs**: [`VISION.md`](../../../VISION.md) (LifeReflector narrative), [`ARCHITECTURE.md`](../../../ARCHITECTURE.md), [`lifeguard-reflector/README.md`](../../../lifeguard-reflector/README.md)
-- **Code anchors**: `lifeguard-reflector/`, `lifeguard/src/cache/`
+- **Source docs**: [`VISION.md`](../../../VISION.md) (LifeReflector narrative), [`ARCHITECTURE.md`](../../../ARCHITECTURE.md), [LifeReflector README](https://github.com/microscaler/lifeguard-reflector)
+- **Code anchors**: [microscaler/lifeguard-reflector](https://github.com/microscaler/lifeguard-reflector) (separate repository), `lifeguard/src/cache/`, [`docs/NOTIFY_CONTRACT.md`](../../NOTIFY_CONTRACT.md)
 - **Last updated**: 2026-04-17
 
 ## What it is

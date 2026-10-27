@@ -8,7 +8,7 @@ This wiki is a **persistent, compounding knowledge layer** for the Lifeguard ORM
 
 When claims disagree, the higher-ranked source wins:
 
-1. **Runtime + public API:** `src/`, `lifeguard-derive/src/`, `lifeguard-migrate/src/`, `lifeguard-codegen/`, `lifeguard-reflector/`, `examples/`, integration tests.
+1. **Runtime + public API:** `src/`, `lifeguard-derive/src/`, `lifeguard-migrate/src/`, `lifeguard-codegen/`, `examples/`, integration tests.
 2. **Generated artifacts:** `migrations/generated/`, outputs of `lifeguard-migrate` / `infer-schema` when committed.
 3. **Human-authored technical docs:** `docs/*.md` (operational references), `docs/planning/**` (designs and PRDs), crate `README.md` files, `book/src/**` (mdBook).
 4. **Root narrative docs:** `README.md`, `ARCHITECTURE.md`, `VISION.md`, `COMPARISON.md`, `DEVELOPMENT.md`, `ROADMAP.md`, `CHANGELOG.md`.

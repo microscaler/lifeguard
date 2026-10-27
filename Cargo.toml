@@ -13,7 +13,6 @@ members = [
     "lifeguard-derive",
     "lifeguard-codegen",
     "lifeguard-migrate",
-    "lifeguard-reflector",
     "tests-integration",
 ]
 resolver = "2"
@@ -130,10 +129,3 @@ graphql = ["lifeguard-derive/graphql", "dep:async-graphql"]
 [patch.crates-io]
 opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "965078315b58ae14725721735f1c8e2bc2d3b445" }
 opentelemetry_sdk = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "965078315b58ae14725721735f1c8e2bc2d3b445" }
-# One `may` for the whole workspace. `may_redis` (used by lifeguard-reflector) depends on the
-# microscaler fork's `may-sleep` branch for `spsc::Receiver::recv_with_timeout`; without this patch
-# the graph holds two `may` crates and therefore two schedulers, and coroutines from one block the
-# other's workers. The fork is crates.io may 0.3.51 plus that one additive API and lint fixes
-# (no behavioural change to existing APIs). Must name the same git URL *and* branch as may_redis
-# so Cargo sees one source. Drop when the API lands in a may release.
-may = { git = "https://github.com/microscaler/may.git", branch = "may-sleep" }

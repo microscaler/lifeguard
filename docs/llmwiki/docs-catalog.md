@@ -61,7 +61,7 @@ Indexed in [`docs/planning/README.md`](../planning/README.md). Notable clusters:
 | [`lifeguard-migrate/README.md`](../../lifeguard-migrate/README.md) | Migration CLI, compare-schema, infer-schema. |
 | [`lifeguard-derive/README.md`](../../lifeguard-derive/README.md) | Derive crate overview. |
 | [`lifeguard-codegen/README.md`](../../lifeguard-codegen/README.md) | Codegen utilities. |
-| [`lifeguard-reflector/README.md`](../../lifeguard-reflector/README.md) | Redis / NOTIFY adjunct. |
+| [LifeReflector](https://github.com/microscaler/lifeguard-reflector) (separate repository) | Redis / NOTIFY adjunct; consumes [`docs/NOTIFY_CONTRACT.md`](../NOTIFY_CONTRACT.md). |
 | [`examples/entities/README.md`](../../examples/entities/README.md) | Entity examples + migration generation. |
 | [`tests-integration/README.md`](../../tests-integration/README.md) | Integration test layout. |
 | [`migrations/README.md`](../../migrations/README.md) | Original vs generated migration trees. |

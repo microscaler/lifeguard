@@ -9,7 +9,7 @@
 ## Prompt to submit (copy from here)
 
 ```text
-As an expert in IT security and vulnerability assessment, analyse the Lifeguard codebase (Rust PostgreSQL ORM / data platform: lifeguard crate, lifeguard-derive, lifeguard-migrate, lifeguard-reflector, examples, tests).
+As an expert in IT security and vulnerability assessment, analyse the Lifeguard codebase (Rust PostgreSQL ORM / data platform: lifeguard crate, lifeguard-derive, lifeguard-migrate, examples, tests).
 
 Write the assessment in the prose of an external security audit consultancy. The audience is CTOs, engineering leads, and CSOs. Use clear executive summaries where appropriate.
 
@@ -67,7 +67,7 @@ Deliver:
 |-------|---------------------------|
 | **Direct SQL construction** | `LifeExecutor` remains a low-level trait, but the public `execute_unprepared` convenience was removed. Review consumers that emulate it with `executor.execute(sql, &[])`; dynamic values must use bound parameters and schema changes must use migrations. |
 | **Parameterized vs embedded values** | `src/relation/eager.rs` — generated SQL fragments use `value_to_sql_string` / `Expr::cust` in places; code comments note embedding values is not ideal. Review for any path where **untrusted** data influences SQL text. |
-| **`unsafe`** | `src/session/identity_model_cell.rs` — `unsafe impl Send`; `lifeguard-reflector` may use `unsafe` for FFI/cache — review soundness and thread contracts. |
+| **`unsafe`** | `src/session/identity_model_cell.rs` — `unsafe impl Send`. |
 | **Migration / lock SQL** | `src/migration/lock.rs` — `format!` with `LOCK_VERSION` constant (not user input); still verify no future refactor introduces interpolation of untrusted input. |
 | **Dependency posture** | Root `Cargo.toml` — git-pinned `may_postgres`; direct `protobuf = "3.7.2"` with comment referencing **CVE-2025-53605** — keep `cargo audit` / `cargo deny` in CI. |
 | **Cryptography** | `sha2` for migration checksums — appropriate for integrity, not for passwords; ensure no misuse as a KDF. |

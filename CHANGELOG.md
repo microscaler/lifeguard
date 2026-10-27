@@ -56,10 +56,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   rows written before it. `BatchWriter` buffers rows pushed by many coroutines and writes them in
   batches (size or time trigger, backpressure, per-key ordering, at-least-once with retries and a
   dead-letter handler, flush on close).
-- **LifeReflector (`lifeguard-reflector`).** LISTEN/NOTIFY to Redis cache invalidation: one
-  active instance by advisory lock with listening standbys, batched `UNLINK`, catch-up after
-  gaps from a watermark, refuses a `noeviction` Redis, `lifereflector_*` metrics. Not deployed.
-- `#[notify]` payloads carry `v` (WAL position, monotonic per key) and `ts` (trigger time, ms).
+- `#[notify]` payloads carry `v` (WAL position, monotonic per key) and `ts` (trigger time, ms),
+  documented as a versioned open contract in `docs/NOTIFY_CONTRACT.md`.
 - `OwnedParam::Array` / `OwnedArray` for array binds through the pool.
 
 - `examples/perf-suite`: an ORM-vs-raw-driver benchmark harness (may_postgres, tokio-postgres),
@@ -69,9 +67,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `lifeguard_entity_errors_total` (`LIFEGUARD_METRICS_ENTITY_LABEL=off` folds them into `_all`).
   Also `lifeguard_pool_checkout_seconds`, `lifeguard_pool_in_flight`, `lifeguard_pool_waiters`
   and `lifeguard_statement_cache_total`.
-- `docs/perf/lifeguard-baseline.md` and `docs/perf/lifereflector-design-review.md`.
+- `docs/perf/lifeguard-baseline.md`.
 
 ### Changed
+
+- **LifeReflector moved to its own repository**, [microscaler/lifeguard-reflector](https://github.com/microscaler/lifeguard-reflector)
+  (FSL-1.1-ALv2), with its history. Lifeguard keeps the `#[notify]` trigger and its payload contract
+  (`docs/NOTIFY_CONTRACT.md`); the workspace no longer patches `may`.
 
 - The `lifeguard.execute_query` span records `db.operation` (the statement kind) instead of the
   full SQL text.
@@ -93,9 +95,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- The workspace patches `may` to the microscaler fork `may_redis` builds on, so a binary using
-  both runs one scheduler instead of two (the fork is crates.io 0.3.51 plus
-  `spsc::Receiver::recv_with_timeout`).
 - Removed the unused `rand` dependency (the manifest said 0.8 while the lockfile CI tested had
   0.10.1; nothing in the crate uses it).
 

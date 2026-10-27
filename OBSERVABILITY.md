@@ -39,7 +39,7 @@ Lifeguard does **not** set a global OpenTelemetry `TracerProvider`. Your service
 
 ## LifeReflector metrics
 
-Metrics for the [`lifeguard-reflector`](./lifeguard-reflector/) service (when enabled in that deployment):
+LifeReflector is a separate service ([microscaler/lifeguard-reflector](https://github.com/microscaler/lifeguard-reflector)) and documents its own `lifereflector_*` metrics in its README. Earlier design names, kept for reference:
 
 - `reflector_notifications_total` — Notifications received
 - `reflector_refreshes_total` — Cache refreshes

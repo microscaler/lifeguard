@@ -1,15 +1,15 @@
 # Lifeguard performance baseline and findings
 
 Phase 1 (sections 1–5) measured the ORM and fixed the small things. Phase 2 (section 6) rebuilt
-the pool and added batching and the reflector; its gate against Phase 1 is in §6.1.
+the pool and added batching; its gate against Phase 1 is in §6.1.
 
 27 Oct 2026. The method follows BRRTRouter's `docs/perf/copy-and-borrow-audit.md`: measure, then
 find where the time goes against a raw-driver floor, then fix what is small and safe, with numbers
 before and after, and list the rest for a decision. The ORM API is unchanged. Every change here is
 internal or an additive opt-in.
 
-The harness is in [`examples/perf-suite`](../../examples/perf-suite). Design notes on the cache
-component are in [`lifereflector-design-review.md`](lifereflector-design-review.md).
+The harness is in [`examples/perf-suite`](../../examples/perf-suite). LifeReflector's design
+review and measurements moved with it to [its repository](https://github.com/microscaler/lifeguard-reflector) (`docs/perf/`).
 
 ## 1. How to run
 
@@ -45,7 +45,6 @@ columns), `perf_ledger` (RLS) and `perf_reflect`.
 | `redis`, `cache_read` | `may_redis` `SET EX` (single and 64-deep pipeline) and `GET` | ORM pk select |
 | `notify_payload_limit`, `reflector_*` | NOTIFY trigger → LISTEN → refresh `SELECT` → Redis, per-key and batched | — |
 | `batch_{100,1000,10000}` | `insert_many` (VALUES, unnest, default), `upsert_many`, `update_many`, `find_by_ids`, `delete_many`, `BatchWriter` with 16 producers | the same rows one ORM call at a time; `COPY FROM STDIN` |
-| `reflector_crate_e2e` | the `lifeguard-reflector` service: trigger → NOTIFY → batched `UNLINK` | — |
 
 Sqlx and Diesel were left out: tokio-postgres already gives the driver floor. Flamegraphs are made
 with `perf record --call-graph dwarf` + `inferno` (`docs/perf/flamegraphs/`, see §5).
@@ -144,7 +143,7 @@ Expected gains are measured against the `after` numbers above.
 | 8 | **Blocking calls reachable from coroutines:** `RedisCacheProvider` uses the blocking `redis` crate and opens a TCP connection per `get`/`set`. `may_redis` is built on a `may` fork, so without a `[patch]` a binary runs two schedulers. | Code reading; the perf suite needs the patch | Move `RedisCacheProvider` onto `may_redis` with one shared connection. Upstream the fork's change to `may`, or pin the patch in a workspace template. | Avoids worker-thread stalls once any cache is enabled | Small–medium |
 | 9 | **Batch writes have no ORM path.** Callers that write many rows loop `insert()`, one statement each. | One round trip per row, 69–117 µs each | Additive `insert_many` / `upsert_many` (multi-row `VALUES`, chunked under the 65,535-parameter limit) | 10–100× on bulk writes | Medium |
 | 10 | **Test and dev crates are normal dependencies** (`may_minihttp`, `csv`, `fake`, `rand`, `redis`), so every consumer compiles them. | `Cargo.toml` | Move them to dev-dependencies or behind features (`redis` behind a `redis-cache` feature) | Build time and binary size for consumers | Small |
-| 11 | LifeReflector: the per-key refresh loop cannot keep up with bursts; batching can. Full design review in the companion doc. | per-key 7–14k/s with lag growing to 15–37 s; batched 74–80k/s, p99 2.7–2.8 ms | Batched loop, version-checked writes, backfill on reconnect | — | Large: needs decisions |
+| 11 | LifeReflector: the per-key refresh loop cannot keep up with bursts; batching can. Design review and results: LifeReflector's repository. | per-key 7–14k/s with lag growing to 15–37 s; batched 74–80k/s, p99 2.7–2.8 ms | Batched loop, version-checked writes, backfill on reconnect | — | Large: needs decisions |
 
 ## 5. Flamegraphs
 
@@ -284,32 +283,17 @@ gap grows with distance to the database.
 
 ### 6.4 LifeReflector
 
-The `lifeguard-reflector` crate (README in the crate) measured end to end: a writer commits a row
-with the generated trigger, the reflector `UNLINK`s its key.
-
-| Load | Keys/s | e2e p50 | e2e p99 | Notes |
-|---|---:|---:|---:|---|
-| 1 writer, 500 rows/s | 422 | 0.78 ms | 2.6 ms | 1,994 flushes for 2,000 changes: each change goes out on its own |
-| 16 writers, as fast as they go | 75.9k | 0.32 ms | 2.1 ms | 34k flushes (about 7 keys each): batches grow with load |
-| same, 1M unrelated keys in Redis, writes start during the start-up catch-up | 77.1k (burst), 419 (paced) | 0.32 ms / 0.84 ms | 2.1 ms / 2.8 ms | the catch-up `SCAN`s a page per loop pass between live flushes, so it does not delay them |
-
-For comparison, the Phase 1 prototype that re-read each row and `SET` it fell behind under the
-same burst (8.4k keys/s, lag growing to 26 s); its batched variant kept up (82.6k/s, p99 2.2 ms),
-which is the shape the crate now has, minus the re-read. Writers are unaffected by the trigger's
-extra `v` and `ts` fields (the INSERT's p50 stays at ~0.18–0.21 ms in both scenarios).
-
-Two earlier paced runs showed an e2e p50 of 2.5 s. In the first, the start-up catch-up ran to
-completion before live changes were served (it is now incremental). The second used the old
-harness, which started writing on a fixed 1.5 s timer; it was not reproduced once the harness
-waited for leadership, so its cause is not fully pinned down. The third row starts writing during
-a long catch-up on purpose and shows no delay; rerun it after any change to the loop.
+LifeReflector moved to [its own repository](https://github.com/microscaler/lifeguard-reflector); its end-to-end measurements are in
+that repository's `docs/perf/`. Lifeguard's side is the `#[notify]` payload, a versioned open contract
+([`docs/NOTIFY_CONTRACT.md`](../NOTIFY_CONTRACT.md)). The Phase 1 reflection prototype (`reflector_*`
+scenarios) stays in the perf suite.
 
 ### 6.5 Still open
 
 | # | Finding | State |
 |---|---|---|
 | 6 | SeaQuery builds the SQL string per call | open |
-| 7 | No notification wake-up in `may_postgres` | done: `Client::next_notification` (fork `may_postgres` 9c55df0); the reflector and the perf listener block on it instead of polling |
-| 8 | `RedisCacheProvider` on the blocking `redis` crate; two `may` schedulers with `may_redis` | the scheduler half is fixed (workspace `[patch]` to the fork `may_redis` uses); the provider is unchanged |
+| 7 | No notification wake-up in `may_postgres` | done: `Client::next_notification` (fork `may_postgres` 9c55df0); LISTEN consumers (LifeReflector, the perf listener) block on it instead of polling |
+| 8 | `RedisCacheProvider` on the blocking `redis` crate; two `may` schedulers with `may_redis` | open; a binary that uses both needs a `[patch]` to the `may` fork `may_redis` uses (the perf suite has one) |
 | 10 | Test crates as normal dependencies | `rand` removed (unused); `fake`, `csv`, `may_minihttp` and `redis` remain |
 | — | Execute-kind RLS statements take 3 round trips | done: one round trip via `RowStream::rows_affected` (fork `may_postgres` 9c55df0) |

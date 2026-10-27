@@ -20,7 +20,7 @@
 
 ## 🏗️ Architecture overview
 
-High-level data flow: your app and ORM go through `**LifeguardPool`** to **PostgreSQL** (writes and strong reads on the **primary**; scaled reads may use **replicas** when routing allows). **Redis** is optional cache-aside; `**[lifeguard-reflector](./lifeguard-reflector/)`** refreshes warm keys **asynchronously** after commits (not on the `SELECT` hot path).
+High-level data flow: your app and ORM go through `**LifeguardPool`** to **PostgreSQL** (writes and strong reads on the **primary**; scaled reads may use **replicas** when routing allows). **Redis** is optional cache-aside; **[LifeReflector](https://github.com/microscaler/lifeguard-reflector)** keeps cached keys coherent **asynchronously** after commits (not on the `SELECT` hot path).
 
 ```mermaid
 flowchart LR
@@ -44,6 +44,15 @@ flowchart LR
 
 
 **Full diagrams** (numbered call order, multi-service deployment, pool slots, LifeReflector sequence): **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
+
+### LifeReflector
+
+[LifeReflector](https://github.com/microscaler/lifeguard-reflector) is a separate service that keeps a Redis cache of Lifeguard entities
+coherent with PostgreSQL. It listens for the change notifications that `#[notify]` triggers send and
+invalidates the matching cache keys in batches, with one active instance (advisory lock), listening
+standbys and catch-up after downtime. Lifeguard's side is the trigger payload, a versioned open
+contract: [docs/NOTIFY_CONTRACT.md](./docs/NOTIFY_CONTRACT.md). LifeReflector has its own repository
+and licence (FSL-1.1-ALv2).
 
 ---
 
@@ -134,4 +143,4 @@ See [EPICS](./docs/EPICS/) for current development priorities.
 
 ## 📜 License
 
-Licensed under **MIT OR Apache-2.0** at your option (`[Cargo.toml](./Cargo.toml)`). The `[LICENSE](./LICENSE)` file in this repository contains the Apache-2.0 text. The exception is the [`lifeguard-reflector/`](./lifeguard-reflector/) crate (LifeReflector), which is source-available under the **Functional Source License, FSL-1.1-ALv2** (Apache-2.0 future licence); see [its LICENSE](./lifeguard-reflector/LICENSE).
+Licensed under **MIT OR Apache-2.0** at your option (`[Cargo.toml](./Cargo.toml)`). The `[LICENSE](./LICENSE)` file in this repository contains the Apache-2.0 text. [LifeReflector](https://github.com/microscaler/lifeguard-reflector) lives in its own repository under its own licence.

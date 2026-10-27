@@ -547,7 +547,8 @@ fn infer_zero_default_for_sql_type(col_type: &str) -> Option<&'static str> {
 /// `CREATE OR REPLACE TRIGGER` needs PostgreSQL 14+ and these migrations are
 /// re-applied routinely.
 ///
-/// Payload: `{"table", "op", "id", "v", "ts"}`, always far below the 8000-byte
+/// Payload (contract version 1, `docs/NOTIFY_CONTRACT.md`): `{"table", "op", "id", "v", "ts"}`,
+/// always far below the 8000-byte
 /// NOTIFY limit because it carries the key, never the row.
 ///
 /// - `v` is the WAL insert position when the trigger ran, as a bigint. Two

@@ -13,7 +13,7 @@
 | `lifeguard-derive` | Procedural macros: `#[derive(LifeModel, LifeRecord)]`, `#[scope]`, attributes on fields/tables. |
 | `lifeguard-migrate` | CLI: schema inference, SQL generation, `compare-schema`, dependency ordering (`sql_dependency_order`). |
 | `lifeguard-codegen` | Supporting codegen utilities used by tooling. |
-| `lifeguard-reflector` | Optional NOTIFY-driven cache refresh adjunct (see reflector topic). |
+| LifeReflector (separate repository) | Optional NOTIFY-driven cache invalidation service (see reflector topic). |
 
 Integration tests and examples live under `tests-integration/`, `examples/`, `tests/`.
 
