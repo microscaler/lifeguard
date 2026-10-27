@@ -25,6 +25,8 @@ pub struct EntityInfo {
 pub fn discover_entities(source_dir: &Path) -> Result<Vec<EntityInfo>, Box<dyn std::error::Error>> {
     let mut entities = Vec::new();
     discover_entities_recursive(source_dir, source_dir, &mut entities)?;
+    // read_dir order is whatever the filesystem returns; sort so the generated registry is the same on every build.
+    entities.sort_by(|a, b| a.file_path.cmp(&b.file_path));
     Ok(entities)
 }
 

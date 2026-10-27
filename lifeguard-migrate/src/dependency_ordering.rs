@@ -6,7 +6,7 @@
 //! - Topologically sort tables by dependencies
 //! - Validate that all foreign key references exist
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Extract the referenced table name from a foreign key string
 /// Format: "table_name(column) ON DELETE action" or "table_name(column)"
@@ -88,7 +88,10 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
     for t in tables {
         by_name.insert(t.name.clone(), t.clone());
     }
-    let tables: Vec<TableInfo> = by_name.into_values().collect();
+    // Name order, so the result does not depend on HashMap iteration: generated code (the build-script registry) and
+    // migrations come out the same on every build, and an unchanged service binary stays byte-identical.
+    let mut tables: Vec<TableInfo> = by_name.into_values().collect();
+    tables.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Build reverse graph: for each table, track which tables depend on it
     let mut reverse_graph: HashMap<String, Vec<String>> = HashMap::new();
@@ -110,7 +113,8 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
     }
 
     // Find all tables with no dependencies (can be created first)
-    let mut queue: Vec<String> = tables
+    // Ready tables in name order (smallest first), for the same reason.
+    let mut queue: BTreeSet<String> = tables
         .iter()
         .filter(|t| t.dependencies.is_empty())
         .map(|t| t.name.clone())
@@ -119,7 +123,7 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
     let mut result = Vec::new();
 
     // Process queue
-    while let Some(current) = queue.pop() {
+    while let Some(current) = queue.pop_first() {
         result.push(current.clone());
 
         // For each table that depends on current, reduce its in-degree
@@ -128,7 +132,7 @@ pub fn topological_sort(tables: &[TableInfo]) -> Result<Vec<String>, String> {
                 let degree = in_degree.get_mut(dependent).unwrap();
                 *degree -= 1;
                 if *degree == 0 {
-                    queue.push(dependent.clone());
+                    queue.insert(dependent.clone());
                 }
             }
         }
@@ -267,5 +271,38 @@ mod tests {
         ];
 
         assert!(validate_foreign_key_references(&tables_with_banks).is_ok());
+    }
+
+    /// Ties are broken by name, not by HashMap iteration: the same tables give the same order every time.
+    #[test]
+    fn test_topological_sort_is_deterministic() {
+        let t = |name: &str, deps: &[&str]| TableInfo {
+            name: name.to_string(),
+            sql: String::new(),
+            dependencies: deps.iter().map(|d| d.to_string()).collect(),
+        };
+        let tables = vec![
+            t("role_assignments", &["roles"]),
+            t("roles", &[]),
+            t("app_role_permissions", &["roles", "permissions"]),
+            t("permissions", &[]),
+            t("audit_log", &[]),
+            t("zones", &[]),
+        ];
+        let first = topological_sort(&tables).unwrap();
+        for _ in 0..50 {
+            assert_eq!(topological_sort(&tables).unwrap(), first);
+        }
+        assert_eq!(
+            first,
+            vec![
+                "audit_log",
+                "permissions",
+                "roles",
+                "app_role_permissions",
+                "role_assignments",
+                "zones"
+            ]
+        );
     }
 }
