@@ -1515,7 +1515,7 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
-                if std::env::var("LIFEGUARD_DEBUG_SQL").is_ok() { eprintln!("[lifeguard-sql] {}", sql); }
+                if lifeguard::debug_sql_enabled() { eprintln!("[lifeguard-sql] {}", sql); }
 
                 // Create a mutable copy of self to update with returned PK values
                 // Use the record that went through before_insert hook
@@ -1523,8 +1523,19 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
 
                 // Execute query and handle RETURNING if needed
                 // Use *_values so pooled executors can marshal binds across the pool channel.
+                let __lg_op = if conflict_handled {
+                    lifeguard::metrics::entity::Op::Upsert
+                } else {
+                    lifeguard::metrics::entity::Op::Insert
+                };
+                let __lg_timer = lifeguard::metrics::entity::OpTimer::start(
+                    <#entity_name as lifeguard::LifeModelTrait>::__lg_entity_metrics(),
+                    __lg_op,
+                );
                 if needs_returning {
-                    let mut rows = executor.query_all_values(&sql, &sql_values).map_err(|e| {
+                    let __lg_res = executor.query_all_values(&sql, &sql_values);
+                    __lg_timer.finish(__lg_res.as_ref().map_or(0, |r| r.len() as u64), __lg_res.is_ok());
+                    let mut rows = __lg_res.map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
                     if rows.is_empty() {
@@ -1544,7 +1555,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     #(#pk_returning_extractors)*
                     #(#readonly_returning_extractors)*
                 } else {
-                    let affected = executor.execute_values(&sql, &sql_values).map_err(|e| {
+                    let __lg_res = executor.execute_values(&sql, &sql_values);
+                    __lg_timer.finish(*__lg_res.as_ref().unwrap_or(&0), __lg_res.is_ok());
+                    let affected = __lg_res.map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
                     })?;
                     if affected == 0 && conflict_handled {
@@ -1649,7 +1662,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
 
-                let rows_affected = executor.execute_values(&sql, &sql_values).map_err(|e| {
+                let __lg_timer = lifeguard::metrics::entity::OpTimer::start(
+                    <#entity_name as lifeguard::LifeModelTrait>::__lg_entity_metrics(),
+                    lifeguard::metrics::entity::Op::Update,
+                );
+                let __lg_res = executor.execute_values(&sql, &sql_values);
+                __lg_timer.finish(*__lg_res.as_ref().unwrap_or(&0), __lg_res.is_ok());
+                let rows_affected = __lg_res.map_err(|e| {
                     lifeguard::ActiveModelError::DatabaseError(e.to_string())
                 })?;
 
@@ -1798,7 +1817,13 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                 // Build SQL
                 let (sql, sql_values) = query.build(PostgresQueryBuilder);
 
-                executor.execute_values(&sql, &sql_values).map_err(|e| {
+                let __lg_timer = lifeguard::metrics::entity::OpTimer::start(
+                    <#entity_name as lifeguard::LifeModelTrait>::__lg_entity_metrics(),
+                    lifeguard::metrics::entity::Op::Delete,
+                );
+                let __lg_res = executor.execute_values(&sql, &sql_values);
+                __lg_timer.finish(*__lg_res.as_ref().unwrap_or(&0), __lg_res.is_ok());
+                __lg_res.map_err(|e| {
                     lifeguard::ActiveModelError::DatabaseError(e.to_string())
                 })?;
 

@@ -30,7 +30,8 @@ use crate::pool::wal::{WalLagMonitor, WalLagPolicy};
 use crossbeam_channel::{RecvTimeoutError, SendTimeoutError};
 use may::sync::{Mutex, MutexGuard};
 use may_postgres::types::ToSql;
-use may_postgres::{Client, Row};
+use crate::pool::stmt_cache;
+use may_postgres::{Client, Row, Statement};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -250,9 +251,16 @@ impl WorkerPool {
         build: impl FnOnce(may::sync::mpsc::Sender<Result<T, LifeError>>) -> WorkerJob,
     ) -> Result<T, LifeError> {
         let slot = self.pick_serviceable_slot()?;
+        let waiting = crate::metrics::pool_gauges::Track::waiting(self.metrics_tier);
+        #[cfg(feature = "metrics")]
+        let wait_start = Instant::now();
         let _slot_guard = self.slot_locks[slot]
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        drop(waiting);
+        #[cfg(feature = "metrics")]
+        METRICS.record_pool_checkout(wait_start.elapsed(), self.metrics_tier);
+        let _in_flight = crate::metrics::pool_gauges::Track::in_flight(self.metrics_tier);
         self.check_slot(slot)?;
         // An ordinary job owns nothing on the slot beyond itself: if the worker never answers,
         // the slot is replaced. (Pinned transactions go through `dispatch_locked`, which never
@@ -986,6 +994,7 @@ fn exec_with_optional_heal<T>(
                     match connect(connection_string) {
                         Ok(c) => {
                             *client = c;
+                            stmt_cache::clear();
                             #[cfg(feature = "metrics")]
                             METRICS.record_pool_slot_heal(tier);
                             log::warn!(
@@ -1209,6 +1218,7 @@ fn maybe_rotate_for_max_lifetime(
     match connect(connection_string) {
         Ok(c) => {
             *client = c;
+            stmt_cache::clear();
             *opened_at = Instant::now();
             log::debug!(
                 "lifeguard pool: rotated client after max_connection_lifetime (slot {slot})",
@@ -1249,7 +1259,8 @@ fn exec_worker_job<T>(
             return operation(client);
         };
 
-        client.execute("BEGIN", &[]).map_err(LifeError::from)?;
+        // Simple-protocol BEGIN/COMMIT/ROLLBACK: one round trip each, no statement to prepare.
+        client.batch_execute("BEGIN").map_err(LifeError::from)?;
 
         let result = (|| {
             let args = ctx.to_sql_args().map_err(|error| {
@@ -1259,11 +1270,8 @@ fn exec_worker_job<T>(
             })?;
             let args_refs: Vec<&dyn may_postgres::types::ToSql> =
                 args.iter().map(|arg| arg.as_ref()).collect();
-            client
-                .execute(
-                    "SELECT public.rls_set_session($1::text, $2::uuid, $3::uuid, $4::text, $5::jsonb, $6::jsonb, $7::text, $8::text)",
-                    &args_refs,
-                )
+            stmt_cache::get_or_prepare(client, RLS_SET_SESSION_SQL)
+                .and_then(|(stmt, _)| client.execute(&stmt, &args_refs))
                 .map_err(|error| {
                     if error.code().is_some_and(|code| code.code() == "42883") {
                         LifeError::Pool(
@@ -1279,15 +1287,15 @@ fn exec_worker_job<T>(
         })();
 
         match result {
-            Ok(value) => match client.execute("COMMIT", &[]) {
+            Ok(value) => match client.batch_execute("COMMIT") {
                 Ok(_) => Ok(value),
                 Err(error) => {
-                    let _ = client.execute("ROLLBACK", &[]);
+                    let _ = client.batch_execute("ROLLBACK");
                     Err(LifeError::from(error))
                 }
             },
             Err(error) => {
-                if let Err(rollback_error) = client.execute("ROLLBACK", &[]) {
+                if let Err(rollback_error) = client.batch_execute("ROLLBACK") {
                     log::warn!(
                         "lifeguard pool: rollback after contextual {tier} job failed: {rollback_error}"
                     );
@@ -1338,9 +1346,7 @@ fn dispatch_worker_job(
                 tier,
                 session_context.as_ref(),
                 |c| {
-                    exec_on_client(tier, c, &query, &params, |c, q, r| {
-                        c.execute(q, r).map_err(LifeError::from)
-                    })
+                    exec_on_client(tier, c, &query, &params, |c, q, r| c.execute(q, r))
                 },
             );
             let _ = reply.send(result);
@@ -1357,9 +1363,7 @@ fn dispatch_worker_job(
                 tier,
                 session_context.as_ref(),
                 |c| {
-                    exec_on_client(tier, c, &query, &params, |c, q, r| {
-                        c.query_one(q, r).map_err(LifeError::from)
-                    })
+                    exec_on_client(tier, c, &query, &params, |c, q, r| c.query_one(q, r))
                 },
             );
             let _ = reply.send(result);
@@ -1376,9 +1380,7 @@ fn dispatch_worker_job(
                 tier,
                 session_context.as_ref(),
                 |c| {
-                    exec_on_client(tier, c, &query, &params, |c, q, r| {
-                        c.query(q, r).map_err(LifeError::from)
-                    })
+                    exec_on_client(tier, c, &query, &params, |c, q, r| c.query(q, r))
                 },
             );
             let _ = reply.send(result);
@@ -1391,7 +1393,7 @@ fn exec_on_client<T>(
     client: &Client,
     query: &str,
     params: &[OwnedParam],
-    op: impl FnOnce(&Client, &str, &[&dyn ToSql]) -> Result<T, LifeError>,
+    op: impl Fn(&Client, &Statement, &[&dyn ToSql]) -> Result<T, may_postgres::Error>,
 ) -> Result<T, LifeError> {
     let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
 
@@ -1399,7 +1401,27 @@ fn exec_on_client<T>(
     let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
     let start = Instant::now();
-    let out = op(client, query, &refs);
+    // Prepared once per connection and reused (see `stmt_cache`): one round trip per query
+    // instead of Parse/Describe + Bind/Execute.
+    let out = match stmt_cache::get_or_prepare(client, query) {
+        Err(e) => Err(e),
+        Ok((stmt, lookup)) => {
+            #[cfg(feature = "metrics")]
+            METRICS.record_statement_cache(lookup == stmt_cache::Lookup::Hit, pool_tier);
+            #[cfg(not(feature = "metrics"))]
+            let _ = lookup;
+            match op(client, &stmt, &refs) {
+                Err(e) if lookup == stmt_cache::Lookup::Hit && stmt_cache::is_stale_error(&e) => {
+                    // Schema changed under a cached statement: drop it and prepare afresh once.
+                    stmt_cache::evict(query);
+                    stmt_cache::get_or_prepare(client, query)
+                        .and_then(|(fresh, _)| op(client, &fresh, &refs))
+                }
+                other => other,
+            }
+        }
+    }
+    .map_err(LifeError::from);
     let duration = start.elapsed();
 
     #[cfg(feature = "metrics")]
@@ -1409,6 +1431,8 @@ fn exec_on_client<T>(
             METRICS.record_query_error(Some(pool_tier));
         }
     }
+    #[cfg(not(feature = "metrics"))]
+    let _ = duration;
 
     out
 }

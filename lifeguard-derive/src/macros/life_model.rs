@@ -1492,6 +1492,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
         // Generate FromRow field extraction
         let column_name_str = column_name.as_str();
+        // Position of this column in `SELECT *` / entity order: a hint that lets FromRow skip the
+        // by-name column scan when the result set is in entity order (it falls back by name).
+        let col_idx_lit =
+            proc_macro2::Literal::usize_unsuffixed(column_variant_idents.len().saturating_sub(1));
 
         // Determine nullability from Option<T> or #[nullable] attribute
         let is_nullable = col_attrs.is_nullable || extract_option_inner_type(field_type).is_some();
@@ -1513,11 +1517,11 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             if is_uuid {
                 if is_nullable {
                     quote! {
-                        row.try_get::<&str, Option<uuid::Uuid>>(#column_name_str)?
+                        lifeguard::__lg_try_get::<Option<uuid::Uuid>>(row, #col_idx_lit, #column_name_str)?
                     }
                 } else {
                     quote! {
-                        row.try_get::<&str, uuid::Uuid>(#column_name_str)?
+                        lifeguard::__lg_try_get::<uuid::Uuid>(row, #col_idx_lit, #column_name_str)?
                     }
                 }
             }
@@ -1525,11 +1529,11 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             else if is_datetime_utc {
                 if is_nullable {
                     quote! {
-                        row.try_get::<&str, Option<chrono::DateTime<chrono::Utc>>>(#column_name_str)?
+                        lifeguard::__lg_try_get::<Option<chrono::DateTime<chrono::Utc>>>(row, #col_idx_lit, #column_name_str)?
                     }
                 } else {
                     quote! {
-                        row.try_get::<&str, chrono::DateTime<chrono::Utc>>(#column_name_str)?
+                        lifeguard::__lg_try_get::<chrono::DateTime<chrono::Utc>>(row, #col_idx_lit, #column_name_str)?
                     }
                 }
             }
@@ -1537,11 +1541,11 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             else if is_datetime_local {
                 if is_nullable {
                     quote! {
-                        row.try_get::<&str, Option<chrono::DateTime<chrono::Local>>>(#column_name_str)?
+                        lifeguard::__lg_try_get::<Option<chrono::DateTime<chrono::Local>>>(row, #col_idx_lit, #column_name_str)?
                     }
                 } else {
                     quote! {
-                        row.try_get::<&str, chrono::DateTime<chrono::Local>>(#column_name_str)?
+                        lifeguard::__lg_try_get::<chrono::DateTime<chrono::Local>>(row, #col_idx_lit, #column_name_str)?
                     }
                 }
             }
@@ -1549,7 +1553,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             else if is_decimal {
                 // Decimal implements FromSql for NUMERIC, so we can use try_get directly
                 quote! {
-                    row.try_get::<&str, #field_type>(#column_name_str)?
+                    lifeguard::__lg_try_get::<#field_type>(row, #col_idx_lit, #column_name_str)?
                 }
             }
             // Handle rusty_money::Money - needs special construction from amount + currency_code
@@ -1563,20 +1567,20 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     // Money type - requires amount (NUMERIC) + currency_code (VARCHAR)
                     // TODO: Implement proper Money construction
                     // For now, try direct FromSql (may fail if Money doesn't implement it)
-                    row.try_get::<&str, #field_type>(#column_name_str)?
+                    lifeguard::__lg_try_get::<#field_type>(row, #col_idx_lit, #column_name_str)?
                 }
             }
             // Handle chrono::NaiveDateTime - get as SystemTime then convert
             else if is_naive_datetime {
                 if is_nullable {
                     quote! {
-                        row.try_get::<&str, Option<std::time::SystemTime>>(#column_name_str)?
+                        lifeguard::__lg_try_get::<Option<std::time::SystemTime>>(row, #col_idx_lit, #column_name_str)?
                             .map(|st| chrono::DateTime::<chrono::Utc>::from(st).naive_utc())
                     }
                 } else {
                     quote! {
                         {
-                            let st = row.try_get::<&str, std::time::SystemTime>(#column_name_str)?;
+                            let st = lifeguard::__lg_try_get::<std::time::SystemTime>(row, #col_idx_lit, #column_name_str)?;
                             chrono::DateTime::<chrono::Utc>::from(st).naive_utc()
                         }
                     }
@@ -1621,7 +1625,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
 
                     quote! {
                         {
-                            let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
+                            let val: #signed_type = lifeguard::__lg_try_get::<#signed_type>(row, #col_idx_lit, #column_name_str)?;
                             #field_type::try_from(val).map_err(|_| {
                                 lifeguard::from_row_unsigned_try_from_failed(row, #column_name_str)
                             })?
@@ -1629,7 +1633,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                     }
                 } else {
                     quote! {
-                        row.try_get::<&str, #field_type>(#column_name_str)?
+                        lifeguard::__lg_try_get::<#field_type>(row, #col_idx_lit, #column_name_str)?
                     }
                 }
             }

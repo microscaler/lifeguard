@@ -20,6 +20,17 @@
 //! - `lifeguard_pool_reply_timeout_total` (counter, `pool_tier`): `PoolReplyTimeout` dispatches (enqueued job, no worker reply in budget)
 //! - `lifeguard_pool_slot_heal_total` (counter, `pool_tier`): Connectivity-class slot heal reconnects
 //! - `lifeguard_pool_connection_rotated_total` (counter, `pool_tier`): `max_connection_lifetime` rotations
+//! - `lifeguard_pool_checkout_seconds` (histogram, `pool_tier`): wait for a slot before the job is enqueued
+//! - `lifeguard_pool_in_flight` / `lifeguard_pool_waiters` (gauges, `pool_tier`): jobs holding a slot / callers waiting for one
+//! - `lifeguard_statement_cache_total` (counter, `pool_tier`, `result` = `hit` | `miss`): pooled prepared-statement reuse
+//! - `lifeguard_entity_op_duration_seconds` (histogram, `entity`, `op`): ORM operation latency per entity
+//!   (`op` = `select` | `insert` | `update` | `delete` | `upsert`); see [`entity`]
+//! - `lifeguard_entity_rows_total` (counter, `entity`, `op`): rows returned / affected
+//! - `lifeguard_entity_errors_total` (counter, `entity`, `op`): failed operations
+//!
+//! Per-entity series use the table name the entity derive already knows; no query text, ids or
+//! tenant ever become labels. `LIFEGUARD_METRICS_ENTITY_LABEL=off` folds every entity into
+//! `entity="_all"` for services with very many entities.
 //!
 //! ## Tracing
 //!
@@ -70,6 +81,10 @@ pub struct LifeguardMetrics {
     pub pool_reply_timeout_total: Counter<u64>,
     pub pool_slot_heal_total: Counter<u64>,
     pub pool_connection_rotated_total: Counter<u64>,
+    /// Slot wait before enqueue (seconds), `pool_tier`.
+    pub pool_checkout: Histogram<f64>,
+    /// Prepared-statement cache lookups, `pool_tier` + `result`.
+    pub statement_cache_total: Counter<u64>,
 }
 
 /// Histogram bucket bounds for the `*_seconds` histograms, in **seconds**.
@@ -78,6 +93,9 @@ pub struct LifeguardMetrics {
 /// for milliseconds; with values recorded in seconds every observation fell into the
 /// first bucket and the bucket-derived percentiles were meaningless while `_sum` was
 /// correct (found in PriceWhisperer US_37_08, 20 Sep 2026). 100 µs to 10 s.
+#[cfg(feature = "metrics")]
+const SECONDS_BOUNDARIES_PUB: [f64; 15] = SECONDS_BOUNDARIES;
+
 #[cfg(feature = "metrics")]
 const SECONDS_BOUNDARIES: [f64; 15] = [
     0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5,
@@ -171,7 +189,39 @@ impl LifeguardMetrics {
             .with_description("Connections rotated due to max_connection_lifetime policy")
             .build();
 
+        let pool_checkout = meter
+            .f64_histogram("lifeguard_pool_checkout_seconds")
+            .with_description("Pool: time a caller waited for its slot before the job was enqueued")
+            .with_boundaries(SECONDS_BOUNDARIES.to_vec())
+            .build();
+
+        let statement_cache_total = meter
+            .u64_counter("lifeguard_statement_cache_total")
+            .with_description("Pooled prepared-statement lookups (result = hit | miss)")
+            .build();
+
+        // In-flight / waiter gauges read process-wide atomics at scrape time (nothing on the
+        // hot path beyond an atomic add).
+        let _in_flight = meter
+            .i64_observable_gauge("lifeguard_pool_in_flight")
+            .with_description("Pool jobs currently holding a slot")
+            .with_callback(|o| {
+                o.observe(pool_gauges::PRIMARY_IN_FLIGHT.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "primary")]);
+                o.observe(pool_gauges::REPLICA_IN_FLIGHT.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "replica")]);
+            })
+            .build();
+        let _waiters = meter
+            .i64_observable_gauge("lifeguard_pool_waiters")
+            .with_description("Callers waiting for a pool slot")
+            .with_callback(|o| {
+                o.observe(pool_gauges::PRIMARY_WAITERS.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "primary")]);
+                o.observe(pool_gauges::REPLICA_WAITERS.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "replica")]);
+            })
+            .build();
+
         Self {
+            pool_checkout,
+            statement_cache_total,
             meter_provider,
             registry,
             pool_size,
@@ -189,7 +239,25 @@ impl LifeguardMetrics {
     }
 
     fn tier_kv(tier: &str) -> [KeyValue; 1] {
-        [KeyValue::new("pool_tier", tier.to_string())]
+        // Static values for the two real tiers: recording must not allocate.
+        match tier {
+            "primary" => [KeyValue::new("pool_tier", "primary")],
+            "replica" => [KeyValue::new("pool_tier", "replica")],
+            other => [KeyValue::new("pool_tier", other.to_string())],
+        }
+    }
+
+    /// Record how long a caller waited for its pool slot.
+    pub fn record_pool_checkout(&self, duration: std::time::Duration, tier: &str) {
+        self.pool_checkout
+            .record(duration.as_secs_f64(), &Self::tier_kv(tier));
+    }
+
+    /// Record a pooled prepared-statement cache lookup.
+    pub fn record_statement_cache(&self, hit: bool, tier: &str) {
+        let [t] = Self::tier_kv(tier);
+        let r = KeyValue::new("result", if hit { "hit" } else { "miss" });
+        self.statement_cache_total.add(1, &[t, r]);
     }
 
     /// Record query execution duration. Use `pool_tier` for pooled queries (`primary` / `replica`).
@@ -301,10 +369,255 @@ impl LifeguardMetrics {
     pub fn record_pool_reply_timeout(&self, _tier: &str) {}
     pub fn record_pool_slot_heal(&self, _tier: &str) {}
     pub fn record_pool_connection_rotated(&self, _tier: &str) {}
+    pub fn record_pool_checkout(&self, _duration: std::time::Duration, _tier: &str) {}
+    pub fn record_statement_cache(&self, _hit: bool, _tier: &str) {}
 }
 
 #[cfg(not(feature = "metrics"))]
 pub static METRICS: LifeguardMetrics = LifeguardMetrics;
+
+/// The leading SQL keyword (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `WITH`, `BEGIN`, ...) as a
+/// static string, for span attributes. Unknown statements are `OTHER`.
+#[must_use]
+pub fn statement_kind(sql: &str) -> &'static str {
+    let word = sql
+        .trim_start()
+        .split(|c: char| c.is_whitespace() || c == '(')
+        .next()
+        .unwrap_or("");
+    const KINDS: [&str; 12] = [
+        "SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "BEGIN", "COMMIT", "ROLLBACK", "SET",
+        "CALL", "VALUES", "COPY",
+    ];
+    KINDS
+        .iter()
+        .find(|k| word.eq_ignore_ascii_case(k))
+        .copied()
+        .unwrap_or("OTHER")
+}
+
+/// Process-wide pool occupancy counters behind the `lifeguard_pool_in_flight` /
+/// `lifeguard_pool_waiters` gauges (summed over every pool of a tier in the process).
+pub mod pool_gauges {
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    pub static PRIMARY_IN_FLIGHT: AtomicI64 = AtomicI64::new(0);
+    pub static REPLICA_IN_FLIGHT: AtomicI64 = AtomicI64::new(0);
+    pub static PRIMARY_WAITERS: AtomicI64 = AtomicI64::new(0);
+    pub static REPLICA_WAITERS: AtomicI64 = AtomicI64::new(0);
+
+    fn pick(tier: &str, waiting: bool) -> &'static AtomicI64 {
+        match (tier, waiting) {
+            ("replica", false) => &REPLICA_IN_FLIGHT,
+            ("replica", true) => &REPLICA_WAITERS,
+            (_, false) => &PRIMARY_IN_FLIGHT,
+            (_, true) => &PRIMARY_WAITERS,
+        }
+    }
+
+    /// Increments on creation, decrements on drop (also on early return / unwind).
+    pub struct Track(&'static AtomicI64);
+
+    impl Track {
+        #[inline]
+        #[must_use]
+        pub fn waiting(tier: &str) -> Self {
+            let a = pick(tier, true);
+            a.fetch_add(1, Ordering::Relaxed);
+            Self(a)
+        }
+
+        #[inline]
+        #[must_use]
+        pub fn in_flight(tier: &str) -> Self {
+            let a = pick(tier, false);
+            a.fetch_add(1, Ordering::Relaxed);
+            Self(a)
+        }
+    }
+
+    impl Drop for Track {
+        #[inline]
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Per-entity ORM metrics, labelled `entity` (the table name from the entity derive) and `op`.
+///
+/// Handles are prometheus-native and resolved once per entity (the derive keeps them in a
+/// per-entity `static`), so recording is a few atomic adds: no label hashing, no allocation, no
+/// lock. Cardinality is bounded by the number of entities times five ops. Set
+/// `LIFEGUARD_METRICS_ENTITY_LABEL=off` to record every entity as `entity="_all"`.
+pub mod entity {
+    use std::time::{Duration, Instant};
+
+    /// ORM operation kind (the `op` label).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Op {
+        Select = 0,
+        Insert = 1,
+        Update = 2,
+        Delete = 3,
+        Upsert = 4,
+    }
+
+    impl Op {
+        pub const ALL: [Op; 5] = [Op::Select, Op::Insert, Op::Update, Op::Delete, Op::Upsert];
+
+        #[must_use]
+        pub const fn as_str(self) -> &'static str {
+            match self {
+                Op::Select => "select",
+                Op::Insert => "insert",
+                Op::Update => "update",
+                Op::Delete => "delete",
+                Op::Upsert => "upsert",
+            }
+        }
+    }
+
+    /// Whether the `entity` label carries the table name (default) or `_all`.
+    #[must_use]
+    pub fn entity_label_enabled() -> bool {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| {
+            !matches!(
+                std::env::var("LIFEGUARD_METRICS_ENTITY_LABEL")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "off" | "0" | "false" | "no"
+            )
+        })
+    }
+
+    #[cfg(feature = "metrics")]
+    struct Vecs {
+        duration: prometheus::HistogramVec,
+        rows: prometheus::IntCounterVec,
+        errors: prometheus::IntCounterVec,
+    }
+
+    #[cfg(feature = "metrics")]
+    fn vecs() -> &'static Vecs {
+        static V: std::sync::OnceLock<Vecs> = std::sync::OnceLock::new();
+        V.get_or_init(|| {
+            let labels = &["entity", "op"];
+            #[allow(clippy::expect_used)] // static metric definitions: invalid only by programming error
+            let v = Vecs {
+                duration: prometheus::HistogramVec::new(
+                    prometheus::HistogramOpts::new(
+                        "lifeguard_entity_op_duration_seconds",
+                        "ORM operation latency per entity (executor call plus row mapping)",
+                    )
+                    .buckets(super::SECONDS_BOUNDARIES_PUB.to_vec()),
+                    labels,
+                )
+                .expect("entity duration histogram"),
+                rows: prometheus::IntCounterVec::new(
+                    prometheus::Opts::new("lifeguard_entity_rows_total", "Rows returned (select) or affected (writes) per entity"),
+                    labels,
+                )
+                .expect("entity rows counter"),
+                errors: prometheus::IntCounterVec::new(
+                    prometheus::Opts::new("lifeguard_entity_errors_total", "Failed ORM operations per entity"),
+                    labels,
+                )
+                .expect("entity errors counter"),
+            };
+            let reg = &super::METRICS.registry;
+            let _ = reg.register(Box::new(v.duration.clone()));
+            let _ = reg.register(Box::new(v.rows.clone()));
+            let _ = reg.register(Box::new(v.errors.clone()));
+            v
+        })
+    }
+
+    #[cfg(feature = "metrics")]
+    struct OpHandles {
+        duration: prometheus::Histogram,
+        rows: prometheus::IntCounter,
+        errors: prometheus::IntCounter,
+    }
+
+    /// Pre-resolved handles for one entity.
+    pub struct EntityMetrics {
+        #[cfg(feature = "metrics")]
+        ops: [OpHandles; 5],
+    }
+
+    impl EntityMetrics {
+        /// Resolve (and register on first use) the series for `entity`.
+        #[must_use]
+        pub fn new(entity: &'static str) -> Self {
+            #[cfg(feature = "metrics")]
+            {
+                let v = vecs();
+                let name = if entity_label_enabled() { entity } else { "_all" };
+                Self {
+                    ops: Op::ALL.map(|op| OpHandles {
+                        duration: v.duration.with_label_values(&[name, op.as_str()]),
+                        rows: v.rows.with_label_values(&[name, op.as_str()]),
+                        errors: v.errors.with_label_values(&[name, op.as_str()]),
+                    }),
+                }
+            }
+            #[cfg(not(feature = "metrics"))]
+            {
+                let _ = entity;
+                Self {}
+            }
+        }
+
+        /// Record one completed operation.
+        #[inline]
+        pub fn record(&self, op: Op, elapsed: Duration, rows: u64, ok: bool) {
+            #[cfg(feature = "metrics")]
+            {
+                let h = &self.ops[op as usize];
+                h.duration.observe(elapsed.as_secs_f64());
+                if ok {
+                    h.rows.inc_by(rows);
+                } else {
+                    h.errors.inc();
+                }
+            }
+            #[cfg(not(feature = "metrics"))]
+            let _ = (op, elapsed, rows, ok);
+        }
+    }
+
+    /// Times one ORM operation for an entity; a no-op when the entity has no handles.
+    pub struct OpTimer {
+        m: Option<&'static EntityMetrics>,
+        op: Op,
+        start: Option<Instant>,
+    }
+
+    impl OpTimer {
+        #[inline]
+        #[must_use]
+        pub fn start(m: Option<&'static EntityMetrics>, op: Op) -> Self {
+            let start = if cfg!(feature = "metrics") && m.is_some() {
+                Some(Instant::now())
+            } else {
+                None
+            };
+            Self { m, op, start }
+        }
+
+        /// Finish with the row count and outcome.
+        #[inline]
+        pub fn finish(self, rows: u64, ok: bool) {
+            if let (Some(m), Some(t)) = (self.m, self.start) {
+                m.record(self.op, t.elapsed(), rows, ok);
+            }
+        }
+    }
+}
 
 /// Tracing helpers for database operations.
 ///
@@ -383,7 +696,10 @@ pub mod tracing_helpers {
 
     /// Create a span for query execution
     pub fn execute_query_span(query: &str) -> Span {
-        lifeguard_span!("lifeguard.execute_query", query = %query)
+        // Low-cardinality only: the statement kind, never the SQL text or its parameters. The
+        // kind is computed only when a subscriber is interested in this span (field values are
+        // evaluated after the callsite's interest check), so a disabled span costs nothing.
+        lifeguard_span!("lifeguard.execute_query", db.operation = super::statement_kind(query))
     }
 
     /// Create a span for connection release

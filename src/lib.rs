@@ -74,6 +74,14 @@ pub mod transaction;
 
 pub mod metrics;
 
+/// `true` when `LIFEGUARD_DEBUG_SQL` is set (read once; generated insert code checks it per call).
+#[doc(hidden)]
+#[must_use]
+pub fn debug_sql_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LIFEGUARD_DEBUG_SQL").is_ok())
+}
+
 /// Coroutine spawn helpers carrying the tracing context (internal).
 pub(crate) mod spawn;
 
@@ -131,7 +139,7 @@ pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor, SessionContext}
 pub mod query;
 pub use query::{
     format_index_key_list_derive_value, format_index_key_list_sql,
-    from_row_unsigned_try_from_failed, index_definition_to_derive_index_value,
+    __lg_try_get, from_row_unsigned_try_from_failed, index_definition_to_derive_index_value,
     index_key_parts_coverage_columns, ColumnDefinition, ColumnTrait, FromRow, IndexBtreeNulls,
     IndexBtreeSort, IndexDefinition, IndexKeyPart, IntoScope, LifeEntityName, LifeModelTrait,
     ModelManager, NotifyDefinition, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn,

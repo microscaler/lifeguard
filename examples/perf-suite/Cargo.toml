@@ -1,0 +1,48 @@
+[package]
+name = "lifeguard-perf"
+version = "0.1.0"
+edition = "2021"
+description = "Lifeguard perf suite: ORM vs raw-driver baselines, pool contention, row mapping, LISTEN/NOTIFY -> Redis reflection"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Standalone workspace (same pattern as examples/perf-idam): perf-only dependencies such as
+# tokio-postgres and may-redis stay out of the root lockfile and CI `cargo check`.
+[workspace]
+
+[features]
+default = ["observability"]
+# Build lifeguard with `metrics` + `tracing` (its defaults) to measure observability overhead.
+observability = ["lifeguard/metrics", "lifeguard/tracing"]
+
+[dependencies]
+lifeguard = { path = "../../", default-features = false }
+lifeguard-derive = { path = "../../lifeguard-derive" }
+may = "0.3"
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "4cff8ff730fa948b680d3c1f34d158120b205df7", features = ["with-chrono-0_4"] }
+may-redis = { git = "https://github.com/microscaler/may_redis.git", rev = "3d103853434029dee22620196af44bb2a8bf8266" }
+sea-query = { version = "1.0.2", features = ["with-chrono", "with-uuid", "with-json"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1", "with-serde_json-1"] }
+
+[lib]
+name = "lifeguard_perf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lifeguard-perf"
+path = "src/bin/lifeguard_perf.rs"
+
+[profile.release]
+debug = 1          # symbols for perf/flamegraphs
+lto = "thin"
+codegen-units = 1
+
+# may-redis builds on microscaler's `may` fork; without this patch the binary would link two
+# `may` crates and run Redis I/O on a second, separate coroutine scheduler.
+[patch.crates-io]
+may = { git = "https://github.com/microscaler/may.git", branch = "may-sleep" }

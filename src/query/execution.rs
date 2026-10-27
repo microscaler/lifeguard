@@ -46,14 +46,24 @@ where
         let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
 
-        let rows = executor.query_all_values(&sql, &values)?;
-
-        let mut results = Vec::new();
-        for row in rows {
-            let model = <E::Model as FromRow>::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-            results.push(model);
-        }
+        let timer = crate::metrics::entity::OpTimer::start(
+            E::__lg_entity_metrics(),
+            crate::metrics::entity::Op::Select,
+        );
+        let mapped = executor.query_all_values(&sql, &values).and_then(|rows| {
+            let mut results = Vec::with_capacity(rows.len());
+            for row in rows {
+                let model = <E::Model as FromRow>::from_row(&row)
+                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+                results.push(model);
+            }
+            Ok(results)
+        });
+        timer.finish(
+            mapped.as_ref().map_or(0, |r| r.len() as u64),
+            mapped.is_ok(),
+        );
+        let mut results = mapped?;
 
         for loader in &loaders {
             loader.execute(&mut results, executor)?;
@@ -93,9 +103,18 @@ where
         let loaders = std::mem::take(&mut self.loaders);
         let (sql, values) = self.apply_soft_delete().build(PostgresQueryBuilder);
 
-        let row = executor.query_one_values(&sql, &values)?;
-        let model = <E::Model as FromRow>::from_row(&row)
-            .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
+        let timer = crate::metrics::entity::OpTimer::start(
+            E::__lg_entity_metrics(),
+            crate::metrics::entity::Op::Select,
+        );
+        let mapped = executor.query_one_values(&sql, &values).and_then(|row| {
+            <E::Model as FromRow>::from_row(&row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+        });
+        // "No rows" from find_one is a normal outcome, not an error.
+        let no_rows = mapped.as_ref().err().is_some_and(is_no_rows_error);
+        timer.finish(u64::from(mapped.is_ok()), mapped.is_ok() || no_rows);
+        let model = mapped?;
 
         let mut results = vec![model];
         for loader in &loaders {
@@ -231,7 +250,7 @@ where
 
         let rows = executor.query_all_values(&sql, &values)?;
 
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(rows.len());
         for row in rows {
             let model = M::from_row(&row)
                 .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;

@@ -6,7 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Performance
+
+- **Pooled statements are prepared once per connection.** Each pool worker keeps the
+  `Statement`s it has prepared (`LIFEGUARD_STATEMENT_CACHE_CAPACITY`, default 256, `0` = off),
+  so a query costs one round trip instead of Parse/Describe plus Bind/Execute. Stale statements
+  (`26000`, `0A000` "cached plan") are evicted and re-prepared once. Behind PgBouncer this needs
+  `max_prepared_statements > 0`, as the uncached path already did. Pool throughput under
+  contention: about 2.5× (perf suite, `docs/perf/lifeguard-baseline.md`).
+- **`BEGIN` / `COMMIT` / `ROLLBACK` use the simple protocol** in the RLS-context paths (pool and
+  `MayPostgresExecutor`): one round trip each instead of a prepare plus an execute.
+- **Derived `FromRow` maps by position first.** It tries the field's position in entity order and
+  falls back to the by-name lookup (`__lg_try_get`), with the same results and errors.
+  40-column rows: 1745 → 623 ns.
+- `LIFEGUARD_DEBUG_SQL` is read once (`debug_sql_enabled()`), not on every generated insert. The
+  `pool_tier` metric attribute no longer allocates.
+
+### Added
+
+- `examples/perf-suite`: an ORM-vs-raw-driver benchmark harness (may_postgres, tokio-postgres),
+  pool contention, row mapping, RLS, and a LISTEN/NOTIFY → Redis reflection prototype.
+- Per-entity metrics, labelled with the table name from the derive:
+  `lifeguard_entity_op_duration_seconds{entity,op}`, `lifeguard_entity_rows_total`,
+  `lifeguard_entity_errors_total` (`LIFEGUARD_METRICS_ENTITY_LABEL=off` folds them into `_all`).
+  Also `lifeguard_pool_checkout_seconds`, `lifeguard_pool_in_flight`, `lifeguard_pool_waiters`
+  and `lifeguard_statement_cache_total`.
+- `docs/perf/lifeguard-baseline.md` and `docs/perf/lifereflector-design-review.md`.
+
 ### Changed
+
+- The `lifeguard.execute_query` span records `db.operation` (the statement kind) instead of the
+  full SQL text.
 
 - **Tracing spans nest under the coroutine's context via `may_tracing`; nesting is on by
   default.** `tracing_helpers` create every `lifeguard.*` span with

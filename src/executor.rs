@@ -399,7 +399,7 @@ impl MayPostgresExecutor {
         }
 
         self.client
-            .execute("BEGIN", &[])
+            .batch_execute("BEGIN")
             .map_err(LifeError::PostgresError)?;
 
         let result = self
@@ -407,15 +407,15 @@ impl MayPostgresExecutor {
             .and_then(|()| operation(&self.client));
 
         match result {
-            Ok(value) => match self.client.execute("COMMIT", &[]) {
+            Ok(value) => match self.client.batch_execute("COMMIT") {
                 Ok(_) => Ok(value),
                 Err(error) => {
-                    let _ = self.client.execute("ROLLBACK", &[]);
+                    let _ = self.client.batch_execute("ROLLBACK");
                     Err(LifeError::PostgresError(error))
                 }
             },
             Err(error) => {
-                if let Err(rollback_error) = self.client.execute("ROLLBACK", &[]) {
+                if let Err(rollback_error) = self.client.batch_execute("ROLLBACK") {
                     log::warn!(
                         "lifeguard executor: rollback after contextual operation failed: {rollback_error}"
                     );

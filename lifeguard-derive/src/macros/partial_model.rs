@@ -75,7 +75,8 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
     let mut column_names = Vec::new();
     let mut from_row_fields: Vec<TokenStream2> = Vec::new();
 
-    for field in fields.iter() {
+    for (field_pos, field) in fields.iter().enumerate() {
+        let col_idx_lit = proc_macro2::Literal::usize_unsuffixed(field_pos);
         let field_name = match utils::field_ident(field) {
             Ok(i) => i,
             Err(e) => return e.to_compile_error().into(),
@@ -136,7 +137,7 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
 
                 quote! {
                     {
-                        let val: #signed_type = row.try_get::<&str, #signed_type>(#column_name_str)?;
+                        let val: #signed_type = lifeguard::__lg_try_get::<#signed_type>(row, #col_idx_lit, #column_name_str)?;
                         #field_type::try_from(val).map_err(|_| {
                             lifeguard::from_row_unsigned_try_from_failed(row, #column_name_str)
                         })?
@@ -144,7 +145,7 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
                 }
             } else {
                 quote! {
-                    row.try_get::<&str, #field_type>(#column_name_str)?
+                    lifeguard::__lg_try_get::<#field_type>(row, #col_idx_lit, #column_name_str)?
                 }
             }
         };

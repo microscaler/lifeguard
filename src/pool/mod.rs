@@ -36,6 +36,7 @@ pub mod config;
 mod connectivity;
 pub mod owned_param;
 pub mod pooled;
+pub mod stmt_cache;
 pub mod wal;
 
 pub use config::{DatabaseConfig, LifeguardPoolSettings};

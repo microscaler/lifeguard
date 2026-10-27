@@ -58,7 +58,9 @@ fn generate_life_model_trait_impl(
     cursor_tiebreak_impl: &TokenStream2,
     soft_delete_column_impl: &TokenStream2,
     find_impl: &TokenStream2,
+    table_name: &str,
 ) -> TokenStream2 {
+    let table_lit = syn::LitStr::new(table_name, struct_name.span());
     quote! {
         impl lifeguard::LifeModelTrait for #struct_name {
             type Model = #model_name;
@@ -73,6 +75,13 @@ fn generate_life_model_trait_impl(
             #soft_delete_column_impl
 
             #find_impl
+
+            fn __lg_entity_metrics() -> Option<&'static lifeguard::metrics::entity::EntityMetrics> {
+                // One handle set per entity, created on first use; recording is atomics only.
+                static M: std::sync::OnceLock<lifeguard::metrics::entity::EntityMetrics> =
+                    std::sync::OnceLock::new();
+                Some(M.get_or_init(|| lifeguard::metrics::entity::EntityMetrics::new(#table_lit)))
+            }
         }
     }
 }
@@ -162,6 +171,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         &cursor_tiebreak_impl,
         &soft_delete_column_impl,
         &find_impl,
+        &table_name,
     );
 
     let expanded: TokenStream2 = quote! {

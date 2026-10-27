@@ -1,0 +1,13 @@
+# Disposable Postgres + Redis for the perf suite. Ports avoid the usual 5432/6379.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: perf
+    command: ["postgres", "-c", "max_connections=400", "-c", "shared_buffers=512MB", "-c", "synchronous_commit=on"]
+    ports: ["127.0.0.1:55440:5432"]
+    tmpfs: ["/var/lib/postgresql/data"]
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["127.0.0.1:56380:6379"]
