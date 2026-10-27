@@ -19,8 +19,8 @@ observability = ["lifeguard/metrics", "lifeguard/tracing"]
 lifeguard = { path = "../../", default-features = false }
 lifeguard-derive = { path = "../../lifeguard-derive" }
 may = "0.3"
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "9c55df03d536a57b2d52b09132696e34121d36d6", features = ["with-chrono-0_4"] }
-may-redis = { git = "https://github.com/microscaler/may_redis.git", rev = "3d103853434029dee22620196af44bb2a8bf8266" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "15b4ab8d717ac92abe8472c2312900753c35e8e6", features = ["with-chrono-0_4"] }
+may-redis = { git = "https://github.com/microscaler/may_redis.git", rev = "549437503bd134fd6e6bd80099d9019153c72bce" }
 sea-query = { version = "1.0.2", features = ["with-chrono", "with-uuid", "with-json"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -46,4 +46,4 @@ codegen-units = 1
 # may-redis builds on microscaler's `may` fork; without this patch the binary would link two
 # `may` crates and run Redis I/O on a second, separate coroutine scheduler.
 [patch.crates-io]
-may = { git = "https://github.com/microscaler/may.git", branch = "may-sleep" }
+may = { git = "https://github.com/microscaler/may.git", branch = "master" }

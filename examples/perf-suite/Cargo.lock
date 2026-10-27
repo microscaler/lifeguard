@@ -1051,7 +1051,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "may"
 version = "0.3.51"
-source = "git+https://github.com/microscaler/may.git?branch=may-sleep#7ef9a083a6a4e23502a02c495b921835d4d58bea"
+source = "git+https://github.com/microscaler/may.git?branch=master#defad36e5af1a3ecde0f56fc2be6b68728d72dcc"
 dependencies = [
  "cfg-if",
  "core_affinity",
@@ -1072,7 +1072,7 @@ dependencies = [
 [[package]]
 name = "may-redis"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/may_redis.git?rev=3d103853434029dee22620196af44bb2a8bf8266#3d103853434029dee22620196af44bb2a8bf8266"
+source = "git+https://github.com/microscaler/may_redis.git?rev=549437503bd134fd6e6bd80099d9019153c72bce#549437503bd134fd6e6bd80099d9019153c72bce"
 dependencies = [
  "bytes",
  "itoa",
@@ -1099,7 +1099,7 @@ dependencies = [
 [[package]]
 name = "may_postgres"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/may_postgres.git?rev=9c55df03d536a57b2d52b09132696e34121d36d6#9c55df03d536a57b2d52b09132696e34121d36d6"
+source = "git+https://github.com/microscaler/may_postgres.git?rev=15b4ab8d717ac92abe8472c2312900753c35e8e6#15b4ab8d717ac92abe8472c2312900753c35e8e6"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1120,7 +1120,7 @@ dependencies = [
 [[package]]
 name = "may_queue"
 version = "0.1.23"
-source = "git+https://github.com/microscaler/may.git?branch=may-sleep#7ef9a083a6a4e23502a02c495b921835d4d58bea"
+source = "git+https://github.com/microscaler/may.git?branch=master#defad36e5af1a3ecde0f56fc2be6b68728d72dcc"
 dependencies = [
  "crossbeam-utils",
  "rustversion",
