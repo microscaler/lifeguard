@@ -7,7 +7,7 @@
 //! ## Row Level Security (RLS)
 //!
 //! Lifeguard supports PostgreSQL Row Level Security by injecting transaction-local
-//! variables (`sesame.tenant_id`, `sesame.subject_id`, etc.) around contextual work. The entry
+//! variables (for example `app.tenant_id`, `app.subject_id`) around contextual work. The entry
 //! points are:
 //!
 //! - [`MayPostgresExecutor::with_session_context`] — for single-connection executors
@@ -815,8 +815,8 @@ impl LifeExecutor for MayPostgresExecutor {
 /// SELECT public.rls_set_session($1, $2, $3, $4, $5, $6, $7, $8)
 /// ```
 ///
-/// This sets PostgreSQL transaction-local variables (`sesame.tenant_id`,
-/// `sesame.subject_id`, etc.)
+/// The function sets PostgreSQL transaction-local variables (for example
+/// `app.tenant_id`, `app.subject_id`; the database's function chooses the names)
 /// that power `CREATE POLICY` row filters. The SQL function is provided by the
 /// `lifeguard_rls` migration.
 ///
@@ -862,35 +862,35 @@ impl LifeExecutor for MayPostgresExecutor {
 pub struct SessionContext {
     /// Hard tenant isolation boundary as an opaque provider-defined identifier
     /// (for example `hauliage`).
-    /// Maps to PostgreSQL session variable `sesame.tenant_id`.
+    /// Passed to `rls_set_session`; for example set as `app.tenant_id`.
     pub tenant_id: String,
 
     /// The authenticated subject's unique identifier.
-    /// Maps to PostgreSQL session variable `sesame.subject_id`.
+    /// Passed to `rls_set_session`; for example set as `app.subject_id`.
     pub subject_id: uuid::Uuid,
 
     /// The active organization identifier.
-    /// Maps to PostgreSQL session variable `sesame.organization_id`.
+    /// Passed to `rls_set_session`; for example set as `app.organization_id`.
     pub organization_id: uuid::Uuid,
 
     /// The authenticated session identifier (`sid`).
-    /// Maps to PostgreSQL session variable `sesame.session_id`.
+    /// Passed to `rls_set_session`; for example set as `app.session_id`.
     pub session_id: String,
 
     /// Authoritative role names for this session.
-    /// Serialized to JSON and mapped to `sesame.roles`.
+    /// Serialized to JSON and passed to `rls_set_session`; for example set as `app.roles`.
     pub roles: Vec<String>,
 
     /// Authoritative permission strings for this session.
-    /// Serialized to JSON and mapped to `sesame.permissions`.
+    /// Serialized to JSON and passed to `rls_set_session`; for example set as `app.permissions`.
     pub permissions: Vec<String>,
 
     /// Optional subject classification.
-    /// Maps to PostgreSQL session variable `sesame.user_type`.
+    /// Passed to `rls_set_session`; for example set as `app.user_type`.
     pub user_type: Option<String>,
 
     /// Optional organization classification.
-    /// Maps to PostgreSQL session variable `sesame.org_type`.
+    /// Passed to `rls_set_session`; for example set as `app.org_type`.
     pub org_type: Option<String>,
 }
 
