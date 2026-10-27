@@ -17,7 +17,9 @@
 //! abrupt cut is the shape that wedged production).
 
 use crate::context::get_test_context;
-use lifeguard::{LifeError, LifeExecutor, LifeguardPool, LifeguardPoolSettings, PooledLifeExecutor};
+use lifeguard::{
+    LifeError, LifeExecutor, LifeguardPool, LifeguardPoolSettings, PooledLifeExecutor,
+};
 use sea_query::Values;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -102,11 +104,7 @@ fn proxied_url(pg_url: &str, proxy: SocketAddr) -> String {
         };
         let path = tail.split_once('/').map(|(_, p)| p).unwrap_or("");
         match auth {
-            Some(creds) => format!(
-                "{scheme}://{creds}@{}:{}/{path}",
-                proxy.ip(),
-                proxy.port()
-            ),
+            Some(creds) => format!("{scheme}://{creds}@{}:{}/{path}", proxy.ip(), proxy.port()),
             None => format!("{scheme}://{}:{}/{path}", proxy.ip(), proxy.port()),
         }
     } else {
@@ -271,8 +269,8 @@ fn reply_timeout_bounds_wedged_dispatch() {
         reply_timeout: Some(Duration::from_secs(1)),
         ..LifeguardPoolSettings::default()
     };
-    let pool = LifeguardPool::new_with_settings(&ctx.pg_url, 1, vec![], 0, &settings)
-        .expect("pool");
+    let pool =
+        LifeguardPool::new_with_settings(&ctx.pg_url, 1, vec![], 0, &settings).expect("pool");
     let ex = PooledLifeExecutor::new(Arc::new(pool));
 
     let started = Instant::now();

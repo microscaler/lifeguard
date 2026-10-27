@@ -10,9 +10,7 @@
 use lifeguard::{query_value, MayPostgresExecutor};
 
 fn backends(observer: &MayPostgresExecutor, db: &str) -> i64 {
-    let sql = format!(
-        "select count(*) from pg_stat_activity where datname = '{db}'"
-    );
+    let sql = format!("select count(*) from pg_stat_activity where datname = '{db}'");
     query_value::<i64, _>(observer, &sql, &[]).expect("count backends")
 }
 
@@ -22,11 +20,14 @@ fn dropping_a_connection_releases_its_backend() {
         eprintln!("PROBE skipped: TEST_DATABASE_URL unset");
         return;
     };
-    let db = url.rsplit('/').next().unwrap_or("lifeguard_test").to_string();
+    let db = url
+        .rsplit('/')
+        .next()
+        .unwrap_or("lifeguard_test")
+        .to_string();
 
     // Held for the whole probe so we always have a way to ask the server.
-    let observer =
-        MayPostgresExecutor::new(may_postgres::connect(&url).expect("observer connect"));
+    let observer = MayPostgresExecutor::new(may_postgres::connect(&url).expect("observer connect"));
 
     let base = backends(&observer, &db);
     println!("PROBE baseline={base}");
@@ -47,7 +48,8 @@ fn dropping_a_connection_releases_its_backend() {
     let end = backends(&observer, &db);
     println!("PROBE final={end} baseline={base}");
     assert_eq!(
-        end, base,
+        end,
+        base,
         "{} connection(s) survived being dropped",
         end - base
     );
@@ -62,9 +64,12 @@ fn raw_may_postgres_client_releases_its_backend() {
         eprintln!("RAW skipped: TEST_DATABASE_URL unset");
         return;
     };
-    let db = url.rsplit('/').next().unwrap_or("lifeguard_test").to_string();
-    let observer =
-        MayPostgresExecutor::new(may_postgres::connect(&url).expect("observer connect"));
+    let db = url
+        .rsplit('/')
+        .next()
+        .unwrap_or("lifeguard_test")
+        .to_string();
+    let observer = MayPostgresExecutor::new(may_postgres::connect(&url).expect("observer connect"));
 
     let base = backends(&observer, &db);
     println!("RAW baseline={base}");

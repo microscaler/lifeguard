@@ -374,8 +374,7 @@ pub fn build_service_migration_body_from_accumulated(
 
         // Qualified where the CREATE was qualified, bare otherwise - so
         // schema-less projects emit exactly what they did before.
-        let alter_target =
-            qualified_table_name(new_sql).unwrap_or_else(|| table_name.clone());
+        let alter_target = qualified_table_name(new_sql).unwrap_or_else(|| table_name.clone());
 
         let new_cols = parse_column_defs_from_create_body(&new_body);
 

@@ -46,7 +46,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2025-06-30
+          toolchain: "1.99.0"
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
@@ -110,7 +110,7 @@ jobs:
             psql -h 127.0.0.1 -p 6543 -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$f"
           done
 
-      # Pin nextest: newer releases (e.g. 0.9.132+) require rustc 1.91+; CI uses nightly-2025-06-30.
+      # Pin nextest (0.9.132+ needs rustc 1.91+; CI is on 1.99.0 now, so the pin can move when convenient).
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked --version 0.9.128
 
@@ -178,7 +178,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2025-06-30
+          toolchain: "1.99.0"
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
