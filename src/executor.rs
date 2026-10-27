@@ -268,6 +268,21 @@ pub trait LifeExecutor {
         self.execute(query, &refs)
     }
 
+    /// A write that returns rows (`INSERT/UPDATE .. RETURNING`): like [`Self::query_all_values`],
+    /// but never routed to a read replica. The derives use it for `insert` and `update`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_all_values`].
+    #[doc(hidden)]
+    fn __lg_write_returning_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Vec<Row>, LifeError> {
+        self.query_all_values(query, values)
+    }
+
     /// Query with owned parameters (see [`Self::__lg_execute_owned`]).
     ///
     /// # Errors
@@ -333,6 +348,14 @@ impl LifeExecutor for &dyn LifeExecutor {
         params: Vec<crate::pool::OwnedParam>,
     ) -> Result<Vec<Row>, LifeError> {
         (*self).__lg_query_all_owned(query, params)
+    }
+
+    fn __lg_write_returning_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Vec<Row>, LifeError> {
+        (*self).__lg_write_returning_values(query, values)
     }
 }
 

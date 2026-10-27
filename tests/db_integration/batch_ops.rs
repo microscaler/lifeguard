@@ -445,3 +445,44 @@ fn cached_statements_survive_a_schema_change() {
         .expect("pool after: re-prepared");
     assert_eq!(rows[0].len(), 3);
 }
+
+/// `insert` and `update` read back through `RETURNING`; those statements are writes and must
+/// reach the primary even when the pool routes reads to a replica (a replica answers
+/// "cannot execute UPDATE in a read-only transaction"). Skips without `TEST_REPLICA_URL`.
+#[test]
+fn returning_writes_go_to_the_primary_when_reads_use_a_replica() {
+    use lifeguard::{ActiveModelTrait, LifeguardPoolSettings};
+    let ctx = crate::context::get_test_context();
+    let Some(replica) = ctx.replica_pg_url.clone() else {
+        return;
+    };
+    let _ = executor(); // schema
+    let settings = LifeguardPoolSettings {
+        wal_lag_poll_interval: Duration::from_millis(25),
+        ..LifeguardPoolSettings::default()
+    };
+    let pool = Arc::new(
+        LifeguardPool::new_with_settings(&ctx.pg_url, 2, vec![replica], 2, &settings).expect("pool"),
+    );
+    let exec = PooledLifeExecutor::new(pool);
+    // Wait until reads are really served by the replica, so the test cannot pass by falling back.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let on_replica = exec
+            .query_one_values("SELECT pg_is_in_recovery()", &sea_query::Values(vec![]))
+            .map(|r| r.get::<_, bool>(0))
+            .unwrap_or(false);
+        if on_replica {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "reads never moved to the replica");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let b = id_base();
+    let inserted = rec(b, 1).insert(&exec).expect("insert with RETURNING on the primary");
+    assert_eq!(inserted.qty, 1);
+    let mut change = BatchItemRecord::new();
+    change.set_id(b).set_qty(2);
+    let updated = change.update(&exec).expect("update with RETURNING on the primary");
+    assert_eq!(updated.qty, 2);
+}

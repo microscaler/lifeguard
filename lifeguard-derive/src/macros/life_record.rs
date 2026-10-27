@@ -1558,7 +1558,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     __lg_op,
                 );
                 if needs_returning {
-                    let __lg_res = executor.query_all_values(&sql, &sql_values);
+                    // A write: never routed to a read replica.
+                    let __lg_res = executor.__lg_write_returning_values(&sql, &sql_values);
                     __lg_timer.finish(__lg_res.as_ref().map_or(0, |r| r.len() as u64), __lg_res.is_ok());
                     let mut rows = __lg_res.map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
@@ -1701,7 +1702,8 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
                     lifeguard::metrics::entity::Op::Update,
                 );
                 let model = if __lg_returning {
-                    let __lg_res = executor.query_all_values(&sql, &sql_values);
+                    // A write: never routed to a read replica.
+                    let __lg_res = executor.__lg_write_returning_values(&sql, &sql_values);
                     __lg_timer.finish(__lg_res.as_ref().map_or(0, |r| r.len() as u64), __lg_res.is_ok());
                     let rows = __lg_res.map_err(|e| {
                         lifeguard::ActiveModelError::DatabaseError(e.to_string())
