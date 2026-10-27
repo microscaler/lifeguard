@@ -28,21 +28,21 @@ use lifeguard::SessionContext;
 const TENANT_ALPHA: &str = "550e8400-e29b-41d4-a716-446655440001";
 const TENANT_BETA: &str = "550e8400-e29b-41d4-a716-446655440002";
 const TENANT_GAMMA: &str = "550e8400-e29b-41d4-a716-446655440003";
-const PLATFORM_TENANT: &str = "hauliage";
+const PLATFORM_TENANT: &str = "acme";
 const RLS_SET_SESSION_SQL: &str = "CREATE OR REPLACE FUNCTION public.rls_set_session(
     p_tenant_id text, p_subject_id uuid, p_organization_id uuid,
     p_session_id text, p_roles jsonb, p_permissions jsonb,
     p_user_type text, p_org_type text
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    PERFORM set_config('sesame.tenant_id', p_tenant_id, true);
-    PERFORM set_config('sesame.subject_id', p_subject_id::text, true);
-    PERFORM set_config('sesame.organization_id', p_organization_id::text, true);
-    PERFORM set_config('sesame.session_id', p_session_id, true);
-    PERFORM set_config('sesame.roles', p_roles::text, true);
-    PERFORM set_config('sesame.permissions', p_permissions::text, true);
-    PERFORM set_config('sesame.user_type', COALESCE(p_user_type, ''), true);
-    PERFORM set_config('sesame.org_type', COALESCE(p_org_type, ''), true);
+    PERFORM set_config('app.tenant_id', p_tenant_id, true);
+    PERFORM set_config('app.subject_id', p_subject_id::text, true);
+    PERFORM set_config('app.organization_id', p_organization_id::text, true);
+    PERFORM set_config('app.session_id', p_session_id, true);
+    PERFORM set_config('app.roles', p_roles::text, true);
+    PERFORM set_config('app.permissions', p_permissions::text, true);
+    PERFORM set_config('app.user_type', COALESCE(p_user_type, ''), true);
+    PERFORM set_config('app.org_type', COALESCE(p_org_type, ''), true);
 END; $$;";
 use sea_query::{Value, Values};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -174,7 +174,7 @@ fn session_context(
 /// 1. Unique schema + table
 /// 2. Grants for rls_test_role (USAGE + SELECT)
 /// 3. ENABLE ROW LEVEL SECURITY
-/// 4. RLS policy using the canonical Sesame organization GUC
+/// 4. RLS policy using the canonical organization GUC
 /// 5. Seed data across multiple tenants
 fn setup_rls_fixture(executor: &MayPostgresExecutor, schema: &str, table: &str) {
     executor
@@ -218,12 +218,12 @@ fn setup_rls_fixture(executor: &MayPostgresExecutor, schema: &str, table: &str) 
         )
         .expect("ENABLE RLS");
 
-    // Policy: only rows where tenant matches the active Sesame organization.
+    // Policy: only rows where tenant matches the active organization.
     executor
         .execute(
             &format!(
                 "CREATE POLICY rls_tenant_filter ON {schema}.{table} \
-                USING (tenant = NULLIF(current_setting('sesame.organization_id', true), ''))"
+                USING (tenant = NULLIF(current_setting('app.organization_id', true), ''))"
             ),
             &[],
         )

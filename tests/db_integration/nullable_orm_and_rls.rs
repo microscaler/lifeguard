@@ -303,7 +303,7 @@ fn rls_executor(pg_url: &str) -> MayPostgresExecutor {
 
 fn context_for(org_id: &str) -> SessionContext {
     SessionContext {
-        tenant_id: "hauliage".to_string(),
+        tenant_id: "acme".to_string(),
         subject_id: uuid::Uuid::new_v4(),
         organization_id: uuid::Uuid::parse_str(org_id).expect("org uuid"),
         session_id: format!("null-rls-{}", uuid::Uuid::new_v4()),
@@ -355,12 +355,12 @@ fn setup_rls_items(superuser: &MayPostgresExecutor, with_check: bool) {
         // `secret` is therefore a policy violation — reachable through the
         // ordinary `set_secret_null()` path rather than an escape hatch.
         "CREATE POLICY org_isolation ON public.lg_null_rls_items
-             USING (org_id = current_setting('sesame.organization_id', true))
-             WITH CHECK (org_id = current_setting('sesame.organization_id', true)
+             USING (org_id = current_setting('app.organization_id', true))
+             WITH CHECK (org_id = current_setting('app.organization_id', true)
                          AND secret IS NOT NULL)"
     } else {
         "CREATE POLICY org_isolation ON public.lg_null_rls_items
-             USING (org_id = current_setting('sesame.organization_id', true))"
+             USING (org_id = current_setting('app.organization_id', true))"
     };
     superuser.execute(policy, &[]).expect("create policy");
 }

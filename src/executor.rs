@@ -429,7 +429,7 @@ impl MayPostgresExecutor {
     /// let client = connect("postgresql://postgres:***@localhost:5432/mydb")?;
     /// let executor = MayPostgresExecutor::new(client)
     ///     .with_session_context(SessionContext {
-    ///         tenant_id: "hauliage".to_string(),
+    ///         tenant_id: "acme".to_string(),
     ///         subject_id: uuid::Uuid::new_v4(),
     ///         organization_id: uuid::Uuid::new_v4(),
     ///         session_id: "session-123".to_string(),
@@ -607,7 +607,7 @@ impl MayPostgresExecutor {
     /// let executor = MayPostgresExecutor::new(client);
     ///
     /// let mut tx = executor.begin_with_session(SessionContext {
-    ///     tenant_id: "hauliage".to_string(),
+    ///     tenant_id: "acme".to_string(),
     ///     subject_id: uuid::Uuid::new_v4(),
     ///     organization_id: uuid::Uuid::new_v4(),
     ///     session_id: "session-123".to_string(),
@@ -659,7 +659,7 @@ impl MayPostgresExecutor {
     /// let mut tx = executor.begin_with_isolation_session(
     ///     IsolationLevel::Serializable,
     ///     SessionContext {
-    ///         tenant_id: "hauliage".to_string(),
+    ///         tenant_id: "acme".to_string(),
     ///         subject_id: uuid::Uuid::new_v4(),
     ///         organization_id: uuid::Uuid::new_v4(),
     ///         session_id: "session-123".to_string(),
@@ -848,7 +848,7 @@ impl LifeExecutor for MayPostgresExecutor {
 /// use lifeguard::SessionContext;
 ///
 /// let ctx = SessionContext {
-///     tenant_id: "hauliage".to_string(),
+///     tenant_id: "acme".to_string(),
 ///     subject_id: uuid::Uuid::new_v4(),
 ///     organization_id: uuid::Uuid::new_v4(),
 ///     session_id: "session-123".to_string(),
@@ -861,7 +861,7 @@ impl LifeExecutor for MayPostgresExecutor {
 #[derive(Clone, PartialEq)]
 pub struct SessionContext {
     /// Hard tenant isolation boundary as an opaque provider-defined identifier
-    /// (for example `hauliage`).
+    /// (for example `acme`).
     /// Passed to `rls_set_session`; for example set as `app.tenant_id`.
     pub tenant_id: String,
 
@@ -1012,7 +1012,7 @@ mod session_context_tests {
 
     fn context() -> SessionContext {
         SessionContext {
-            tenant_id: "hauliage".to_string(),
+            tenant_id: "acme".to_string(),
             subject_id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
             organization_id: Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").unwrap(),
             session_id: "session-test".to_string(),
@@ -1042,7 +1042,7 @@ mod session_context_tests {
         let uid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let oid = Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").unwrap();
         let ctx = SessionContext {
-            tenant_id: "hauliage".to_string(),
+            tenant_id: "acme".to_string(),
             subject_id: uid,
             organization_id: oid,
             session_id: "session-full".to_string(),

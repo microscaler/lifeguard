@@ -8,12 +8,12 @@
 
 ## 1. Context
 
-Multi-tenant consumers of Lifeguard (Hauliage, future projects) require **stateful visibility**: the set of rows visible to a user changes based on the lifecycle state of a record, not just their organizational membership.
+Multi-tenant consumers of Lifeguard require **stateful visibility**: the set of rows visible to a user changes based on the lifecycle state of a record, not just their organizational membership.
 
 Example: A `jobs` row is globally visible when `status = 'open'` (allowing transporters to bid), but must restrict visibility to only the shipper and allocated transporter once `status = 'allocated'`.
 
 The trust boundary for RLS is external to Lifeguard:
-1. An **identity provider** (Sesame-IDAM, Auth0, custom) issues a JWT containing verified claims (`user_id`, `user_org_id`, `user_type`, `org_type`, `permissions`)
+1. An **identity provider** (for example Auth0, Keycloak or a custom one) issues a JWT containing verified claims (`user_id`, `user_org_id`, `user_type`, `org_type`, `permissions`)
 2. These claims are injected into the PostgreSQL session as `SET LOCAL` variables before each transaction
 3. PostgreSQL RLS policies evaluate these session variables transparently
 4. **Lifeguard automates the injection** — the consuming application never writes `SET LOCAL` or RLS-dependent SQL by hand
@@ -273,8 +273,8 @@ RLS policies are **schema-specific** — they reference table names, column name
 Instead, the consuming application writes policies using the helper functions. The helper functions (`rls_current_user_*`) are the **only** database-side primitive Lifeguard provides. Everything else is the application's responsibility.
 
 ```sql
--- Example: Hauliage jobs table policy
--- Written by the Hauliage application, not Lifeguard
+-- Example: a jobs table policy
+-- Written by the application, not Lifeguard
 CREATE POLICY jobs_visibility ON public.jobs
     FOR ALL
     USING (

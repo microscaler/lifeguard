@@ -1873,7 +1873,7 @@ impl PooledLifeExecutor {
     /// # fn take_pool() -> Arc<LifeguardPool> { todo!() }
     /// let pool = take_pool();
     /// let executor = PooledLifeExecutor::new(pool).with_session_context(SessionContext {
-    ///     tenant_id: "hauliage".to_string(),
+    ///     tenant_id: "acme".to_string(),
     ///     subject_id: uuid::Uuid::new_v4(),
     ///     organization_id: uuid::Uuid::new_v4(),
     ///     session_id: "session-123".to_string(),

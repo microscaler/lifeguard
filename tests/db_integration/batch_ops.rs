@@ -345,8 +345,8 @@ fn batch_operations_run_under_rls_session_context() {
              CREATE TABLE public.test_batch_rls (id BIGINT PRIMARY KEY, org TEXT NOT NULL, qty INTEGER NOT NULL);
              ALTER TABLE public.test_batch_rls ENABLE ROW LEVEL SECURITY;
              CREATE POLICY org_only ON public.test_batch_rls
-               USING (org = NULLIF(current_setting('sesame.organization_id', true), ''))
-               WITH CHECK (org = NULLIF(current_setting('sesame.organization_id', true), ''));
+               USING (org = NULLIF(current_setting('app.organization_id', true), ''))
+               WITH CHECK (org = NULLIF(current_setting('app.organization_id', true), ''));
              GRANT SELECT, INSERT, UPDATE, DELETE ON public.test_batch_rls TO rls_test_role;
              SELECT pg_advisory_unlock(7211915001);",
         )

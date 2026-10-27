@@ -29,7 +29,7 @@ Rejected. A query expression cannot pin a pool worker or ensure context is injec
 statement. Adding identity clauses to generated SQL would also be weaker than database RLS and
 would duplicate policy logic.
 
-### Add a Sesame-specific executor wrapper
+### Add an identity-provider-specific executor wrapper
 
 Rejected. It duplicates the executor hierarchy, couples Lifeguard to an identity product, and
 still cannot control the underlying pool slot without a base pool capability.
@@ -43,7 +43,7 @@ RLS context injection is a first-class optional protocol on Lifeguard's base exe
   multi-statement work.
 - Lifeguard calls only the constant SQL entry point
   `public.rls_set_session($1::text, $2::uuid, ..., $8::text)` with bound values.
-- The application owns the database function and its `sesame.*` GUC mapping.
+- The application owns the database function and its GUC mapping (for example `app.*`).
 - Context injection and application work share a transaction. Injection failure, returned error,
   or unwinding rolls back before the connection is released.
 

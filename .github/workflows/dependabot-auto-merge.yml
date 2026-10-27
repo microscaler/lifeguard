@@ -32,7 +32,7 @@ jobs:
       # Major semver bumps stay open for human review; patch/minor (and non-semver bumps) queue auto-merge.
       - name: Enable auto-merge (squash)
         # A 0.x minor bump (0.5 -> 0.6) is a breaking change under Cargo's semver, though Dependabot calls it minor:
-        # it stays open for review too (27 Oct: argon2 0.6 and rand 0.10 auto-merged and broke sesame-idam's build).
+        # it stays open for review too (27 Oct: argon2 0.6 and rand 0.10 auto-merged and broke a downstream build).
         if: >-
           steps.metadata.outputs.update-type != 'version-update:semver-major' &&
           !(startsWith(steps.metadata.outputs.previous-version, '0.') && steps.metadata.outputs.update-type == 'version-update:semver-minor')
