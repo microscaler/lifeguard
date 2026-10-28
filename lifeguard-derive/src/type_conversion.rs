@@ -1886,7 +1886,11 @@ mod tests {
             segments: syn::punctuated::Punctuated::from_iter(vec![segment]),
         };
 
-        let ty = Type::Path(syn::TypePath { qself: None, path });
+        let ty = Type::Path(syn::TypePath {
+            attrs: Vec::new(),
+            qself: None,
+            path,
+        });
 
         let result = type_to_string(&ty);
         // Should be "PhantomData" without empty angle brackets
@@ -1963,7 +1967,11 @@ mod tests {
             segments: syn::punctuated::Punctuated::from_iter(vec![segment]),
         };
 
-        let ty = Type::Path(syn::TypePath { qself: None, path });
+        let ty = Type::Path(syn::TypePath {
+            attrs: Vec::new(),
+            qself: None,
+            path,
+        });
 
         let result = type_to_string(&ty);
         // Should be "MyType<i32>" - only the type generic, not the lifetime

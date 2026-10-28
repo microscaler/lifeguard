@@ -38,7 +38,7 @@ fn record_container_ids_for_shutdown(ids: Vec<String>) {
 }
 
 /// Runs when the integration test **binary** exits (each `tests/*.rs` crate is its own process).
-#[ctor::dtor]
+#[dtor::dtor(unsafe)]
 fn remove_testcontainer_sidecars() {
     let ids: Vec<String> = match DOCKER_CONTAINER_IDS.lock() {
         Ok(mut g) => mem::take(&mut *g),

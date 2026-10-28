@@ -23,7 +23,11 @@ jobs:
       TEST_REDIS_URL: redis://127.0.0.1:6545
 
     steps:
-      - uses: actions/checkout@v4
+      # No git credentials needed in these jobs (cargo fetches git deps anonymously) —
+      # keep the runner from leaving a token the job's code could read.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Database password for the throwaway CI stack
         # The repository secret when the run has it; Dependabot and fork pull requests get no repository secrets
@@ -50,7 +54,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -58,7 +62,7 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Start CI stack (Postgres primary + replica + Redis)
-        uses: hoverkraft-tech/compose-action@d2bee4f07e8ca410d6b196d00f90c12e7d48c33a # v2.6.0
+        uses: hoverkraft-tech/compose-action@b659c744ee9bed25aea2307c017ad849bd104433 # v3.2.0
         with:
           compose-file: .github/docker/docker-compose.yml
           up-flags: -d --wait
@@ -155,7 +159,11 @@ jobs:
     runs-on: ubuntu-latest
     # Same `.github/docker/docker-compose.yml` and hoverkraft-tech/compose-action pattern as `test`.
     steps:
-      - uses: actions/checkout@v4
+      # No git credentials needed in these jobs (cargo fetches git deps anonymously) —
+      # keep the runner from leaving a token the job's code could read.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Database password for the throwaway CI stack
         # The repository secret when the run has it; Dependabot and fork pull requests get no repository secrets
@@ -181,7 +189,7 @@ jobs:
           toolchain: "1.99.0"
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -189,7 +197,7 @@ jobs:
           key: cargo-perf-idam-${{ runner.os }}-${{ hashFiles('examples/perf-idam/Cargo.lock') }}
 
       - name: Start CI stack (Postgres primary + replica + Redis)
-        uses: hoverkraft-tech/compose-action@d2bee4f07e8ca410d6b196d00f90c12e7d48c33a # v2.6.0
+        uses: hoverkraft-tech/compose-action@b659c744ee9bed25aea2307c017ad849bd104433 # v3.2.0
         with:
           compose-file: .github/docker/docker-compose.yml
           up-flags: -d --wait
@@ -214,7 +222,7 @@ jobs:
           cargo run --release --locked --bin perf-orm
 
       - name: Upload perf JSON
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-results
           path: examples/perf-idam/perf-results.json

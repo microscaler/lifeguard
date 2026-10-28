@@ -206,16 +206,28 @@ impl LifeguardMetrics {
             .i64_observable_gauge("lifeguard_pool_in_flight")
             .with_description("Pool jobs currently holding a slot")
             .with_callback(|o| {
-                o.observe(pool_gauges::PRIMARY_IN_FLIGHT.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "primary")]);
-                o.observe(pool_gauges::REPLICA_IN_FLIGHT.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "replica")]);
+                o.observe(
+                    pool_gauges::PRIMARY_IN_FLIGHT.load(std::sync::atomic::Ordering::Relaxed),
+                    &[KeyValue::new("pool_tier", "primary")],
+                );
+                o.observe(
+                    pool_gauges::REPLICA_IN_FLIGHT.load(std::sync::atomic::Ordering::Relaxed),
+                    &[KeyValue::new("pool_tier", "replica")],
+                );
             })
             .build();
         let _waiters = meter
             .i64_observable_gauge("lifeguard_pool_waiters")
             .with_description("Callers waiting for a pool slot")
             .with_callback(|o| {
-                o.observe(pool_gauges::PRIMARY_WAITERS.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "primary")]);
-                o.observe(pool_gauges::REPLICA_WAITERS.load(std::sync::atomic::Ordering::Relaxed), &[KeyValue::new("pool_tier", "replica")]);
+                o.observe(
+                    pool_gauges::PRIMARY_WAITERS.load(std::sync::atomic::Ordering::Relaxed),
+                    &[KeyValue::new("pool_tier", "primary")],
+                );
+                o.observe(
+                    pool_gauges::REPLICA_WAITERS.load(std::sync::atomic::Ordering::Relaxed),
+                    &[KeyValue::new("pool_tier", "replica")],
+                );
             })
             .build();
 
@@ -506,7 +518,8 @@ pub mod entity {
         static V: std::sync::OnceLock<Vecs> = std::sync::OnceLock::new();
         V.get_or_init(|| {
             let labels = &["entity", "op"];
-            #[allow(clippy::expect_used)] // static metric definitions: invalid only by programming error
+            #[allow(clippy::expect_used)]
+            // static metric definitions: invalid only by programming error
             let v = Vecs {
                 duration: prometheus::HistogramVec::new(
                     prometheus::HistogramOpts::new(
@@ -518,12 +531,18 @@ pub mod entity {
                 )
                 .expect("entity duration histogram"),
                 rows: prometheus::IntCounterVec::new(
-                    prometheus::Opts::new("lifeguard_entity_rows_total", "Rows returned (select) or affected (writes) per entity"),
+                    prometheus::Opts::new(
+                        "lifeguard_entity_rows_total",
+                        "Rows returned (select) or affected (writes) per entity",
+                    ),
                     labels,
                 )
                 .expect("entity rows counter"),
                 errors: prometheus::IntCounterVec::new(
-                    prometheus::Opts::new("lifeguard_entity_errors_total", "Failed ORM operations per entity"),
+                    prometheus::Opts::new(
+                        "lifeguard_entity_errors_total",
+                        "Failed ORM operations per entity",
+                    ),
                     labels,
                 )
                 .expect("entity errors counter"),
@@ -556,7 +575,11 @@ pub mod entity {
             #[cfg(feature = "metrics")]
             {
                 let v = vecs();
-                let name = if entity_label_enabled() { entity } else { "_all" };
+                let name = if entity_label_enabled() {
+                    entity
+                } else {
+                    "_all"
+                };
                 Self {
                     ops: Op::ALL.map(|op| OpHandles {
                         duration: v.duration.with_label_values(&[name, op.as_str()]),
@@ -699,7 +722,10 @@ pub mod tracing_helpers {
         // Low-cardinality only: the statement kind, never the SQL text or its parameters. The
         // kind is computed only when a subscriber is interested in this span (field values are
         // evaluated after the callsite's interest check), so a disabled span costs nothing.
-        lifeguard_span!("lifeguard.execute_query", db.operation = super::statement_kind(query))
+        lifeguard_span!(
+            "lifeguard.execute_query",
+            db.operation = super::statement_kind(query)
+        )
     }
 
     /// Create a span for connection release

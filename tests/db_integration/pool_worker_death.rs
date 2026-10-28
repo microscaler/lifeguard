@@ -343,7 +343,10 @@ fn reply_timeout_bounds_wedged_statement_for_coroutine_callers() {
         if ok {
             break;
         }
-        assert!(Instant::now() < deadline, "slot not usable again after the watchdog closed it");
+        assert!(
+            Instant::now() < deadline,
+            "slot not usable again after the watchdog closed it"
+        );
         thread::sleep(Duration::from_millis(100));
     }
 }

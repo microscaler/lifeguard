@@ -180,7 +180,10 @@ impl SlotConn {
                 // fails with ENOTSOCK and does nothing.
                 let rc = unsafe { libc::shutdown(fd, libc::SHUT_RDWR) };
                 if rc != 0 {
-                    log::warn!("lifeguard pool: shutting down a wedged connection failed: {}", std::io::Error::last_os_error());
+                    log::warn!(
+                        "lifeguard pool: shutting down a wedged connection failed: {}",
+                        std::io::Error::last_os_error()
+                    );
                 }
             }
         }
@@ -426,7 +429,9 @@ impl WorkerPool {
             let h = conn.take_handle();
             let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
             let r = contextual_unit(&h, &conn, &args, &sql, &refs, kind);
-            if r.as_ref().is_err_and(life_error_is_connectivity_heal_candidate) {
+            if r.as_ref()
+                .is_err_and(life_error_is_connectivity_heal_candidate)
+            {
                 conn.broken.store(true, Ordering::Release);
             } else {
                 conn.put_handle(h);
@@ -465,7 +470,10 @@ impl TierInner {
             }
             // Pinned, or a pin is draining it: any other open gate?
             for (i, s) in self.slots.iter().enumerate() {
-                if i != index && !s.replacing.load(Ordering::Acquire) && s.pinned.load(Ordering::Acquire) == 0 {
+                if i != index
+                    && !s.replacing.load(Ordering::Acquire)
+                    && s.pinned.load(Ordering::Acquire) == 0
+                {
                     if let Some(gate) = s.gate.try_read() {
                         return Ok((i, gate));
                     }
@@ -493,7 +501,8 @@ impl TierInner {
                 continue;
             }
             any_serviceable = true;
-            let load = s.in_flight.load(Ordering::Relaxed) + s.pinned.load(Ordering::Relaxed) * 1024;
+            let load =
+                s.in_flight.load(Ordering::Relaxed) + s.pinned.load(Ordering::Relaxed) * 1024;
             if best.is_none_or(|(_, l)| load < l) {
                 best = Some((i, load));
                 if load == 0 {
@@ -514,7 +523,12 @@ impl TierInner {
     }
 
     /// The reply budget elapsed: report, mark the connection wedged and replace it off-thread.
-    fn on_reply_timeout(self: &Arc<Self>, index: usize, started: Instant, replace: bool) -> LifeError {
+    fn on_reply_timeout(
+        self: &Arc<Self>,
+        index: usize,
+        started: Instant,
+        replace: bool,
+    ) -> LifeError {
         #[cfg(feature = "metrics")]
         METRICS.record_pool_reply_timeout(self.tier);
         if let Some(limit) = self.reply_timeout {
@@ -628,7 +642,11 @@ fn spawn_maintenance(inner: &Arc<TierInner>) {
         .idle_liveness
         .unwrap_or(Duration::from_secs(1))
         .min(Duration::from_secs(1))
-        .min(inner.reply_timeout.map_or(Duration::from_secs(1), |t| t / 4))
+        .min(
+            inner
+                .reply_timeout
+                .map_or(Duration::from_secs(1), |t| t / 4),
+        )
         .max(Duration::from_millis(10));
     let _ = thread::Builder::new()
         .name(format!("lifeguard-maint-{tier}"))
@@ -1087,7 +1105,10 @@ fn run_shared_with_heal(
             };
             let h2 = fresh.take_handle();
             let r = exec_kind(name, &h2, &fresh, sql, refs, kind);
-            if !r.as_ref().is_err_and(life_error_is_connectivity_heal_candidate) {
+            if !r
+                .as_ref()
+                .is_err_and(life_error_is_connectivity_heal_candidate)
+            {
                 fresh.put_handle(h2);
             }
             r
@@ -1130,12 +1151,18 @@ fn contextual_unit(
     kind: Kind,
 ) -> Result<Out, LifeError> {
     let tier = "primary";
-    let (begin, _) = conn.stmts.get_or_prepare(h, "BEGIN").map_err(LifeError::from)?;
+    let (begin, _) = conn
+        .stmts
+        .get_or_prepare(h, "BEGIN")
+        .map_err(LifeError::from)?;
     let (set, _) = conn
         .stmts
         .get_or_prepare(h, RLS_SET_SESSION_SQL)
         .map_err(rls_error)?;
-    let (commit, _) = conn.stmts.get_or_prepare(h, "COMMIT").map_err(LifeError::from)?;
+    let (commit, _) = conn
+        .stmts
+        .get_or_prepare(h, "COMMIT")
+        .map_err(LifeError::from)?;
     let arg_refs = args.refs();
     let r = (|| -> Result<Out, LifeError> {
         let (st, _) = conn.stmts.get_or_prepare(h, sql).map_err(LifeError::from)?;
@@ -1227,8 +1254,9 @@ impl SessionArgs {
     fn new(ctx: &SessionContext) -> Result<Self, LifeError> {
         let roles = serde_json::to_value(&ctx.roles)
             .map_err(|e| LifeError::Other(format!("failed to serialize session roles: {e}")))?;
-        let permissions = serde_json::to_value(&ctx.permissions)
-            .map_err(|e| LifeError::Other(format!("failed to serialize session permissions: {e}")))?;
+        let permissions = serde_json::to_value(&ctx.permissions).map_err(|e| {
+            LifeError::Other(format!("failed to serialize session permissions: {e}"))
+        })?;
         Ok(Self {
             params: [
                 OwnedParam::String(TextParam::some(ctx.tenant_id.clone())),
@@ -1603,11 +1631,21 @@ impl ExclusivePrimaryLifeExecutor<'_> {
         }
     }
 
-    fn run_values(&self, kind: Kind, query: &str, values: &sea_query::Values) -> Result<Out, LifeError> {
+    fn run_values(
+        &self,
+        kind: Kind,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Out, LifeError> {
         self.run_owned(kind, query, values_to_owned(values)?)
     }
 
-    fn run_owned(&self, kind: Kind, query: &str, params: Vec<OwnedParam>) -> Result<Out, LifeError> {
+    fn run_owned(
+        &self,
+        kind: Kind,
+        query: &str,
+        params: Vec<OwnedParam>,
+    ) -> Result<Out, LifeError> {
         let sql: Arc<str> = Arc::from(query);
         self.call(move |h, conn| {
             let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
@@ -1619,7 +1657,10 @@ impl ExclusivePrimaryLifeExecutor<'_> {
     fn begin_with_context(&self, args: &SessionArgs) -> Result<(), LifeError> {
         let params: Vec<OwnedParam> = args.params.to_vec();
         self.call(move |h, conn| {
-            let (begin, _) = conn.stmts.get_or_prepare(h, "BEGIN").map_err(LifeError::from)?;
+            let (begin, _) = conn
+                .stmts
+                .get_or_prepare(h, "BEGIN")
+                .map_err(LifeError::from)?;
             let (set, _) = conn
                 .stmts
                 .get_or_prepare(h, RLS_SET_SESSION_SQL)
