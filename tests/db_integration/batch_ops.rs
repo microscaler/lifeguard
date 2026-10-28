@@ -54,7 +54,9 @@ fn executor() -> MayPostgresExecutor {
 fn pooled() -> PooledLifeExecutor {
     let _ = executor(); // schema
     let ctx = crate::context::get_test_context();
-    PooledLifeExecutor::new(Arc::new(LifeguardPool::new(&ctx.pg_url, 2, Vec::new(), 0).expect("pool")))
+    PooledLifeExecutor::new(Arc::new(
+        LifeguardPool::new(&ctx.pg_url, 2, Vec::new(), 0).expect("pool"),
+    ))
 }
 
 /// Disjoint id ranges per test so tests can share the table in parallel.
@@ -76,7 +78,11 @@ fn rec(id: i64, qty: i32) -> BatchItemRecord {
     r.set_id(id)
         .set_sku(format!("sku-{id}"))
         .set_qty(qty)
-        .set_note(if id % 2 == 0 { Some(format!("n{id}")) } else { None })
+        .set_note(if id % 2 == 0 {
+            Some(format!("n{id}"))
+        } else {
+            None
+        })
         .set_meta(serde_json::json!({ "id": id, "tags": ["a", "b"] }));
     r
 }
@@ -121,7 +127,10 @@ fn insert_many_values_and_unnest_with_returning() {
     assert_eq!(back[0].2["id"], b + 300);
 
     // Chunking by max_rows.
-    let opts = BatchOptions { max_rows: 50, ..BatchOptions::default() };
+    let opts = BatchOptions {
+        max_rows: 50,
+        ..BatchOptions::default()
+    };
     let chunked: Vec<_> = (b + 400..b + 650).map(|i| rec(i, 3)).collect();
     let out = insert_many(&exec, &chunked, &opts).expect("chunked insert");
     assert_eq!(out.statements, 5);
@@ -159,7 +168,8 @@ fn upsert_many_updates_existing_and_inserts_new() {
     let out = upsert_many(&exec, &second, conflict, &BatchOptions::returning()).expect("upsert");
     assert_eq!(out.rows_affected, 20);
     assert!(out.models.iter().all(|m| m.qty == 7));
-    let all = find_by_ids::<Entity>(&exec, &ids(b..b + 30), &BatchOptions::default()).expect("find");
+    let all =
+        find_by_ids::<Entity>(&exec, &ids(b..b + 30), &BatchOptions::default()).expect("find");
     assert_eq!(all.len(), 30);
     assert_eq!(all.iter().filter(|m| m.qty == 7).count(), 20);
 
@@ -193,13 +203,16 @@ fn update_many_and_delete_many() {
     assert_eq!(out.rows_affected, 100);
     assert_eq!(out.statements, 1);
     assert!(out.models.iter().all(|m| i64::from(m.qty) == m.id - b));
-    assert!(out.models.iter().all(|m| m.sku == format!("sku-{}", m.id)), "other columns untouched");
+    assert!(
+        out.models.iter().all(|m| m.sku == format!("sku-{}", m.id)),
+        "other columns untouched"
+    );
 
     let out = delete_many::<Entity>(&exec, &ids(b..b + 50), &BatchOptions::default())
         .expect("delete_many");
     assert_eq!(out.rows_affected, 50);
-    let left = find_by_ids::<Entity>(&exec, &ids(b..b + 100), &BatchOptions::default())
-        .expect("find");
+    let left =
+        find_by_ids::<Entity>(&exec, &ids(b..b + 100), &BatchOptions::default()).expect("find");
     assert_eq!(left.len(), 50);
     assert!(left.iter().all(|m| m.id >= b + 50));
 }
@@ -210,10 +223,15 @@ fn find_by_ids_chunks_and_ignores_missing() {
     let b = id_base();
     let seed: Vec<_> = (b..b + 30).map(|i| rec(i, 1)).collect();
     insert_many(&exec, &seed, &BatchOptions::default()).expect("seed");
-    let opts = BatchOptions { max_rows: 7, ..BatchOptions::default() };
+    let opts = BatchOptions {
+        max_rows: 7,
+        ..BatchOptions::default()
+    };
     let found = find_by_ids::<Entity>(&exec, &ids(b - 5..b + 40), &opts).expect("find");
     assert_eq!(found.len(), 30);
-    assert!(find_by_ids::<Entity>(&exec, &[], &opts).expect("empty").is_empty());
+    assert!(find_by_ids::<Entity>(&exec, &[], &opts)
+        .expect("empty")
+        .is_empty());
 }
 
 #[test]
@@ -221,8 +239,15 @@ fn error_reports_the_failing_chunk() {
     let exec = executor();
     let b = id_base();
     insert_many(&exec, &[rec(b + 25, 1)], &BatchOptions::default()).expect("seed duplicate");
-    let rows: Vec<_> = (b..b + 30).filter(|i| *i != b + 25).chain([b + 25]).map(|i| rec(i, 1)).collect();
-    let opts = BatchOptions { max_rows: 10, ..BatchOptions::default() };
+    let rows: Vec<_> = (b..b + 30)
+        .filter(|i| *i != b + 25)
+        .chain([b + 25])
+        .map(|i| rec(i, 1))
+        .collect();
+    let opts = BatchOptions {
+        max_rows: 10,
+        ..BatchOptions::default()
+    };
     let err = insert_many(&exec, &rows, &opts).expect_err("duplicate key must fail");
     assert_eq!(err.chunk, 2, "{err}");
     assert_eq!(err.rows, 20..30);
@@ -256,11 +281,20 @@ fn batch_writer_flushes_on_size_time_and_close_and_dedupes_keys() {
     );
     // Size trigger: 250 rows -> at least two full batches without waiting.
     for i in 0..250 {
-        writer.push(rec(b + i, 1)).map_err(|_| "closed").expect("push");
+        writer
+            .push(rec(b + i, 1))
+            .map_err(|_| "closed")
+            .expect("push");
     }
     // Same key twice in one batch: the later row wins.
-    writer.push(rec(b + 1_000, 1)).map_err(|_| "closed").expect("push");
-    writer.push(rec(b + 1_000, 5)).map_err(|_| "closed").expect("push");
+    writer
+        .push(rec(b + 1_000, 1))
+        .map_err(|_| "closed")
+        .expect("push");
+    writer
+        .push(rec(b + 1_000, 5))
+        .map_err(|_| "closed")
+        .expect("push");
     // Time trigger: wait past max_delay without flushing explicitly.
     may::coroutine::sleep(Duration::from_millis(300));
     assert_eq!(count(&exec, b, b + 1_001), 251, "time-based flush");
@@ -270,7 +304,10 @@ fn batch_writer_flushes_on_size_time_and_close_and_dedupes_keys() {
 
     // Close flushes the tail.
     for i in 2_000..2_010 {
-        writer.push(rec(b + i, 1)).map_err(|_| "closed").expect("push");
+        writer
+            .push(rec(b + i, 1))
+            .map_err(|_| "closed")
+            .expect("push");
     }
     let stats = writer.close();
     assert_eq!(count(&exec, b + 2_000, b + 2_010), 10, "close flushes");
@@ -355,7 +392,8 @@ fn batch_operations_run_under_rls_session_context() {
     // credentials: the role and `rls_set_session` come from `rls_integration`'s ctor.
     let as_role = || {
         let conn = may_postgres::connect(&ctx.pg_url).expect("connect");
-        conn.batch_execute("SET ROLE rls_test_role").expect("SET ROLE");
+        conn.batch_execute("SET ROLE rls_test_role")
+            .expect("SET ROLE");
         MayPostgresExecutor::new(conn)
     };
     let a = as_role().with_session_context(org_ctx(ORG_A));
@@ -373,9 +411,11 @@ fn batch_operations_run_under_rls_session_context() {
 
     // B cannot see A's rows, so batched reads, updates and deletes touch nothing.
     let keys: Vec<Value> = (1..=100).map(|i| Value::BigInt(Some(i))).collect();
-    assert!(find_by_ids::<batch_rls::Entity>(&bexec, &keys, &BatchOptions::default())
-        .expect("find as B")
-        .is_empty());
+    assert!(
+        find_by_ids::<batch_rls::Entity>(&bexec, &keys, &BatchOptions::default())
+            .expect("find as B")
+            .is_empty()
+    );
     assert_eq!(
         delete_many::<batch_rls::Entity>(&bexec, &keys, &BatchOptions::default())
             .expect("delete as B")
@@ -401,8 +441,13 @@ fn batch_operations_run_under_rls_session_context() {
             r
         })
         .collect();
-    let out = update_many(&a, &upd, &[batch_rls::Column::Qty], &BatchOptions::default())
-        .expect("update as A");
+    let out = update_many(
+        &a,
+        &upd,
+        &[batch_rls::Column::Qty],
+        &BatchOptions::default(),
+    )
+    .expect("update as A");
     assert_eq!(out.rows_affected, 100);
     assert_eq!(
         find_by_ids::<batch_rls::Entity>(&a, &keys, &BatchOptions::default())
@@ -462,7 +507,8 @@ fn returning_writes_go_to_the_primary_when_reads_use_a_replica() {
         ..LifeguardPoolSettings::default()
     };
     let pool = Arc::new(
-        LifeguardPool::new_with_settings(&ctx.pg_url, 2, vec![replica], 2, &settings).expect("pool"),
+        LifeguardPool::new_with_settings(&ctx.pg_url, 2, vec![replica], 2, &settings)
+            .expect("pool"),
     );
     let exec = PooledLifeExecutor::new(pool);
     // Wait until reads are really served by the replica, so the test cannot pass by falling back.
@@ -475,14 +521,21 @@ fn returning_writes_go_to_the_primary_when_reads_use_a_replica() {
         if on_replica {
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "reads never moved to the replica");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "reads never moved to the replica"
+        );
         std::thread::sleep(Duration::from_millis(25));
     }
     let b = id_base();
-    let inserted = rec(b, 1).insert(&exec).expect("insert with RETURNING on the primary");
+    let inserted = rec(b, 1)
+        .insert(&exec)
+        .expect("insert with RETURNING on the primary");
     assert_eq!(inserted.qty, 1);
     let mut change = BatchItemRecord::new();
     change.set_id(b).set_qty(2);
-    let updated = change.update(&exec).expect("update with RETURNING on the primary");
+    let updated = change
+        .update(&exec)
+        .expect("update with RETURNING on the primary");
     assert_eq!(updated.qty, 2);
 }

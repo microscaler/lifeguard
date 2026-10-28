@@ -112,8 +112,7 @@ pub mod test_helpers;
 
 pub use pool::{
     DatabaseConfig, ExclusivePrimaryLifeExecutor, LifeguardPool, LifeguardPoolSettings, OwnedArray,
-    OwnedParam,
-    PooledLifeExecutor, ReadPreference, WalLagPolicy,
+    OwnedParam, PooledLifeExecutor, ReadPreference, WalLagPolicy,
 };
 
 #[doc(inline)]
@@ -146,8 +145,8 @@ pub use executor::{LifeError, LifeExecutor, MayPostgresExecutor, SessionContext}
 // Query builder - Epic 02 Story 03
 pub mod query;
 pub use query::{
-    format_index_key_list_derive_value, format_index_key_list_sql,
-    __lg_try_get, from_row_unsigned_try_from_failed, index_definition_to_derive_index_value,
+    __lg_try_get, format_index_key_list_derive_value, format_index_key_list_sql,
+    from_row_unsigned_try_from_failed, index_definition_to_derive_index_value,
     index_key_parts_coverage_columns, ColumnDefinition, ColumnTrait, FromRow, IndexBtreeNulls,
     IndexBtreeSort, IndexDefinition, IndexKeyPart, IntoScope, LifeEntityName, LifeModelTrait,
     ModelManager, NotifyDefinition, PrimaryKeyArity, PrimaryKeyArityTrait, PrimaryKeyToColumn,

@@ -31,8 +31,8 @@ fn join(base: &str, path: &str) -> String {
 /// `POST /reset` — enable all proxies and remove all toxics ([Toxiproxy HTTP API](https://github.com/Shopify/toxiproxy#http-api)).
 pub fn reset_all(api_base: &str) -> Result<(), String> {
     let url = join(api_base, "reset");
-    let resp = ureq::post(&url).call().map_err(|e| e.to_string())?;
-    if (200..300).contains(&resp.status()) {
+    let resp = ureq::post(&url).send(()).map_err(|e| e.to_string())?;
+    if (200..300).contains(&resp.status().as_u16()) {
         Ok(())
     } else {
         Err(format!("POST /reset -> HTTP {}", resp.status()))
@@ -45,10 +45,10 @@ pub fn set_proxy_enabled(api_base: &str, proxy_name: &str, enabled: bool) -> Res
     let body = serde_json::json!({ "enabled": enabled });
     let body_str = serde_json::to_string(&body).map_err(|e| e.to_string())?;
     let resp = ureq::patch(&url)
-        .set("Content-Type", "application/json")
-        .send_string(&body_str)
+        .header("Content-Type", "application/json")
+        .send(&body_str)
         .map_err(|e| e.to_string())?;
-    if (200..300).contains(&resp.status()) {
+    if (200..300).contains(&resp.status().as_u16()) {
         Ok(())
     } else {
         Err(format!("PATCH {url} -> HTTP {}", resp.status()))

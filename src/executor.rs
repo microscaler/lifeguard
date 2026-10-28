@@ -264,7 +264,10 @@ pub trait LifeExecutor {
         query: &str,
         params: Vec<crate::pool::OwnedParam>,
     ) -> Result<u64, LifeError> {
-        let refs: Vec<&dyn ToSql> = params.iter().map(crate::pool::OwnedParam::as_sql_ref).collect();
+        let refs: Vec<&dyn ToSql> = params
+            .iter()
+            .map(crate::pool::OwnedParam::as_sql_ref)
+            .collect();
         self.execute(query, &refs)
     }
 
@@ -294,7 +297,10 @@ pub trait LifeExecutor {
         query: &str,
         params: Vec<crate::pool::OwnedParam>,
     ) -> Result<Vec<Row>, LifeError> {
-        let refs: Vec<&dyn ToSql> = params.iter().map(crate::pool::OwnedParam::as_sql_ref).collect();
+        let refs: Vec<&dyn ToSql> = params
+            .iter()
+            .map(crate::pool::OwnedParam::as_sql_ref)
+            .collect();
         self.query_all(query, &refs)
     }
 }
@@ -745,11 +751,12 @@ impl LifeExecutor for MayPostgresExecutor {
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
-            self.with_stmt(query, |st| client.execute(st, params)).map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error(None);
-                LifeError::PostgresError(e)
-            })
+            self.with_stmt(query, |st| client.execute(st, params))
+                .map_err(|e| {
+                    #[cfg(feature = "metrics")]
+                    METRICS.record_query_error(None);
+                    LifeError::PostgresError(e)
+                })
         });
 
         let duration = start.elapsed();
@@ -765,11 +772,12 @@ impl LifeExecutor for MayPostgresExecutor {
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
-            self.with_stmt(query, |st| client.query_one(st, params)).map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error(None);
-                LifeError::PostgresError(e)
-            })
+            self.with_stmt(query, |st| client.query_one(st, params))
+                .map_err(|e| {
+                    #[cfg(feature = "metrics")]
+                    METRICS.record_query_error(None);
+                    LifeError::PostgresError(e)
+                })
         });
 
         let duration = start.elapsed();
@@ -785,11 +793,12 @@ impl LifeExecutor for MayPostgresExecutor {
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
-            self.with_stmt(query, |st| client.query(st, params)).map_err(|e| {
-                #[cfg(feature = "metrics")]
-                METRICS.record_query_error(None);
-                LifeError::PostgresError(e)
-            })
+            self.with_stmt(query, |st| client.query(st, params))
+                .map_err(|e| {
+                    #[cfg(feature = "metrics")]
+                    METRICS.record_query_error(None);
+                    LifeError::PostgresError(e)
+                })
         });
 
         let duration = start.elapsed();

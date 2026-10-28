@@ -50,7 +50,7 @@ use std::sync::Arc;
 
 /// One-time setup: creates the shared `rls_test_role` (non-superuser) and
 /// the `rls_set_session` GUC helper function in `public` schema.
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn rls_test_setup() {
     let ctx = crate::context::get_test_context();
     let conn = may_postgres::connect(&ctx.pg_url).expect("ctor: connect");
@@ -71,13 +71,13 @@ fn rls_test_setup() {
          END IF; END $$;",
         &[],
     )
-    .ok();
+    .expect("ctor: CREATE ROLE rls_test_role");
     // Give it LOGIN and password so pool connections work as rls_test_role.
     exec.execute(
-        "ALTER ROLE rls_test_role WITH LOGIN PASSWORD 'rls_test_role_pw';",
+        &format!("ALTER ROLE rls_test_role WITH LOGIN PASSWORD '{RLS_ROLE_PASSWORD}';"),
         &[],
     )
-    .ok();
+    .expect("ctor: ALTER ROLE rls_test_role password");
 
     // Allow rls_test_role to connect to the database (handle any DB name).
     // Query current_database() inside a DO block so it works regardless of
@@ -128,9 +128,24 @@ fn rls_test_setup() {
     exec.execute("GRANT USAGE ON SCHEMA public TO rls_test_role", &[])
         .ok();
 
+    // Self-check: authenticate as the role over the exact URL the pool tests
+    // will use. If the DDL above silently no-oped (it used to be `.ok()`),
+    // surface the real error here instead of a confusing pool panic downstream.
+    {
+        let role_conn = may_postgres::connect(&rls_role_url(&ctx.pg_url));
+        if let Err(err) = role_conn {
+            panic!("ctor: role auth self-check failed: {err}");
+        }
+    }
+
     exec.execute("SELECT pg_advisory_unlock(7211915000)", &[])
         .expect("ctor: release RLS setup lock");
 }
+
+/// Password for the shared `rls_test_role`. Single source of truth: the ctor's
+/// `ALTER ROLE` statement and `rls_role_url()` must always agree — a mismatch
+/// shows up as a deterministic `E28P01` on every role connection.
+const RLS_ROLE_PASSWORD: &str = "rls_test_role_pw";
 
 /// Unique schema/table pair for each test to avoid collisions.
 static RLS_SCHEMA_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -138,6 +153,17 @@ static RLS_SCHEMA_SEQ: AtomicU64 = AtomicU64::new(0);
 fn unique_rls_schema_names() -> (String, String) {
     let n = RLS_SCHEMA_SEQ.fetch_add(1, Ordering::Relaxed);
     (format!("rls_test_{n}"), format!("t_rls_items_{n}"))
+}
+
+/// Rebuild a `postgres://user:pass@host/...` URL so the pool authenticates as the
+/// non-superuser `rls_test_role` (superusers bypass RLS, so policies would never run).
+/// Parses userinfo generically instead of assuming a literal `postgres:postgres@`
+/// password: main pushes use the repository secret, while Dependabot PRs and
+/// `act` runs get a random per-run password and must still hit the role URL.
+fn rls_role_url(url: &str) -> String {
+    let (scheme, rest) = url.split_once("://").expect("postgres url scheme");
+    let after_user = rest.rsplit_once('@').map_or(rest, |(_, after)| after);
+    format!("{scheme}://rls_test_role:{RLS_ROLE_PASSWORD}@{after_user}")
 }
 
 /// Create a superuser executor for setup (table-owning role).
@@ -462,8 +488,7 @@ fn test_d_pool_worker_isolation() {
     // Build an RLS-specific connection URL that authenticates as rls_test_role.
     // The pool's worker threads connect using this URL, so RLS policies are
     // actually evaluated (superusers bypass RLS by default).
-    // Replace the original postgres:postgres@ with rls_test_role:rls_test_role_pw@
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
 
     // Create a 2-worker pool using the RLS role URL.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 2, Vec::new(), 0).expect("create pool"));
@@ -945,7 +970,7 @@ fn test_p1_pool_rapid_context_switching() {
     setup_rls_fixture(&setup_exec, &schema, &table);
 
     // Build an RLS-specific connection URL.
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
 
     // Create a pool with 4 workers.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 4, Vec::new(), 0).expect("create pool"));
@@ -1001,7 +1026,7 @@ fn test_p2_pool_worker_with_function() {
     setup_rls_fixture(&setup_exec, &schema, &table);
 
     // Build RLS URL for the pool.
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
 
     // Create a pool with 1 worker.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
@@ -1054,7 +1079,7 @@ fn test_p2b_pool_worker_missing_function() {
     .expect("drop rls_set_session");
 
     // Build RLS URL for the pool.
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
 
     // Create a pool with 1 worker.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
@@ -1111,7 +1136,7 @@ fn test_p3_pool_worker_no_context() {
     let setup_exec = MayPostgresExecutor::new(conn);
     setup_rls_fixture(&setup_exec, &schema, &table);
 
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
     let pool = Arc::new(LifeguardPool::new(&rls_url, 2, Vec::new(), 0).expect("create pool"));
 
     // No session context attached.
@@ -1145,7 +1170,7 @@ fn test_p4_pool_worker_context_clears_after_job_commit() {
     let setup_exec = make_superuser_executor(&primary_url);
     setup_rls_fixture(&setup_exec, &schema, &table);
 
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
     // Exactly one worker guarantees both jobs use the same physical slot.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
     let alpha_exec = PooledLifeExecutor::new(Arc::clone(&pool))
@@ -1182,7 +1207,7 @@ fn test_p5_pinned_pool_transaction_context_lifecycle() {
     let setup_exec = make_superuser_executor(&primary_url);
     setup_rls_fixture(&setup_exec, &schema, &table);
 
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
     // One slot proves all lifecycle checks reuse the same physical connection.
     let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
     let alpha_context = session_context(TENANT_ALPHA, "alpha", vec!["read".into()]);
@@ -1244,7 +1269,7 @@ fn test_p6_concurrent_context_repeat_matrix_has_zero_bleed() {
     let setup_exec = make_superuser_executor(&primary_url);
     setup_rls_fixture(&setup_exec, &schema, &table);
 
-    let rls_url = primary_url.replace("postgres:postgres@", "rls_test_role:rls_test_role_pw@");
+    let rls_url = rls_role_url(&primary_url);
     let pool = Arc::new(LifeguardPool::new(&rls_url, 2, Vec::new(), 0).expect("create pool"));
     let start = Arc::new(std::sync::Barrier::new(2));
     let query = format!("SELECT note FROM {schema}.{table} ORDER BY note");
