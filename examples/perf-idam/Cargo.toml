@@ -16,7 +16,7 @@ lifeguard-migrate = { path = "../../lifeguard-migrate", version = "0.1.0" }
 lifeguard = { path = "../../", version = "0.1.0" }
 lifeguard-derive = { path = "../../lifeguard-derive", version = "0.1.0" }
 lifeguard-migrate = { path = "../../lifeguard-migrate", version = "0.1.0" }
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", rev = "cb92eff897539ebf5c1ac2b5d533b57b48342fee" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "integration/microscaler-fork" }
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
