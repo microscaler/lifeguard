@@ -100,6 +100,31 @@ impl From<PostgresError> for LifeError {
     }
 }
 
+/// Message of the error [`LifeExecutor::query_one`] returns when the query produced no row.
+pub(crate) const NO_ROWS_MESSAGE: &str = "no rows returned (expected one row)";
+
+/// Message of the error [`LifeExecutor::query_opt`] returns when the query produced more than one row.
+pub(crate) const MORE_THAN_ONE_ROW_MESSAGE: &str =
+    "query returned more than one row (expected at most one)";
+
+/// The error [`LifeExecutor::query_one`] returns for an empty result.
+///
+/// An empty result is an answer, not a database failure: executors build `query_one` on
+/// [`LifeExecutor::query_opt`] and turn `None` into this error *after* the statement has finished,
+/// so it is never counted in `lifeguard_query_errors_total`.
+pub(crate) fn no_rows_error() -> LifeError {
+    LifeError::QueryError(NO_ROWS_MESSAGE.to_string())
+}
+
+/// Zero or one row from a fully fetched result, for executors without a native zero-or-one query.
+pub(crate) fn at_most_one(mut rows: Vec<Row>) -> Result<Option<Row>, LifeError> {
+    match rows.len() {
+        0 => Ok(None),
+        1 => Ok(rows.pop()),
+        _ => Err(LifeError::QueryError(MORE_THAN_ONE_ROW_MESSAGE.to_string())),
+    }
+}
+
 /// Trait for executing database operations
 ///
 /// This trait abstracts database execution, allowing different implementations
@@ -172,8 +197,11 @@ pub trait LifeExecutor {
     ///
     /// Returns `LifeError` if:
     /// - The query execution fails
-    /// - No rows are returned
+    /// - No rows are returned ([`LifeError::QueryError`]; not counted in
+    ///   `lifeguard_query_errors_total`, because an empty result is not a database failure)
     /// - Multiple rows are returned
+    ///
+    /// When no row is a normal answer, use [`Self::query_opt`] instead.
     ///
     /// # Examples
     ///
@@ -214,6 +242,35 @@ pub trait LifeExecutor {
     /// ```
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError>;
 
+    /// Execute a query that returns zero or one row.
+    ///
+    /// Returns `Ok(None)` when the query produces no row. That is a normal answer ("not found",
+    /// "nothing fresh yet"), so it is never an error and never counted in
+    /// `lifeguard_query_errors_total`. Use this instead of `query_one(..).ok()` or
+    /// `query_all(..)` plus the first row.
+    ///
+    /// The built-in executors stop reading after the second row. The default implementation, for
+    /// executors that only implement the required methods, fetches every row through
+    /// [`Self::query_all`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `LifeError` if the query fails or returns more than one row.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use lifeguard::executor::{LifeExecutor, LifeError};
+    /// # let executor: &dyn LifeExecutor = todo!();
+    /// let email: Option<String> = executor
+    ///     .query_opt("SELECT email FROM users WHERE id = $1", &[&42i64])?
+    ///     .map(|row| row.get(0));
+    /// # Ok::<(), LifeError>(())
+    /// ```
+    fn query_opt(&self, query: &str, params: &[&dyn ToSql]) -> Result<Option<Row>, LifeError> {
+        at_most_one(self.query_all(query, params)?)
+    }
+
     /// Execute a statement with `sea_query::Values` (ORM / pool-safe parameter path).
     ///
     /// Default implementation converts values to `ToSql` on the stack and calls [`Self::execute`].
@@ -231,6 +288,23 @@ pub trait LifeExecutor {
             &values.0,
             LifeError::Other,
             |p| self.query_one(query, p),
+        )
+    }
+
+    /// Query zero or one row with `sea_query::Values` (see [`Self::query_opt`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_opt`].
+    fn query_opt_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Option<Row>, LifeError> {
+        crate::query::converted_params::with_converted_value_slice(
+            &values.0,
+            LifeError::Other,
+            |p| self.query_opt(query, p),
         )
     }
 
@@ -318,6 +392,18 @@ impl LifeExecutor for &dyn LifeExecutor {
 
     fn query_all(&self, query: &str, params: &[&dyn ToSql]) -> Result<Vec<Row>, LifeError> {
         (*self).query_all(query, params)
+    }
+
+    fn query_opt(&self, query: &str, params: &[&dyn ToSql]) -> Result<Option<Row>, LifeError> {
+        (*self).query_opt(query, params)
+    }
+
+    fn query_opt_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Option<Row>, LifeError> {
+        (*self).query_opt_values(query, values)
     }
 
     fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
@@ -767,12 +853,18 @@ impl LifeExecutor for MayPostgresExecutor {
     }
 
     fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
+        // Through `query_opt`: an empty result becomes an error only after the statement has
+        // finished, so it is not counted as a query error.
+        self.query_opt(query, params)?.ok_or_else(no_rows_error)
+    }
+
+    fn query_opt(&self, query: &str, params: &[&dyn ToSql]) -> Result<Option<Row>, LifeError> {
         #[cfg(feature = "tracing")]
         let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
         let result = self.with_session_transaction(|client| {
-            self.with_stmt(query, |st| client.query_one(st, params))
+            self.with_stmt(query, |st| client.query_opt(st, params))
                 .map_err(|e| {
                     #[cfg(feature = "metrics")]
                     METRICS.record_query_error(None);

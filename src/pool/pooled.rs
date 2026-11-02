@@ -293,14 +293,16 @@ struct WorkerPool {
 /// What a statement returns.
 enum Out {
     Count(u64),
-    One(Row),
+    /// Zero or one row (`query_opt`; `query_one` maps `None` to an error after the statement).
+    Opt(Option<Row>),
     All(Vec<Row>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Execute,
-    QueryOne,
+    /// Zero or one row: backs both `query_opt` and `query_one`.
+    QueryOpt,
     QueryAll,
 }
 
@@ -1073,7 +1075,7 @@ fn exec_kind(
     timed(tier, sql, || {
         let (out, lookup) = conn.stmts.with_statement(h, sql, |st| match kind {
             Kind::Execute => h.execute(st, refs).map(Out::Count),
-            Kind::QueryOne => h.query_one(st, refs).map(Out::One),
+            Kind::QueryOpt => h.query_opt(st, refs).map(Out::Opt),
             Kind::QueryAll => h.query(st, refs).map(Out::All),
         })?;
         #[cfg(feature = "metrics")]
@@ -1188,7 +1190,7 @@ fn contextual_unit(
                 rc?;
                 Ok(Out::Count(n))
             }
-            Kind::QueryOne | Kind::QueryAll => {
+            Kind::QueryOpt | Kind::QueryAll => {
                 let s_stmt = h.query_raw(&st, refs).map_err(LifeError::from);
                 let s_commit = h.query_raw(&commit, &[]).map_err(LifeError::from);
                 let rb = drain(s_begin);
@@ -1208,16 +1210,7 @@ fn contextual_unit(
                 if kind == Kind::QueryAll {
                     Ok(Out::All(rows))
                 } else {
-                    let mut it = rows.into_iter();
-                    match (it.next(), it.next()) {
-                        (Some(row), None) => Ok(Out::One(row)),
-                        (None, _) => Err(LifeError::QueryError(
-                            "no rows returned (expected one row)".to_string(),
-                        )),
-                        (Some(_), Some(_)) => Err(LifeError::QueryError(
-                            "query returned more than one row (expected one row)".to_string(),
-                        )),
-                    }
+                    crate::executor::at_most_one(rows).map(Out::Opt)
                 }
             }
         }
@@ -1776,6 +1769,15 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
         ))
     }
 
+    fn query_opt(&self, query: &str, params: &[&dyn ToSql]) -> Result<Option<Row>, LifeError> {
+        if params.is_empty() {
+            return self.query_opt_values(query, &sea_query::Values(Vec::new()));
+        }
+        Err(LifeError::Pool(
+            "ExclusivePrimaryLifeExecutor: use query_opt_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
+        ))
+    }
+
     fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
         match self.run_values(Kind::Execute, query, values)? {
             Out::Count(n) => Ok(n),
@@ -1784,8 +1786,17 @@ impl LifeExecutor for ExclusivePrimaryLifeExecutor<'_> {
     }
 
     fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
-        match self.run_values(Kind::QueryOne, query, values)? {
-            Out::One(r) => Ok(r),
+        self.query_opt_values(query, values)?
+            .ok_or_else(crate::executor::no_rows_error)
+    }
+
+    fn query_opt_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Option<Row>, LifeError> {
+        match self.run_values(Kind::QueryOpt, query, values)? {
+            Out::Opt(r) => Ok(r),
             _ => Err(internal_kind_error()),
         }
     }
@@ -1998,6 +2009,15 @@ impl LifeExecutor for PooledLifeExecutor {
         ))
     }
 
+    fn query_opt(&self, query: &str, params: &[&dyn ToSql]) -> Result<Option<Row>, LifeError> {
+        if params.is_empty() {
+            return self.query_opt_values(query, &sea_query::Values(Vec::new()));
+        }
+        Err(LifeError::Pool(
+            "PooledLifeExecutor: use query_opt_values(query, &sea_query::Values) or ORM APIs; dynamic &dyn ToSql cannot cross the pool boundary".to_string(),
+        ))
+    }
+
     fn execute_values(&self, query: &str, values: &sea_query::Values) -> Result<u64, LifeError> {
         match self.run(&self.pool.primary, Kind::Execute, query, values)? {
             Out::Count(n) => Ok(n),
@@ -2006,9 +2026,18 @@ impl LifeExecutor for PooledLifeExecutor {
     }
 
     fn query_one_values(&self, query: &str, values: &sea_query::Values) -> Result<Row, LifeError> {
+        self.query_opt_values(query, values)?
+            .ok_or_else(crate::executor::no_rows_error)
+    }
+
+    fn query_opt_values(
+        &self,
+        query: &str,
+        values: &sea_query::Values,
+    ) -> Result<Option<Row>, LifeError> {
         let tier = self.pool.read_pool_for(self.read_preference);
-        match self.run(tier, Kind::QueryOne, query, values)? {
-            Out::One(r) => Ok(r),
+        match self.run(tier, Kind::QueryOpt, query, values)? {
+            Out::Opt(r) => Ok(r),
             _ => Err(internal_kind_error()),
         }
     }

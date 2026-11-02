@@ -5,7 +5,6 @@
 
 use super::traits::PartialModelTrait;
 use crate::executor::{LifeError, LifeExecutor};
-use crate::query::error_handling::is_no_rows_error;
 use crate::query::{LifeModelTrait, SelectQuery};
 use sea_query::PostgresQueryBuilder;
 
@@ -65,19 +64,14 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
     pub fn one<Ex: LifeExecutor>(self, executor: &Ex) -> Result<Option<P>, LifeError> {
         let (sql, values) = self.query.query.build(PostgresQueryBuilder);
 
-        // Use shared value conversion function
-        match executor.query_one_values(&sql, &values) {
-            Ok(row) => Ok(Some(P::from_row(&row).map_err(|e| {
-                LifeError::ParseError(format!("Failed to parse row: {e}"))
-            })?)),
-            Err(e) => {
-                if is_no_rows_error(&e) {
-                    Ok(None)
-                } else {
-                    Err(e)
-                }
-            }
-        }
+        // Zero or one row: an empty result is `None`, not an error.
+        executor
+            .query_opt_values(&sql, &values)?
+            .map(|row| {
+                P::from_row(&row)
+                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+            })
+            .transpose()
     }
 
     /// Add a filter condition

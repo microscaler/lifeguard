@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`LifeExecutor::query_opt` / `query_opt_values`: zero or one row.** An empty result is
+  `Ok(None)`; more than one row is an error. Every built-in executor (direct, transaction, pool)
+  uses the driver's `query_opt`, so it stops after the second row instead of fetching them all.
+  Use it instead of `query_one(..).ok()` or `query_all(..)` plus the first row.
+
+### Fixed
+
+- **An empty result no longer counts in `lifeguard_query_errors_total`.** `query_one` (and
+  `find_one`, which is built on it) now runs `query_opt` and turns `None` into its error after
+  the statement has finished, so a "not found" is not reported as a database error. The error
+  for an empty `query_one` is now `LifeError::QueryError("no rows returned (expected one row)")`
+  on every executor (the direct and transaction executors used to return the driver's row-count
+  error); `find_one` still maps it to `Ok(None)`.
+
 ### Performance
 
 - **The pool is coroutine-native: statements no longer queue behind a worker thread.** Each

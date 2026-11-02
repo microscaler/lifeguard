@@ -397,6 +397,12 @@ impl LifeExecutor for Transaction {
     }
 
     fn query_one(&self, query: &str, params: &[&dyn ToSql]) -> Result<Row, LifeError> {
+        // Through `query_opt`: an empty result is not counted as a query error.
+        self.query_opt(query, params)?
+            .ok_or_else(crate::executor::no_rows_error)
+    }
+
+    fn query_opt(&self, query: &str, params: &[&dyn ToSql]) -> Result<Option<Row>, LifeError> {
         if self.closed {
             return Err(LifeError::Other("Transaction is closed".to_string()));
         }
@@ -405,7 +411,7 @@ impl LifeExecutor for Transaction {
         let _span = tracing_helpers::execute_query_span(query); // created, not entered: see tracing_helpers
 
         let start = Instant::now();
-        let result = self.client.query_one(query, params).map_err(|e| {
+        let result = self.client.query_opt(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
             METRICS.record_query_error(None);
             LifeError::PostgresError(e)

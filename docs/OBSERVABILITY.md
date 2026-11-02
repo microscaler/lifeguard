@@ -82,7 +82,7 @@ When the `metrics` feature is enabled, Lifeguard exposes the following Prometheu
 | `lifeguard_active_connections` | Gauge | — | Number of active connections (total) |
 | `lifeguard_connection_wait_time_seconds` | Histogram | optional `pool_tier` | **Pool:** time from successful enqueue to worker start (queue dwell behind prior jobs). **Direct `connect`:** handshake wait. Unlabeled when not pooled. |
 | `lifeguard_query_duration_seconds` | Histogram | optional `pool_tier` | Query time; pooled paths use `primary` / `replica` |
-| `lifeguard_query_errors_total` | Counter | optional `pool_tier` | Query errors; pooled paths use `primary` / `replica` |
+| `lifeguard_query_errors_total` | Counter | optional `pool_tier` | Statements the database or driver failed; pooled paths use `primary` / `replica`. An empty result is not an error: `query_opt` returns `None` and `query_one`'s "no rows" error is raised after the statement, so neither is counted. More rows than `query_one`/`query_opt` allow is counted. |
 | `lifeguard_wal_monitor_replica_routing_disabled` | Gauge | — | 1 if the WAL lag monitor gave up connecting to the replica (PRD R7.3) |
 | `lifeguard_pool_acquire_timeout_total` | Counter | `pool_tier` | Pool acquire timeouts (`LifeError::PoolAcquireTimeout`) |
 | `lifeguard_pool_slot_heal_total` | Counter | `pool_tier` | Slot heal reconnects after connectivity-class errors |
