@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`lifeguard-migrate apply-sql`: tracked SQL migrations** (library: `lifeguard_migrate::tracked`).
+  Applies the `.sql` files a plan lists once each and records file, checksum, release, time,
+  duration and status in a tracking table, with one summary row per run. An edited versioned file
+  fails the run before anything is applied; repeatable files (views, functions, seeds) re-run when
+  they change. Files run statement by statement like `psql -f` (or in one transaction on request),
+  runs are serialised with an advisory lock, and `--baseline-query` / `--baseline-all` adopt an
+  existing database without re-running what it already has. See `lifeguard-migrate/README.md`.
 - **`LifeExecutor::query_opt` / `query_opt_values`: zero or one row.** An empty result is
   `Ok(None)`; more than one row is an error. Every built-in executor (direct, transaction, pool)
   uses the driver's `query_opt`, so it stops after the second row instead of fetching them all.

@@ -126,6 +126,58 @@ enum Commands {
         generated_dir: PathBuf,
     },
 
+    /// Apply SQL files once each, in plan order, and record them in a tracking table.
+    ///
+    /// Versioned files run once; editing one after it was applied fails the run before anything is
+    /// applied. Repeatable files (`repeatable <path>` in the plan, or `-- lifeguard:repeatable` in the
+    /// file) run again when their checksum changes. Each file runs statement by statement in
+    /// autocommit, like `psql -f`, unless it says `-- lifeguard:single-transaction`. See the README
+    /// (Tracked SQL migrations).
+    ApplySql {
+        /// Plan file: one path per line, relative to --root, in apply order (`#` comments,
+        /// `repeatable <path>`). Repeat to concatenate plans.
+        #[arg(long = "plan", required = true)]
+        plans: Vec<PathBuf>,
+
+        /// Directory the plan's paths are relative to.
+        #[arg(long, default_value = ".")]
+        root: PathBuf,
+
+        /// Release (version, tag or image) recorded with each file applied and on the run row.
+        #[arg(long)]
+        release: String,
+
+        /// Tracking table, optionally schema-qualified; the runs table is `<table>_runs`.
+        #[arg(long, default_value = lifeguard_migrate::tracked::DEFAULT_TABLE)]
+        table: String,
+
+        /// SQL run before each file (e.g. `SET search_path TO app, public`).
+        #[arg(long)]
+        preamble: Option<String>,
+
+        /// Shell command that rewrites each file before it runs: the file on stdin, the SQL to run
+        /// on stdout, `LIFEGUARD_MIGRATE_FILE` set to the file's plan path. Checksums are of the file.
+        #[arg(long)]
+        filter_cmd: Option<String>,
+
+        /// On an empty tracking table, record the files this query returns (file, optional checksum)
+        /// as already applied instead of running them.
+        #[arg(long, conflicts_with = "baseline_all")]
+        baseline_query: Option<String>,
+
+        /// On an empty tracking table, record every plan file as already applied.
+        #[arg(long)]
+        baseline_all: bool,
+
+        /// Seconds to wait for another run to release the lock.
+        #[arg(long, default_value_t = 300)]
+        lock_timeout_secs: u64,
+
+        /// Show what would be applied; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Show detailed migration information
     Info {
         /// Show information for a specific migration version
@@ -198,6 +250,43 @@ fn main() {
                 .expect("database URL validated when command requires DB");
             handle_compare_schema(db_url, schema, &generated_dir)
         }
+        Commands::ApplySql {
+            plans,
+            root,
+            release,
+            table,
+            preamble,
+            filter_cmd,
+            baseline_query,
+            baseline_all,
+            lock_timeout_secs,
+            dry_run,
+        } => {
+            let db_url = database_url
+                .as_ref()
+                .expect("database URL validated when command requires DB");
+            let baseline = match (baseline_query, baseline_all) {
+                (Some(q), _) => lifeguard_migrate::tracked::Baseline::Query(q),
+                (None, true) => lifeguard_migrate::tracked::Baseline::All,
+                (None, false) => lifeguard_migrate::tracked::Baseline::None,
+            };
+            let opts = lifeguard_migrate::tracked::Options {
+                table,
+                release,
+                preamble,
+                baseline,
+                lock_timeout: Duration::from_secs(lock_timeout_secs),
+                dry_run,
+            };
+            handle_apply_sql(
+                db_url,
+                &plans,
+                &root,
+                &opts,
+                filter_cmd.as_deref(),
+                cli.quiet,
+            )
+        }
         _ => {
             // All other commands need database connection
             let db_url = database_url.expect("Database URL should be validated above");
@@ -238,6 +327,116 @@ fn main() {
             eprintln!("❌ Error: {}", e);
             process::exit(1);
         }
+    }
+}
+
+/// `apply-sql`: exits 1 with the error on stderr when the run fails.
+fn handle_apply_sql(
+    database_url: &str,
+    plans: &[PathBuf],
+    root: &PathBuf,
+    opts: &lifeguard_migrate::tracked::Options,
+    filter_cmd: Option<&str>,
+    quiet: bool,
+) -> Result<(), MigrationError> {
+    use lifeguard_migrate::tracked::{self, Action, PlannedFile};
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let fail = |msg: String| -> ! {
+        eprintln!("❌ {msg}");
+        process::exit(1);
+    };
+
+    let mut entries = Vec::new();
+    for plan in plans {
+        let text = std::fs::read_to_string(plan)
+            .unwrap_or_else(|e| fail(format!("cannot read plan {}: {e}", plan.display())));
+        entries.extend(
+            tracked::parse_plan(&text).unwrap_or_else(|e| fail(format!("{}: {e}", plan.display()))),
+        );
+    }
+    let mut seen = std::collections::HashSet::new();
+    if let Some((dup, _)) = entries.iter().find(|(p, _)| !seen.insert(p.clone())) {
+        fail(format!("{dup} is listed twice across the plans"));
+    }
+    let files = tracked::load_entries(&entries, root).unwrap_or_else(|e| fail(e.to_string()));
+
+    let client = connect(database_url).unwrap_or_else(|e| fail(format!("cannot connect: {e}")));
+
+    let run_filter = |f: &PlannedFile| -> Result<String, String> {
+        let cmd = filter_cmd.unwrap_or_default();
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .env("LIFEGUARD_MIGRATE_FILE", &f.id)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("cannot run filter: {e}"))?;
+        let mut stdin = child.stdin.take().ok_or("filter has no stdin")?;
+        let input = f.sql.clone();
+        let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+        let out = child
+            .wait_with_output()
+            .map_err(|e| format!("filter: {e}"))?;
+        let _ = writer.join();
+        if !out.status.success() {
+            return Err(format!(
+                "filter exited with {}: {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        String::from_utf8(out.stdout).map_err(|_| "filter output is not UTF-8".to_string())
+    };
+    let filter: Option<tracked::Filter<'_>> = if filter_cmd.is_some() {
+        Some(&run_filter)
+    } else {
+        None
+    };
+
+    let mut log = |line: &str| {
+        if !quiet {
+            println!("  {line}");
+        }
+    };
+    if !quiet {
+        println!(
+            "{} {} file(s) into {} (release {})",
+            if opts.dry_run { "planning" } else { "applying" },
+            files.len(),
+            opts.table,
+            opts.release
+        );
+    }
+    match tracked::run(&client, &files, opts, filter, &mut log) {
+        Ok(report) => {
+            if !report.not_in_plan.is_empty() && !quiet {
+                println!(
+                    "  note: {} tracked file(s) are no longer in the plan: {}",
+                    report.not_in_plan.len(),
+                    report.not_in_plan.join(", ")
+                );
+            }
+            if !quiet {
+                println!(
+                    "{}: {} applied, {} reapplied, {} baselined, {} unchanged{}",
+                    if opts.dry_run { "would apply" } else { "done" },
+                    report.count(Action::Apply),
+                    report.count(Action::Reapply),
+                    report.count(Action::Baseline),
+                    report.count(Action::Skip),
+                    report
+                        .run_id
+                        .map(|r| format!(" (run {r})"))
+                        .unwrap_or_default()
+                );
+            }
+            Ok(())
+        }
+        Err(e) => fail(e.to_string()),
     }
 }
 

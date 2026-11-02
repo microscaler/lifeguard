@@ -17,6 +17,7 @@ pub mod schema_infer;
 pub mod schema_migration_compare;
 pub mod sql_dependency_order;
 pub mod sql_generator;
+pub mod tracked;
 
 // Note: entities.rs has been removed - entities are now discovered via build script
 // and accessed through the generated registry module in the user's project

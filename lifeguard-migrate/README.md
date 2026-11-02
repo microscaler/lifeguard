@@ -281,6 +281,24 @@ lifeguard-migrate info \
 Options:
 - `--version N` - Show info for specific migration version
 
+### `apply-sql`
+
+Apply plain `.sql` files once each, in the order a plan lists them, and record each one in a
+tracking table. Use it when the schema is a directory of SQL files (for example the
+`apply_order.txt` that [`write_apply_order_file`](#apply-order-and-seed-order-fk-safe-file-lists)
+writes) rather than Rust `Migration`s.
+
+```bash
+lifeguard-migrate apply-sql \
+  --database-url "$DATABASE_URL" \
+  --plan migrations/apply_order.txt --root migrations \
+  --release v1.4.0 \
+  --table app.schema_migrations \
+  --preamble 'SET search_path TO app, public'
+```
+
+See [Tracked SQL migrations](#tracked-sql-migrations) below for what a run does.
+
 ## Configuration
 
 ### Environment Variables
@@ -427,6 +445,109 @@ The tool provides clear error messages for common issues:
 5. **Checksum validation** - Run `validate` in CI/CD to catch modifications
 6. **Atomic migrations** - Keep migrations focused and atomic
 7. **Backup before major changes** - Always backup before applying destructive migrations
+
+## Tracked SQL migrations
+
+`apply-sql` (library: [`lifeguard_migrate::tracked`](src/tracked.rs)) applies each SQL file once
+and remembers it. Re-running every file on every deploy only works while every file is idempotent
+and nothing later contradicts it. An old file that re-creates a narrower view, for example, then
+fails ("cannot drop columns from view") as soon as a newer file widens that view, and the deploy
+stops.
+
+### Plan
+
+A plan is a text file with one path per line, in apply order, relative to `--root`. Blank lines
+and `#` comments are ignored. `--plan` can be given more than once; the plans are concatenated.
+
+```text
+# schema
+news/20260819152506_news_items.sql
+market/20260820065335_ticker_meta.sql
+# re-run whenever they change
+repeatable views/ticker_summary.sql
+repeatable seeds/20260901000000_exchanges.sql
+```
+
+The path as written is the file's identity in the tracking table, so keep it stable: move the
+checkout or the image freely, but renaming a file makes it a new file.
+
+### File kinds
+
+- **Versioned** (the default): applied once. If an applied file's checksum (SHA-256 of its bytes,
+  the same value `sha256sum` prints) changes, the run fails **before applying anything** and names
+  the files. Put the change in a new file instead.
+- **Repeatable**: `repeatable <path>` in the plan, or `-- lifeguard:repeatable` in the file's
+  leading comments. Applied when new and again whenever its checksum changes. Use it for objects
+  whose definition should follow one file: views (`CREATE OR REPLACE VIEW`), functions, policies,
+  idempotent seeds. Repeatable files run in plan order with the rest, so list them after what they
+  depend on.
+
+### How a file runs
+
+Each file runs statement by statement in autocommit, like `psql -v ON_ERROR_STOP=1 -f`: statements
+are split on `;` outside strings, quoted identifiers, dollar quotes, comments and
+`BEGIN ATOMIC … END` bodies, so `CREATE INDEX CONCURRENTLY` works. A file is recorded when its
+last statement succeeds. If a statement fails, the earlier statements of that file stay applied
+and the file is recorded as `failed`; it runs again (from its first statement) on the next run, so
+autocommit files should be safe to re-run (`IF NOT EXISTS`, `CREATE OR REPLACE`). A failed file
+may be edited before the next run.
+
+Add `-- lifeguard:single-transaction` to a file's leading comments to run the whole file and its
+tracking row in one transaction instead: it is applied completely or not at all.
+
+`psql` meta-commands (`\set`, `\i`, …) are not supported.
+
+`--preamble` runs before each file (for example `SET search_path`). `--filter-cmd` rewrites each
+file before it runs (the file on stdin, the SQL to run on stdout, `LIFEGUARD_MIGRATE_FILE` set to
+its plan path), for environment-specific names; the checksum is always of the file as written.
+
+### Tables
+
+`--table` (default `lifeguard_schema_migrations`, optionally `schema.table`; the schema must exist)
+holds one row per file:
+
+| column | |
+|---|---|
+| `file` | path as the plan writes it (primary key) |
+| `kind` | `versioned` or `repeatable` |
+| `checksum` | SHA-256 the file was applied (or baselined) with |
+| `release` | `--release` of the run that applied it |
+| `status` | `applied`, `baselined` or `failed` |
+| `applied_at`, `duration_ms` | when it was applied and how long it took |
+| `run_id` | the run that applied it |
+| `error` | why it failed (`failed` only) |
+
+`<table>_runs` holds one row per run: `run_id`, `release`, `status` (`running`, `succeeded`,
+`failed`), `started_at`, `finished_at`, `duration_ms`, the number of plan files and how many were
+`applied`, `reapplied`, `baselined` and `skipped`, and, for a failed run, `failed_file` and
+`error`. The last run of each release:
+
+```sql
+SELECT DISTINCT ON (release) *
+FROM app.schema_migrations_runs
+ORDER BY release, started_at DESC;
+```
+
+A run that stays `running` was interrupted (the process was killed); the next run carries on.
+
+Runs take a session advisory lock keyed on the table name, so two runners (two deploys, a retried
+Job) never apply at once; the second waits up to `--lock-timeout-secs` (default 300).
+
+### Adopting it on an existing database
+
+The first run against an empty tracking table can record files the database already has without
+running them:
+
+- `--baseline-query 'SELECT file, sha256 FROM app.old_ledger'` records the plan files the query
+  returns. The first column is the file (as the plan writes it); the optional second column is the
+  checksum it was applied with (`NULL` or absent: the file's current checksum). A versioned file
+  whose recorded checksum differs from the file now fails the run, as above; a repeatable one is
+  applied again. Plan files the query does not return are applied as usual.
+- `--baseline-all` records every plan file as applied, for a database known to have all of them.
+
+The baseline is taken only while the tracking table is empty; later runs ignore both options.
+Check first with `--dry-run`, which prints what each file would get (`apply`, `reapply`,
+`baseline`, `skip`) and writes nothing.
 
 ## Apply order and seed order (FK-safe file lists)
 
