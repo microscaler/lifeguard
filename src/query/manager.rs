@@ -194,7 +194,25 @@ where
 
         // 1. Transparent Cache Verification
         if let Some(cache) = executor.cache_provider() {
-            if let Ok(crate::cache::CachedResult::Hit(json_str)) = cache.get(&cache_key) {
+            let started = std::time::Instant::now();
+            let cached = cache.get(&cache_key);
+            // A hit and a miss are different operations to a reader: two ops, not one outcome.
+            let (site, outcome) = match &cached {
+                Ok(crate::cache::CachedResult::Hit(_)) => (
+                    &crate::timing::CACHE_GET_HIT,
+                    microscaler_timing::Outcome::Ok,
+                ),
+                Ok(crate::cache::CachedResult::Miss) => (
+                    &crate::timing::CACHE_GET_MISS,
+                    microscaler_timing::Outcome::Ok,
+                ),
+                Err(_) => (
+                    &crate::timing::CACHE_GET_MISS,
+                    microscaler_timing::Outcome::Err,
+                ),
+            };
+            site.record(outcome, started.elapsed());
+            if let Ok(crate::cache::CachedResult::Hit(json_str)) = cached {
                 if let Ok(model) = serde_json::from_str(&json_str) {
                     return Ok(Some(model));
                 }

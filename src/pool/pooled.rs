@@ -374,8 +374,11 @@ impl WorkerPool {
         }
         let inner = &*self.inner;
         let started = Instant::now();
-        let permit = Permit::acquire(inner, started)?;
-        let (index, gate) = inner.enter_shared(started)?;
+        let checkout = crate::timing::CHECKOUT.start();
+        let acquired = Permit::acquire(inner, started)
+            .and_then(|permit| inner.enter_shared(started).map(|entered| (permit, entered)));
+        checkout.finish(crate::timing::outcome(&acquired));
+        let (permit, (index, gate)) = acquired?;
         let slot = &inner.slots[index];
         #[cfg(feature = "metrics")]
         {
@@ -388,6 +391,12 @@ impl WorkerPool {
         #[cfg(feature = "tracing")]
         let ctx = may_tracing::current();
         let watched = Arc::clone(&conn);
+        let statement = match kind {
+            Kind::Execute => &crate::timing::EXECUTE,
+            Kind::QueryOpt => &crate::timing::QUERY_OPT,
+            Kind::QueryAll => &crate::timing::QUERY_ALL,
+        }
+        .start();
         let result = guarded(&self.inner, index, &watched, move || {
             #[cfg(feature = "tracing")]
             let _ctx = may_tracing::set_current(ctx);
@@ -396,10 +405,12 @@ impl WorkerPool {
         });
         drop(gate);
         drop(permit);
-        match result {
+        let result = match result {
             Some(r) => r,
             None => Err(self.inner.on_reply_timeout(index, started, true)),
-        }
+        };
+        statement.finish(crate::timing::outcome(&result));
+        result
     }
 
     /// An RLS-scoped statement: pin a slot and pipeline `BEGIN`, `rls_set_session`, the statement
@@ -413,7 +424,10 @@ impl WorkerPool {
     ) -> Result<Out, LifeError> {
         let inner = &*self.inner;
         let started = Instant::now();
-        let pin = Pin::acquire(&self.inner)?;
+        let checkout = crate::timing::CHECKOUT_RLS.start();
+        let pin = Pin::acquire(&self.inner);
+        checkout.finish(crate::timing::outcome(&pin));
+        let pin = pin?;
         #[cfg(feature = "metrics")]
         {
             METRICS.record_pool_checkout(started.elapsed(), inner.tier);
@@ -425,6 +439,7 @@ impl WorkerPool {
         #[cfg(feature = "tracing")]
         let ctx = may_tracing::current();
         let watched = Arc::clone(&conn);
+        let unit = crate::timing::RLS_UNIT.start();
         let result = guarded(&self.inner, index, &watched, move || {
             #[cfg(feature = "tracing")]
             let _ctx = may_tracing::set_current(ctx);
@@ -442,7 +457,7 @@ impl WorkerPool {
         });
         let broken = pin.conn.broken.load(Ordering::Acquire);
         drop(pin);
-        match result {
+        let result = match result {
             Some(r) => {
                 if broken {
                     self.inner.replace_in_background(index, None);
@@ -450,7 +465,9 @@ impl WorkerPool {
                 r
             }
             None => Err(self.inner.on_reply_timeout(index, started, true)),
-        }
+        };
+        unit.finish(crate::timing::outcome(&result));
+        result
     }
 }
 

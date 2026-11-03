@@ -24,6 +24,7 @@ impl RedisCacheProvider {
 
 impl CacheProvider for RedisCacheProvider {
     fn get(&self, key: &str) -> Result<CachedResult<String>, CacheError> {
+        // Timed (hit / miss) where the model cache is read, `query::manager`, for every provider.
         let mut conn = self.get_conn()?;
         let value: Option<String> = conn
             .get(key)
@@ -36,6 +37,27 @@ impl CacheProvider for RedisCacheProvider {
     }
 
     fn set(&self, key: &str, value: &str, ttl_seconds: Option<u64>) -> Result<(), CacheError> {
+        let timer = crate::timing::CACHE_SET.start();
+        let result = self.set_inner(key, value, ttl_seconds);
+        timer.finish_result(&result);
+        result
+    }
+
+    fn invalidate(&self, key: &str) -> Result<(), CacheError> {
+        let timer = crate::timing::CACHE_INVALIDATE.start();
+        let result = self.invalidate_inner(key);
+        timer.finish_result(&result);
+        result
+    }
+}
+
+impl RedisCacheProvider {
+    fn set_inner(
+        &self,
+        key: &str,
+        value: &str,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CacheError> {
         let mut conn = self.get_conn()?;
 
         match ttl_seconds {
@@ -54,7 +76,7 @@ impl CacheProvider for RedisCacheProvider {
         Ok(())
     }
 
-    fn invalidate(&self, key: &str) -> Result<(), CacheError> {
+    fn invalidate_inner(&self, key: &str) -> Result<(), CacheError> {
         let mut conn = self.get_conn()?;
         let _: () = conn
             .del::<&str, ()>(key)

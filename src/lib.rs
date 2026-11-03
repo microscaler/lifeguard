@@ -221,6 +221,9 @@ pub use migration::{
 
 // Cache Coherence Architecture - Epic 07 Phase 4
 pub mod cache;
+
+// op_duration_seconds for the pool, statements, decoding and the cache (microscaler-timing).
+mod timing;
 pub use cache::{CacheError, CacheProvider, CachedResult, DefaultCacheProvider};
 
 /// Whether `lifeguard.*` tracing spans nest under the caller's current span

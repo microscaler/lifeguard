@@ -190,12 +190,11 @@ where
         let loaders = std::mem::take(&mut query.loaders);
         let (sql, values) = query.apply_soft_delete().build(PostgresQueryBuilder);
         let rows = exec.query_all_values(&sql, &values)?;
-        let mut children = Vec::new();
-        for row in rows {
-            let model = <R::Model as FromRow>::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-            children.push(model);
-        }
+        let n = rows.len();
+        let mut children = crate::timing::decode_rows(rows, n, |row| {
+            <R::Model as FromRow>::from_row(row)
+                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+        })?;
         for loader in &loaders {
             loader.execute(&mut children, exec)?;
         }

@@ -51,13 +51,11 @@ where
             crate::metrics::entity::Op::Select,
         );
         let mapped = executor.query_all_values(&sql, &values).and_then(|rows| {
-            let mut results = Vec::with_capacity(rows.len());
-            for row in rows {
-                let model = <E::Model as FromRow>::from_row(&row)
-                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-                results.push(model);
-            }
-            Ok(results)
+            let n = rows.len();
+            crate::timing::decode_rows(rows, n, |row| {
+                <E::Model as FromRow>::from_row(row)
+                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+            })
         });
         timer.finish(
             mapped.as_ref().map_or(0, |r| r.len() as u64),
@@ -108,8 +106,10 @@ where
             crate::metrics::entity::Op::Select,
         );
         let mapped = executor.query_one_values(&sql, &values).and_then(|row| {
-            <E::Model as FromRow>::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+            crate::timing::decode_one(|| {
+                <E::Model as FromRow>::from_row(&row)
+                    .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+            })
         });
         // "No rows" from find_one is a normal outcome, not an error.
         let no_rows = mapped.as_ref().err().is_some_and(is_no_rows_error);
@@ -250,13 +250,10 @@ where
 
         let rows = executor.query_all_values(&sql, &values)?;
 
-        let mut results = Vec::with_capacity(rows.len());
-        for row in rows {
-            let model = M::from_row(&row)
-                .map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))?;
-            results.push(model);
-        }
-        Ok(results)
+        let n = rows.len();
+        crate::timing::decode_rows(rows, n, |row| {
+            M::from_row(row).map_err(|e| LifeError::ParseError(format!("Failed to parse row: {e}")))
+        })
     }
 
     /// Execute the query and return a single result as the specified Model type

@@ -43,6 +43,10 @@ may = "0.3"
 # Pinned rev: `user_column_decode_failed` API (merge branch `user-column-decode-failed` or bump rev after rebase).
 may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "integration/microscaler-fork", features = ["with-chrono-0_4"] }
 
+# op_duration_seconds for the pool, statements, row decoding and the cache (src/timing.rs). Zero dependencies,
+# lock-free. Same spec in every crate of a binary (one copy = one registry): branch main, not a rev.
+microscaler-timing = { git = "https://github.com/microscaler/microscaler-observability.git", branch = "main" }
+
 # Procedural macros for ORM
 lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }
 
