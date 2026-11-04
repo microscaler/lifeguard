@@ -265,9 +265,12 @@ fn a_failing_file_is_recorded_and_retried_after_a_fix() {
             assert_eq!(*index, 2);
             assert_eq!(*line, 3);
             assert!(error.contains("42P01"), "{error}");
+            // `SELECT * FROM missing_table`: the server points at the table name.
+            assert!(error.contains("(position: 15)"), "{error}");
         }
         other => panic!("expected Statement, got {other}"),
     }
+    assert!(!err.to_string().contains('\n'), "one log line: {err}");
     assert_eq!(
         db.text("SELECT status FROM $S.schema_migrations WHERE file = '002.sql'")
             .as_deref(),

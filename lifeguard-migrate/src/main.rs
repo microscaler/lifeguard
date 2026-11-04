@@ -270,6 +270,13 @@ fn main() {
                 (None, true) => lifeguard_migrate::tracked::Baseline::All,
                 (None, false) => lifeguard_migrate::tracked::Baseline::None,
             };
+            let label = Some(format!(
+                "lifeguard-migrate {} apply-sql: db={} table={} release={}",
+                tool_version(),
+                lifeguard_migrate::tracked::redacted_target(db_url),
+                table,
+                release
+            ));
             let opts = lifeguard_migrate::tracked::Options {
                 table,
                 release,
@@ -277,6 +284,7 @@ fn main() {
                 baseline,
                 lock_timeout: Duration::from_secs(lock_timeout_secs),
                 dry_run,
+                label,
             };
             handle_apply_sql(
                 db_url,
@@ -330,6 +338,21 @@ fn main() {
     }
 }
 
+/// This binary's version, with the git revision it was built from when the build set
+/// `LIFEGUARD_MIGRATE_BUILD_REV` (the PriceWhisperer migrations image does).
+fn tool_version() -> String {
+    match option_env!("LIFEGUARD_MIGRATE_BUILD_REV") {
+        Some(rev) if !rev.is_empty() => {
+            format!(
+                "{} (rev {})",
+                env!("CARGO_PKG_VERSION"),
+                rev.get(..12).unwrap_or(rev)
+            )
+        }
+        _ => env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
 /// `apply-sql`: exits 1 with the error on stderr when the run fails.
 fn handle_apply_sql(
     database_url: &str,
@@ -362,7 +385,19 @@ fn handle_apply_sql(
     }
     let files = tracked::load_entries(&entries, root).unwrap_or_else(|e| fail(e.to_string()));
 
-    let client = connect(database_url).unwrap_or_else(|e| fail(format!("cannot connect: {e}")));
+    if !quiet {
+        println!(
+            "lifeguard-migrate {}: connecting to {}",
+            tool_version(),
+            lifeguard_migrate::tracked::redacted_target(database_url)
+        );
+    }
+    let client = connect(database_url).unwrap_or_else(|e| {
+        fail(format!(
+            "cannot connect to {}: {e}",
+            lifeguard_migrate::tracked::redacted_target(database_url)
+        ))
+    });
 
     let run_filter = |f: &PlannedFile| -> Result<String, String> {
         let cmd = filter_cmd.unwrap_or_default();

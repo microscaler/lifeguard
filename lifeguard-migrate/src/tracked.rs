@@ -114,6 +114,9 @@ pub struct Options {
     pub lock_timeout: Duration,
     /// Report what would happen; write nothing.
     pub dry_run: bool,
+    /// Start of the run's first log line (for example the tool version and the database, never a
+    /// password), logged with the number of pending files once the lock is held.
+    pub label: Option<String>,
 }
 
 impl Options {
@@ -127,6 +130,7 @@ impl Options {
             baseline: Baseline::None,
             lock_timeout: Duration::from_secs(300),
             dry_run: false,
+            label: None,
         }
     }
 }
@@ -258,7 +262,7 @@ impl fmt::Display for TrackedError {
                 error,
             } => write!(
                 f,
-                "{file}: statement {index} (line {line}) failed: {error}\n  statement: {statement}"
+                "{file}: statement {index} (line {line}) failed: {error}; statement: {statement}"
             ),
             TrackedError::Filter { file, error } => write!(f, "{file}: filter failed: {error}"),
             TrackedError::LockTimeout(waited) => write!(
@@ -277,20 +281,100 @@ fn short(checksum: &str) -> &str {
     checksum.get(..12).unwrap_or(checksum)
 }
 
+/// `s` on one line: its lines trimmed and joined with ` | ` (one log entry per message).
+fn one_line(s: &str) -> String {
+    s.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// The server's error as one line: SQLSTATE, message, detail, hint, position (1-based character
+/// offset into the statement) and context.
 fn db_error(e: &may_postgres::Error) -> String {
     match e.as_db_error() {
         Some(db) => {
-            let mut s = format!("{}: {}", db.code().code(), db.message());
+            let mut s = format!("{}: {}", db.code().code(), one_line(db.message()));
             if let Some(d) = db.detail() {
-                s.push_str(&*format!(" (detail: {d})"));
+                s.push_str(&*format!(" (detail: {})", one_line(d)));
             }
             if let Some(h) = db.hint() {
-                s.push_str(&*format!(" (hint: {h})"));
+                s.push_str(&*format!(" (hint: {})", one_line(h)));
+            }
+            match db.position() {
+                Some(may_postgres::error::ErrorPosition::Original(p)) => {
+                    s.push_str(&*format!(" (position: {p})"));
+                }
+                Some(may_postgres::error::ErrorPosition::Internal { position, query }) => {
+                    let q: String = one_line(query).chars().take(200).collect();
+                    s.push_str(&*format!(" (internal position {position} of: {q})"));
+                }
+                None => {}
+            }
+            if let Some(w) = db.where_() {
+                s.push_str(&*format!(" (where: {})", one_line(w)));
             }
             s
         }
-        None => e.to_string(),
+        None => one_line(&e.to_string()),
     }
+}
+
+/// The first 200 characters of a statement on one line, `…` when cut.
+pub fn statement_head(stmt: &str) -> String {
+    let flat = stmt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut head: String = flat.chars().take(200).collect();
+    if flat.chars().count() > 200 {
+        head.push('…');
+    }
+    head
+}
+
+/// Where a connection string points, without credentials: `host[:port]/database` (`?` for a
+/// part it does not say). Accepts `postgres://` / `postgresql://` URLs and `key=value` strings.
+pub fn redacted_target(url: &str) -> String {
+    let u = url.trim();
+    let (mut host, mut port, mut db) = (String::new(), String::new(), String::new());
+    let rest = u
+        .strip_prefix("postgresql://")
+        .or_else(|| u.strip_prefix("postgres://"));
+    if let Some(rest) = rest {
+        // Everything up to the last `@` is credentials, whatever characters the password has.
+        let rest = rest.rfind('@').map_or(rest, |i| &rest[i + 1..]);
+        let (main, query) = rest.split_once('?').unwrap_or((rest, ""));
+        let (authority, path) = main.split_once('/').unwrap_or((main, ""));
+        host = authority.to_string();
+        db = path.to_string();
+        for kv in query.split('&') {
+            match kv.split_once('=') {
+                Some(("host", v)) if host.is_empty() => host = v.to_string(),
+                Some(("port", v)) if !host.contains(':') => port = v.to_string(),
+                Some(("dbname", v)) if db.is_empty() => db = v.to_string(),
+                _ => {}
+            }
+        }
+    } else {
+        for kv in u.split_whitespace() {
+            let unq = |v: &str| v.trim_matches('\'').to_string();
+            match kv.split_once('=') {
+                Some(("host" | "hostaddr", v)) if host.is_empty() => host = unq(v),
+                Some(("port", v)) => port = unq(v),
+                Some(("dbname", v)) => db = unq(v),
+                _ => {}
+            }
+        }
+    }
+    if host.is_empty() {
+        host = "?".to_string();
+    }
+    if !port.is_empty() {
+        host = format!("{host}:{port}");
+    }
+    if db.is_empty() {
+        db = "?".to_string();
+    }
+    format!("{host}/{db}")
 }
 
 fn dbe(e: may_postgres::Error) -> TrackedError {
@@ -861,12 +945,11 @@ fn apply_file(
             if f.single_transaction {
                 let _ = client.batch_execute("ROLLBACK");
             }
-            let head: String = stmt.chars().take(200).collect();
             return Err(TrackedError::Statement {
                 file: f.id.clone(),
                 index: n + 1,
                 line: *line,
-                statement: head.split_whitespace().collect::<Vec<_>>().join(" "),
+                statement: statement_head(stmt),
                 error: db_error(&e),
             });
         }
@@ -1081,6 +1164,23 @@ pub fn run(
     Ok(report)
 }
 
+/// The run's first line: `<label>: <pending> pending of <files> file(s) (...)`.
+#[allow(clippy::too_many_arguments)]
+pub fn start_line(
+    label: Option<&str>,
+    pending: usize,
+    total: usize,
+    apply: usize,
+    reapply: usize,
+    unchanged: usize,
+    baselined: usize,
+) -> String {
+    format!(
+        "{}{pending} pending of {total} file(s) ({apply} new, {reapply} changed repeatable, {unchanged} unchanged, {baselined} baselined)",
+        label.map(|l| format!("{l}: ")).unwrap_or_default()
+    )
+}
+
 fn label(a: Action, dry: bool) -> &'static str {
     match (a, dry) {
         (Action::Apply, false) => "applied",
@@ -1160,6 +1260,16 @@ fn run_inner(
             files: changed,
         });
     }
+    let n = |want: Action| actions.iter().filter(|a| **a == want).count();
+    log(&*start_line(
+        opts.label.as_deref(),
+        n(Action::Apply) + n(Action::Reapply),
+        files.len(),
+        n(Action::Apply),
+        n(Action::Reapply),
+        n(Action::Skip).saturating_sub(baselined.len()),
+        baselined.len(),
+    ));
 
     for (f, action) in files.iter().zip(actions) {
         let action = if action == Action::Skip && baselined.contains(&f.id.as_str()) {
@@ -1196,6 +1306,8 @@ fn run_inner(
                 },
                 None => f.sql.clone(),
             };
+            log(&*format!("{:<9} {}", "start", f.id));
+            let began = Instant::now();
             match apply_file(client, t, f, &sql, opts, run_id) {
                 Ok(took) => {
                     outcome.duration = Some(took);
@@ -1207,6 +1319,12 @@ fn run_inner(
                     ));
                 }
                 Err(e) => {
+                    log(&*format!(
+                        "{:<9} {} after {} ms",
+                        "failed",
+                        f.id,
+                        began.elapsed().as_millis()
+                    ));
                     let msg = e.to_string();
                     let _ = record(
                         client,
@@ -1330,6 +1448,75 @@ mod tests {
             directives("SELECT 1;\n-- lifeguard:repeatable"),
             (false, false)
         );
+    }
+
+    #[test]
+    fn redacted_target_never_shows_credentials() {
+        let cases = [
+            (
+                "postgresql://pw_migrator:s3cr3t%40x@10.1.2.3:5432/pw_pp?sslmode=require",
+                "10.1.2.3:5432/pw_pp",
+            ),
+            ("postgres://u:pa:ss@db.internal/app", "db.internal/app"),
+            ("postgresql://u:pa/s?s@h:5432/d", "h:5432/d"),
+            ("postgresql://u@[::1]:6432/x", "[::1]:6432/x"),
+            (
+                "postgresql:///app?host=/var/run/postgresql&port=5433",
+                "/var/run/postgresql:5433/app",
+            ),
+            (
+                "host=pwdb port=5432 user=pw password=s3cr3t dbname=pw_pp",
+                "pwdb:5432/pw_pp",
+            ),
+            (
+                "postgresql://u:s3cr3t@h1:5432,h2:5432/d",
+                "h1:5432,h2:5432/d",
+            ),
+        ];
+        for (url, want) in cases {
+            let got = redacted_target(url);
+            assert_eq!(got, want, "{url}");
+            assert!(!got.contains("s3cr3t") && !got.contains("pa"), "{got}");
+        }
+    }
+
+    #[test]
+    fn statement_head_is_one_line_and_cut_at_200() {
+        assert_eq!(statement_head("SELECT\n  1,\n\t2"), "SELECT 1, 2");
+        let long = format!("SELECT '{}'", "x".repeat(300));
+        let h = statement_head(&long);
+        assert_eq!(h.chars().count(), 201);
+        assert!(h.ends_with('…'));
+    }
+
+    #[test]
+    fn statement_error_is_one_line() {
+        let e = TrackedError::Statement {
+            file: "migrations/001.sql".into(),
+            index: 3,
+            line: 12,
+            statement: "ALTER TABLE t ADD COLUMN c int".into(),
+            error: "42P01: relation \"t\" does not exist (position: 13)".into(),
+        };
+        let s = e.to_string();
+        assert!(!s.contains('\n'), "{s}");
+        assert!(
+            s.starts_with("migrations/001.sql: statement 3 (line 12) failed: 42P01"),
+            "{s}"
+        );
+        assert!(
+            s.ends_with("; statement: ALTER TABLE t ADD COLUMN c int"),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn start_line_counts() {
+        assert_eq!(
+            start_line(Some("lifeguard-migrate 0.1.0 db=h:5432/d"), 2, 135, 1, 1, 133, 0),
+            "lifeguard-migrate 0.1.0 db=h:5432/d: 2 pending of 135 file(s) (1 new, 1 changed repeatable, 133 unchanged, 0 baselined)"
+        );
+        assert!(start_line(None, 0, 0, 0, 0, 0, 0).starts_with("0 pending"));
     }
 
     #[test]
