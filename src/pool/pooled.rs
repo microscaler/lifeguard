@@ -1561,9 +1561,34 @@ impl LifeguardPool {
         context: &SessionContext,
         operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
     ) -> Result<T, LifeError> {
+        self.with_session_transaction_isolated(
+            context,
+            crate::transaction::IsolationLevel::ReadCommitted,
+            operation,
+        )
+    }
+
+    /// Like [`Self::with_session_transaction`], but starts the transaction at an explicit
+    /// isolation level.
+    ///
+    /// Multi-statement aggregate reads that must see ONE consistent snapshot (for example a
+    /// report composed from several queries) need `IsolationLevel::RepeatableRead`: the isolation
+    /// level must be declared as part of `BEGIN` because the pipelined `rls_set_session(..)`
+    /// already counts as the transaction's first query, and PostgreSQL rejects
+    /// `SET TRANSACTION ISOLATION LEVEL` after any query.
+    ///
+    /// # Errors
+    ///
+    /// Same contract as [`Self::with_session_transaction`].
+    pub fn with_session_transaction_isolated<T>(
+        &self,
+        context: &SessionContext,
+        isolation: crate::transaction::IsolationLevel,
+        operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
+    ) -> Result<T, LifeError> {
         let args = SessionArgs::new(context)?;
         let executor = self.exclusive_primary_write_executor()?;
-        executor.begin_with_context(&args)?;
+        executor.begin_with_context(&args, isolation)?;
 
         let mut transaction = PoolTransactionGuard::new(&executor);
         match operation(transaction.executor()) {
@@ -1663,13 +1688,23 @@ impl ExclusivePrimaryLifeExecutor<'_> {
         })
     }
 
-    /// `BEGIN` and `rls_set_session(..)` pipelined (one round trip).
-    fn begin_with_context(&self, args: &SessionArgs) -> Result<(), LifeError> {
+    /// `BEGIN` (optionally with an isolation level) and `rls_set_session(..)` pipelined
+    /// (one round trip).
+    ///
+    /// The isolation level must ride on the `BEGIN` itself: PostgreSQL ignores a
+    /// `SET TRANSACTION ISOLATION LEVEL` issued after any query, and the RLS call is
+    /// already the transaction's first query.
+    fn begin_with_context(
+        &self,
+        args: &SessionArgs,
+        isolation: crate::transaction::IsolationLevel,
+    ) -> Result<(), LifeError> {
+        let begin_sql = context_begin_statement(isolation);
         let params: Vec<OwnedParam> = args.params.to_vec();
         self.call(move |h, conn| {
             let (begin, _) = conn
                 .stmts
-                .get_or_prepare(h, "BEGIN")
+                .get_or_prepare(h, begin_sql)
                 .map_err(LifeError::from)?;
             let (set, _) = conn
                 .stmts
@@ -1694,6 +1729,19 @@ impl ExclusivePrimaryLifeExecutor<'_> {
 
     fn simple(&self, sql: &'static str) -> Result<(), LifeError> {
         self.call(move |h, _| h.batch_execute(sql).map_err(LifeError::from))
+    }
+}
+
+/// The `BEGIN` statement `begin_with_context` pipelines for a requested isolation level.
+///
+/// The read-committed forms keep the plain `BEGIN` (PostgreSQL's default), so the existing
+/// statement-cache entry and wire behavior stay byte-identical.
+fn context_begin_statement(isolation: crate::transaction::IsolationLevel) -> &'static str {
+    use crate::transaction::IsolationLevel;
+    match isolation {
+        IsolationLevel::ReadCommitted | IsolationLevel::ReadUncommitted => "BEGIN",
+        IsolationLevel::RepeatableRead => "BEGIN ISOLATION LEVEL REPEATABLE READ",
+        IsolationLevel::Serializable => "BEGIN ISOLATION LEVEL SERIALIZABLE",
     }
 }
 
@@ -2131,6 +2179,36 @@ mod lifetime_effective_limit_tests {
         assert_eq!(
             connection_lifetime_effective_limit(base, Duration::ZERO, 99),
             base
+        );
+    }
+}
+
+#[cfg(test)]
+mod context_begin_statement_tests {
+    use super::context_begin_statement;
+    use crate::transaction::IsolationLevel;
+
+    #[test]
+    fn read_committed_forms_keep_plain_begin() {
+        assert_eq!(
+            context_begin_statement(IsolationLevel::ReadCommitted),
+            "BEGIN"
+        );
+        assert_eq!(
+            context_begin_statement(IsolationLevel::ReadUncommitted),
+            "BEGIN"
+        );
+    }
+
+    #[test]
+    fn elevated_levels_ride_on_the_begin_itself() {
+        assert_eq!(
+            context_begin_statement(IsolationLevel::RepeatableRead),
+            "BEGIN ISOLATION LEVEL REPEATABLE READ"
+        );
+        assert_eq!(
+            context_begin_statement(IsolationLevel::Serializable),
+            "BEGIN ISOLATION LEVEL SERIALIZABLE"
         );
     }
 }
