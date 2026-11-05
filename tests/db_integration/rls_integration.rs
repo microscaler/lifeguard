@@ -1257,6 +1257,76 @@ fn test_p5_pinned_pool_transaction_context_lifecycle() {
 }
 
 // ===================================================================
+// Test P7: Isolated contextual transaction reads ONE repeatable-read snapshot
+// ===================================================================
+
+#[test]
+fn test_p7_isolated_session_transaction_reads_one_snapshot() {
+    use lifeguard::IsolationLevel;
+
+    let ctx = crate::context::get_test_context();
+    let primary_url = ctx.pg_url.clone();
+    let (schema, table) = unique_rls_schema_names();
+
+    let setup_exec = make_superuser_executor(&primary_url);
+    setup_rls_fixture(&setup_exec, &schema, &table);
+
+    let rls_url = rls_role_url(&primary_url);
+    let pool = Arc::new(LifeguardPool::new(&rls_url, 1, Vec::new(), 0).expect("create pool"));
+    let alpha_context = session_context(TENANT_ALPHA, "alpha", vec!["read".into()]);
+    let query = format!("SELECT COUNT(*)::bigint AS c FROM {schema}.{table}");
+
+    let (first, second) = pool
+        .with_session_transaction_isolated(
+            &alpha_context,
+            IsolationLevel::RepeatableRead,
+            |executor| {
+                let before = executor
+                    .query_one_values(&query, &Values(vec![]))
+                    .expect("first snapshot count")
+                    .get::<_, i64>(0);
+                // A committed insert from ANOTHER connection between the two reads
+                // must not appear inside the snapshot.
+                setup_exec
+                    .execute(
+                        &format!(
+                            "INSERT INTO {schema}.{table} (tenant, note) \
+                             VALUES ('{TENANT_ALPHA}', 'late-commit')"
+                        ),
+                        &[],
+                    )
+                    .expect("concurrent committed insert");
+                let after = executor
+                    .query_one_values(&query, &Values(vec![]))
+                    .expect("second snapshot count")
+                    .get::<_, i64>(0);
+                Ok((before, after))
+            },
+        )
+        .expect("isolated contextual transaction");
+    assert_eq!(
+        (first, second),
+        (2, 2),
+        "P7: BEGIN ISOLATION LEVEL REPEATABLE READ must pin one snapshot across statements"
+    );
+
+    // After the commit, a NEW transaction sees the newer row: the snapshot is
+    // per-transaction, not sticky on the pooled connection.
+    let fresh = pool
+        .with_session_transaction(&alpha_context, |executor| {
+            Ok(executor
+                .query_one_values(&query, &Values(vec![]))
+                .expect("fresh count")
+                .get::<_, i64>(0))
+        })
+        .expect("fresh contextual transaction");
+    assert_eq!(
+        fresh, 3,
+        "P7: a new transaction must observe the committed insert"
+    );
+}
+
+// ===================================================================
 // Test P6: Concurrent contexts and repeated pool-slot reuse never bleed
 // ===================================================================
 
