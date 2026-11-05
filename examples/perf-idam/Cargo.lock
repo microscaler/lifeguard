@@ -1168,6 +1168,7 @@ dependencies = [
  "may_minihttp",
  "may_postgres",
  "may_tracing",
+ "microscaler-timing",
  "once_cell",
  "opentelemetry",
  "opentelemetry-prometheus",
@@ -1342,6 +1343,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "microscaler-timing"
+version = "0.1.0"
+source = "git+https://github.com/microscaler/microscaler-observability.git?branch=main#4bcc9333668b15af88b09ce6ec3e215b5261a06a"
+dependencies = [
+ "microscaler-timing-macros",
+]
+
+[[package]]
+name = "microscaler-timing-macros"
+version = "0.1.0"
+source = "git+https://github.com/microscaler/microscaler-observability.git?branch=main#4bcc9333668b15af88b09ce6ec3e215b5261a06a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
