@@ -1069,16 +1069,18 @@ fn timed<T>(
     let _span = tracing_helpers::execute_query_span(sql); // created, not entered: see tracing_helpers
     let _ = sql;
     let start = Instant::now();
-    let out = f().map_err(LifeError::from);
+    let raw = f();
     #[cfg(feature = "metrics")]
     {
-        METRICS.record_query_duration(start.elapsed(), Some(tier));
-        if out.is_err() {
-            METRICS.record_query_error(Some(tier));
+        let elapsed = start.elapsed();
+        METRICS.record_query_duration(elapsed, Some(tier));
+        crate::metrics::statement::record(elapsed, Some(tier), sql);
+        if let Err(e) = &raw {
+            METRICS.record_query_error_class(Some(tier), crate::metrics::pg_error_class(e));
         }
     }
-    let _ = (start, tier);
-    out
+    let _ = (start, tier, sql);
+    raw.map_err(LifeError::from)
 }
 
 fn exec_kind(
@@ -1761,6 +1763,8 @@ fn context_begin_statement(isolation: Option<crate::transaction::IsolationLevel>
 struct PoolTransactionGuard<'executor, 'pool> {
     executor: &'executor ExclusivePrimaryLifeExecutor<'pool>,
     active: bool,
+    /// `BEGIN` time, for the `_tx` duration.
+    started: Instant,
 }
 
 impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
@@ -1768,6 +1772,7 @@ impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
         Self {
             executor,
             active: true,
+            started: Instant::now(),
         }
     }
 
@@ -1777,11 +1782,14 @@ impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
 
     fn commit(&mut self) -> Result<(), LifeError> {
         self.active = false;
-        self.executor.simple("COMMIT")
+        let r = self.executor.simple("COMMIT");
+        crate::metrics::entity::record_tx(self.started.elapsed(), r.is_ok());
+        r
     }
 
     fn rollback(&mut self) -> Result<(), LifeError> {
         self.active = false;
+        crate::metrics::entity::record_tx(self.started.elapsed(), false);
         self.executor.simple("ROLLBACK")
     }
 }
@@ -1789,6 +1797,7 @@ impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
 impl Drop for PoolTransactionGuard<'_, '_> {
     fn drop(&mut self) {
         if self.active {
+            crate::metrics::entity::record_tx(self.started.elapsed(), false);
             if let Err(error) = self.executor.simple("ROLLBACK") {
                 log::error!(
                     "lifeguard pool: contextual transaction cleanup rollback failed: {error}"

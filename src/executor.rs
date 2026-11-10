@@ -840,14 +840,17 @@ impl LifeExecutor for MayPostgresExecutor {
             self.with_stmt(query, |st| client.execute(st, params))
                 .map_err(|e| {
                     #[cfg(feature = "metrics")]
-                    METRICS.record_query_error(None);
+                    METRICS.record_query_error_class(None, crate::metrics::pg_error_class(&e));
                     LifeError::PostgresError(e)
                 })
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration, None);
+        {
+            METRICS.record_query_duration(duration, None);
+            crate::metrics::statement::record(duration, None, query);
+        }
 
         result
     }
@@ -867,14 +870,17 @@ impl LifeExecutor for MayPostgresExecutor {
             self.with_stmt(query, |st| client.query_opt(st, params))
                 .map_err(|e| {
                     #[cfg(feature = "metrics")]
-                    METRICS.record_query_error(None);
+                    METRICS.record_query_error_class(None, crate::metrics::pg_error_class(&e));
                     LifeError::PostgresError(e)
                 })
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration, None);
+        {
+            METRICS.record_query_duration(duration, None);
+            crate::metrics::statement::record(duration, None, query);
+        }
 
         result
     }
@@ -888,14 +894,17 @@ impl LifeExecutor for MayPostgresExecutor {
             self.with_stmt(query, |st| client.query(st, params))
                 .map_err(|e| {
                     #[cfg(feature = "metrics")]
-                    METRICS.record_query_error(None);
+                    METRICS.record_query_error_class(None, crate::metrics::pg_error_class(&e));
                     LifeError::PostgresError(e)
                 })
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration, None);
+        {
+            METRICS.record_query_duration(duration, None);
+            crate::metrics::statement::record(duration, None, query);
+        }
 
         result
     }

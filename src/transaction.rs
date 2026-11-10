@@ -133,6 +133,8 @@ pub struct Transaction {
     depth: u32,
     closed: bool,
     session_context: Option<crate::executor::SessionContext>,
+    /// `BEGIN` time, for the `_tx` duration (top level only).
+    started: Instant,
 }
 
 impl Transaction {
@@ -171,6 +173,7 @@ impl Transaction {
             depth: 0,
             closed: false,
             session_context: None,
+            started: Instant::now(),
         })
     }
 
@@ -236,6 +239,7 @@ impl Transaction {
             depth: 0,
             closed: false,
             session_context: ctx,
+            started: Instant::now(),
         })
     }
 
@@ -291,6 +295,7 @@ impl Transaction {
             depth: self.depth + 1,
             closed: false,
             session_context: self.session_context.clone(),
+            started: Instant::now(),
         })
     }
 
@@ -312,9 +317,9 @@ impl Transaction {
 
         if self.depth == 0 {
             // Top-level transaction: commit
-            self.client
-                .execute("COMMIT", &[])
-                .map_err(TransactionError::from)?;
+            let r = self.client.execute("COMMIT", &[]);
+            crate::metrics::entity::record_tx(self.started.elapsed(), r.is_ok());
+            r.map_err(TransactionError::from)?;
         } else {
             // Nested transaction: release savepoint
             let savepoint_name = format!("sp_{}", self.depth);
@@ -346,6 +351,7 @@ impl Transaction {
 
         if self.depth == 0 {
             // Top-level transaction: rollback
+            crate::metrics::entity::record_tx(self.started.elapsed(), false);
             self.client
                 .execute("ROLLBACK", &[])
                 .map_err(TransactionError::from)?;
@@ -385,13 +391,16 @@ impl LifeExecutor for Transaction {
         let start = Instant::now();
         let result = self.client.execute(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
-            METRICS.record_query_error(None);
+            METRICS.record_query_error_class(None, crate::metrics::pg_error_class(&e));
             LifeError::PostgresError(e)
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration, None);
+        {
+            METRICS.record_query_duration(duration, None);
+            crate::metrics::statement::record(duration, None, query);
+        }
 
         result
     }
@@ -413,13 +422,16 @@ impl LifeExecutor for Transaction {
         let start = Instant::now();
         let result = self.client.query_opt(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
-            METRICS.record_query_error(None);
+            METRICS.record_query_error_class(None, crate::metrics::pg_error_class(&e));
             LifeError::PostgresError(e)
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration, None);
+        {
+            METRICS.record_query_duration(duration, None);
+            crate::metrics::statement::record(duration, None, query);
+        }
 
         result
     }
@@ -435,13 +447,16 @@ impl LifeExecutor for Transaction {
         let start = Instant::now();
         let result = self.client.query(query, params).map_err(|e| {
             #[cfg(feature = "metrics")]
-            METRICS.record_query_error(None);
+            METRICS.record_query_error_class(None, crate::metrics::pg_error_class(&e));
             LifeError::PostgresError(e)
         });
 
         let duration = start.elapsed();
         #[cfg(feature = "metrics")]
-        METRICS.record_query_duration(duration, None);
+        {
+            METRICS.record_query_duration(duration, None);
+            crate::metrics::statement::record(duration, None, query);
+        }
 
         result
     }

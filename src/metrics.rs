@@ -14,7 +14,14 @@
 //! - `lifeguard_active_connections` (gauge): Active connections (total)
 //! - `lifeguard_connection_wait_time_seconds` (histogram, optional `pool_tier`): Pool queue dwell (enqueue → worker start); direct `connect` handshake
 //! - `lifeguard_query_duration_seconds` (histogram, optional `pool_tier`): Query execution time
-//! - `lifeguard_query_errors_total` (counter, optional `pool_tier`): Query errors
+//! - `lifeguard_query_errors_total` (counter, optional `pool_tier`, `class`): Query errors; `class` is
+//!   the error's SQLSTATE class from [`sqlstate_class`] (`unique_violation`, `integrity`,
+//!   `serialization`, `transaction`, `connection`, `resource`, `operator`, `syntax`, `data`,
+//!   `other`, and `client` for an error without a SQLSTATE), so an expected unique-key conflict is
+//!   not counted as a fault
+//! - `lifeguard_statement_duration_seconds` (histogram, `pool_tier` = `primary` | `replica` |
+//!   `direct`, `kind` = the leading SQL keyword, lower case): every statement, including raw SQL
+//!   that has no entity; see [`statement`]
 //! - `lifeguard_wal_monitor_replica_routing_disabled` (gauge): 1 if WAL lag monitor gave up on replica connect
 //! - `lifeguard_pool_acquire_timeout_total` (counter, `pool_tier`): `PoolAcquireTimeout` dispatches
 //! - `lifeguard_pool_reply_timeout_total` (counter, `pool_tier`): `PoolReplyTimeout` dispatches (enqueued job, no worker reply in budget)
@@ -27,6 +34,11 @@
 //!   (`op` = `select` | `insert` | `update` | `delete` | `upsert`); see [`entity`]
 //! - `lifeguard_entity_rows_total` (counter, `entity`, `op`): rows returned / affected
 //! - `lifeguard_entity_errors_total` (counter, `entity`, `op`): failed operations
+//! - `lifeguard_entity_cache_total` (counter, `entity`, `result` = `hit` | `miss` | `error`): cache
+//!   lookups by `find_by_id` through the executor's cache provider
+//! - transactions are recorded in the entity series as `entity="_tx"`, `op="tx"`: duration from
+//!   `BEGIN` to `COMMIT` / `ROLLBACK`; `rows` counts commits, `errors` counts rollbacks and failed
+//!   commits (a transaction spans entities, so it has none of its own)
 //!
 //! Per-entity series use the table name the entity derive already knows; no query text, ids or
 //! tenant ever become labels. `LIFEGUARD_METRICS_ENTITY_LABEL=off` folds every entity into
@@ -282,11 +294,21 @@ impl LifeguardMetrics {
         }
     }
 
-    /// Record query error. Use `pool_tier` for pooled paths.
+    /// Record query error without a known class (`class="other"`). Use `pool_tier` for pooled
+    /// paths; prefer [`Self::record_query_error_class`] where the driver error is at hand.
     pub fn record_query_error(&self, pool_tier: Option<&str>) {
+        self.record_query_error_class(pool_tier, "other");
+    }
+
+    /// Record query error with its SQLSTATE class ([`sqlstate_class`] / [`pg_error_class`]).
+    pub fn record_query_error_class(&self, pool_tier: Option<&str>, class: &'static str) {
+        let c = KeyValue::new("class", class);
         match pool_tier {
-            Some(t) => self.query_errors.add(1, &Self::tier_kv(t)),
-            None => self.query_errors.add(1, &[]),
+            Some(t) => {
+                let [t] = Self::tier_kv(t);
+                self.query_errors.add(1, &[t, c]);
+            }
+            None => self.query_errors.add(1, &[c]),
         }
     }
 
@@ -371,6 +393,7 @@ impl LifeguardMetrics {
 
     pub fn record_query_duration(&self, _duration: std::time::Duration, _pool_tier: Option<&str>) {}
     pub fn record_query_error(&self, _pool_tier: Option<&str>) {}
+    pub fn record_query_error_class(&self, _pool_tier: Option<&str>, _class: &'static str) {}
     pub fn record_connection_wait(&self, _duration: std::time::Duration, _pool_tier: Option<&str>) {
     }
     pub fn set_pool_size(&self, _size: u64) {}
@@ -397,15 +420,147 @@ pub fn statement_kind(sql: &str) -> &'static str {
         .split(|c: char| c.is_whitespace() || c == '(')
         .next()
         .unwrap_or("");
-    const KINDS: [&str; 12] = [
-        "SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "BEGIN", "COMMIT", "ROLLBACK", "SET",
-        "CALL", "VALUES", "COPY",
-    ];
-    KINDS
+    STATEMENT_KINDS
         .iter()
         .find(|k| word.eq_ignore_ascii_case(k))
         .copied()
         .unwrap_or("OTHER")
+}
+
+/// The statement kinds [`statement_kind`] recognises; anything else is `OTHER`.
+pub const STATEMENT_KINDS: [&str; 12] = [
+    "SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "BEGIN", "COMMIT", "ROLLBACK", "SET", "CALL",
+    "VALUES", "COPY",
+];
+
+/// The `class` label of `lifeguard_query_errors_total`, from a SQLSTATE code.
+///
+/// A fixed, small set, so an expected outcome (a unique-key conflict that an idempotent insert
+/// relies on: `unique_violation`) can be told apart from a fault. `None` (an error without a
+/// SQLSTATE: connection lost, protocol, decoding) is `client`.
+#[must_use]
+pub fn sqlstate_class(code: Option<&str>) -> &'static str {
+    let Some(c) = code else {
+        return "client";
+    };
+    match c {
+        "23505" => "unique_violation",
+        "40001" | "40P01" => "serialization",
+        _ => match c.get(..2) {
+            Some("23") => "integrity",
+            Some("40") => "transaction",
+            Some("08") => "connection",
+            Some("53") => "resource",
+            Some("57") => "operator",
+            Some("42") => "syntax",
+            Some("22") => "data",
+            _ => "other",
+        },
+    }
+}
+
+/// Every value [`sqlstate_class`] returns.
+pub const ERROR_CLASSES: [&str; 11] = [
+    "unique_violation",
+    "integrity",
+    "serialization",
+    "transaction",
+    "connection",
+    "resource",
+    "operator",
+    "syntax",
+    "data",
+    "other",
+    "client",
+];
+
+/// [`sqlstate_class`] of a driver error.
+#[must_use]
+pub fn pg_error_class(e: &may_postgres::Error) -> &'static str {
+    sqlstate_class(e.code().map(may_postgres::error::SqlState::code))
+}
+
+/// Per-statement latency, `lifeguard_statement_duration_seconds{pool_tier, kind}`.
+///
+/// Covers every statement, raw SQL included, so a service that does not go through entities
+/// still shows its reads and writes. Prometheus-native handles, one per (tier, kind), resolved on
+/// first use and kept in a static table: recording is a keyword scan of the statement's first
+/// word and one histogram observe, with no allocation, label hashing or lock.
+pub mod statement {
+    /// `pool_tier` values: pooled primary, pooled replica, and a direct (unpooled) executor.
+    pub const TIERS: [&str; 3] = ["primary", "replica", "direct"];
+    /// `kind` values: [`super::STATEMENT_KINDS`] in lower case, then `other`.
+    pub const KINDS: [&str; 13] = [
+        "select", "insert", "update", "delete", "with", "begin", "commit", "rollback", "set",
+        "call", "values", "copy", "other",
+    ];
+
+    /// Index into [`KINDS`] of a statement's leading keyword.
+    #[must_use]
+    pub fn kind_index(sql: &str) -> usize {
+        let word = sql
+            .trim_start()
+            .split(|c: char| c.is_whitespace() || c == '(' || c == ';')
+            .next()
+            .unwrap_or("");
+        super::STATEMENT_KINDS
+            .iter()
+            .position(|k| word.eq_ignore_ascii_case(k))
+            .unwrap_or(KINDS.len() - 1)
+    }
+
+    /// Index into [`TIERS`]; `None` (a direct executor) and unknown tiers are `direct`.
+    #[must_use]
+    pub fn tier_index(tier: Option<&str>) -> usize {
+        match tier {
+            Some("primary") => 0,
+            Some("replica") => 1,
+            _ => 2,
+        }
+    }
+
+    #[cfg(feature = "metrics")]
+    fn family() -> &'static prometheus::HistogramVec {
+        static V: std::sync::OnceLock<prometheus::HistogramVec> = std::sync::OnceLock::new();
+        V.get_or_init(|| {
+            #[allow(clippy::expect_used)]
+            // static metric definition: invalid only by programming error
+            let v = prometheus::HistogramVec::new(
+                prometheus::HistogramOpts::new(
+                    "lifeguard_statement_duration_seconds",
+                    "Statement latency by pool tier and leading SQL keyword (raw SQL included)",
+                )
+                .buckets(super::SECONDS_BOUNDARIES_PUB.to_vec()),
+                &["pool_tier", "kind"],
+            )
+            .expect("statement duration histogram");
+            let _ = super::METRICS.registry.register(Box::new(v.clone()));
+            v
+        })
+    }
+
+    #[cfg(feature = "metrics")]
+    #[allow(clippy::declare_interior_mutable_const)]
+    const UNSET: std::sync::OnceLock<prometheus::Histogram> = std::sync::OnceLock::new();
+    #[cfg(feature = "metrics")]
+    #[allow(clippy::declare_interior_mutable_const)]
+    const UNSET_ROW: [std::sync::OnceLock<prometheus::Histogram>; 13] = [UNSET; 13];
+    #[cfg(feature = "metrics")]
+    static HANDLES: [[std::sync::OnceLock<prometheus::Histogram>; 13]; 3] = [UNSET_ROW; 3];
+
+    /// Record one statement. `tier` is the pool tier (`None` for a direct executor).
+    #[inline]
+    pub fn record(elapsed: std::time::Duration, tier: Option<&str>, sql: &str) {
+        #[cfg(feature = "metrics")]
+        {
+            let (t, k) = (tier_index(tier), kind_index(sql));
+            HANDLES[t][k]
+                .get_or_init(|| family().with_label_values(&[TIERS[t], KINDS[k]]))
+                .observe(elapsed.as_secs_f64());
+        }
+        #[cfg(not(feature = "metrics"))]
+        let _ = (elapsed, tier, sql);
+    }
 }
 
 /// Process-wide pool occupancy counters behind the `lifeguard_pool_in_flight` /
@@ -506,11 +661,33 @@ pub mod entity {
         })
     }
 
+    /// Outcome of one cache lookup (the `result` label of `lifeguard_entity_cache_total`).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CacheResult {
+        Hit = 0,
+        Miss = 1,
+        Error = 2,
+    }
+
+    impl CacheResult {
+        pub const ALL: [CacheResult; 3] = [CacheResult::Hit, CacheResult::Miss, CacheResult::Error];
+
+        #[must_use]
+        pub const fn as_str(self) -> &'static str {
+            match self {
+                CacheResult::Hit => "hit",
+                CacheResult::Miss => "miss",
+                CacheResult::Error => "error",
+            }
+        }
+    }
+
     #[cfg(feature = "metrics")]
     struct Vecs {
         duration: prometheus::HistogramVec,
         rows: prometheus::IntCounterVec,
         errors: prometheus::IntCounterVec,
+        cache: prometheus::IntCounterVec,
     }
 
     #[cfg(feature = "metrics")]
@@ -546,11 +723,20 @@ pub mod entity {
                     labels,
                 )
                 .expect("entity errors counter"),
+                cache: prometheus::IntCounterVec::new(
+                    prometheus::Opts::new(
+                        "lifeguard_entity_cache_total",
+                        "Cache lookups per entity by result (hit, miss, error)",
+                    ),
+                    &["entity", "result"],
+                )
+                .expect("entity cache counter"),
             };
             let reg = &super::METRICS.registry;
             let _ = reg.register(Box::new(v.duration.clone()));
             let _ = reg.register(Box::new(v.rows.clone()));
             let _ = reg.register(Box::new(v.errors.clone()));
+            let _ = reg.register(Box::new(v.cache.clone()));
             v
         })
     }
@@ -566,6 +752,13 @@ pub mod entity {
     pub struct EntityMetrics {
         #[cfg(feature = "metrics")]
         ops: [OpHandles; 5],
+        /// `entity` label value, for the cache counters resolved on first lookup.
+        #[cfg(feature = "metrics")]
+        name: &'static str,
+        /// Cache counters, resolved on the first lookup: an entity never read through the cache
+        /// exports no cache series.
+        #[cfg(feature = "metrics")]
+        cache: std::sync::OnceLock<[prometheus::IntCounter; 3]>,
     }
 
     impl EntityMetrics {
@@ -586,6 +779,8 @@ pub mod entity {
                         rows: v.rows.with_label_values(&[name, op.as_str()]),
                         errors: v.errors.with_label_values(&[name, op.as_str()]),
                     }),
+                    name,
+                    cache: std::sync::OnceLock::new(),
                 }
             }
             #[cfg(not(feature = "metrics"))]
@@ -611,6 +806,45 @@ pub mod entity {
             #[cfg(not(feature = "metrics"))]
             let _ = (op, elapsed, rows, ok);
         }
+
+        /// Record one cache lookup.
+        #[inline]
+        pub fn record_cache(&self, result: CacheResult) {
+            #[cfg(feature = "metrics")]
+            self.cache.get_or_init(|| {
+                let v = vecs();
+                CacheResult::ALL.map(|r| v.cache.with_label_values(&[self.name, r.as_str()]))
+            })[result as usize]
+                .inc();
+            #[cfg(not(feature = "metrics"))]
+            let _ = result;
+        }
+    }
+
+    /// Record one transaction, `BEGIN` to `COMMIT` (`committed`) or `ROLLBACK` / a failed commit,
+    /// as `entity="_tx"`, `op="tx"`.
+    #[inline]
+    pub fn record_tx(elapsed: Duration, committed: bool) {
+        #[cfg(feature = "metrics")]
+        {
+            static TX: std::sync::OnceLock<OpHandles> = std::sync::OnceLock::new();
+            let h = TX.get_or_init(|| {
+                let v = vecs();
+                OpHandles {
+                    duration: v.duration.with_label_values(&["_tx", "tx"]),
+                    rows: v.rows.with_label_values(&["_tx", "tx"]),
+                    errors: v.errors.with_label_values(&["_tx", "tx"]),
+                }
+            });
+            h.duration.observe(elapsed.as_secs_f64());
+            if committed {
+                h.rows.inc();
+            } else {
+                h.errors.inc();
+            }
+        }
+        #[cfg(not(feature = "metrics"))]
+        let _ = (elapsed, committed);
     }
 
     /// Times one ORM operation for an entity; a no-op when the entity has no handles.

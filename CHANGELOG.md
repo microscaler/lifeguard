@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Metrics: query errors by SQLSTATE class.** `lifeguard_query_errors_total` carries a `class`
+  label (`unique_violation`, `integrity`, `serialization`, `transaction`, `connection`,
+  `resource`, `operator`, `syntax`, `data`, `other`, `client`), from `metrics::sqlstate_class`.
+  An expected unique-key conflict (23505) can now be told apart from a fault. Callers of
+  `record_query_error` without a driver error record `class="other"`.
+- **Metrics: `lifeguard_statement_duration_seconds{pool_tier, kind}`.** Every statement, raw SQL
+  included, by pool tier (`primary`, `replica`, `direct`) and leading keyword, so services that
+  do not use entities still show their reads and writes.
+- **Metrics: transactions.** `BEGIN` to `COMMIT`/`ROLLBACK` is recorded in the entity series as
+  `entity="_tx", op="tx"` (rows = commits, errors = rollbacks and failed commits), for the
+  direct `Transaction` and the pool's contextual transactions.
+- **Metrics: `lifeguard_entity_cache_total{entity, result}`.** `find_by_id` cache lookups by
+  `hit`, `miss` and `error`, per entity.
+- All of the above record through handles resolved once; `tests/metrics_no_alloc.rs` checks the
+  recording path performs no allocation.
+
 - **`lifeguard-migrate apply-sql`: tracked SQL migrations** (library: `lifeguard_migrate::tracked`).
   Applies the `.sql` files a plan lists once each and records file, checksum, release, time,
   duration and status in a tracking table, with one summary row per run. An edited versioned file

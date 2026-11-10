@@ -212,6 +212,17 @@ where
                 ),
             };
             site.record(outcome, started.elapsed());
+            if let Some(m) = Self::__lg_entity_metrics() {
+                m.record_cache(match &cached {
+                    Ok(crate::cache::CachedResult::Hit(_)) => {
+                        crate::metrics::entity::CacheResult::Hit
+                    }
+                    Ok(crate::cache::CachedResult::Miss) => {
+                        crate::metrics::entity::CacheResult::Miss
+                    }
+                    Err(_) => crate::metrics::entity::CacheResult::Error,
+                });
+            }
             if let Ok(crate::cache::CachedResult::Hit(json_str)) = cached {
                 if let Ok(model) = serde_json::from_str(&json_str) {
                     return Ok(Some(model));
