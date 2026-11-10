@@ -36,7 +36,18 @@ jobs:
         if: >-
           steps.metadata.outputs.update-type != 'version-update:semver-major' &&
           !(startsWith(steps.metadata.outputs.previous-version, '0.') && steps.metadata.outputs.update-type == 'version-update:semver-minor')
-        run: gh pr merge --auto --squash "$PR_URL"
+        # With "Allow auto-merge" off in the repo settings this step failed and left a red check on every
+        # Dependabot PR; that one refusal now ends the step with a notice (the PR is merged by hand once CI
+        # passes). Any other failure still fails the step.
+        run: |
+          if out=$(gh pr merge --auto --squash "$PR_URL" 2>&1); then
+            echo "$out"
+          elif echo "$out" | grep -q "Auto merge is not allowed"; then
+            echo "::notice::Auto-merge is off for this repository; the PR is left for a manual merge once CI passes."
+          else
+            echo "$out"
+            exit 1
+          fi
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
