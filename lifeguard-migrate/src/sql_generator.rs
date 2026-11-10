@@ -93,8 +93,21 @@ where
     let mut single_column_indexes = Vec::new();
     let mut column_comments = Vec::new();
 
+    // Primary-key membership is needed before the column loop: a composite primary key cannot be
+    // emitted inline (PostgreSQL rejects a second `PRIMARY KEY` column clause), and its members
+    // carry caller-supplied values, so none of them may take a generated default.
+    // Prioritize explicit #[primary_key] trait mapping, fall back to "id" heuristic or auto_increment.
+    let pk_flags: Vec<bool> = columns
+        .iter()
+        .map(|col| {
+            let col_def = col.column_def();
+            col_def.primary_key || col_def.auto_increment || col.as_str() == "id"
+        })
+        .collect();
+    let composite_primary_key = pk_flags.iter().filter(|flag| **flag).count() > 1;
+
     // Process each column
-    for col in columns {
+    for (column_index, col) in columns.iter().enumerate() {
         // Use column_def() (inherent method) instead of def() (trait method)
         // The macro generates column_def() with all the attribute metadata
         // The trait method def() has a default implementation that returns empty metadata
@@ -113,9 +126,8 @@ where
             col_sql.push_str(" TEXT"); // Default fallback
         }
 
-        // Check if this column is a primary key
-        // Prioritize explicit #[primary_key] trait mapping, fall back to "id" heuristic or auto_increment
-        let is_primary_key = col_def.primary_key || col_def.auto_increment || col_name == "id";
+        // Check if this column is a primary key (pre-scanned, see pk_flags)
+        let is_primary_key = pk_flags[column_index];
         if is_primary_key {
             primary_key_cols.push(col_name.to_string());
         }
@@ -138,7 +150,8 @@ where
         // For nullable columns, we don't add explicit NULL (PostgreSQL default)
 
         // Add PRIMARY KEY constraint (before DEFAULT to match original style: "id UUID PRIMARY KEY DEFAULT ...")
-        if is_primary_key {
+        // Composite keys get a table-level clause instead (written after the column list).
+        if is_primary_key && !composite_primary_key {
             col_sql.push_str(" PRIMARY KEY");
         }
 
@@ -160,7 +173,7 @@ where
             col_sql.push_str(&format!(" DEFAULT {}", default_expr));
         } else if let Some(ref default_val) = col_def.default_value {
             col_sql.push_str(&format!(" DEFAULT {}", default_val));
-        } else if is_primary_key {
+        } else if is_primary_key && !composite_primary_key {
             // For UUID primary keys, add gen_random_uuid() default if no explicit default is set
             if col_def
                 .column_type
@@ -219,8 +232,9 @@ where
     // Write column definitions
     for (i, col_def) in column_defs.iter().enumerate() {
         let is_last_column = i == column_defs.len() - 1;
-        let has_table_constraints =
-            !table_def.check_constraints.is_empty() || !table_def.composite_unique.is_empty();
+        let has_table_constraints = composite_primary_key
+            || !table_def.check_constraints.is_empty()
+            || !table_def.composite_unique.is_empty();
 
         if is_last_column && !has_table_constraints {
             // Last column and no table constraints - no comma
@@ -228,6 +242,21 @@ where
         } else {
             // Not last or has table constraints - add comma
             writeln!(sql, "{},", col_def).map_err(|e| format!("Failed to write SQL: {}", e))?;
+        }
+    }
+
+    // Composite primary key: one table-level clause over the member columns (in column order),
+    // written before CHECK / UNIQUE constraints, which already track "last" among themselves.
+    if composite_primary_key {
+        let is_last =
+            table_def.check_constraints.is_empty() && table_def.composite_unique.is_empty();
+        let cols_str = primary_key_cols.join(", ");
+        if is_last {
+            writeln!(sql, "    PRIMARY KEY ({})", cols_str)
+                .map_err(|e| format!("Failed to write SQL: {}", e))?;
+        } else {
+            writeln!(sql, "    PRIMARY KEY ({}),", cols_str)
+                .map_err(|e| format!("Failed to write SQL: {}", e))?;
         }
     }
 
