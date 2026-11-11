@@ -1,3 +1,13 @@
+> **Status:** Partially implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - The limitation is still live in Lifeguard: `select_partial()` builds a fresh `SelectStatement` and drops WHERE / ORDER BY / LIMIT / OFFSET (`src/partial_model/query.rs:147-187`, including the `TODO` at line 186); the clone at line 162 (`_preserved_query`) is unused.
+> - The sea-query side is no longer needed: Lifeguard pins `sea-query = 1.0.2` (`Cargo.toml:84`), which provides `SelectStatement::clear_selects()` (sea-query 1.0.2 `src/query/select.rs:469`). It clears only the select list, so the doc's "Option 2: Column Replacement" is available without an upstream contribution.
+> - Missing: Lifeguard does not use it yet, so `select_partial()` still has to be called before filters and ordering.
+
 # Sea-Query Improvements Audit
 
 This document tracks improvements needed in the `sea-query` crate that would benefit Lifeguard. These improvements could potentially be contributed back to the sea-query project.

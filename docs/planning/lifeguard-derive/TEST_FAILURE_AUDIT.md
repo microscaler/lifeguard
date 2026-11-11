@@ -1,3 +1,14 @@
+> **Status:** Superseded
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - Point-in-time debugging log of the derive test suite (40 failing tests, 440 errors). The failures it tracks are resolved: the nested `#[derive(DeriveEntity)]` expansion it converged on is how `LifeModel` generates entities today (`lifeguard-derive/src/macros/life_model.rs:176, 2164`), E0284 in partial models was resolved by codegen, and CI runs the derive tests in the workspace suite (`.github/workflows/ci.yaml:135`).
+> - An earlier, shorter revision of this audit is at `docs/planning/audits/TEST_FAILURE_AUDIT.md`.
+>
+> **Superseded by:** Replaced by [`TEST_ERRORS_AUDIT.md`](./TEST_ERRORS_AUDIT.md) (resolution record) and [`CODEGEN_ANALYSIS.md`](./CODEGEN_ANALYSIS.md) (the codegen fix).
+
 # Lifeguard Derive Test Failure Audit
 
 ## Summary

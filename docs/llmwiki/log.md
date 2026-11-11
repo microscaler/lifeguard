@@ -146,3 +146,13 @@ Expanded `docs/llmwiki/` so agents can route by subsystem without re-discovering
 - Persistence: `storageClass` (zfs-iscsi / GKE PD / `-` empty), `volumeName`,
   `existingClaim`, per-replica `volumeNames` / `existingClaims`.
 - Overlays: `values/dev-iscsi.yaml`, `values/gke.yaml`. Pact removed earlier.
+
+## [2026-11-11] docs | status-label 13 early ORM planning docs
+
+- Added a status block (status, verified commit, file:line evidence) to the top of 11 docs in
+  `docs/planning/lifeguard-derive/` and 2 in `docs/planning/root/`; bodies unchanged.
+- New index [`docs/planning/STATUS_INDEX.md`](../planning/STATUS_INDEX.md), linked from
+  `docs/planning/README.md`, with the not-yet-implemented items as candidate tasks.
+- Drift found: `SEAORM_LIFEGUARD_MAPPING.md` still lists FK / CHECK / composite unique /
+  table comment / index attributes as missing although they ship; `DESIGN_TRY_INTO_MODEL.md`
+  says "Design Phase" although the trait and derive ship.

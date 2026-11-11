@@ -1,3 +1,12 @@
+> **Status:** Implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - Codegen fix in place: `lifeguard-codegen` (`Cargo.toml:14`, `lifeguard-codegen/src/main.rs:31`) and the four generated files under `lifeguard-derive/tests/generated/`.
+> - The fixed test modules exist (`lifeguard-derive/tests/test_minimal.rs:1198` `composite_pk_entity`, `:1257` `mixed_auto_inc_composite_pk_entity`), and CI runs the whole workspace test suite (`.github/workflows/ci.yaml:135`, `cargo nextest run --workspace`).
+
 # Test Errors Audit - Fix Plan
 
 **Date:** 2024-12-19  
