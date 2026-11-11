@@ -1,7 +1,7 @@
-//! `ModelTrait::set` on unsigned fields converts with a checked
-//! `try_from`: values at the bounds of the target type are stored exactly,
-//! and a negative or out-of-range value is an error instead of a silent
-//! wrap-around.
+//! Unsigned fields through the generated `ModelTrait`: `set` converts with a checked
+//! `try_from` (values at the bounds are stored exactly; a negative or out-of-range value is an
+//! error, never a silent wrap-around), and `get` followed by `set` round-trips every value the
+//! field can hold, including `u64` values above `i64::MAX`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -11,9 +11,6 @@ use sea_query::Value;
 
 #[derive(LifeModel)]
 #[table_name = "unsigned_bounds"]
-// The generated FromRow does not map Option<unsigned> columns yet; this test
-// only exercises ModelTrait::set, so skip it.
-#[skip_from_row]
 pub struct Counters {
     #[primary_key]
     pub id: i32,
@@ -41,6 +38,10 @@ fn model() -> CountersModel {
     }
 }
 
+fn i64_max_as_u64() -> u64 {
+    u64::try_from(i64::MAX).unwrap()
+}
+
 /// Setting `v` must fail and leave the model unchanged.
 fn rejects(m: &mut CountersModel, col: Column, v: Value) {
     let before = m.get(col);
@@ -49,6 +50,14 @@ fn rejects(m: &mut CountersModel, col: Column, v: Value) {
         .expect_err(&format!("{col:?} must reject {v:?}"));
     assert!(err.to_string().contains("range 0..="), "{err}");
     assert_eq!(m.get(col), before, "{col:?} changed on a rejected set");
+}
+
+/// `set(col, get(col))` succeeds and leaves the value unchanged.
+fn round_trips(m: &mut CountersModel, col: Column) {
+    let v = m.get(col);
+    let r = m.set(col, v.clone());
+    assert!(r.is_ok(), "{col:?}: set(get()) of {v:?} failed: {r:?}");
+    assert_eq!(m.get(col), v, "{col:?} changed on a round trip");
 }
 
 #[test]
@@ -96,7 +105,11 @@ fn u64_bounds() {
     m.set(Column::Huge, Value::BigInt(Some(0))).unwrap();
     assert_eq!(m.huge, 0);
     m.set(Column::Huge, Value::BigInt(Some(i64::MAX))).unwrap();
-    assert_eq!(m.huge, i64::MAX as u64);
+    assert_eq!(m.huge, i64_max_as_u64());
+    // BigUnsigned (what `get` produces) covers the whole u64 range.
+    m.set(Column::Huge, Value::BigUnsigned(Some(u64::MAX)))
+        .unwrap();
+    assert_eq!(m.huge, u64::MAX);
     // Previously these wrapped to 18446744073709551615 and 9223372036854775808.
     rejects(&mut m, Column::Huge, Value::BigInt(Some(-1)));
     rejects(&mut m, Column::Huge, Value::BigInt(Some(i64::MIN)));
@@ -127,12 +140,59 @@ fn optional_unsigned_bounds() {
 
     m.set(Column::OptHuge, Value::BigInt(Some(i64::MAX)))
         .unwrap();
-    assert_eq!(m.opt_huge, Some(i64::MAX as u64));
+    assert_eq!(m.opt_huge, Some(i64_max_as_u64()));
+    m.set(Column::OptHuge, Value::BigUnsigned(Some(u64::MAX)))
+        .unwrap();
+    assert_eq!(m.opt_huge, Some(u64::MAX));
     m.set(Column::OptHuge, Value::BigInt(Some(0))).unwrap();
     assert_eq!(m.opt_huge, Some(0));
     rejects(&mut m, Column::OptHuge, Value::BigInt(Some(-1)));
 
-    // NULL still clears an optional field.
+    // NULL still clears an optional field, in either integer spelling.
     m.set(Column::OptHuge, Value::BigInt(None)).unwrap();
     assert_eq!(m.opt_huge, None);
+    m.opt_huge = Some(1);
+    m.set(Column::OptHuge, Value::BigUnsigned(None)).unwrap();
+    assert_eq!(m.opt_huge, None);
+}
+
+#[test]
+fn get_then_set_round_trips_at_the_bounds() {
+    let huge = [0, i64_max_as_u64(), i64_max_as_u64() + 1, u64::MAX];
+    for v in huge {
+        let mut m = model();
+        m.huge = v;
+        m.opt_huge = Some(v);
+        assert_eq!(m.get(Column::Huge), Value::BigUnsigned(Some(v)));
+        round_trips(&mut m, Column::Huge);
+        round_trips(&mut m, Column::OptHuge);
+        assert_eq!((m.huge, m.opt_huge), (v, Some(v)));
+    }
+    for (small, medium, large) in [(0, 0, 0), (u8::MAX, u16::MAX, u32::MAX)] {
+        let mut m = model();
+        (m.small, m.medium, m.large) = (small, medium, large);
+        (m.opt_small, m.opt_medium, m.opt_large) = (Some(small), Some(medium), Some(large));
+        for col in [
+            Column::Small,
+            Column::Medium,
+            Column::Large,
+            Column::OptSmall,
+            Column::OptMedium,
+            Column::OptLarge,
+        ] {
+            round_trips(&mut m, col);
+        }
+        assert_eq!((m.small, m.medium, m.large), (small, medium, large));
+    }
+    // NULL round-trips for every optional width.
+    let mut m = model();
+    (m.opt_small, m.opt_medium, m.opt_large, m.opt_huge) = (None, None, None, None);
+    for col in [
+        Column::OptSmall,
+        Column::OptMedium,
+        Column::OptLarge,
+        Column::OptHuge,
+    ] {
+        round_trips(&mut m, col);
+    }
 }

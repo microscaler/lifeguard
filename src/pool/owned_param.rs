@@ -229,7 +229,14 @@ impl TryFrom<&Value> for OwnedParam {
             Value::TinyInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(i16::from(*i)))),
             Value::SmallInt(Some(i)) => Ok(OwnedParam::SmallInt(Some(*i))),
             Value::TinyUnsigned(Some(u)) => Ok(OwnedParam::SmallInt(Some(i16::from(*u)))),
-            Value::SmallUnsigned(Some(u)) => Ok(OwnedParam::SmallInt(Some(*u as i16))),
+            Value::SmallUnsigned(Some(u)) => i16::try_from(*u)
+                .map(|v| OwnedParam::SmallInt(Some(v)))
+                .map_err(|_| {
+                    LifeError::Other(format!(
+                        "SmallUnsigned value {u} exceeds i16::MAX ({}), cannot be safely cast to i16",
+                        i16::MAX
+                    ))
+                }),
             Value::Unsigned(Some(u)) => Ok(OwnedParam::BigInt(Some(i64::from(*u)))),
             Value::BigUnsigned(Some(u)) => {
                 if *u > i64::MAX as u64 {
@@ -311,6 +318,30 @@ mod tests {
             OwnedParam::try_from(&Value::Int(None)),
             Ok(OwnedParam::GenericNull)
         ));
+    }
+
+    #[test]
+    fn try_from_unsigned_is_checked_not_wrapped() {
+        assert!(matches!(
+            OwnedParam::try_from(&Value::BigUnsigned(Some(9_223_372_036_854_775_807))),
+            Ok(OwnedParam::BigInt(Some(i64::MAX)))
+        ));
+        for big in [9_223_372_036_854_775_808, u64::MAX] {
+            let r = OwnedParam::try_from(&Value::BigUnsigned(Some(big)));
+            assert!(
+                matches!(&r, Err(e) if e.to_string().contains("exceeds i64::MAX")),
+                "{big}: {r:?}"
+            );
+        }
+        assert!(matches!(
+            OwnedParam::try_from(&Value::SmallUnsigned(Some(32_767))),
+            Ok(OwnedParam::SmallInt(Some(32_767)))
+        ));
+        let r = OwnedParam::try_from(&Value::SmallUnsigned(Some(32_768)));
+        assert!(
+            matches!(&r, Err(e) if e.to_string().contains("exceeds i16::MAX")),
+            "{r:?}"
+        );
     }
 
     #[test]

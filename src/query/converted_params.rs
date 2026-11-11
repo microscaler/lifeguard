@@ -97,10 +97,13 @@ where
             Value::SmallInt(Some(i)) => small_ints.push(*i),
             Value::TinyUnsigned(Some(u)) => small_ints.push(i16::from(*u)),
             Value::SmallUnsigned(Some(u)) => {
-                #[allow(clippy::cast_possible_wrap)]
-                {
-                    small_ints.push(*u as i16);
-                }
+                let Ok(v) = i16::try_from(*u) else {
+                    return Err(into_err(format!(
+                        "SmallUnsigned value {u} exceeds i16::MAX ({}), cannot be safely cast to i16",
+                        i16::MAX
+                    )));
+                };
+                small_ints.push(v);
             }
             Value::Unsigned(Some(u)) => big_ints.push(i64::from(*u)),
             Value::BigUnsigned(Some(u)) => {
@@ -497,6 +500,21 @@ mod tests {
         );
 
         assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn unsigned_params_beyond_the_signed_range_are_errors() {
+        for v in [
+            Value::BigUnsigned(Some(9_223_372_036_854_775_808)),
+            Value::SmallUnsigned(Some(32_768)),
+        ] {
+            let values = vec![v.clone()];
+            let r = with_converted_value_slice(&values, |e| e, |_| Ok::<(), String>(()));
+            assert!(
+                matches!(&r, Err(e) if e.contains("exceeds")),
+                "{v:?}: {r:?}"
+            );
+        }
     }
 
     #[test]

@@ -92,3 +92,5 @@ mod presend_retry;
 
 #[path = "db_integration/many_to_many.rs"]
 mod many_to_many;
+#[path = "db_integration/unsigned_from_row.rs"]
+mod unsigned_from_row;

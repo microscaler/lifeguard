@@ -132,6 +132,52 @@ pub fn unwrap_option_inner_type(ty: &Type) -> &Type {
     ty
 }
 
+/// `FromRow` read expression for an unsigned integer field: `u8`, `u16`, `u32` or `u64`, or an
+/// `Option` of one. Postgres has no unsigned types, so the column is read as the signed type that
+/// holds the whole range (`u8` as `i16`, `u16` as `i32`, `u32` and `u64` as `i64`) and converted
+/// with `try_from`: a negative or out-of-range value is a row error, never a wrapped number.
+/// `None` for any other field type.
+pub fn unsigned_from_row_expr<I: quote::ToTokens>(
+    field_type: &Type,
+    col_idx: &I,
+    column_name: &str,
+) -> Option<TokenStream> {
+    let inner = unwrap_option_inner_type(field_type);
+    let optional = !std::ptr::eq(inner, field_type);
+    let ident = match inner {
+        Type::Path(TypePath {
+            qself: None, path, ..
+        }) if path.segments.len() == 1 => path.segments.first()?.ident.to_string(),
+        _ => return None,
+    };
+    let signed = match ident.as_str() {
+        "u8" => quote! { i16 },
+        "u16" => quote! { i32 },
+        "u32" | "u64" => quote! { i64 },
+        _ => return None,
+    };
+    let convert = quote! {
+        <#inner as ::core::convert::TryFrom<#signed>>::try_from(v).map_err(|_| {
+            lifeguard::from_row_unsigned_try_from_failed(row, #column_name)
+        })?
+    };
+    Some(if optional {
+        quote! {
+            match lifeguard::__lg_try_get::<::core::option::Option<#signed>>(row, #col_idx, #column_name)? {
+                ::core::option::Option::Some(v) => ::core::option::Option::Some(#convert),
+                ::core::option::Option::None => ::core::option::Option::None,
+            }
+        }
+    } else {
+        quote! {
+            {
+                let v: #signed = lifeguard::__lg_try_get::<#signed>(row, #col_idx, #column_name)?;
+                #convert
+            }
+        }
+    })
+}
+
 /// `sea_query::Expr::val(...)` for ORM hooks that set a column to “now” (`deleted_at`, `updated_at`, …).
 ///
 /// Aligns with [`generate_field_to_value`](generate_field_to_value): `DateTime<Utc>` → `ChronoDateTimeUtc`,
@@ -414,10 +460,10 @@ pub fn generate_field_to_value(field_name: &syn::Ident, field_type: &Type) -> To
                 "i32" => quote! { sea_query::Value::Int(Some(self.#field_name)) },
                 "i64" => quote! { sea_query::Value::BigInt(Some(self.#field_name)) },
                 "i16" => quote! { sea_query::Value::SmallInt(Some(self.#field_name)) },
-                "i8" => quote! { sea_query::Value::TinyInt(Some(self.#field_name as i8)) },
-                "u8" => quote! { sea_query::Value::SmallInt(Some(self.#field_name as i16)) },
-                "u16" => quote! { sea_query::Value::Int(Some(self.#field_name as i32)) },
-                "u32" => quote! { sea_query::Value::BigInt(Some(self.#field_name as i64)) },
+                "i8" => quote! { sea_query::Value::TinyInt(Some(self.#field_name)) },
+                "u8" => quote! { sea_query::Value::SmallInt(Some(i16::from(self.#field_name))) },
+                "u16" => quote! { sea_query::Value::Int(Some(i32::from(self.#field_name))) },
+                "u32" => quote! { sea_query::Value::BigInt(Some(i64::from(self.#field_name))) },
                 "u64" => quote! { sea_query::Value::BigUnsigned(Some(self.#field_name)) },
                 "f32" => quote! { sea_query::Value::Float(Some(self.#field_name)) },
                 "f64" => quote! { sea_query::Value::Double(Some(self.#field_name)) },
@@ -534,16 +580,16 @@ pub fn generate_option_field_to_value_with_default(
                     #src.map(|v| sea_query::Value::SmallInt(Some(v))).unwrap_or(sea_query::Value::SmallInt(None))
                 },
                 "i8" => quote! {
-                    #src.map(|v| sea_query::Value::TinyInt(Some(v as i8))).unwrap_or(sea_query::Value::TinyInt(None))
+                    #src.map(|v| sea_query::Value::TinyInt(Some(v))).unwrap_or(sea_query::Value::TinyInt(None))
                 },
                 "u8" => quote! {
-                    #src.map(|v| sea_query::Value::SmallInt(Some(v as i16))).unwrap_or(sea_query::Value::SmallInt(None))
+                    #src.map(|v| sea_query::Value::SmallInt(Some(i16::from(v)))).unwrap_or(sea_query::Value::SmallInt(None))
                 },
                 "u16" => quote! {
-                    #src.map(|v| sea_query::Value::Int(Some(v as i32))).unwrap_or(sea_query::Value::Int(None))
+                    #src.map(|v| sea_query::Value::Int(Some(i32::from(v)))).unwrap_or(sea_query::Value::Int(None))
                 },
                 "u32" => quote! {
-                    #src.map(|v| sea_query::Value::BigInt(Some(v as i64))).unwrap_or(sea_query::Value::BigInt(None))
+                    #src.map(|v| sea_query::Value::BigInt(Some(i64::from(v)))).unwrap_or(sea_query::Value::BigInt(None))
                 },
                 "u64" => quote! {
                     #src.map(|v| sea_query::Value::BigUnsigned(Some(v))).unwrap_or(sea_query::Value::BigUnsigned(None))
@@ -670,16 +716,16 @@ pub fn generate_option_field_to_value(src: &TokenStream, inner_type: &Type) -> T
                     #src.map(|v| sea_query::Value::SmallInt(Some(v)))
                 },
                 "i8" => quote! {
-                    #src.map(|v| sea_query::Value::TinyInt(Some(v as i8)))
+                    #src.map(|v| sea_query::Value::TinyInt(Some(v)))
                 },
                 "u8" => quote! {
-                    #src.map(|v| sea_query::Value::SmallInt(Some(v as i16)))
+                    #src.map(|v| sea_query::Value::SmallInt(Some(i16::from(v))))
                 },
                 "u16" => quote! {
-                    #src.map(|v| sea_query::Value::Int(Some(v as i32)))
+                    #src.map(|v| sea_query::Value::Int(Some(i32::from(v))))
                 },
                 "u32" => quote! {
-                    #src.map(|v| sea_query::Value::BigInt(Some(v as i64)))
+                    #src.map(|v| sea_query::Value::BigInt(Some(i64::from(v))))
                 },
                 "u64" => quote! {
                     #src.map(|v| sea_query::Value::BigUnsigned(Some(v)))

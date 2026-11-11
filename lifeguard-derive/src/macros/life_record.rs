@@ -806,9 +806,9 @@ pub fn derive_life_record(input: TokenStream) -> TokenStream {
             if let Some(value) = self.get(<#entity_name as lifeguard::LifeModelTrait>::Column::#column_variant) {
                 // Convert sea_query::Value to serde_json::Value
                 let json_value = match value {
-                    sea_query::Value::TinyInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v as i64)),
+                    sea_query::Value::TinyInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(i64::from(v))),
                     sea_query::Value::TinyInt(None) => serde_json::Value::Null,
-                    sea_query::Value::SmallInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v as i64)),
+                    sea_query::Value::SmallInt(Some(v)) => serde_json::Value::Number(serde_json::Number::from(i64::from(v))),
                     sea_query::Value::SmallInt(None) => serde_json::Value::Null,
                     sea_query::Value::Int(Some(v)) => serde_json::Value::Number(serde_json::Number::from(v)),
                     sea_query::Value::Int(None) => serde_json::Value::Null,

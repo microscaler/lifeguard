@@ -1156,13 +1156,21 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                                         actual: format!("BigInt({})", v),
                                                     }),
                                                 },
+                                                sea_query::Value::BigUnsigned(Some(v)) => {
+                                                    self.#field_name = Some(v);
+                                                    Ok(())
+                                                }
+                                                sea_query::Value::BigUnsigned(None) => {
+                                                    self.#field_name = None;
+                                                    Ok(())
+                                                }
                                                 sea_query::Value::BigInt(None) => {
                                                     self.#field_name = None;
                                                     Ok(())
                                                 }
                                                 _ => Err(lifeguard::ModelError::InvalidValueType {
                                                     column: stringify!(#column_variant).to_string(),
-                                                    expected: "BigInt".to_string(),
+                                                    expected: "BigInt or BigUnsigned".to_string(),
                                                     actual: format!("{:?}", value),
                                                 })
                                             }
@@ -1470,6 +1478,10 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                                 actual: format!("BigInt({})", v),
                                             }),
                                         },
+                                        sea_query::Value::BigUnsigned(Some(v)) => {
+                                            self.#field_name = v;
+                                            Ok(())
+                                        }
                                         sea_query::Value::BigInt(None) => {
                                             Err(lifeguard::ModelError::InvalidValueType {
                                                 column: stringify!(#column_variant).to_string(),
@@ -1479,7 +1491,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                         }
                                         _ => Err(lifeguard::ModelError::InvalidValueType {
                                             column: stringify!(#column_variant).to_string(),
-                                            expected: "BigInt".to_string(),
+                                            expected: "BigInt or BigUnsigned".to_string(),
                                             actual: format!("{:?}", value),
                                         })
                                     }
@@ -1663,54 +1675,16 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
             // Handle unsigned integer types
             else {
-                let is_unsigned = match field_type {
-                    syn::Type::Path(syn::TypePath {
-                        path: syn::Path { segments, .. },
-                        ..
-                    }) => {
-                        if let Some(segment) = segments.first() {
-                            let ident_str = segment.ident.to_string();
-                            matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
-                        } else {
-                            false
-                        }
-                    }
-                    _ => false,
-                };
-
-                if is_unsigned {
-                    #[allow(clippy::single_match_else)]
-                    let signed_type = match field_type {
-                        syn::Type::Path(syn::TypePath {
-                            path: syn::Path { segments, .. },
-                            ..
-                        }) => {
-                            if let Some(segment) = segments.first() {
-                                match segment.ident.to_string().as_str() {
-                                    "u8" => quote! { i16 },
-                                    "u32" | "u64" => quote! { i64 },
-                                    _ => quote! { i32 },
-                                }
-                            } else {
-                                quote! { i32 }
-                            }
-                        }
-                        _ => quote! { i32 },
-                    };
-
-                    quote! {
-                        {
-                            let val: #signed_type = lifeguard::__lg_try_get::<#signed_type>(row, #col_idx_lit, #column_name_str)?;
-                            #field_type::try_from(val).map_err(|_| {
-                                lifeguard::from_row_unsigned_try_from_failed(row, #column_name_str)
-                            })?
-                        }
-                    }
-                } else {
+                crate::type_conversion::unsigned_from_row_expr(
+                    field_type,
+                    &col_idx_lit,
+                    column_name_str,
+                )
+                .unwrap_or_else(|| {
                     quote! {
                         lifeguard::__lg_try_get::<#field_type>(row, #col_idx_lit, #column_name_str)?
                     }
-                }
+                })
             }
         };
 

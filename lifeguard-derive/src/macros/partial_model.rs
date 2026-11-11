@@ -99,55 +99,16 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
         // Handle unsigned integer types by converting to signed first
         let get_expr = {
             // Check if this is an unsigned integer type
-            let is_unsigned = match field_type {
-                syn::Type::Path(syn::TypePath {
-                    path: syn::Path { segments, .. },
-                    ..
-                }) => {
-                    if let Some(segment) = segments.first() {
-                        let ident_str = segment.ident.to_string();
-                        matches!(ident_str.as_str(), "u8" | "u16" | "u32" | "u64")
-                    } else {
-                        false
-                    }
-                }
-                _ => false,
-            };
-
-            if is_unsigned {
-                // For unsigned types, convert to signed equivalent first
-                let signed_type = match field_type {
-                    syn::Type::Path(syn::TypePath {
-                        path: syn::Path { segments, .. },
-                        ..
-                    }) => {
-                        if let Some(segment) = segments.first() {
-                            match segment.ident.to_string().as_str() {
-                                "u8" => quote! { i16 },
-                                "u16" => quote! { i32 },
-                                "u32" | "u64" => quote! { i64 },
-                                _ => quote! { i32 },
-                            }
-                        } else {
-                            quote! { i32 }
-                        }
-                    }
-                    _ => quote! { i32 },
-                };
-
-                quote! {
-                    {
-                        let val: #signed_type = lifeguard::__lg_try_get::<#signed_type>(row, #col_idx_lit, #column_name_str)?;
-                        #field_type::try_from(val).map_err(|_| {
-                            lifeguard::from_row_unsigned_try_from_failed(row, #column_name_str)
-                        })?
-                    }
-                }
-            } else {
+            crate::type_conversion::unsigned_from_row_expr(
+                field_type,
+                &col_idx_lit,
+                column_name_str,
+            )
+            .unwrap_or_else(|| {
                 quote! {
                     lifeguard::__lg_try_get::<#field_type>(row, #col_idx_lit, #column_name_str)?
                 }
-            }
+            })
         };
 
         from_row_fields.push(quote! {

@@ -1,0 +1,108 @@
+//! Derived `FromRow` for unsigned fields, plain and `Option`. Each reads the signed column type
+//! that holds its range (`u8` from `SMALLINT`, `u16` from `INTEGER`, `u32` and `u64` from
+//! `BIGINT`) and converts with `try_from`: values at the bounds read back exactly, NULL is `None`,
+//! and a negative or out-of-range value is a row error instead of a wrapped number.
+
+use lifeguard::LifeModelTrait;
+use sea_query::{Expr, ExprTrait};
+
+pub mod unsigned_rows {
+    use lifeguard_derive::LifeModel;
+
+    #[derive(LifeModel)]
+    #[table_name = "test_unsigned_rows"]
+    pub struct UnsignedRow {
+        #[primary_key]
+        pub id: i32,
+        pub small: u8,
+        pub medium: u16,
+        pub large: u32,
+        pub huge: u64,
+        pub opt_small: Option<u8>,
+        pub opt_medium: Option<u16>,
+        pub opt_large: Option<u32>,
+        pub opt_huge: Option<u64>,
+    }
+}
+
+use unsigned_rows::{Entity, UnsignedRowModel};
+
+/// Row 1: zeros and NULLs. Row 2: the largest value each column can hold for its field
+/// (`BIGINT` tops out at `i64::MAX`, so that is the largest storable `u64`). Rows 3 to 6: one
+/// out-of-range value each.
+fn executor() -> lifeguard::MayPostgresExecutor {
+    static SCHEMA: std::sync::Once = std::sync::Once::new();
+    let ctx = crate::context::get_test_context();
+    SCHEMA.call_once(|| {
+        let c = may_postgres::connect(&ctx.pg_url).expect("connect");
+        c.batch_execute(
+            "DROP TABLE IF EXISTS test_unsigned_rows;
+             CREATE TABLE test_unsigned_rows (
+               id INT PRIMARY KEY,
+               small SMALLINT NOT NULL, medium INT NOT NULL,
+               large BIGINT NOT NULL, huge BIGINT NOT NULL,
+               opt_small SMALLINT, opt_medium INT, opt_large BIGINT, opt_huge BIGINT);
+             INSERT INTO test_unsigned_rows VALUES
+               (1, 0, 0, 0, 0, NULL, NULL, NULL, NULL),
+               (2, 255, 65535, 4294967295, 9223372036854775807,
+                   255, 65535, 4294967295, 9223372036854775807),
+               (3, 0, 0, 0, 0, 256, NULL, NULL, NULL),
+               (4, 0, 0, 0, 0, NULL, -1, NULL, NULL),
+               (5, 0, 0, 0, 0, NULL, NULL, 4294967296, NULL),
+               (6, 0, 0, 0, 0, NULL, NULL, NULL, -1);",
+        )
+        .expect("schema");
+    });
+    let mut db = lifeguard::test_helpers::TestDatabase::with_url(&ctx.pg_url);
+    let _c = db.connect().expect("connect");
+    db.executor().expect("executor")
+}
+
+fn row(
+    exec: &lifeguard::MayPostgresExecutor,
+    id: i32,
+) -> Result<UnsignedRowModel, lifeguard::LifeError> {
+    Entity::find().filter(Expr::col("id").eq(id)).one(exec)
+}
+
+#[test]
+fn unsigned_fields_read_bounds_and_nulls_exactly() {
+    let exec = executor();
+    let zero = row(&exec, 1).expect("row 1");
+    assert_eq!(
+        (zero.small, zero.medium, zero.large, zero.huge),
+        (0, 0, 0, 0)
+    );
+    assert_eq!(
+        (
+            zero.opt_small,
+            zero.opt_medium,
+            zero.opt_large,
+            zero.opt_huge
+        ),
+        (None, None, None, None)
+    );
+    let max = row(&exec, 2).expect("row 2");
+    let huge = u64::try_from(i64::MAX).expect("fits");
+    assert_eq!(
+        (max.small, max.medium, max.large, max.huge),
+        (u8::MAX, u16::MAX, u32::MAX, huge)
+    );
+    assert_eq!(
+        (max.opt_small, max.opt_medium, max.opt_large, max.opt_huge),
+        (Some(u8::MAX), Some(u16::MAX), Some(u32::MAX), Some(huge))
+    );
+}
+
+#[test]
+fn out_of_range_optional_unsigned_values_are_row_errors() {
+    let exec = executor();
+    for id in 3..=6 {
+        let r = row(&exec, id);
+        assert!(
+            r.is_err(),
+            "row {id} must not decode: {:?}",
+            r.map(|m| m.id)
+        );
+    }
+}
