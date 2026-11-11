@@ -276,13 +276,17 @@ fn a_failure_after_the_unit_sent_is_returned_and_not_retried() {
 fn plain_table() -> String {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let t = format!("presend_plain_{}_{n}", std::process::id());
+    // Schema-qualified, like the RLS fixture: the pool's role must not depend on search_path.
+    let schema = format!("presend_plain_{}_{n}", std::process::id());
+    let t = format!("{schema}.items");
     let ctx = crate::context::get_test_context();
     let c = may_postgres::connect(&ctx.pg_url).expect("connect");
     c.batch_execute(&format!(
-        "CREATE TABLE {t} (id SERIAL PRIMARY KEY, v TEXT NOT NULL);
+        "CREATE SCHEMA IF NOT EXISTS {schema};
+         CREATE TABLE {t} (id SERIAL PRIMARY KEY, v TEXT NOT NULL);
+         GRANT USAGE ON SCHEMA {schema} TO rls_test_role;
          GRANT SELECT, INSERT ON {t} TO rls_test_role;
-         GRANT USAGE ON SEQUENCE {t}_id_seq TO rls_test_role;"
+         GRANT USAGE ON ALL SEQUENCES IN SCHEMA {schema} TO rls_test_role;"
     ))
     .expect("plain table");
     t
