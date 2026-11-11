@@ -44,7 +44,9 @@ impl KillProxy {
                 };
                 let _ = client.set_nodelay(true);
                 let _ = server.set_nodelay(true);
-                o.lock().expect("lock").push((clone(&client), clone(&server)));
+                o.lock()
+                    .expect("lock")
+                    .push((clone(&client), clone(&server)));
                 // Client to server, cutting both ends instead of forwarding a marked chunk.
                 let (mut from, mut to) = (clone(&client), clone(&server));
                 let (kc, ks) = (clone(&client), clone(&server));
