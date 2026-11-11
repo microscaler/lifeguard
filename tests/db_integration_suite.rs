@@ -32,6 +32,8 @@ mod batch_ops;
 mod insert_on_conflict;
 #[path = "db_integration/notify_trigger.rs"]
 mod notify_trigger;
+#[path = "db_integration/session_batch.rs"]
+mod session_batch;
 
 #[path = "db_integration/nullable_orm_and_rls.rs"]
 mod nullable_orm_and_rls;

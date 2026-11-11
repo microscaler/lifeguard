@@ -4,8 +4,8 @@
 use lifeguard::query::column::column_trait::ColumnTrait;
 use lifeguard::{
     delete_many, find_by_ids, insert_many, test_helpers::TestDatabase, update_many, upsert_many,
-    BatchOptions, BatchWriter, BatchWriterConfig, LifeExecutor, LifeModelTrait, LifeguardPool,
-    MayPostgresExecutor, OnConflict, PooledLifeExecutor, SessionContext, WriteMode,
+    BatchFailure, BatchOptions, BatchWriter, BatchWriterConfig, LifeExecutor, LifeModelTrait,
+    LifeguardPool, MayPostgresExecutor, OnConflict, PooledLifeExecutor, SessionContext, WriteMode,
 };
 use lifeguard_derive::{LifeModel, LifeRecord};
 use sea_query::Value;
@@ -148,6 +148,7 @@ fn chunking_respects_the_parameter_cap() {
         max_params: 100,
         unnest_min_rows: usize::MAX,
         returning: false,
+        ..BatchOptions::default()
     };
     let rows: Vec<_> = (b..b + 95).map(|i| rec(i, 1)).collect();
     let out = insert_many(&exec, &rows, &opts).expect("insert");
@@ -330,6 +331,8 @@ fn batch_writer_hands_poison_batches_to_the_error_handler() {
         BatchWriterConfig {
             retries: 1,
             retry_backoff: Duration::from_millis(5),
+            // Strict: the whole batch is retried, then handed over.
+            options: BatchOptions::default(),
             ..BatchWriterConfig::default()
         },
         move |_e, rows| f.lock().expect("lock").push(rows.len()),
@@ -339,6 +342,49 @@ fn batch_writer_hands_poison_batches_to_the_error_handler() {
     assert_eq!(stats.failed, 1);
     assert_eq!(stats.retries, 1);
     assert_eq!(*failed.lock().expect("lock"), vec![1]);
+}
+
+#[test]
+fn batch_writer_bisect_hands_over_only_the_bad_rows() {
+    let exec = executor();
+    let b = id_base();
+    insert_many(
+        &exec,
+        &[rec(b + 3, 1), rec(b + 11, 1)],
+        &BatchOptions::default(),
+    )
+    .expect("seed");
+    let failed = Arc::new(Mutex::new(Vec::new()));
+    let f = failed.clone();
+    let writer: BatchWriter<BatchItemRecord> = BatchWriter::new(
+        pooled(),
+        WriteMode::Insert,
+        BatchWriterConfig {
+            max_rows: 1_000,
+            max_delay: Duration::from_secs(60),
+            retries: 1,
+            retry_backoff: Duration::from_millis(5),
+            options: BatchOptions::bisect(),
+            ..BatchWriterConfig::default()
+        },
+        move |e, rows| {
+            f.lock().expect("lock").push((e.rows.start, rows.len()));
+        },
+    );
+    for i in 0..16 {
+        writer
+            .push(rec(b + i, 1))
+            .map_err(|_| "closed")
+            .expect("push");
+    }
+    let stats = writer.close();
+    assert_eq!(stats.failed, 2);
+    assert_eq!(stats.retries, 0, "row errors are bisected, not retried");
+    assert_eq!(stats.written, 14);
+    let mut got = failed.lock().expect("lock").clone();
+    got.sort_unstable();
+    assert_eq!(got, vec![(3, 1), (11, 1)]);
+    assert_eq!(count(&exec, b, b + 16), 16, "14 new rows plus the 2 seeded");
 }
 
 pub mod batch_rls {
@@ -538,4 +584,281 @@ fn returning_writes_go_to_the_primary_when_reads_use_a_replica() {
         .update(&exec)
         .expect("update with RETURNING on the primary");
     assert_eq!(updated.qty, 2);
+}
+
+/// `BatchFailure::Bisect`: seed rows that collide on the primary key at `bad` offsets, insert
+/// `n` rows starting at the same base, and check that exactly the bad rows come back.
+fn bisect_case(n: i64, bad: &[i64]) -> lifeguard::BatchOutcome<<Entity as LifeModelTrait>::Model> {
+    let exec = executor();
+    let b = id_base();
+    let seed: Vec<_> = bad.iter().map(|o| rec(b + o, 1)).collect();
+    insert_many(&exec, &seed, &BatchOptions::default()).expect("seed");
+    let rows: Vec<_> = (0..n).map(|o| rec(b + o, 2)).collect();
+    let opts = BatchOptions {
+        unnest_min_rows: usize::MAX,
+        ..BatchOptions::bisect()
+    };
+    let out = insert_many(&exec, &rows, &opts).expect("bisect never fails on row errors");
+    let got: Vec<usize> = out.failed.iter().map(|f| f.index).collect();
+    let want: Vec<usize> = bad
+        .iter()
+        .map(|o| usize::try_from(*o).expect("offset"))
+        .collect();
+    assert_eq!(got, want, "failed rows, in input order");
+    assert!(out
+        .failed
+        .iter()
+        .all(|f| f.sqlstate.as_deref() == Some("23505")));
+    assert_eq!(
+        out.rows_affected,
+        u64::try_from(n).expect("n") - bad.len() as u64
+    );
+    assert_eq!(
+        count(&exec, b, b + n),
+        n,
+        "every good row written, seeds kept"
+    );
+    out
+}
+
+#[test]
+fn bisect_isolates_a_bad_first_row() {
+    let out = bisect_case(16, &[0]);
+    // 16 → 8+8 → 4+4 → 2+2 → 1+1: one failed statement, then two per level.
+    assert_eq!(out.statements, 9);
+}
+
+#[test]
+fn bisect_isolates_a_bad_middle_row() {
+    assert_eq!(bisect_case(16, &[7]).statements, 9);
+}
+
+#[test]
+fn bisect_isolates_a_bad_last_row() {
+    assert_eq!(bisect_case(16, &[15]).statements, 9);
+}
+
+#[test]
+fn bisect_isolates_several_bad_rows_in_one_chunk() {
+    let out = bisect_case(64, &[0, 9, 33, 63]);
+    // At most 1 + 2·k·log2(n) statements, far below n = 64 row-by-row.
+    assert!(
+        out.statements <= 1 + 2 * 4 * 6,
+        "statements: {}",
+        out.statements
+    );
+}
+
+#[test]
+fn bisect_with_no_bad_rows_costs_one_statement() {
+    assert_eq!(bisect_case(16, &[]).statements, 1);
+}
+
+#[test]
+fn strict_still_fails_the_whole_chunk() {
+    let exec = executor();
+    let b = id_base();
+    insert_many(&exec, &[rec(b + 5, 1)], &BatchOptions::default()).expect("seed");
+    let rows: Vec<_> = (0..10).map(|o| rec(b + o, 2)).collect();
+    let err = insert_many(&exec, &rows, &BatchOptions::default()).expect_err("strict");
+    assert_eq!(err.rows, 0..10);
+    assert_eq!(count(&exec, b, b + 10), 1, "nothing of the chunk written");
+}
+
+pub mod batch_item_bisect {
+    use super::{LifeModel, LifeRecord};
+
+    /// The same table, declared with independent rows.
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_batch_items"]
+    #[batch_failure = "bisect"]
+    pub struct BatchItemB {
+        #[primary_key]
+        pub id: i64,
+        pub sku: String,
+        pub qty: i32,
+        pub note: Option<String>,
+        #[column_type = "JSONB"]
+        pub meta: serde_json::Value,
+    }
+}
+
+fn rec_b(id: i64, qty: i32) -> batch_item_bisect::BatchItemBRecord {
+    let mut r = batch_item_bisect::BatchItemBRecord::new();
+    r.set_id(id)
+        .set_sku(format!("sku-{id}"))
+        .set_qty(qty)
+        .set_note(None)
+        .set_meta(serde_json::json!({ "id": id }));
+    r
+}
+
+#[test]
+fn an_unconfigured_batch_is_strict() {
+    let exec = executor();
+    let b = id_base();
+    insert_many(&exec, &[rec(b + 2, 1)], &BatchOptions::default()).expect("seed");
+    let rows: Vec<_> = (0..8).map(|o| rec(b + o, 2)).collect();
+    // No per-call policy and no entity declaration: the chunk fails as a whole.
+    let err = insert_many(&exec, &rows, &BatchOptions::default()).expect_err("strict");
+    assert_eq!(err.rows, 0..8);
+    assert_eq!(count(&exec, b, b + 8), 1);
+}
+
+#[test]
+fn an_entity_declared_bisect_applies_and_a_per_call_setting_overrides_it() {
+    let exec = executor();
+    let b = id_base();
+    insert_many(&exec, &[rec(b + 3, 1)], &BatchOptions::default()).expect("seed");
+    // Entity says bisect: the bad row is isolated with default options.
+    let rows: Vec<_> = (0..8).map(|o| rec_b(b + o, 2)).collect();
+    let out = insert_many(&exec, &rows, &BatchOptions::default()).expect("entity bisect");
+    assert_eq!(out.policy_applied, BatchFailure::bisect());
+    assert!(!out.is_complete());
+    assert_eq!(
+        out.failed.iter().map(|f| f.index).collect::<Vec<_>>(),
+        vec![3]
+    );
+    assert_eq!(count(&exec, b, b + 8), 8);
+
+    // Per call: Strict wins over the entity.
+    let b = id_base();
+    insert_many(&exec, &[rec(b + 3, 1)], &BatchOptions::default()).expect("seed");
+    let rows: Vec<_> = (0..8).map(|o| rec_b(b + o, 2)).collect();
+    let strict = BatchOptions {
+        failure: Some(BatchFailure::Strict),
+        ..BatchOptions::default()
+    };
+    assert!(insert_many(&exec, &rows, &strict).is_err());
+    assert_eq!(count(&exec, b, b + 8), 1);
+}
+
+#[test]
+fn duplicate_keys_fall_back_to_strict_with_a_reason() {
+    let exec = executor();
+    let b = id_base();
+    let seed: Vec<_> = (0..4).map(|o| rec(b + o, 1)).collect();
+    insert_many(&exec, &seed, &BatchOptions::default()).expect("seed");
+    // Key b+1 twice: which update wins would depend on how the batch is split.
+    let mut upd = vec![rec(b, 5), rec(b + 1, 6), rec(b + 1, 7), rec(b + 2, 8)];
+    for r in &mut upd {
+        r.set_note(Some("u".into()));
+    }
+    let out = update_many(&exec, &upd, &[Column::Qty], &BatchOptions::bisect()).expect("update");
+    assert_eq!(out.policy_applied, BatchFailure::Strict);
+    assert!(out
+        .fallback_reason
+        .as_deref()
+        .is_some_and(|r| r.contains("duplicate keys")));
+    // Ordered also forces Strict.
+    let ordered = BatchOptions {
+        ordered: true,
+        ..BatchOptions::bisect()
+    };
+    let out = delete_many::<Entity>(&exec, &ids(b + 3..b + 4), &ordered).expect("delete");
+    assert_eq!(out.policy_applied, BatchFailure::Strict);
+    assert!(out.fallback_reason.is_some());
+}
+
+#[test]
+fn bisect_isolates_a_bad_row_in_update_many() {
+    let exec = executor();
+    let b = id_base();
+    let seed: Vec<_> = (0..8).map(|o| rec(b + o, 1)).collect();
+    insert_many(&exec, &seed, &BatchOptions::default()).expect("seed");
+    // Row 5 takes row 6's sku while row 6 keeps it: a unique violation (class 23) for row 5 only.
+    let mut upd: Vec<_> = (0..8).map(|o| rec(b + o, 9)).collect();
+    upd[5].set_sku(format!("sku-{}", b + 6));
+    let out = update_many(
+        &exec,
+        &upd,
+        &[Column::Sku, Column::Qty],
+        &BatchOptions::bisect(),
+    )
+    .expect("bisect update");
+    assert_eq!(
+        out.failed.iter().map(|f| f.index).collect::<Vec<_>>(),
+        vec![5]
+    );
+    assert_eq!(out.failed[0].sqlstate.as_deref(), Some("23505"));
+    assert_eq!(out.rows_affected, 7);
+}
+
+/// Microbench (ignored): 1000-row ingest through a delayed connection.
+#[test]
+#[ignore = "microbench: run explicitly"]
+fn bench_ingest_row_by_row_vs_batched_vs_bisect() {
+    use crate::session_batch::{proxied, report, rtt_us, time_ms};
+    let _ = executor(); // schema
+    let ctx = crate::context::get_test_context();
+    for rtt in [0, rtt_us()] {
+        let exec = PooledLifeExecutor::new(Arc::new(
+            LifeguardPool::new(&proxied(&ctx.pg_url, rtt), 2, Vec::new(), 0).expect("pool"),
+        ));
+        let n = 1000_i64;
+        // Row by row: one statement (one round trip, one commit) per row.
+        let b = id_base();
+        let rows: Vec<_> = (0..n).map(|o| rec(b + o, 1)).collect();
+        let ms = time_ms(|| {
+            for r in &rows {
+                insert_many(&exec, std::slice::from_ref(r), &BatchOptions::default()).expect("row");
+            }
+        });
+        report("1000-row ingest, row by row", rtt, vec![ms], "1000");
+        // One batch, all good.
+        let b = id_base();
+        let rows: Vec<_> = (0..n).map(|o| rec(b + o, 1)).collect();
+        let mut stmts = 0;
+        let ms = time_ms(|| {
+            stmts = insert_many(&exec, &rows, &BatchOptions::default())
+                .expect("batch")
+                .statements;
+        });
+        report(
+            "1000-row ingest, insert_many (1 chunk)",
+            rtt,
+            vec![ms],
+            &stmts.to_string(),
+        );
+        // Three bad rows (duplicate keys of existing rows) under Strict: the chunk fails whole.
+        let b = id_base();
+        insert_many(
+            &exec,
+            &[rec(b + 10, 1), rec(b + 500, 1), rec(b + 990, 1)],
+            &BatchOptions::default(),
+        )
+        .expect("seed");
+        let rows: Vec<_> = (0..n).map(|o| rec(b + o, 2)).collect();
+        let ms = time_ms(|| {
+            assert!(insert_many(&exec, &rows, &BatchOptions::default()).is_err());
+        });
+        report(
+            "1000-row ingest, 3 bad rows, Strict (nothing written)",
+            rtt,
+            vec![ms],
+            "1",
+        );
+        // The same under Bisect: 997 written, 3 reported.
+        let b = id_base();
+        insert_many(
+            &exec,
+            &[rec(b + 10, 1), rec(b + 500, 1), rec(b + 990, 1)],
+            &BatchOptions::default(),
+        )
+        .expect("seed");
+        let rows: Vec<_> = (0..n).map(|o| rec(b + o, 2)).collect();
+        let mut out = None;
+        let ms = time_ms(|| {
+            out = Some(insert_many(&exec, &rows, &BatchOptions::bisect()).expect("bisect"));
+        });
+        let out = out.expect("outcome");
+        assert_eq!(out.failed.len(), 3);
+        assert_eq!(out.rows_affected, 997);
+        report(
+            "1000-row ingest, 3 bad rows, Bisect (997 written)",
+            rtt,
+            vec![ms],
+            &out.statements.to_string(),
+        );
+    }
 }

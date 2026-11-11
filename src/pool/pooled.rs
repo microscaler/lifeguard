@@ -50,6 +50,7 @@ use crate::metrics::pool_gauges::Track;
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
 use crate::pool::connectivity::life_error_is_connectivity_heal_candidate;
 use crate::pool::owned_param::OwnedParam;
+use crate::pool::session_batch::{self, BatchResults, BatchStmt, StatementBatch};
 use crate::pool::stmt_cache::{Lookup, StatementCache};
 use crate::pool::wal::{WalLagMonitor, WalLagPolicy};
 use crate::value::TextParam;
@@ -291,7 +292,8 @@ struct WorkerPool {
 }
 
 /// What a statement returns.
-enum Out {
+#[doc(hidden)]
+pub enum Out {
     Count(u64),
     /// Zero or one row (`query_opt`; `query_one` maps `None` to an error after the statement).
     Opt(Option<Row>),
@@ -299,7 +301,7 @@ enum Out {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     Execute,
     /// Zero or one row: backs both `query_opt` and `query_one`.
     QueryOpt,
@@ -446,6 +448,61 @@ impl WorkerPool {
             let h = conn.take_handle();
             let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
             let r = contextual_unit(&h, &conn, &args, &sql, &refs, kind);
+            if r.as_ref()
+                .is_err_and(life_error_is_connectivity_heal_candidate)
+            {
+                conn.broken.store(true, Ordering::Release);
+            } else {
+                conn.put_handle(h);
+            }
+            r
+        });
+        let broken = pin.conn.broken.load(Ordering::Acquire);
+        drop(pin);
+        let result = match result {
+            Some(r) => {
+                if broken {
+                    self.inner.replace_in_background(index, None);
+                }
+                r
+            }
+            None => Err(self.inner.on_reply_timeout(index, started, true)),
+        };
+        unit.finish(crate::timing::outcome(&result));
+        result
+    }
+
+    /// A [`StatementBatch`] as one pinned, pipelined unit: `BEGIN`, `rls_set_session` (when
+    /// `args` is set), every statement, `COMMIT`; one round trip.
+    fn run_batch_unit(
+        &self,
+        stmts: Vec<BatchStmt>,
+        args: Option<Arc<SessionArgs>>,
+        begin: &'static str,
+    ) -> Result<Vec<Out>, LifeError> {
+        let inner = &*self.inner;
+        let started = Instant::now();
+        let checkout = crate::timing::CHECKOUT_RLS.start();
+        let pin = Pin::acquire(&self.inner);
+        checkout.finish(crate::timing::outcome(&pin));
+        let pin = pin?;
+        #[cfg(feature = "metrics")]
+        {
+            METRICS.record_pool_checkout(started.elapsed(), inner.tier);
+            METRICS.record_connection_wait(started.elapsed(), Some(inner.tier));
+        }
+        let index = pin.index;
+        let conn = Arc::clone(&pin.conn);
+        #[cfg(feature = "tracing")]
+        let ctx = may_tracing::current();
+        let watched = Arc::clone(&conn);
+        let unit = crate::timing::BATCH_UNIT.start();
+        let result = guarded(&self.inner, index, &watched, move || {
+            #[cfg(feature = "tracing")]
+            let _ctx = may_tracing::set_current(ctx);
+            let h = conn.take_handle();
+            let set = args.as_deref().map(|a| a.params.as_slice());
+            let r = pipeline(&h, &conn, Some(begin), set, &stmts, true);
             if r.as_ref()
                 .is_err_and(life_error_is_connectivity_heal_candidate)
             {
@@ -1242,6 +1299,181 @@ fn contextual_unit(
     r
 }
 
+/// `25P02`: the statement was rejected because an earlier one in the transaction failed.
+fn is_in_failed_transaction(e: &LifeError) -> bool {
+    matches!(e, LifeError::PostgresError(pe) if pe.code().is_some_and(|c| c.code() == "25P02"))
+}
+
+/// Keep the first error that is not a `25P02` consequence of an earlier one.
+fn keep_first(first: &mut Option<LifeError>, e: LifeError) {
+    match first {
+        None => *first = Some(e),
+        Some(f) if is_in_failed_transaction(f) && !is_in_failed_transaction(&e) => *first = Some(e),
+        Some(_) => {}
+    }
+}
+
+/// Pipeline `[begin] · [rls_set_session] · stmts · [COMMIT]` on one handle of a pinned
+/// connection and read every reply in order.
+///
+/// Every message is written before any reply is read, so the whole unit costs one round trip
+/// (plus one per statement not yet in the connection's statement cache, prepared first).
+///
+/// - Every stream is drained, in order, before returning: the handle goes back with nothing
+///   outstanding.
+/// - The first real error is returned (a later `25P02` never hides it). A failed `begin` or
+///   `rls_set_session` aborts the transaction, so no statement runs without its context.
+/// - When a statement cannot be encoded after earlier ones were sent, the rest are not sent and
+///   `ROLLBACK` replaces the `COMMIT`; with `commit == false` (inside a caller's transaction)
+///   the caller's error path rolls back.
+fn pipeline(
+    h: &Client,
+    conn: &SlotConn,
+    begin: Option<&'static str>,
+    set: Option<&[OwnedParam]>,
+    stmts: &[BatchStmt],
+    commit: bool,
+) -> Result<Vec<Out>, LifeError> {
+    let tier = "primary";
+    let r = (|| -> Result<Vec<Out>, LifeError> {
+        // Prepare first (cache hits cost nothing); nothing is sent until all are known.
+        let begin_st = match begin {
+            Some(sql) => Some(
+                conn.stmts
+                    .get_or_prepare(h, sql)
+                    .map_err(LifeError::from)?
+                    .0,
+            ),
+            None => None,
+        };
+        let set_st = match set {
+            Some(_) => Some(
+                conn.stmts
+                    .get_or_prepare(h, RLS_SET_SESSION_SQL)
+                    .map_err(rls_error)?
+                    .0,
+            ),
+            None => None,
+        };
+        // `ROLLBACK` is prepared up front too: preparing later, with replies outstanding on this
+        // handle, would read (and discard) them.
+        let end_st = if commit {
+            Some((
+                conn.stmts
+                    .get_or_prepare(h, "COMMIT")
+                    .map_err(LifeError::from)?
+                    .0,
+                conn.stmts
+                    .get_or_prepare(h, "ROLLBACK")
+                    .map_err(LifeError::from)?
+                    .0,
+            ))
+        } else {
+            None
+        };
+        let mut prepared = Vec::with_capacity(stmts.len());
+        for s in stmts {
+            prepared.push(
+                conn.stmts
+                    .get_or_prepare(h, &s.sql)
+                    .map_err(LifeError::from)?
+                    .0,
+            );
+        }
+
+        // Write everything.
+        let s_begin = match &begin_st {
+            Some(st) => Some(h.query_raw(st, &[]).map_err(LifeError::from)?),
+            None => None,
+        };
+        let s_set = match (&set_st, set) {
+            (Some(st), Some(params)) => {
+                let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
+                Some(h.query_raw(st, &refs).map_err(LifeError::from))
+            }
+            _ => None,
+        };
+        let mut streams = Vec::with_capacity(stmts.len());
+        let mut encode_failed = false;
+        for (s, st) in stmts.iter().zip(&prepared) {
+            if encode_failed {
+                break;
+            }
+            let refs: Vec<&dyn ToSql> = s.params.iter().map(OwnedParam::as_sql_ref).collect();
+            let r = h.query_raw(st, &refs).map_err(LifeError::from);
+            encode_failed = r.is_err();
+            streams.push(r);
+        }
+        let s_end = match (&end_st, encode_failed) {
+            (Some((commit_st, _)), false) => {
+                Some(h.query_raw(commit_st, &[]).map_err(LifeError::from))
+            }
+            (Some((_, rollback_st)), true) => {
+                Some(h.query_raw(rollback_st, &[]).map_err(LifeError::from))
+            }
+            (None, _) => None,
+        };
+
+        // Read everything, in order.
+        let mut first: Option<LifeError> = None;
+        if let Some(s) = s_begin {
+            if let Err(e) = drain(s) {
+                keep_first(&mut first, LifeError::from(e));
+            }
+        }
+        match s_set {
+            Some(Ok(s)) => {
+                if let Err(e) = drain(s) {
+                    keep_first(&mut first, rls_error(e));
+                }
+            }
+            Some(Err(e)) => keep_first(&mut first, e),
+            None => {}
+        }
+        let mut outs = Vec::with_capacity(stmts.len());
+        for (s, stream) in stmts.iter().zip(streams) {
+            let r: Result<Out, LifeError> = match stream {
+                Ok(stream) => timed(tier, &s.sql, || match s.kind {
+                    Kind::Execute => count(stream).map(Out::Count),
+                    Kind::QueryOpt | Kind::QueryAll => {
+                        stream.collect::<Result<Vec<Row>, _>>().map(Out::All)
+                    }
+                }),
+                Err(e) => Err(e),
+            };
+            match r {
+                Ok(Out::All(rows)) if s.kind == Kind::QueryOpt => {
+                    match crate::executor::at_most_one(rows) {
+                        Ok(r) => outs.push(Out::Opt(r)),
+                        Err(e) => keep_first(&mut first, e),
+                    }
+                }
+                Ok(o) => outs.push(o),
+                Err(e) => keep_first(&mut first, e),
+            }
+        }
+        match s_end {
+            Some(Ok(s)) => {
+                if let Err(e) = drain(s) {
+                    keep_first(&mut first, LifeError::from(e));
+                }
+            }
+            Some(Err(e)) => keep_first(&mut first, e),
+            None => {}
+        }
+        match first {
+            Some(e) => Err(e),
+            None => Ok(outs),
+        }
+    })();
+    if let Err(e) = &r {
+        if is_stale_message(e) {
+            conn.stmts.clear();
+        }
+    }
+    r
+}
+
 fn is_stale_message(e: &LifeError) -> bool {
     matches!(e, LifeError::PostgresError(pe) if crate::pool::stmt_cache::is_stale_error(pe))
 }
@@ -1538,6 +1770,7 @@ impl LifeguardPool {
             pool: self,
             handle: Mutex::new(Some(pin.conn.take_handle())),
             pin,
+            pending_begin: Mutex::new(None),
         })
     }
 
@@ -1592,17 +1825,158 @@ impl LifeguardPool {
         self.run_session_transaction(context, Some(isolation), operation)
     }
 
+    /// A read-only session transaction: like [`Self::with_session_transaction`], started with
+    /// `BEGIN READ ONLY`, for several reads that need one connection or one snapshot.
+    ///
+    /// With pipelining on (the default, see [`crate::pool::session_batch`]) its `COMMIT` is sent
+    /// without waiting for the reply: a read-only transaction has nothing to make durable, and
+    /// the reply is read (and skipped) by the next request on that connection, which PostgreSQL
+    /// serves after the `COMMIT`. The transaction-local RLS settings end at that `COMMIT` either
+    /// way. This saves one round trip per transaction. A write inside it fails with `25006`.
+    ///
+    /// # Errors
+    ///
+    /// Same contract as [`Self::with_session_transaction`].
+    pub fn with_session_read_transaction<T>(
+        &self,
+        context: &SessionContext,
+        operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
+    ) -> Result<T, LifeError> {
+        self.run_session_transaction_mode(context, None, true, operation)
+    }
+
+    /// [`Self::with_session_read_transaction`] at an explicit isolation level, e.g.
+    /// `RepeatableRead` for several reads that must see one snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Same contract as [`Self::with_session_transaction`].
+    pub fn with_session_read_transaction_isolated<T>(
+        &self,
+        context: &SessionContext,
+        isolation: crate::transaction::IsolationLevel,
+        operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
+    ) -> Result<T, LifeError> {
+        self.run_session_transaction_mode(context, Some(isolation), true, operation)
+    }
+
+    /// Run independent statements as one RLS-scoped unit in **one round trip**:
+    /// `BEGIN · rls_set_session(..) · stmt₁ … stmtₙ · COMMIT` on one pinned primary connection.
+    ///
+    /// The statements share one transaction (all commit or none do) and one context. See
+    /// [`crate::pool::session_batch`] for the semantics and the `LIFEGUARD_RLS_PIPELINE` switch.
+    ///
+    /// # Errors
+    ///
+    /// The first statement or context error; nothing is committed then.
+    pub fn with_session_batch(
+        &self,
+        context: &SessionContext,
+        batch: StatementBatch,
+    ) -> Result<BatchResults, LifeError> {
+        let args = Arc::new(SessionArgs::new(context)?);
+        self.batch_with_args(Some(args), None, batch)
+    }
+
+    /// [`Self::with_session_batch`] at an explicit isolation level, e.g. `RepeatableRead` for
+    /// several reads that must see one snapshot.
+    ///
+    /// The level rides on the `BEGIN` (built like [`Self::with_session_transaction_isolated`]'s):
+    /// PostgreSQL rejects `SET TRANSACTION` once `rls_set_session` has run.
+    ///
+    /// # Errors
+    ///
+    /// Same contract as [`Self::with_session_batch`].
+    pub fn with_session_batch_isolated(
+        &self,
+        context: &SessionContext,
+        isolation: crate::transaction::IsolationLevel,
+        batch: StatementBatch,
+    ) -> Result<BatchResults, LifeError> {
+        let args = Arc::new(SessionArgs::new(context)?);
+        self.batch_with_args(Some(args), Some(isolation), batch)
+    }
+
+    /// [`Self::with_session_batch`] without an RLS context: `BEGIN · stmt₁ … stmtₙ · COMMIT` in
+    /// one round trip on a pinned primary connection (an atomic multi-statement write, for
+    /// example).
+    ///
+    /// # Errors
+    ///
+    /// The first statement error; nothing is committed then.
+    pub fn run_batch(&self, batch: StatementBatch) -> Result<BatchResults, LifeError> {
+        self.batch_with_args(None, None, batch)
+    }
+
+    pub(crate) fn batch_with_args(
+        &self,
+        args: Option<Arc<SessionArgs>>,
+        isolation: Option<crate::transaction::IsolationLevel>,
+        batch: StatementBatch,
+    ) -> Result<BatchResults, LifeError> {
+        let stmts = batch.stmts;
+        if stmts.is_empty() {
+            return Ok(BatchResults::new(Vec::new()));
+        }
+        // `None` keeps the plain `BEGIN`, byte-identical to the single-statement unit.
+        let begin = context_begin_statement(isolation);
+        if session_batch::pipeline_enabled() {
+            return self
+                .primary
+                .run_batch_unit(stmts, args, begin)
+                .map(BatchResults::new);
+        }
+        // Pipelining off: the same unit, one statement per round trip.
+        let executor = self.exclusive_primary_write_executor()?;
+        match &args {
+            Some(a) => executor.begin_with_context(a, isolation)?,
+            None => executor.simple(begin)?,
+        }
+        let mut transaction = PoolTransactionGuard::new(&executor, false);
+        let mut outs = Vec::with_capacity(stmts.len());
+        for s in stmts {
+            match executor.run_owned_now(s.kind, &s.sql, s.params) {
+                Ok(o) => outs.push(o),
+                Err(e) => {
+                    let _ = transaction.rollback();
+                    return Err(e);
+                }
+            }
+        }
+        transaction.commit()?;
+        Ok(BatchResults::new(outs))
+    }
+
     fn run_session_transaction<T>(
         &self,
         context: &SessionContext,
         isolation: Option<crate::transaction::IsolationLevel>,
         operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
     ) -> Result<T, LifeError> {
+        self.run_session_transaction_mode(context, isolation, false, operation)
+    }
+
+    fn run_session_transaction_mode<T>(
+        &self,
+        context: &SessionContext,
+        isolation: Option<crate::transaction::IsolationLevel>,
+        read_only: bool,
+        operation: impl FnOnce(&ExclusivePrimaryLifeExecutor<'_>) -> Result<T, LifeError>,
+    ) -> Result<T, LifeError> {
         let args = SessionArgs::new(context)?;
         let executor = self.exclusive_primary_write_executor()?;
-        executor.begin_with_context(&args, isolation)?;
+        let begin_sql = context_begin_statement_mode(isolation, read_only);
+        if session_batch::pipeline_enabled() {
+            // Deferred: `BEGIN` and `rls_set_session` ride in the same write as the first
+            // statement (one round trip saved). A context error surfaces on that statement,
+            // which PostgreSQL then rejects, so no statement runs without its context.
+            executor.defer_begin(begin_sql, args.params.to_vec());
+        } else {
+            executor.begin_with_sql(&args, begin_sql)?;
+        }
 
-        let mut transaction = PoolTransactionGuard::new(&executor);
+        let mut transaction =
+            PoolTransactionGuard::new(&executor, read_only && session_batch::pipeline_enabled());
         match operation(transaction.executor()) {
             Ok(value) => {
                 transaction.commit()?;
@@ -1629,11 +2003,69 @@ pub struct ExclusivePrimaryLifeExecutor<'a> {
     pool: &'a LifeguardPool,
     handle: Mutex<Option<Client>>,
     pin: Pin,
+    /// A session transaction's `BEGIN` and `rls_set_session` arguments, not yet sent: they go
+    /// out pipelined with the first statement.
+    pending_begin: Mutex<Option<PendingBegin>>,
+}
+
+struct PendingBegin {
+    begin: &'static str,
+    params: Vec<OwnedParam>,
 }
 
 impl ExclusivePrimaryLifeExecutor<'_> {
     fn tier(&self) -> &Arc<TierInner> {
         &self.pool.primary.inner
+    }
+
+    fn defer_begin(&self, begin: &'static str, params: Vec<OwnedParam>) {
+        *self
+            .pending_begin
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(PendingBegin { begin, params });
+    }
+
+    fn take_pending_begin(&self) -> Option<PendingBegin> {
+        self.pending_begin
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+
+    /// Run independent statements in one round trip inside this unit's transaction (no
+    /// `BEGIN`/`COMMIT` of their own; the session transaction's deferred `BEGIN` rides along when
+    /// these are its first statements).
+    ///
+    /// Use it inside [`LifeguardPool::with_session_transaction`] for a unit of work of N writes:
+    /// `BEGIN · rls_set_session · w₁ … wₙ` in one round trip, then `COMMIT`. See
+    /// [`crate::pool::session_batch`] for the semantics.
+    ///
+    /// # Errors
+    ///
+    /// The first statement (or context) error; the transaction is then aborted, so return the
+    /// error from the closure to roll it back.
+    pub fn run_batch(&self, batch: StatementBatch) -> Result<BatchResults, LifeError> {
+        let stmts = batch.stmts;
+        if stmts.is_empty() {
+            return Ok(BatchResults::new(Vec::new()));
+        }
+        if !session_batch::pipeline_enabled() {
+            let mut outs = Vec::with_capacity(stmts.len());
+            for s in stmts {
+                outs.push(self.run_owned(s.kind, &s.sql, s.params)?);
+            }
+            return Ok(BatchResults::new(outs));
+        }
+        let pending = self.take_pending_begin();
+        self.call(move |h, conn| {
+            let (begin, set) = match &pending {
+                Some(p) => (Some(p.begin), Some(p.params.as_slice())),
+                None => (None, None),
+            };
+            pipeline(h, conn, begin, set, &stmts, false)
+        })
+        .map(BatchResults::new)
     }
 
     /// Run `f` on the pinned handle within the reply deadline.
@@ -1693,10 +2125,47 @@ impl ExclusivePrimaryLifeExecutor<'_> {
         query: &str,
         params: Vec<OwnedParam>,
     ) -> Result<Out, LifeError> {
+        if let Some(p) = self.take_pending_begin() {
+            // First statement of a session transaction: `BEGIN · rls_set_session · stmt`.
+            let stmts = vec![BatchStmt {
+                kind,
+                sql: Arc::from(query),
+                params,
+            }];
+            let mut outs = self.call(move |h, conn| {
+                pipeline(h, conn, Some(p.begin), Some(&p.params), &stmts, false)
+            })?;
+            return outs.pop().ok_or_else(internal_kind_error);
+        }
+        self.run_owned_now(kind, query, params)
+    }
+
+    /// One statement on the pinned handle, nothing deferred.
+    fn run_owned_now(
+        &self,
+        kind: Kind,
+        query: &str,
+        params: Vec<OwnedParam>,
+    ) -> Result<Out, LifeError> {
         let sql: Arc<str> = Arc::from(query);
         self.call(move |h, conn| {
             let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
             exec_kind("primary", h, conn, &sql, &refs, kind)
+        })
+    }
+
+    /// `COMMIT` sent without waiting for its reply (read-only transactions). The reply arrives on
+    /// this handle's channel and is skipped by the handle's next request; PostgreSQL runs the
+    /// `COMMIT` before anything sent after it on the connection.
+    fn commit_unawaited(&self) -> Result<(), LifeError> {
+        self.call(|h, conn| {
+            let (commit, _) = conn
+                .stmts
+                .get_or_prepare(h, "COMMIT")
+                .map_err(LifeError::from)?;
+            let stream = h.query_raw(&commit, &[]).map_err(LifeError::from)?;
+            drop(stream);
+            Ok(())
         })
     }
 
@@ -1711,7 +2180,10 @@ impl ExclusivePrimaryLifeExecutor<'_> {
         args: &SessionArgs,
         isolation: Option<crate::transaction::IsolationLevel>,
     ) -> Result<(), LifeError> {
-        let begin_sql = context_begin_statement(isolation);
+        self.begin_with_sql(args, context_begin_statement(isolation))
+    }
+
+    fn begin_with_sql(&self, args: &SessionArgs, begin_sql: &'static str) -> Result<(), LifeError> {
         let params: Vec<OwnedParam> = args.params.to_vec();
         self.call(move |h, conn| {
             let (begin, _) = conn
@@ -1760,18 +2232,41 @@ fn context_begin_statement(isolation: Option<crate::transaction::IsolationLevel>
     }
 }
 
+/// The `BEGIN` of a session transaction, optionally `READ ONLY`.
+fn context_begin_statement_mode(
+    isolation: Option<crate::transaction::IsolationLevel>,
+    read_only: bool,
+) -> &'static str {
+    use crate::transaction::IsolationLevel;
+    if !read_only {
+        return context_begin_statement(isolation);
+    }
+    match isolation {
+        None => "BEGIN READ ONLY",
+        Some(IsolationLevel::ReadCommitted) => "BEGIN ISOLATION LEVEL READ COMMITTED, READ ONLY",
+        Some(IsolationLevel::ReadUncommitted) => {
+            "BEGIN ISOLATION LEVEL READ UNCOMMITTED, READ ONLY"
+        }
+        Some(IsolationLevel::RepeatableRead) => "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+        Some(IsolationLevel::Serializable) => "BEGIN ISOLATION LEVEL SERIALIZABLE, READ ONLY",
+    }
+}
+
 struct PoolTransactionGuard<'executor, 'pool> {
     executor: &'executor ExclusivePrimaryLifeExecutor<'pool>,
     active: bool,
+    /// Read-only with pipelining on: `COMMIT` is not awaited.
+    lazy_commit: bool,
     /// `BEGIN` time, for the `_tx` duration.
     started: Instant,
 }
 
 impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
-    fn new(executor: &'executor ExclusivePrimaryLifeExecutor<'pool>) -> Self {
+    fn new(executor: &'executor ExclusivePrimaryLifeExecutor<'pool>, lazy_commit: bool) -> Self {
         Self {
             executor,
             active: true,
+            lazy_commit,
             started: Instant::now(),
         }
     }
@@ -1782,7 +2277,14 @@ impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
 
     fn commit(&mut self) -> Result<(), LifeError> {
         self.active = false;
-        let r = self.executor.simple("COMMIT");
+        // Deferred `BEGIN` never sent (no statement ran): there is no transaction to end.
+        let r = if self.executor.take_pending_begin().is_some() {
+            Ok(())
+        } else if self.lazy_commit {
+            self.executor.commit_unawaited()
+        } else {
+            self.executor.simple("COMMIT")
+        };
         crate::metrics::entity::record_tx(self.started.elapsed(), r.is_ok());
         r
     }
@@ -1790,6 +2292,9 @@ impl<'executor, 'pool> PoolTransactionGuard<'executor, 'pool> {
     fn rollback(&mut self) -> Result<(), LifeError> {
         self.active = false;
         crate::metrics::entity::record_tx(self.started.elapsed(), false);
+        if self.executor.take_pending_begin().is_some() {
+            return Ok(());
+        }
         self.executor.simple("ROLLBACK")
     }
 }
@@ -1798,6 +2303,9 @@ impl Drop for PoolTransactionGuard<'_, '_> {
     fn drop(&mut self) {
         if self.active {
             crate::metrics::entity::record_tx(self.started.elapsed(), false);
+            if self.executor.take_pending_begin().is_some() {
+                return;
+            }
             if let Err(error) = self.executor.simple("ROLLBACK") {
                 log::error!(
                     "lifeguard pool: contextual transaction cleanup rollback failed: {error}"
@@ -2029,6 +2537,18 @@ impl PooledLifeExecutor {
         self.session_args = SessionArgs::new(&ctx).ok().map(Arc::new);
         self.session_context = Some(ctx);
         self
+    }
+
+    /// Run a [`StatementBatch`] in one round trip with this executor's context:
+    /// [`LifeguardPool::with_session_batch`] when a [`SessionContext`] is attached, otherwise
+    /// [`LifeguardPool::run_batch`]. Always on the primary (one transaction).
+    ///
+    /// # Errors
+    ///
+    /// The first statement or context error; nothing is committed then.
+    pub fn run_batch(&self, batch: StatementBatch) -> Result<BatchResults, LifeError> {
+        let session = self.session()?;
+        self.pool.batch_with_args(session, None, batch)
     }
 
     fn session(&self) -> Result<Option<Arc<SessionArgs>>, LifeError> {

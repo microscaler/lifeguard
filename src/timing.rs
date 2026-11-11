@@ -8,6 +8,7 @@
 //! | `lifeguard.pool` | `checkout_rls` | pinning a slot for an RLS-scoped unit |
 //! | `lifeguard.query` | `execute` / `query_opt` / `query_all` | one pooled statement, dispatch to reply |
 //! | `lifeguard.query` | `rls_unit` | `BEGIN`, `rls_set_session`, the statement, `COMMIT` |
+//! | `lifeguard.query` | `batch_unit` | a pipelined [`crate::StatementBatch`]: `BEGIN`, `rls_set_session`, N statements, `COMMIT` |
 //! | `lifeguard.query` | `decode` | turning the returned rows into models (`FromRow`) |
 //! | `lifeguard.cache` | `get_hit` / `get_miss` | the model cache read by `find_by_id` (any provider) |
 //! | `lifeguard.cache` | `set` / `invalidate` | the Redis cache provider's writes |
@@ -28,6 +29,7 @@ pub(crate) static EXECUTE: Site = Site::new("lifeguard.query", "execute");
 pub(crate) static QUERY_OPT: Site = Site::new("lifeguard.query", "query_opt");
 pub(crate) static QUERY_ALL: Site = Site::new("lifeguard.query", "query_all");
 pub(crate) static RLS_UNIT: Site = Site::new("lifeguard.query", "rls_unit");
+pub(crate) static BATCH_UNIT: Site = Site::new("lifeguard.query", "batch_unit");
 pub(crate) static DECODE: Site = Site::new("lifeguard.query", "decode");
 pub(crate) static CACHE_GET_HIT: Site = Site::new("lifeguard.cache", "get_hit");
 pub(crate) static CACHE_GET_MISS: Site = Site::new("lifeguard.cache", "get_miss");

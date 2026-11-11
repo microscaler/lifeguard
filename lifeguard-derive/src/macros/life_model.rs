@@ -509,12 +509,15 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             let on_insert = syn::LitBool::new(table_attrs.notify_on_insert, struct_name.span());
             let on_update = syn::LitBool::new(table_attrs.notify_on_update, struct_name.span());
             let on_delete = syn::LitBool::new(table_attrs.notify_on_delete, struct_name.span());
+            let per_statement =
+                syn::LitBool::new(table_attrs.notify_per_statement, struct_name.span());
             quote! {
                 Some(lifeguard::NotifyDefinition {
                     channel: #channel_lit.to_string(),
                     on_insert: #on_insert,
                     on_update: #on_update,
                     on_delete: #on_delete,
+                    per_statement: #per_statement,
                 })
             }
         }
@@ -2049,6 +2052,14 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             .into();
         }
     }
+    let batch_failure_attr = match attributes::extract_batch_failure(&input.attrs) {
+        Ok(Some(v)) => {
+            let lit = syn::LitStr::new(&v, struct_name.span());
+            quote! { #[batch_failure = #lit] }
+        }
+        Ok(None) => quote! {},
+        Err(e) => return e.to_compile_error().into(),
+    };
     let cursor_tiebreak_attr = if let Some(variant) = cursor_tiebreak_user {
         let lit = syn::LitStr::new(&variant.to_string(), variant.span());
         quote! { #[cursor_tiebreak = #lit] }
@@ -2167,6 +2178,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
         #schema_attr
         #soft_delete_attr
         #cursor_tiebreak_attr
+        #batch_failure_attr
         pub struct Entity;
 
         // Table name constant (for convenience, matches Entity::table_name())

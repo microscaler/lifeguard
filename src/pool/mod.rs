@@ -36,10 +36,12 @@ pub mod config;
 mod connectivity;
 pub mod owned_param;
 pub mod pooled;
+pub mod session_batch;
 pub mod stmt_cache;
 pub mod wal;
 
 pub use config::{DatabaseConfig, LifeguardPoolSettings};
 pub use owned_param::{OwnedArray, OwnedParam};
 pub use pooled::{ExclusivePrimaryLifeExecutor, LifeguardPool, PooledLifeExecutor, ReadPreference};
+pub use session_batch::{BatchOutput, BatchResults, BatchSlot, StatementBatch};
 pub use wal::WalLagPolicy;

@@ -264,6 +264,15 @@ pub struct NotifyDefinition {
     pub on_update: bool,
     /// Fire on `DELETE`.
     pub on_delete: bool,
+    /// One notification per **statement** instead of per row: `#[notify(.., granularity =
+    /// "statement")]`.
+    ///
+    /// The trigger is `FOR EACH STATEMENT` with transition tables and publishes the distinct keys
+    /// the statement touched as `"ids": [..]`, split into as many notifications as needed to stay
+    /// under PostgreSQL's 8000-byte payload limit (contract `docs/NOTIFY_CONTRACT.md`). A
+    /// 500-row `UPDATE` then sends one or two notifications instead of 500. Consumers must
+    /// accept `ids`; LifeReflector does from the version that documents it.
+    pub per_statement: bool,
 }
 
 impl NotifyDefinition {

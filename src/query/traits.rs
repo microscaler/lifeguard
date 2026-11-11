@@ -156,6 +156,14 @@ pub trait LifeModelTrait: LifeEntityName {
         None
     }
 
+    /// The entity's declared batch failure policy (`#[batch_failure = ".."]`), if any. A per-call
+    /// [`crate::BatchOptions::failure`] wins over it.
+    #[doc(hidden)]
+    #[must_use]
+    fn __lg_batch_failure() -> Option<crate::batch::BatchFailure> {
+        None
+    }
+
     /// Get all column variants for this entity.
     ///
     /// Returns a static slice of all `Column` enum variants.

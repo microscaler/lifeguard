@@ -612,6 +612,17 @@ fn generate_notify_sql(
         None => object_name.clone(),
     };
 
+    if notify.per_statement {
+        return Ok(generate_statement_notify_sql(
+            notify,
+            table_name,
+            full_table_name,
+            pk_column,
+            &object_name,
+            &qualified_fn,
+        ));
+    }
+
     // DELETE has no NEW row, so the key has to come from OLD.
     let record = if notify.on_delete && !notify.on_insert && !notify.on_update {
         "OLD".to_string()
@@ -647,6 +658,9 @@ END;
 $lifeguard_notify$;
 
 DROP TRIGGER IF EXISTS {object_name} ON {full_table_name};
+DROP TRIGGER IF EXISTS {object_name}_insert ON {full_table_name};
+DROP TRIGGER IF EXISTS {object_name}_update ON {full_table_name};
+DROP TRIGGER IF EXISTS {object_name}_delete ON {full_table_name};
 
 CREATE TRIGGER {object_name}
     AFTER {events} ON {full_table_name}
@@ -657,9 +671,167 @@ CREATE TRIGGER {object_name}
     ))
 }
 
+/// Bytes of key JSON per statement-level notification. PostgreSQL rejects a payload of 8000
+/// bytes or more; the rest of the object (`table`, `op`, `v`, `ts`, punctuation) stays well
+/// under the remaining 1000.
+const STATEMENT_NOTIFY_KEY_BUDGET: usize = 7000;
+
+/// `#[notify(.., granularity = "statement")]`: `FOR EACH STATEMENT` triggers with transition
+/// tables, publishing `{"table", "op", "ids": [..], "v", "ts"}`.
+///
+/// - One trigger per operation: PostgreSQL allows transition tables only on single-event
+///   triggers. They share one function, which branches on `TG_OP`; each branch names only the
+///   transition tables its trigger defines (PL/pgSQL plans a statement when it first runs, so a
+///   branch that never runs never resolves a table it lacks).
+/// - `UPDATE` publishes the distinct keys of both the old and the new rows, so a key change
+///   invalidates both. `INSERT` uses the new rows, `DELETE` the old.
+/// - Keys are split into several notifications when their JSON would pass
+///   [`STATEMENT_NOTIFY_KEY_BUDGET`] bytes, so any statement fits PostgreSQL's 8000-byte limit
+///   (a single key longer than the budget cannot, and makes the statement fail).
+/// - A statement that touched no rows sends nothing.
+/// - Delivery is unchanged: PostgreSQL delivers at commit, and drops identical payloads queued in
+///   one transaction.
+fn generate_statement_notify_sql(
+    notify: &NotifyDefinition,
+    table_name: &str,
+    full_table_name: &str,
+    pk_column: &str,
+    object_name: &str,
+    qualified_fn: &str,
+) -> String {
+    let new_keys = format!("SELECT to_jsonb(n.{pk_column}) AS k FROM lifeguard_new_rows n");
+    let old_keys = format!("SELECT to_jsonb(o.{pk_column}) AS k FROM lifeguard_old_rows o");
+    let both = format!("{new_keys} UNION ALL {old_keys}");
+    let channel = &notify.channel;
+    let send = |source: &str| {
+        format!(
+            r#"FOR payload IN
+            WITH keys AS (SELECT DISTINCT k FROM ({source}) touched),
+            sized AS (SELECT k, sum(length(k::text) + 1) OVER (ORDER BY k::text) AS upto FROM keys)
+            SELECT json_build_object(
+                'table', TG_TABLE_NAME,
+                'op', TG_OP,
+                'ids', jsonb_agg(k ORDER BY k::text),
+                'v', v,
+                'ts', ts
+            )::text
+            FROM sized
+            GROUP BY (upto - 1) / {STATEMENT_NOTIFY_KEY_BUDGET}
+            ORDER BY (upto - 1) / {STATEMENT_NOTIFY_KEY_BUDGET}
+        LOOP
+            PERFORM pg_notify('{channel}', payload);
+        END LOOP;"#
+        )
+    };
+    let mut sql = format!(
+        r#"-- Declarative pg_notify for {table_name}, one notification per statement (generated from #[notify]).
+CREATE OR REPLACE FUNCTION {qualified_fn}() RETURNS trigger
+LANGUAGE plpgsql
+AS $lifeguard_notify$
+DECLARE
+    payload text;
+    v bigint := (pg_current_wal_insert_lsn() - '0/0'::pg_lsn)::bigint;
+    ts bigint := (extract(epoch FROM clock_timestamp()) * 1000)::bigint;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        {ins}
+    ELSIF TG_OP = 'DELETE' THEN
+        {del}
+    ELSE
+        {upd}
+    END IF;
+    RETURN NULL;
+END;
+$lifeguard_notify$;
+"#,
+        ins = send(&new_keys),
+        del = send(&old_keys),
+        upd = send(&both),
+    );
+    // The row-level trigger of the same name, and every per-operation trigger, are replaced.
+    let _ = writeln!(
+        sql,
+        "\nDROP TRIGGER IF EXISTS {object_name} ON {full_table_name};"
+    );
+    for (enabled, op, refs) in [
+        (
+            notify.on_insert,
+            "INSERT",
+            "NEW TABLE AS lifeguard_new_rows",
+        ),
+        (
+            notify.on_update,
+            "UPDATE",
+            "OLD TABLE AS lifeguard_old_rows NEW TABLE AS lifeguard_new_rows",
+        ),
+        (
+            notify.on_delete,
+            "DELETE",
+            "OLD TABLE AS lifeguard_old_rows",
+        ),
+    ] {
+        let trigger = format!("{object_name}_{}", op.to_ascii_lowercase());
+        let _ = writeln!(
+            sql,
+            "DROP TRIGGER IF EXISTS {trigger} ON {full_table_name};"
+        );
+        if enabled {
+            let _ = writeln!(
+                sql,
+                "CREATE TRIGGER {trigger}\n    AFTER {op} ON {full_table_name}\n    REFERENCING {refs}\n    FOR EACH STATEMENT\n    EXECUTE FUNCTION {qualified_fn}();"
+            );
+        }
+    }
+    sql
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn statement_notify_uses_transition_tables_one_trigger_per_operation() {
+        let n = NotifyDefinition {
+            channel: "chan".into(),
+            on_insert: true,
+            on_update: true,
+            on_delete: false,
+            per_statement: true,
+        };
+        let sql = generate_notify_sql(&n, None, "items", "items", "id").expect("sql");
+        assert!(sql.contains("FOR EACH STATEMENT"));
+        assert!(sql.contains("CREATE TRIGGER lifeguard_notify_items_insert"));
+        assert!(sql.contains("CREATE TRIGGER lifeguard_notify_items_update"));
+        assert!(!sql.contains("CREATE TRIGGER lifeguard_notify_items_delete"));
+        assert!(sql.contains("DROP TRIGGER IF EXISTS lifeguard_notify_items_delete"));
+        assert!(sql.contains("DROP TRIGGER IF EXISTS lifeguard_notify_items ON items"));
+        assert!(sql.contains(
+            "REFERENCING OLD TABLE AS lifeguard_old_rows NEW TABLE AS lifeguard_new_rows"
+        ));
+        assert!(sql.contains("'ids', jsonb_agg"));
+        assert!(!sql.contains("FOR EACH ROW"));
+        // The INSERT branch must not name the old-rows table (it does not exist there).
+        let ins = sql.split("ELSIF").next().expect("insert branch");
+        assert!(!ins.contains("lifeguard_old_rows o"));
+    }
+
+    #[test]
+    fn row_notify_drops_statement_triggers_it_replaces() {
+        let n = NotifyDefinition {
+            channel: "chan".into(),
+            on_insert: true,
+            on_update: false,
+            on_delete: false,
+            per_statement: false,
+        };
+        let sql = generate_notify_sql(&n, None, "items", "items", "id").expect("sql");
+        assert!(sql.contains("FOR EACH ROW"));
+        for op in ["insert", "update", "delete"] {
+            assert!(sql.contains(&format!(
+                "DROP TRIGGER IF EXISTS lifeguard_notify_items_{op} ON items"
+            )));
+        }
+    }
 
     // Note: These tests would require actual entity definitions
     // For now, we'll test the sanitize function

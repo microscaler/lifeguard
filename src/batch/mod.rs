@@ -26,8 +26,30 @@
 //!
 //! ## Errors
 //!
-//! Chunks run in order, each as its own statement. A failure returns [`BatchError`] naming the
-//! chunk and its row range, with the rows written by earlier chunks. Run the call inside
+//! Chunks run in order, each as its own statement. By default ([`BatchFailure::Strict`]) a
+//! failure returns [`BatchError`] naming the chunk and its row range, with the rows written by
+//! earlier chunks.
+//!
+//! ## Partial success (opt-in)
+//!
+//! Lifeguard cannot know whether a batch's rows are independent, so splitting a failed chunk is
+//! never the default. A caller (per call: [`BatchOptions::failure`]) or an entity (per entity:
+//! `#[batch_failure = "bisect"]` on the model) opts into [`BatchFailure::Bisect`]: a chunk that
+//! fails on bad data is halved until the bad rows stand alone; they come back in
+//! [`BatchOutcome::failed`] and every other row is written. The per-call setting wins over the
+//! entity's. Configuration (`LIFEGUARD_BATCH_CHUNK_SIZE`, `LIFEGUARD_BATCH_MAX_DEPTH`,
+//! `LIFEGUARD_BATCH_TRANSIENT_RETRIES`) sets defaults for chunk size, bisect depth and transient
+//! retries only; there is deliberately no global switch that turns Bisect on.
+//!
+//! Bisect applies to these homogeneous row batches ([`insert_many`], [`upsert_many`],
+//! [`update_many`], [`delete_many`], [`BatchWriter`]) only. A multi-statement unit
+//! ([`crate::StatementBatch`], [`crate::LifeguardPool::with_session_transaction`]) is always
+//! atomic: one failure fails the unit.
+//!
+//! Even when requested, Bisect falls back to Strict (and says why in
+//! [`BatchOutcome::fallback_reason`]) when the batch shows it is not safe to split: duplicate
+//! keys, rows that reference other rows of the batch through a self-referencing foreign key, or
+//! [`BatchOptions::ordered`]. Run the call inside
 //! [`crate::LifeguardPool::with_session_transaction`] (or a `Transaction`) to make the whole batch
 //! atomic.
 
@@ -58,20 +80,413 @@ pub struct BatchOptions {
     pub unnest_min_rows: usize,
     /// Add `RETURNING *` and map the written rows back to models.
     pub returning: bool,
+    /// The failure policy for this call. `None` (the default) uses the entity's declared policy
+    /// (`#[batch_failure = ".."]`), and [`BatchFailure::Strict`] when it declares none. A value
+    /// here wins over the entity's.
+    pub failure: Option<BatchFailure>,
+    /// Under [`BatchFailure::Bisect`]: re-runs of a chunk after a transient error (serialization
+    /// failure, deadlock, dropped connection) before giving up on it. Strict never re-runs a
+    /// statement. Default `LIFEGUARD_BATCH_TRANSIENT_RETRIES`, else 1.
+    pub transient_retries: u32,
+    /// The caller needs each chunk all-or-nothing in input order: Bisect is not applied (it falls
+    /// back to Strict with a reason).
+    pub ordered: bool,
+}
+
+/// Process-wide defaults for the batch APIs, from the environment (read once).
+///
+/// Only sizes and limits are configurable here. Whether a batch may be split is not: that is
+/// declared by the caller ([`BatchOptions::failure`]) or the entity (`#[batch_failure]`).
+#[derive(Debug, Clone, Copy)]
+pub struct BatchDefaults {
+    /// Rows per chunk (`LIFEGUARD_BATCH_CHUNK_SIZE`, default 1000).
+    pub chunk_size: usize,
+    /// Halvings before Bisect reports the rest of a failing part as failed
+    /// (`LIFEGUARD_BATCH_MAX_DEPTH`, default 20).
+    pub max_depth: u32,
+    /// Transient re-runs under Bisect (`LIFEGUARD_BATCH_TRANSIENT_RETRIES`, default 1).
+    pub transient_retries: u32,
+}
+
+/// The process-wide [`BatchDefaults`].
+#[must_use]
+pub fn defaults() -> BatchDefaults {
+    static D: std::sync::OnceLock<BatchDefaults> = std::sync::OnceLock::new();
+    *D.get_or_init(|| {
+        fn env<T: std::str::FromStr>(name: &str, default: T) -> T {
+            std::env::var(name)
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(default)
+        }
+        BatchDefaults {
+            chunk_size: env("LIFEGUARD_BATCH_CHUNK_SIZE", 1000_usize).max(1),
+            max_depth: env("LIFEGUARD_BATCH_MAX_DEPTH", 20_u32),
+            transient_retries: env("LIFEGUARD_BATCH_TRANSIENT_RETRIES", 1_u32),
+        }
+    })
+}
+
+/// What a homogeneous row batch ([`insert_many`], [`upsert_many`], [`update_many`],
+/// [`delete_many`], [`BatchWriter`]) does when a chunk's statement fails.
+///
+/// Each chunk is one statement, so a failed chunk writes nothing.
+///
+/// ## When Bisect is safe
+///
+/// Only when the rows are **independent**: each row may be written without the others, and
+/// writing some but not all of them leaves the data correct. Typical: idempotent ingest of
+/// separate facts (prices, documents, events keyed by their own id). Not safe: rows that only
+/// make sense together (an order and its lines), rows whose order matters, or a batch inside a
+/// transaction that must commit all of it.
+///
+/// ## What partial success means
+///
+/// The call returns `Ok` with [`BatchOutcome::failed`] listing the rows that were not written
+/// (input index, SQLSTATE, error); every other row is committed. [`BatchOutcome::is_complete`]
+/// is `false` then. The caller logs, retries or dead-letters the failed rows.
+///
+/// ## How to opt in
+///
+/// - Per call: `BatchOptions { failure: Some(BatchFailure::bisect()), ..Default::default() }`
+///   (or [`BatchOptions::bisect`]).
+/// - Per entity: `#[batch_failure = "bisect"]` on the model, which declares its rows independent.
+///   A per-call `failure` overrides it either way.
+///
+/// There is no global switch: only the caller or the entity knows whether rows are independent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BatchFailure {
+    /// The call stops at the failing chunk and returns [`BatchError`] for all of its rows.
+    /// Earlier chunks stay written. The default.
+    #[default]
+    Strict,
+    /// Find the bad rows and write the rest.
+    ///
+    /// - A **row error** (SQLSTATE class `22` data exception, class `23` constraint violation)
+    ///   splits the failed part in half and retries each half, recursively, down to single rows
+    ///   or `max_depth` halvings. Rows of a part that still fails go to
+    ///   [`BatchOutcome::failed`]; every other row is written. That costs about `k · log2(n)`
+    ///   extra statements for `k` bad rows in a chunk of `n`, against `n` for row by row.
+    /// - A **transient error** (`40001`, `40P01`, class `08`, a dropped connection, a pool
+    ///   timeout) re-runs the whole part up to [`BatchOptions::transient_retries`] times, then
+    ///   returns [`BatchError`] without splitting: halving would not help.
+    /// - **Any other error** returns [`BatchError`] at once.
+    ///
+    /// Each part is its own statement, so on a pool executor (autocommit) a failed part rolls back
+    /// alone. Inside a transaction the first error aborts it and every retry fails with `25P02`:
+    /// the call then returns that error.
+    Bisect {
+        /// Halvings before giving up on a failing part (and reporting its rows as failed).
+        max_depth: u32,
+    },
+}
+
+impl BatchFailure {
+    /// [`BatchFailure::Bisect`] with the configured default depth.
+    #[must_use]
+    pub fn bisect() -> Self {
+        Self::Bisect {
+            max_depth: defaults().max_depth,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Strict => "strict",
+            Self::Bisect { .. } => "bisect",
+        }
+    }
+}
+
+/// A row that [`BatchFailure::Bisect`] could not write.
+#[derive(Debug)]
+pub struct FailedRow {
+    /// Index of the row in the input slice.
+    pub index: usize,
+    /// The PostgreSQL SQLSTATE, e.g. `23505` (unique violation).
+    pub sqlstate: Option<String>,
+    /// The error for this row (or for the smallest part containing it, at `max_depth`).
+    pub error: ActiveModelError,
+}
+
+/// A chunk's failure: from the database (classified for [`BatchFailure::Bisect`]) or not.
+enum ChunkError {
+    Db(LifeError),
+    Other(ActiveModelError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErrorClass {
+    /// Bad data in some row: class 22 (data exception) or 23 (integrity constraint).
+    RowData,
+    /// Worth a re-run of the same statement: 40001, 40P01, class 08, connection or pool timeout.
+    Transient,
+    Other,
+}
+
+fn sqlstate(e: &LifeError) -> Option<String> {
+    match e {
+        LifeError::PostgresError(pe) => pe.code().map(|c| c.code().to_string()),
+        _ => None,
+    }
+}
+
+fn classify(e: &LifeError) -> ErrorClass {
+    match e {
+        LifeError::PostgresError(pe) => match pe.code().map(may_postgres::error::SqlState::code) {
+            Some(c) if c.starts_with("22") || c.starts_with("23") => ErrorClass::RowData,
+            Some("40001" | "40P01") => ErrorClass::Transient,
+            Some(c) if c.starts_with("08") => ErrorClass::Transient,
+            Some(_) => ErrorClass::Other,
+            // No SQLSTATE: I/O error or closed connection.
+            None => ErrorClass::Transient,
+        },
+        LifeError::PoolAcquireTimeout { .. } | LifeError::PoolReplyTimeout { .. } => {
+            ErrorClass::Transient
+        }
+        _ => ErrorClass::Other,
+    }
+}
+
+/// The policy a call runs under, after the per-call / entity / default resolution and the
+/// safety checks.
+struct Plan {
+    bisect: Option<u32>,
+    transient_retries: u32,
+    fallback: Option<String>,
+}
+
+impl Plan {
+    fn resolve<E: LifeModelTrait>(
+        opts: &BatchOptions,
+        keys: Option<&[String]>,
+        refs_in_batch: bool,
+    ) -> Self {
+        let requested = opts
+            .failure
+            .or_else(E::__lg_batch_failure)
+            .unwrap_or_default();
+        let mut plan = Self {
+            bisect: None,
+            transient_retries: opts.transient_retries,
+            fallback: None,
+        };
+        if let BatchFailure::Bisect { max_depth } = requested {
+            let reason = if opts.ordered {
+                Some("BatchOptions::ordered: chunks must stay whole and in order")
+            } else if keys.is_some_and(has_duplicates) {
+                Some("duplicate keys in the batch: splitting could change which row wins")
+            } else if refs_in_batch {
+                Some("rows reference other rows of the same batch (self-referencing foreign key)")
+            } else {
+                None
+            };
+            match reason {
+                Some(r) => plan.fallback = Some(r.to_string()),
+                None => plan.bisect = Some(max_depth),
+            }
+        }
+        plan
+    }
+
+    fn applied(&self) -> BatchFailure {
+        match self.bisect {
+            Some(max_depth) => BatchFailure::Bisect { max_depth },
+            None => BatchFailure::Strict,
+        }
+    }
+
+    fn record<M>(
+        &self,
+        metrics: Option<&'static crate::metrics::entity::EntityMetrics>,
+        out: &BatchOutcome<M>,
+        extra_statements: u64,
+    ) {
+        if let Some(m) = metrics {
+            m.record_batch(
+                self.applied().label(),
+                out.rows_affected,
+                out.failed.len() as u64,
+                extra_statements,
+                self.fallback.is_some(),
+            );
+        }
+    }
+}
+
+fn has_duplicates(keys: &[String]) -> bool {
+    let mut seen = std::collections::HashSet::with_capacity(keys.len());
+    keys.iter().any(|k| !seen.insert(k))
+}
+
+/// `true` when a column's foreign key targets the entity's own table.
+fn references_own_table<E>(c: E::Column) -> bool
+where
+    E: LifeModelTrait + LifeEntityName + Default,
+{
+    let Some(fk) = c.column_def().foreign_key else {
+        return false;
+    };
+    fk_targets_table(&fk, E::default().table_name())
+}
+
+/// `fk` is a column's `foreign_key` text, e.g. `accounts(id) ON DELETE SET NULL` or
+/// `ledger.accounts (id)`.
+fn fk_targets_table(fk: &str, table: &str) -> bool {
+    let target = fk.split('(').next().unwrap_or("").trim().trim_matches('"');
+    let target = target
+        .rsplit('.')
+        .next()
+        .unwrap_or(target)
+        .trim_matches('"');
+    target.eq_ignore_ascii_case(table)
+}
+
+/// Whether any self-referencing column value of a row equals a key in the batch.
+fn refs_within<T>(
+    keys: Option<&[String]>,
+    self_ref_cols: &[usize],
+    rows: &[Vec<T>],
+    render: impl Fn(&T) -> String,
+) -> bool {
+    let Some(keys) = keys else {
+        return false;
+    };
+    if self_ref_cols.is_empty() {
+        return false;
+    }
+    let set: std::collections::HashSet<&String> = keys.iter().collect();
+    rows.iter().any(|r| {
+        self_ref_cols
+            .iter()
+            .any(|&c| r.get(c).is_some_and(|v| set.contains(&render(v))))
+    })
+}
+
+/// Run one chunk's statement: rows affected and (with RETURNING) the models.
+fn exec_chunk<M: FromRow>(
+    executor: &dyn LifeExecutor,
+    metrics: Option<&'static crate::metrics::entity::EntityMetrics>,
+    op: crate::metrics::entity::Op,
+    sql: &str,
+    params: Vec<OwnedParam>,
+    returning: bool,
+) -> Result<(u64, Vec<M>), ChunkError> {
+    let timer = crate::metrics::entity::OpTimer::start(metrics, op);
+    if returning {
+        let res = executor.__lg_query_all_owned(sql, params);
+        timer.finish(res.as_ref().map_or(0, |r| r.len() as u64), res.is_ok());
+        let rows_back = res.map_err(ChunkError::Db)?;
+        let mut models = Vec::with_capacity(rows_back.len());
+        for row in &rows_back {
+            models.push(
+                M::from_row(row).map_err(|e| {
+                    ChunkError::Other(ActiveModelError::DatabaseError(e.to_string()))
+                })?,
+            );
+        }
+        Ok((rows_back.len() as u64, models))
+    } else {
+        let res = executor.__lg_execute_owned(sql, params);
+        timer.finish(*res.as_ref().unwrap_or(&0), res.is_ok());
+        Ok((res.map_err(ChunkError::Db)?, Vec::new()))
+    }
+}
+
+/// Run every chunk under `plan`. Returns the result and the statements run beyond one per chunk
+/// (bisect halves and transient re-runs: the extra round trips the policy cost).
+fn drive<M>(
+    plan: &Plan,
+    chunks: Vec<std::ops::Range<usize>>,
+    out: &mut BatchOutcome<M>,
+    mut run: impl FnMut(std::ops::Range<usize>) -> Result<(u64, Vec<M>), ChunkError>,
+) -> (Result<(), BatchError>, u64) {
+    let mut extra = 0u64;
+    for (chunk_index, range) in chunks.into_iter().enumerate() {
+        // Parts still to write, last on top: in order, so RETURNING models keep input order.
+        let mut todo = vec![(range, 0u32)];
+        let mut first = true;
+        while let Some((part, depth)) = todo.pop() {
+            let fail = |source: ActiveModelError, written: u64| BatchError {
+                chunk: chunk_index,
+                rows: part.clone(),
+                rows_written_before: written,
+                source,
+            };
+            out.statements += 1;
+            if !first {
+                extra += 1;
+            }
+            first = false;
+            let mut res = run(part.clone());
+            if plan.bisect.is_some() {
+                let mut tries = 0;
+                while tries < plan.transient_retries
+                    && matches!(&res, Err(ChunkError::Db(e)) if classify(e) == ErrorClass::Transient)
+                {
+                    tries += 1;
+                    out.statements += 1;
+                    extra += 1;
+                    res = run(part.clone());
+                }
+            }
+            match res {
+                Ok((n, models)) => {
+                    out.rows_affected += n;
+                    out.models.extend(models);
+                }
+                Err(ChunkError::Db(e))
+                    if plan.bisect.is_some() && classify(&e) == ErrorClass::RowData =>
+                {
+                    let max_depth = plan.bisect.unwrap_or(0);
+                    if part.len() == 1 || depth >= max_depth {
+                        for index in part.clone() {
+                            out.failed.push(FailedRow {
+                                index,
+                                sqlstate: sqlstate(&e),
+                                error: db(&e),
+                            });
+                        }
+                    } else {
+                        let mid = part.start + part.len() / 2;
+                        todo.push((mid..part.end, depth + 1));
+                        todo.push((part.start..mid, depth + 1));
+                    }
+                }
+                Err(ChunkError::Db(e)) => return (Err(fail(db(&e), out.rows_affected)), extra),
+                Err(ChunkError::Other(e)) => return (Err(fail(e, out.rows_affected)), extra),
+            }
+        }
+    }
+    out.failed.sort_by_key(|f| f.index);
+    (Ok(()), extra)
 }
 
 impl Default for BatchOptions {
     fn default() -> Self {
         Self {
-            max_rows: 1000,
+            max_rows: defaults().chunk_size,
             max_params: 32_000,
             unnest_min_rows: 64,
             returning: false,
+            failure: None,
+            transient_retries: defaults().transient_retries,
+            ordered: false,
         }
     }
 }
 
 impl BatchOptions {
+    /// Default options that opt into [`BatchFailure::Bisect`] for this call (the caller declares
+    /// the rows independent). See [`BatchFailure`] for when that is safe.
+    #[must_use]
+    pub fn bisect() -> Self {
+        Self {
+            failure: Some(BatchFailure::bisect()),
+            ..Self::default()
+        }
+    }
+
     /// Default options with `RETURNING *`.
     #[must_use]
     pub fn returning() -> Self {
@@ -89,8 +504,27 @@ pub struct BatchOutcome<M> {
     pub rows_affected: u64,
     /// Rows returned (`RETURNING *`, or the rows found by [`find_by_ids`]).
     pub models: Vec<M>,
-    /// Statements run.
+    /// Statements run (with [`BatchFailure::Bisect`], retries and halves included: the round
+    /// trips the call cost).
     pub statements: usize,
+    /// Rows [`BatchFailure::Bisect`] could not write, in input order (always empty with
+    /// [`BatchFailure::Strict`]). Non-empty means **partial success**: see
+    /// [`BatchOutcome::is_complete`].
+    pub failed: Vec<FailedRow>,
+    /// The policy the call actually ran under (after any fallback).
+    pub policy_applied: BatchFailure,
+    /// Why a requested [`BatchFailure::Bisect`] ran as [`BatchFailure::Strict`], if it did.
+    pub fallback_reason: Option<String>,
+}
+
+impl<M> BatchOutcome<M> {
+    /// `true` when every input row was written: no row failed. A [`BatchFailure::Bisect`] call
+    /// can return `Ok` with failed rows; check this (or [`BatchOutcome::failed`]) before
+    /// treating the call as complete.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.failed.is_empty()
+    }
 }
 
 impl<M> Default for BatchOutcome<M> {
@@ -99,6 +533,9 @@ impl<M> Default for BatchOutcome<M> {
             rows_affected: 0,
             models: Vec::new(),
             statements: 0,
+            failed: Vec::new(),
+            policy_applied: BatchFailure::Strict,
+            fallback_reason: None,
         }
     }
 }
@@ -381,18 +818,8 @@ where
         crate::metrics::entity::Op::Insert
     };
 
-    for (chunk_index, range) in chunk_ranges(rows.len(), ncols, opts)
-        .into_iter()
-        .enumerate()
-    {
-        let chunk = &rows[range.clone()];
-        let fail = |source: ActiveModelError, written: u64| BatchError {
-            chunk: chunk_index,
-            rows: range.clone(),
-            rows_written_before: written,
-            source,
-        };
-
+    // One chunk's statement: `VALUES` or `unnest`, plus the ON CONFLICT / RETURNING clauses.
+    let build = |chunk: &[Vec<Expr>]| -> Result<(String, Vec<OwnedParam>), ActiveModelError> {
         // Single-row-shaped statement built by SeaQuery: gives the quoted prefix, and the
         // ON CONFLICT / RETURNING suffix for the unnest form.
         let mut q = Query::insert();
@@ -410,7 +837,7 @@ where
             None
         };
 
-        let (sql, params) = if let Some(arrays) = arrays {
+        if let Some(arrays) = arrays {
             // Render the clauses around a one-row VALUES, then swap VALUES for unnest.
             q.values_panic(chunk[0].iter().cloned());
             if let Some(oc) = on_conflict.clone() {
@@ -420,73 +847,57 @@ where
                 q.returning_all();
             }
             let (one_row_sql, one_row_values) = q.build(PostgresQueryBuilder);
-            match unnest_sql::<R::Entity>(
+            if let Some(sql) = unnest_sql::<R::Entity>(
                 &one_row_sql,
                 one_row_values.0.len(),
                 ncols,
                 &arrays,
                 &columns,
             ) {
-                Some(sql) => (
+                return Ok((
                     sql,
                     arrays
                         .into_iter()
                         .map(|(a, _)| OwnedParam::Array(a))
                         .collect(),
-                ),
-                None => {
-                    let (sql, values) = values_statement(
-                        &entity,
-                        &columns,
-                        chunk,
-                        on_conflict.clone(),
-                        opts.returning,
-                    );
-                    (
-                        sql,
-                        values_to_owned(&values).map_err(|e| fail(e, out.rows_affected))?,
-                    )
-                }
+                ));
             }
-        } else {
-            let (sql, values) = values_statement(
-                &entity,
-                &columns,
-                chunk,
-                on_conflict.clone(),
-                opts.returning,
-            );
-            (
-                sql,
-                values_to_owned(&values).map_err(|e| fail(e, out.rows_affected))?,
-            )
-        };
-
-        let timer = crate::metrics::entity::OpTimer::start(metrics, op);
-        if opts.returning {
-            let res = executor.__lg_query_all_owned(&sql, params);
-            timer.finish(res.as_ref().map_or(0, |r| r.len() as u64), res.is_ok());
-            let rows_back = res.map_err(|e| fail(db(&e), out.rows_affected))?;
-            out.rows_affected += rows_back.len() as u64;
-            for row in &rows_back {
-                let m = <<R::Entity as LifeModelTrait>::Model as FromRow>::from_row(row).map_err(
-                    |e| {
-                        fail(
-                            ActiveModelError::DatabaseError(e.to_string()),
-                            out.rows_affected,
-                        )
-                    },
-                )?;
-                out.models.push(m);
-            }
-        } else {
-            let res = executor.__lg_execute_owned(&sql, params);
-            timer.finish(*res.as_ref().unwrap_or(&0), res.is_ok());
-            out.rows_affected += res.map_err(|e| fail(db(&e), out.rows_affected))?;
         }
-        out.statements += 1;
-    }
-    Ok(out)
+        let (sql, values) = values_statement(
+            &entity,
+            &columns,
+            chunk,
+            on_conflict.clone(),
+            opts.returning,
+        );
+        Ok((sql, values_to_owned(&values)?))
+    };
+
+    let pk_index = primary_key_column::<R::Entity>().ok().and_then(|pk| {
+        columns
+            .iter()
+            .position(|c| column_name(c) == column_name(&pk))
+    });
+    let keys: Option<Vec<String>> =
+        pk_index.map(|i| rows.iter().map(|r| format!("{:?}", r[i])).collect());
+    let self_ref: Vec<usize> = columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| references_own_table::<R::Entity>(**c))
+        .map(|(i, _)| i)
+        .collect();
+    let refs_in_batch =
+        refs_within::<Expr>(keys.as_deref(), &self_ref, &rows, |e| format!("{e:?}"));
+    let plan = Plan::resolve::<R::Entity>(opts, keys.as_deref(), refs_in_batch);
+    out.policy_applied = plan.applied();
+    out.fallback_reason = plan.fallback.clone();
+    let chunks = chunk_ranges(rows.len(), ncols, opts);
+    let (r, extra) = drive(&plan, chunks, &mut out, |part| {
+        let (sql, params) = build(&rows[part]).map_err(ChunkError::Other)?;
+        exec_chunk(executor, metrics, op, &sql, params, opts.returning)
+    });
+    plan.record(metrics, &out, extra);
+    r.map(|()| out)
 }
 
 fn values_statement<E, C>(
@@ -633,20 +1044,23 @@ where
     let pk_name = quote_ident(&column_name(&pk));
     let metrics = <R::Entity as LifeModelTrait>::__lg_entity_metrics();
     let ncols = columns.len() + 1;
-    for (chunk_index, range) in chunk_ranges(rows.len(), 1, opts).into_iter().enumerate() {
-        let fail = |source: ActiveModelError, written: u64| BatchError {
-            chunk: chunk_index,
-            rows: range.clone(),
-            rows_written_before: written,
-            source,
-        };
-        let arrays = columns_as_arrays(&rows[range.clone()], ncols).ok_or_else(|| {
-            fail(
-                ActiveModelError::Other(
-                    "update_many: a column has no array mapping (all NULL, mixed types or an expression)"
-                        .to_string(),
-                ),
-                out.rows_affected,
+    // Row layout: key first, then the updated columns.
+    let keys: Vec<String> = rows.iter().map(|r| format!("{:?}", r[0])).collect();
+    let self_ref: Vec<usize> = columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| references_own_table::<R::Entity>(**c))
+        .map(|(i, _)| i + 1)
+        .collect();
+    let refs_in_batch = refs_within::<Expr>(Some(&keys), &self_ref, &rows, |e| format!("{e:?}"));
+    let plan = Plan::resolve::<R::Entity>(opts, Some(&keys), refs_in_batch);
+    out.policy_applied = plan.applied();
+    out.fallback_reason = plan.fallback.clone();
+    let build = |part: &[Vec<Expr>]| -> Result<(String, Vec<OwnedParam>), ActiveModelError> {
+        let arrays = columns_as_arrays(part, ncols).ok_or_else(|| {
+            ActiveModelError::Other(
+                "update_many: a column has no array mapping (all NULL, mixed types or an expression)"
+                    .to_string(),
             )
         })?;
         let mut sql = format!("UPDATE {table} AS lg_t SET ");
@@ -685,37 +1099,28 @@ where
         if opts.returning {
             sql.push_str(" RETURNING lg_t.*");
         }
-        let params: Vec<OwnedParam> = arrays
-            .into_iter()
-            .map(|(a, _)| OwnedParam::Array(a))
-            .collect();
-        let timer =
-            crate::metrics::entity::OpTimer::start(metrics, crate::metrics::entity::Op::Update);
-        if opts.returning {
-            let res = executor.__lg_query_all_owned(&sql, params);
-            timer.finish(res.as_ref().map_or(0, |r| r.len() as u64), res.is_ok());
-            let back = res.map_err(|e| fail(db(&e), out.rows_affected))?;
-            out.rows_affected += back.len() as u64;
-            for row in &back {
-                out.models.push(
-                    <<R::Entity as LifeModelTrait>::Model as FromRow>::from_row(row).map_err(
-                        |e| {
-                            fail(
-                                ActiveModelError::DatabaseError(e.to_string()),
-                                out.rows_affected,
-                            )
-                        },
-                    )?,
-                );
-            }
-        } else {
-            let res = executor.__lg_execute_owned(&sql, params);
-            timer.finish(*res.as_ref().unwrap_or(&0), res.is_ok());
-            out.rows_affected += res.map_err(|e| fail(db(&e), out.rows_affected))?;
-        }
-        out.statements += 1;
-    }
-    Ok(out)
+        Ok((
+            sql,
+            arrays
+                .into_iter()
+                .map(|(a, _)| OwnedParam::Array(a))
+                .collect(),
+        ))
+    };
+    let chunks = chunk_ranges(rows.len(), 1, opts);
+    let (r, extra) = drive(&plan, chunks, &mut out, |part| {
+        let (sql, params) = build(&rows[part]).map_err(ChunkError::Other)?;
+        exec_chunk(
+            executor,
+            metrics,
+            crate::metrics::entity::Op::Update,
+            &sql,
+            params,
+            opts.returning,
+        )
+    });
+    plan.record(metrics, &out, extra);
+    r.map(|()| out)
 }
 
 fn key_array(ids: &[Value]) -> Result<(OwnedArray, &'static str), ActiveModelError> {
@@ -761,41 +1166,28 @@ where
     let table = table_sql(&E::default());
     let pk_name = quote_ident(&column_name(&pk));
     let metrics = E::__lg_entity_metrics();
-    for (chunk_index, range) in chunk_ranges(ids.len(), 1, opts).into_iter().enumerate() {
-        let fail = |source: ActiveModelError, written: u64| BatchError {
-            chunk: chunk_index,
-            rows: range.clone(),
-            rows_written_before: written,
-            source,
-        };
-        let (arr, ty) = key_array(&ids[range.clone()]).map_err(|e| fail(e, out.rows_affected))?;
+    let keys: Vec<String> = ids.iter().map(|v| format!("{v:?}")).collect();
+    let plan = Plan::resolve::<E>(opts, Some(&keys), false);
+    out.policy_applied = plan.applied();
+    out.fallback_reason = plan.fallback.clone();
+    let chunks = chunk_ranges(ids.len(), 1, opts);
+    let (r, extra) = drive(&plan, chunks, &mut out, |part| {
+        let (arr, ty) = key_array(&ids[part]).map_err(ChunkError::Other)?;
         let mut sql = format!("DELETE FROM {table} WHERE {pk_name} = ANY($1::{ty}[])");
         if opts.returning {
             sql.push_str(" RETURNING *");
         }
-        let timer =
-            crate::metrics::entity::OpTimer::start(metrics, crate::metrics::entity::Op::Delete);
-        if opts.returning {
-            let res = executor.__lg_query_all_owned(&sql, vec![OwnedParam::Array(arr)]);
-            timer.finish(res.as_ref().map_or(0, |r| r.len() as u64), res.is_ok());
-            let back = res.map_err(|e| fail(db(&e), out.rows_affected))?;
-            out.rows_affected += back.len() as u64;
-            for row in &back {
-                out.models.push(E::Model::from_row(row).map_err(|e| {
-                    fail(
-                        ActiveModelError::DatabaseError(e.to_string()),
-                        out.rows_affected,
-                    )
-                })?);
-            }
-        } else {
-            let res = executor.__lg_execute_owned(&sql, vec![OwnedParam::Array(arr)]);
-            timer.finish(*res.as_ref().unwrap_or(&0), res.is_ok());
-            out.rows_affected += res.map_err(|e| fail(db(&e), out.rows_affected))?;
-        }
-        out.statements += 1;
-    }
-    Ok(out)
+        exec_chunk(
+            executor,
+            metrics,
+            crate::metrics::entity::Op::Delete,
+            &sql,
+            vec![OwnedParam::Array(arr)],
+            opts.returning,
+        )
+    });
+    plan.record(metrics, &out, extra);
+    r.map(|()| out)
 }
 
 /// Load the rows whose primary key is in `ids`: `SELECT .. FROM t WHERE pk = ANY($1)` (the
@@ -864,6 +1256,23 @@ where
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fk_target_parsing() {
+        assert!(fk_targets_table(
+            "accounts(id) ON DELETE SET NULL",
+            "accounts"
+        ));
+        assert!(fk_targets_table("ledger.accounts (id)", "accounts"));
+        assert!(fk_targets_table("\"Accounts\"(id)", "accounts"));
+        assert!(!fk_targets_table("users(id)", "accounts"));
+    }
+
+    #[test]
+    fn duplicate_detection() {
+        assert!(has_duplicates(&["1".into(), "2".into(), "1".into()]));
+        assert!(!has_duplicates(&["1".into(), "2".into()]));
+    }
 
     #[test]
     fn chunks_respect_row_and_param_caps() {

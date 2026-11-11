@@ -688,6 +688,7 @@ pub mod entity {
         rows: prometheus::IntCounterVec,
         errors: prometheus::IntCounterVec,
         cache: prometheus::IntCounterVec,
+        batch: prometheus::IntCounterVec,
     }
 
     #[cfg(feature = "metrics")]
@@ -731,12 +732,23 @@ pub mod entity {
                     &["entity", "result"],
                 )
                 .expect("entity cache counter"),
+                batch: prometheus::IntCounterVec::new(
+                    prometheus::Opts::new(
+                        "lifeguard_entity_batch_total",
+                        "Batch writes per entity and applied policy: committed_rows, failed_rows, \
+                         bisect_round_trips (statements beyond one per chunk) and fallbacks \
+                         (Bisect requested, Strict applied)",
+                    ),
+                    &["entity", "policy", "kind"],
+                )
+                .expect("entity batch counter"),
             };
             let reg = &super::METRICS.registry;
             let _ = reg.register(Box::new(v.duration.clone()));
             let _ = reg.register(Box::new(v.rows.clone()));
             let _ = reg.register(Box::new(v.errors.clone()));
             let _ = reg.register(Box::new(v.cache.clone()));
+            let _ = reg.register(Box::new(v.batch.clone()));
             v
         })
     }
@@ -787,6 +799,34 @@ pub mod entity {
             {
                 let _ = entity;
                 Self {}
+            }
+        }
+
+        /// Record one batch call (`policy`: `strict` or `bisect`, as applied).
+        pub fn record_batch(
+            &self,
+            policy: &'static str,
+            committed: u64,
+            failed: u64,
+            bisect_round_trips: u64,
+            fallback: bool,
+        ) {
+            #[cfg(feature = "metrics")]
+            {
+                let v = &vecs().batch;
+                let add = |kind: &str, n: u64| {
+                    if n > 0 {
+                        v.with_label_values(&[self.name, policy, kind]).inc_by(n);
+                    }
+                };
+                add("committed_rows", committed);
+                add("failed_rows", failed);
+                add("bisect_round_trips", bisect_round_trips);
+                add("fallbacks", u64::from(fallback));
+            }
+            #[cfg(not(feature = "metrics"))]
+            {
+                let _ = (policy, committed, failed, bisect_round_trips, fallback);
             }
         }
 

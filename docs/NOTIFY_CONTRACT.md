@@ -41,6 +41,48 @@ The payload carries the key, never the row, so it stays far below PostgreSQL's 8
 limit whatever the row's width (a full-row payload makes the writing statement fail on wide
 rows).
 
+## Statement granularity: `ids`
+
+```rust
+#[notify(channel = "order_changes", on = "insert,update,delete", granularity = "statement")]
+```
+
+`granularity = "statement"` generates `FOR EACH STATEMENT` triggers with transition tables (one
+per operation) instead of a row trigger. Each statement publishes the distinct keys it touched in
+an array:
+
+```json
+{"table": "orders", "op": "UPDATE", "ids": [41, 42, 97], "v": 23861592, "ts": 1793119890340}
+```
+
+| Field | Meaning |
+|---|---|
+| `ids` | the distinct primary keys the statement touched: new rows for `INSERT`, old rows for `DELETE`, old **and** new rows for `UPDATE` (so a key change invalidates both) |
+| `v`, `ts` | as above, taken once per statement |
+
+- A statement touching many rows is split into several notifications, each with part of the keys,
+  so every payload stays under 8000 bytes. The split is by key text length (7000 bytes of keys per
+  payload: about 190 UUIDs or 500 to 1000 integer keys).
+- A statement that touched no rows sends nothing.
+- A payload carries either `id` or `ids`, never both. A consumer handles `ids` as one change per
+  element, with the same `table`, `op`, `v` and `ts`.
+- Use it for tables written in bulk (multi-row `INSERT`, `UPDATE .. FROM`, batch upserts): a
+  500-row statement sends one to three notifications instead of 500. For single-row writes the
+  two granularities cost the same.
+
+## Timing
+
+A notification is queued by the trigger and delivered when the writing transaction commits, so
+invalidation follows the **commit**, not the statement:
+
+- Rows written one per transaction are invalidated one by one, each at its own commit.
+- Rows written in one batched statement or one transaction are invalidated together, at that
+  commit. Batching never delays a key past the commit that made it visible; it can delay the
+  first key of a batch by the time it took to build the batch.
+- Within one transaction PostgreSQL drops a notification identical to one already queued (same
+  channel and payload), so repeated writes to one row in one transaction collapse.
+
+
 ## Delivery
 
 PostgreSQL delivers a notification after the writing transaction commits, to sessions that were
@@ -53,5 +95,7 @@ change-timestamp column) after any gap.
 - Version 1 consumers must ignore fields they do not know.
 - New fields may be added without changing the version. Removing or changing the meaning of a
   field changes the version.
+- `ids` (statement granularity) is an addition under the same version: a consumer that reads
+  only `id` must be upgraded before a table switches to statement granularity.
 - `v` and `ts` were added in version 1; triggers generated before them send only `table`, `op`
   and `id`, which consumers should accept (losing stale-event detection and lag measurement).

@@ -115,6 +115,37 @@ pub fn extract_cursor_tiebreak(attrs: &[Attribute]) -> Option<syn::Ident> {
     None
 }
 
+/// `#[batch_failure = "strict" | "bisect"]`: the entity's default batch failure policy.
+///
+/// # Errors
+///
+/// Any other value.
+pub fn extract_batch_failure(attrs: &[Attribute]) -> syn::Result<Option<String>> {
+    for attr in attrs {
+        if attr.path().is_ident("batch_failure") {
+            let meta = attr.meta.require_name_value()?;
+            if let syn::Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &meta.value
+            {
+                let v = s.value().trim().to_ascii_lowercase();
+                if v == "strict" || v == "bisect" {
+                    return Ok(Some(v));
+                }
+                return Err(syn::Error::new_spanned(
+                    &meta.value,
+                    "batch_failure must be \"strict\" or \"bisect\"",
+                ));
+            }
+            return Err(syn::Error::new_spanned(
+                attr,
+                "batch_failure = \"bisect\" expected",
+            ));
+        }
+    }
+    Ok(None)
+}
+
 /// Check if field has a specific attribute
 pub fn has_attribute(field: &Field, attr_name: &str) -> bool {
     field
@@ -553,6 +584,9 @@ pub struct TableAttributes {
     pub notify_on_update: bool,
     /// SPIKE: row operations that fire the notify.
     pub notify_on_delete: bool,
+    /// `granularity = "statement"`: one notification per statement (keys batched) instead of
+    /// one per row.
+    pub notify_per_statement: bool,
 }
 
 /// Parse table-level attributes from struct attributes
@@ -792,6 +826,19 @@ pub fn parse_table_attributes(
                     };
                     if nv.path.is_ident("channel") {
                         table_attrs.notify_channel = Some(s.value());
+                    } else if nv.path.is_ident("granularity") {
+                        match s.value().trim().to_ascii_lowercase().as_str() {
+                            "row" => table_attrs.notify_per_statement = false,
+                            "statement" => table_attrs.notify_per_statement = true,
+                            other => {
+                                return Err(syn::Error::new_spanned(
+                                    &nv.value,
+                                    format!(
+                                        "unknown notify granularity {other:?}; expected row or statement"
+                                    ),
+                                ))
+                            }
+                        }
                     } else if nv.path.is_ident("on") {
                         // Unknown operations are rejected rather than ignored: a
                         // silently-dropped "insrt" would produce a trigger that

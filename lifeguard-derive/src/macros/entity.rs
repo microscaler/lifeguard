@@ -175,6 +175,21 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         None => quote! {},
     };
 
+    let batch_failure_impl = match attributes::extract_batch_failure(&input.attrs) {
+        Ok(Some(v)) if v == "bisect" => quote! {
+            fn __lg_batch_failure() -> Option<lifeguard::BatchFailure> {
+                Some(lifeguard::BatchFailure::bisect())
+            }
+        },
+        Ok(Some(_)) => quote! {
+            fn __lg_batch_failure() -> Option<lifeguard::BatchFailure> {
+                Some(lifeguard::BatchFailure::Strict)
+            }
+        },
+        Ok(None) => quote! {},
+        Err(e) => return e.to_compile_error().into(),
+    };
+    let cursor_tiebreak_impl = quote! { #cursor_tiebreak_impl #batch_failure_impl };
     let life_model_trait_impl = generate_life_model_trait_impl(
         struct_name,
         &model_name,

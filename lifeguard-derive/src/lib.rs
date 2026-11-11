@@ -20,7 +20,15 @@ use proc_macro::TokenStream;
 /// Note: This macro is typically used internally by `LifeModel`. See `LifeModel` for usage examples.
 #[proc_macro_derive(
     DeriveEntity,
-    attributes(table_name, model, column, schema_name, soft_delete, cursor_tiebreak)
+    attributes(
+        table_name,
+        model,
+        column,
+        schema_name,
+        soft_delete,
+        cursor_tiebreak,
+        batch_failure
+    )
 )]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     macros::derive_entity(input)
@@ -59,6 +67,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
     LifeModel,
     attributes(
         table_name,
+        batch_failure,
         schema_name,
         primary_key,
         column_name,

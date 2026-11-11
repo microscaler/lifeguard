@@ -62,7 +62,9 @@ pub struct BatchWriterConfig {
     pub retries: u32,
     /// Delay before the first retry; doubles per retry.
     pub retry_backoff: Duration,
-    /// Chunking for each write.
+    /// Chunking and failure policy for each write. The default is strict (the entity's
+    /// `#[batch_failure]`, if any, applies); with [`super::BatchFailure::Bisect`] a row the
+    /// database rejects goes to the error handler alone and the rest of its batch is written.
     pub options: BatchOptions,
 }
 
@@ -377,6 +379,30 @@ fn write_batch<R, X>(
                     .written
                     .fetch_add(out.rows_affected, Ordering::Relaxed);
                 counters.batches.fetch_add(1, Ordering::Relaxed);
+                if !out.failed.is_empty() {
+                    // Rows bisection isolated: hand each to the error handler on its own.
+                    counters
+                        .failed
+                        .fetch_add(out.failed.len() as u64, Ordering::Relaxed);
+                    let mut slots: Vec<Option<R>> = rows.into_iter().map(Some).collect();
+                    for f in out.failed {
+                        log::warn!(
+                            "lifeguard batch writer: row {} rejected ({}): {}",
+                            f.index,
+                            f.sqlstate.as_deref().unwrap_or("-"),
+                            f.error
+                        );
+                        if let Some(row) = slots.get_mut(f.index).and_then(Option::take) {
+                            let e = BatchError {
+                                chunk: 0,
+                                rows: f.index..f.index + 1,
+                                rows_written_before: out.rows_affected,
+                                source: f.error,
+                            };
+                            on_error(&e, vec![row]);
+                        }
+                    }
+                }
                 break;
             }
             Err(e) if attempt < config.retries => {

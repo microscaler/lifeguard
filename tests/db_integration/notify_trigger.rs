@@ -297,3 +297,149 @@ fn wait_for_notification(client: &may_postgres::Client) -> Option<String> {
     }
     None
 }
+
+// ---------------------------------------------------------------------------------------------
+// granularity = "statement": one notification per statement, keys batched in `ids`.
+
+pub mod notify_stmt {
+    use super::{LifeModel, LifeRecord};
+
+    #[derive(LifeModel, LifeRecord)]
+    #[table_name = "test_notify_stmt"]
+    #[notify(
+        channel = "test_lifeguard_stmt",
+        on = "insert,update,delete",
+        granularity = "statement"
+    )]
+    pub struct NotifyStmt {
+        #[primary_key]
+        pub id: i64,
+        pub qty: i32,
+    }
+}
+
+fn setup_stmt() -> may_postgres::Client {
+    let sql =
+        generate_create_table_sql::<notify_stmt::Entity>(notify_stmt::Entity::table_definition())
+            .expect("generate");
+    assert!(sql.contains("FOR EACH STATEMENT"), "{sql}");
+    let ctx = crate::context::get_test_context();
+    let client = may_postgres::connect(&ctx.pg_url).expect("connect");
+    client
+        .batch_execute("DROP TABLE IF EXISTS test_notify_stmt CASCADE")
+        .expect("drop");
+    client
+        .batch_execute(&sql)
+        .unwrap_or_else(|e| panic!("apply generated DDL: {e}\n---\n{sql}"));
+    client
+}
+
+/// Every notification that arrives within a short quiet period.
+fn drain_notifications(client: &may_postgres::Client) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut quiet = 0;
+    while quiet < 10 {
+        let mut got = false;
+        while let Some(n) = client.notifications().pop() {
+            out.push(serde_json::from_str(n.payload()).expect("payload is JSON"));
+            got = true;
+        }
+        quiet = if got { 0 } else { quiet + 1 };
+        client.batch_execute("SELECT 1").expect("poll");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    out
+}
+
+fn ids_of(notes: &[serde_json::Value], op: &str) -> Vec<i64> {
+    let mut ids: Vec<i64> = notes
+        .iter()
+        .filter(|n| n["op"] == op)
+        .flat_map(|n| n["ids"].as_array().cloned().unwrap_or_default())
+        .map(|v| v.as_i64().expect("integer key"))
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+#[test]
+fn statement_granularity_sends_one_notification_per_statement() {
+    let _guard = serialised();
+    let writer = setup_stmt();
+    let ctx = crate::context::get_test_context();
+    let listener = may_postgres::connect(&ctx.pg_url).expect("listener");
+    listener
+        .batch_execute("LISTEN test_lifeguard_stmt")
+        .expect("listen");
+
+    // 500 rows in one statement: one notification, all keys.
+    writer
+        .batch_execute(
+            "INSERT INTO test_notify_stmt (id, qty) SELECT g, 0 FROM generate_series(1, 500) g",
+        )
+        .expect("insert");
+    let notes = drain_notifications(&listener);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0]["table"], "test_notify_stmt");
+    assert!(
+        notes[0]["id"].is_null(),
+        "statement payloads carry ids, not id"
+    );
+    assert!(notes[0]["v"].as_i64().is_some_and(|v| v > 0));
+    assert!(notes[0]["ts"]
+        .as_i64()
+        .is_some_and(|t| t > 1_600_000_000_000));
+    assert_eq!(ids_of(&notes, "INSERT"), (1..=500).collect::<Vec<_>>());
+
+    // An UPDATE that changes keys reports the old and the new ones.
+    writer
+        .batch_execute("UPDATE test_notify_stmt SET id = id + 1000 WHERE id <= 2")
+        .expect("update");
+    let notes = drain_notifications(&listener);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(ids_of(&notes, "UPDATE"), vec![1, 2, 1001, 1002]);
+
+    // A statement that touches nothing sends nothing.
+    writer
+        .batch_execute("DELETE FROM test_notify_stmt WHERE id < 0")
+        .expect("empty delete");
+    assert!(drain_notifications(&listener).is_empty());
+
+    // Many keys: split into several notifications, each under 8000 bytes, none lost.
+    writer
+        .batch_execute(
+            "INSERT INTO test_notify_stmt (id, qty) \
+             SELECT g, 0 FROM generate_series(100000000000, 100000003999) g",
+        )
+        .expect("wide insert");
+    let notes = drain_notifications(&listener);
+    assert!(
+        notes.len() > 1,
+        "4000 13-digit keys need more than one payload"
+    );
+    assert!(notes.iter().all(|n| n.to_string().len() < 8000));
+    assert_eq!(
+        ids_of(&notes, "INSERT"),
+        (100_000_000_000..100_000_004_000).collect::<Vec<_>>()
+    );
+
+    // DELETE reports the old keys.
+    writer
+        .batch_execute("DELETE FROM test_notify_stmt WHERE id BETWEEN 3 AND 5")
+        .expect("delete");
+    assert_eq!(
+        ids_of(&drain_notifications(&listener), "DELETE"),
+        vec![3, 4, 5]
+    );
+
+    // Installed as three statement-level triggers, no row trigger.
+    let n: i64 = writer
+        .query_one(
+            "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid \
+             WHERE c.relname = 'test_notify_stmt' AND NOT t.tgisinternal AND (t.tgtype & 1) = 0",
+            &[],
+        )
+        .expect("pg_trigger")
+        .get(0);
+    assert_eq!(n, 3);
+}

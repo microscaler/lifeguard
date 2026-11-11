@@ -99,8 +99,9 @@ pub mod pool;
 // Batch writes, batched reads by key, buffering writer.
 pub mod batch;
 pub use batch::{
-    delete_many, find_by_ids, insert_many, update_many, upsert_many, BatchError, BatchOptions,
-    BatchOutcome, BatchWriter, BatchWriterConfig, BatchWriterStats, WriteMode,
+    delete_many, find_by_ids, insert_many, update_many, upsert_many, BatchDefaults, BatchError,
+    BatchFailure, BatchOptions, BatchOutcome, BatchWriter, BatchWriterConfig, BatchWriterStats,
+    FailedRow, WriteMode,
 };
 
 // Test helpers - Epic 01 Story 08
@@ -111,8 +112,9 @@ pub mod test_helpers;
 // mod tests_cfg;
 
 pub use pool::{
-    DatabaseConfig, ExclusivePrimaryLifeExecutor, LifeguardPool, LifeguardPoolSettings, OwnedArray,
-    OwnedParam, PooledLifeExecutor, ReadPreference, WalLagPolicy,
+    BatchOutput, BatchResults, BatchSlot, DatabaseConfig, ExclusivePrimaryLifeExecutor,
+    LifeguardPool, LifeguardPoolSettings, OwnedArray, OwnedParam, PooledLifeExecutor,
+    ReadPreference, StatementBatch, WalLagPolicy,
 };
 
 #[doc(inline)]
