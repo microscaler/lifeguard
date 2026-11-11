@@ -86,3 +86,6 @@ mod pool_worker_death;
 mod readonly;
 #[path = "db_integration/rls_integration.rs"]
 mod rls_integration;
+
+#[path = "db_integration/presend_retry.rs"]
+mod presend_retry;

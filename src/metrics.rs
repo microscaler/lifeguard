@@ -26,6 +26,8 @@
 //! - `lifeguard_pool_acquire_timeout_total` (counter, `pool_tier`): `PoolAcquireTimeout` dispatches
 //! - `lifeguard_pool_reply_timeout_total` (counter, `pool_tier`): `PoolReplyTimeout` dispatches (enqueued job, no worker reply in budget)
 //! - `lifeguard_pool_slot_heal_total` (counter, `pool_tier`): Connectivity-class slot heal reconnects
+//! - `lifeguard_pool_presend_retry_total` (counter, `unit`, `stage`): units moved to a fresh connection
+//!   because theirs was dead before anything was sent (`stage`: `checkout` or `send`)
 //! - `lifeguard_pool_connection_rotated_total` (counter, `pool_tier`): `max_connection_lifetime` rotations
 //! - `lifeguard_pool_checkout_seconds` (histogram, `pool_tier`): wait for a slot before the job is enqueued
 //! - `lifeguard_pool_in_flight` / `lifeguard_pool_waiters` (gauges, `pool_tier`): jobs holding a slot / callers waiting for one
@@ -92,6 +94,7 @@ pub struct LifeguardMetrics {
     pub pool_acquire_timeout_total: Counter<u64>,
     pub pool_reply_timeout_total: Counter<u64>,
     pub pool_slot_heal_total: Counter<u64>,
+    pub pool_presend_retry_total: Counter<u64>,
     pub pool_connection_rotated_total: Counter<u64>,
     /// Slot wait before enqueue (seconds), `pool_tier`.
     pub pool_checkout: Histogram<f64>,
@@ -195,6 +198,12 @@ impl LifeguardMetrics {
             .u64_counter("lifeguard_pool_slot_heal_total")
             .with_description("Slot heal reconnects after connectivity errors")
             .build();
+        let pool_presend_retry_total = meter
+            .u64_counter("lifeguard_pool_presend_retry_total")
+            .with_description(
+                "Units retried once on a fresh connection because theirs was dead before anything was sent",
+            )
+            .build();
 
         let pool_connection_rotated_total = meter
             .u64_counter("lifeguard_pool_connection_rotated_total")
@@ -258,6 +267,7 @@ impl LifeguardMetrics {
             pool_acquire_timeout_total,
             pool_reply_timeout_total,
             pool_slot_heal_total,
+            pool_presend_retry_total,
             pool_connection_rotated_total,
         }
     }
@@ -358,6 +368,13 @@ impl LifeguardMetrics {
         self.pool_slot_heal_total.add(1, &Self::tier_kv(tier));
     }
 
+    pub fn record_pool_presend_retry(&self, unit: &'static str, stage: &'static str) {
+        self.pool_presend_retry_total.add(
+            1,
+            &[KeyValue::new("unit", unit), KeyValue::new("stage", stage)],
+        );
+    }
+
     pub fn record_pool_connection_rotated(&self, tier: &str) {
         self.pool_connection_rotated_total
             .add(1, &Self::tier_kv(tier));
@@ -403,6 +420,7 @@ impl LifeguardMetrics {
     pub fn record_pool_acquire_timeout(&self, _tier: &str) {}
     pub fn record_pool_reply_timeout(&self, _tier: &str) {}
     pub fn record_pool_slot_heal(&self, _tier: &str) {}
+    pub fn record_pool_presend_retry(&self, _unit: &'static str, _stage: &'static str) {}
     pub fn record_pool_connection_rotated(&self, _tier: &str) {}
     pub fn record_pool_checkout(&self, _duration: std::time::Duration, _tier: &str) {}
     pub fn record_statement_cache(&self, _hit: bool, _tier: &str) {}

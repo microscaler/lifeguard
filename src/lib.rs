@@ -137,8 +137,8 @@ pub use may_postgres;
 
 // Re-export connection types for convenience
 pub use connection::{
-    check_connection_health, check_connection_health_with_timeout, connect,
-    validate_connection_string, ConnectionError, ConnectionString,
+    check_connection_health, check_connection_health_with_timeout, connect, connect_with,
+    validate_connection_string, ConnectionError, ConnectionString, TcpOptions,
 };
 
 // Re-export executor types for convenience

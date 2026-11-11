@@ -44,7 +44,7 @@
 //! With the **`metrics`** feature, pool-scoped series use the attribute **`pool_tier`**
 //! (`primary` \| `replica`); see [`crate::metrics::METRICS`].
 
-use crate::connection::connect;
+use crate::connection::{connect_with, TcpOptions};
 use crate::executor::{LifeError, LifeExecutor, SessionContext};
 use crate::metrics::pool_gauges::Track;
 use crate::pool::config::{DatabaseConfig, LifeguardPoolSettings};
@@ -132,8 +132,9 @@ struct SlotConn {
 }
 
 impl SlotConn {
-    fn open(url: &str) -> Result<Arc<Self>, LifeError> {
-        let master = connect(url).map_err(|e| LifeError::Other(format!("pool connection: {e}")))?;
+    fn open(url: &str, tcp: &TcpOptions) -> Result<Arc<Self>, LifeError> {
+        let master = connect_with(url, tcp)
+            .map_err(|e| LifeError::Other(format!("pool connection: {e}")))?;
         Ok(Arc::new(Self {
             master: Mutex::new(master),
             handles: Mutex::new(Vec::new()),
@@ -190,6 +191,18 @@ impl SlotConn {
         }
     }
 
+    /// Known dead before anything is sent: marked broken, shut by the reply watchdog, or its I/O
+    /// coroutine has exited (the server or the network closed it while it sat idle).
+    fn is_dead(&self) -> bool {
+        self.broken.load(Ordering::Acquire)
+            || self.deadline_closed.load(Ordering::Acquire)
+            || self
+                .master
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_closed()
+    }
+
     fn put_handle(&self, h: Client) {
         if self.broken.load(Ordering::Relaxed) || h.is_closed() {
             return;
@@ -207,6 +220,7 @@ impl SlotConn {
 struct Slot {
     index: usize,
     url: String,
+    tcp: TcpOptions,
     conn: RwLock<Arc<SlotConn>>,
     /// Shared for standalone statements, exclusive for pinned units.
     gate: Gate,
@@ -255,7 +269,7 @@ impl Slot {
         }
         #[cfg(feature = "tracing")]
         let _heal_span = tracing_helpers::pool_slot_heal_span(); // created, not entered
-        let fresh = SlotConn::open(&self.url)?;
+        let fresh = SlotConn::open(&self.url, &self.tcp)?;
         self.swap(Arc::clone(&fresh));
         #[cfg(feature = "metrics")]
         METRICS.record_pool_slot_heal(tier);
@@ -283,6 +297,8 @@ struct TierInner {
     last_timeout_report_ms: AtomicU64,
     timeouts_since_report: AtomicU64,
     next_watch: AtomicU64,
+    /// Pre-send retries: `[checkout, send]` (see [`presend_retryable`]).
+    presend_retries: [AtomicU64; 2],
 }
 
 /// One tier of slots (primary or replica).
@@ -323,12 +339,13 @@ impl WorkerPool {
         let mut slots = Vec::with_capacity(pool_size);
         for index in 0..pool_size {
             let url = url_for_slot(index);
-            let conn = SlotConn::open(&url).map_err(|e| {
+            let conn = SlotConn::open(&url, &settings.tcp).map_err(|e| {
                 LifeError::Other(format!("{tier} pool connection slot {index}: {e}"))
             })?;
             slots.push(Slot {
                 index,
                 url,
+                tcp: settings.tcp.clone(),
                 conn: RwLock::new(conn),
                 gate: Gate::default(),
                 in_flight: AtomicUsize::new(0),
@@ -353,6 +370,7 @@ impl WorkerPool {
             last_timeout_report_ms: AtomicU64::new(0),
             timeouts_since_report: AtomicU64::new(0),
             next_watch: AtomicU64::new(0),
+            presend_retries: [AtomicU64::new(0), AtomicU64::new(0)],
         });
         if inner.idle_liveness.is_some()
             || inner.max_connection_lifetime.is_some()
@@ -427,7 +445,7 @@ impl WorkerPool {
         let inner = &*self.inner;
         let started = Instant::now();
         let checkout = crate::timing::CHECKOUT_RLS.start();
-        let pin = Pin::acquire(&self.inner);
+        let pin = Pin::acquire(&self.inner, "rls_unit");
         checkout.finish(crate::timing::outcome(&pin));
         let pin = pin?;
         #[cfg(feature = "metrics")]
@@ -436,28 +454,44 @@ impl WorkerPool {
             METRICS.record_connection_wait(started.elapsed(), Some(inner.tier));
         }
         let index = pin.index;
-        let conn = Arc::clone(&pin.conn);
-        let args = Arc::clone(args);
-        #[cfg(feature = "tracing")]
-        let ctx = may_tracing::current();
-        let watched = Arc::clone(&conn);
         let unit = crate::timing::RLS_UNIT.start();
-        let result = guarded(&self.inner, index, &watched, move || {
+        let params = Arc::new(params);
+        let mut retried = false;
+        let result = loop {
+            let conn = pin.conn();
+            let watched = Arc::clone(&conn);
+            let (args, params, sql) = (Arc::clone(args), Arc::clone(&params), Arc::clone(&sql));
             #[cfg(feature = "tracing")]
-            let _ctx = may_tracing::set_current(ctx);
-            let h = conn.take_handle();
-            let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
-            let r = contextual_unit(&h, &conn, &args, &sql, &refs, kind);
-            if r.as_ref()
-                .is_err_and(life_error_is_connectivity_heal_candidate)
-            {
-                conn.broken.store(true, Ordering::Release);
-            } else {
-                conn.put_handle(h);
+            let ctx = may_tracing::current();
+            let out = guarded(&self.inner, index, &watched, move || {
+                #[cfg(feature = "tracing")]
+                let _ctx = may_tracing::set_current(ctx);
+                let h = conn.take_handle();
+                let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
+                let sent = AtomicBool::new(false);
+                let r = contextual_unit(&h, &conn, &args, &sql, &refs, kind, &sent);
+                if r.as_ref()
+                    .is_err_and(life_error_is_connectivity_heal_candidate)
+                {
+                    conn.broken.store(true, Ordering::Release);
+                } else {
+                    conn.put_handle(h);
+                }
+                (r, sent.load(Ordering::Acquire))
+            });
+            match out {
+                Some((Err(e), sent)) if !retried && presend_retryable(&e, sent, &watched) => {
+                    retried = true;
+                    self.inner.note_presend_retry("rls_unit", "send");
+                    if pin.reconnect().is_err() {
+                        break Some(Err(e));
+                    }
+                }
+                Some((r, _)) => break Some(r),
+                None => break None,
             }
-            r
-        });
-        let broken = pin.conn.broken.load(Ordering::Acquire);
+        };
+        let broken = pin.conn().broken.load(Ordering::Acquire);
         drop(pin);
         let result = match result {
             Some(r) => {
@@ -483,7 +517,7 @@ impl WorkerPool {
         let inner = &*self.inner;
         let started = Instant::now();
         let checkout = crate::timing::CHECKOUT_RLS.start();
-        let pin = Pin::acquire(&self.inner);
+        let pin = Pin::acquire(&self.inner, "batch");
         checkout.finish(crate::timing::outcome(&pin));
         let pin = pin?;
         #[cfg(feature = "metrics")]
@@ -492,27 +526,44 @@ impl WorkerPool {
             METRICS.record_connection_wait(started.elapsed(), Some(inner.tier));
         }
         let index = pin.index;
-        let conn = Arc::clone(&pin.conn);
-        #[cfg(feature = "tracing")]
-        let ctx = may_tracing::current();
-        let watched = Arc::clone(&conn);
         let unit = crate::timing::BATCH_UNIT.start();
-        let result = guarded(&self.inner, index, &watched, move || {
+        let stmts = Arc::new(stmts);
+        let mut retried = false;
+        let result = loop {
+            let conn = pin.conn();
+            let watched = Arc::clone(&conn);
+            let (stmts, args) = (Arc::clone(&stmts), args.clone());
             #[cfg(feature = "tracing")]
-            let _ctx = may_tracing::set_current(ctx);
-            let h = conn.take_handle();
-            let set = args.as_deref().map(|a| a.params.as_slice());
-            let r = pipeline(&h, &conn, Some(begin), set, &stmts, true);
-            if r.as_ref()
-                .is_err_and(life_error_is_connectivity_heal_candidate)
-            {
-                conn.broken.store(true, Ordering::Release);
-            } else {
-                conn.put_handle(h);
+            let ctx = may_tracing::current();
+            let out = guarded(&self.inner, index, &watched, move || {
+                #[cfg(feature = "tracing")]
+                let _ctx = may_tracing::set_current(ctx);
+                let h = conn.take_handle();
+                let set = args.as_deref().map(|a| a.params.as_slice());
+                let sent = AtomicBool::new(false);
+                let r = pipeline(&h, &conn, Some(begin), set, &stmts, true, &sent);
+                if r.as_ref()
+                    .is_err_and(life_error_is_connectivity_heal_candidate)
+                {
+                    conn.broken.store(true, Ordering::Release);
+                } else {
+                    conn.put_handle(h);
+                }
+                (r, sent.load(Ordering::Acquire))
+            });
+            match out {
+                Some((Err(e), sent)) if !retried && presend_retryable(&e, sent, &watched) => {
+                    retried = true;
+                    self.inner.note_presend_retry("batch", "send");
+                    if pin.reconnect().is_err() {
+                        break Some(Err(e));
+                    }
+                }
+                Some((r, _)) => break Some(r),
+                None => break None,
             }
-            r
-        });
-        let broken = pin.conn.broken.load(Ordering::Acquire);
+        };
+        let broken = pin.conn().broken.load(Ordering::Acquire);
         drop(pin);
         let result = match result {
             Some(r) => {
@@ -529,6 +580,18 @@ impl WorkerPool {
 }
 
 impl TierInner {
+    /// A unit's connection was dead before anything was sent and the unit moves to a fresh one.
+    fn note_presend_retry(&self, unit: &'static str, stage: &'static str) {
+        self.presend_retries[usize::from(stage == "send")].fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "metrics")]
+        METRICS.record_pool_presend_retry(unit, stage);
+        log::warn!(
+            "lifeguard pool ({}): {unit} connection was dead at {stage}, before anything was sent; \
+             retrying once on a fresh connection",
+            self.tier
+        );
+    }
+
     /// Enter a slot for one shared statement: the least-loaded slot whose gate is open. A slot's
     /// gate is closed only while a transaction or RLS unit holds it exclusively; when every slot
     /// is held that way, wait (polling, so a pinned caller that also issues a pooled statement
@@ -669,6 +732,7 @@ impl TierInner {
             log::error!("{msg}");
         }
         let url = slot.url.clone();
+        let tcp = slot.tcp.clone();
         let tier_arc = Arc::clone(self);
         let started = thread::Builder::new()
             .name(format!("lifeguard-heal-{tier}-{index}"))
@@ -677,7 +741,7 @@ impl TierInner {
                 let t0 = Instant::now();
                 let still_seen = seen.as_ref().is_none_or(|s| Arc::ptr_eq(s, &slot.current()));
                 if still_seen || slot.current().broken.load(Ordering::Acquire) {
-                    match SlotConn::open(&url) {
+                    match SlotConn::open(&url, &tcp) {
                         Ok(fresh) => {
                             slot.swap(fresh);
                             slot.replaced_at_ms.store(mono_ms(), Ordering::Release);
@@ -743,7 +807,7 @@ fn spawn_maintenance(inner: &Arc<TierInner>) {
                     let limit =
                         connection_lifetime_effective_limit(base, t.max_connection_lifetime_jitter, slot.index);
                     if conn.opened_at.elapsed() >= limit {
-                        match SlotConn::open(&slot.url) {
+                        match SlotConn::open(&slot.url, &slot.tcp) {
                             Ok(fresh) => {
                                 slot.swap(fresh);
                                 log::debug!(
@@ -905,14 +969,15 @@ impl Drop for ReadGate<'_> {
 struct Pin {
     tier: Arc<TierInner>,
     index: usize,
-    conn: Arc<SlotConn>,
+    /// Replaced (healed) only before the unit has sent anything.
+    conn: std::sync::RwLock<Arc<SlotConn>>,
     /// This pin holds the slot's gate exclusively (released in `Drop`).
     holds_gate: bool,
     _track: Track,
 }
 
 impl Pin {
-    fn acquire(tier: &Arc<TierInner>) -> Result<Self, LifeError> {
+    fn acquire(tier: &Arc<TierInner>, unit: &'static str) -> Result<Self, LifeError> {
         let inner = &**tier;
         let started = Instant::now();
         // Claim a slot nobody holds, least loaded first, with a compare-and-swap so that
@@ -966,13 +1031,42 @@ impl Pin {
         drop(waiting);
         slot.in_flight.fetch_add(1, Ordering::Relaxed);
         let conn = slot.current();
-        Ok(Self {
+        let pin = Self {
             tier: Arc::clone(tier),
             index,
-            conn,
+            conn: std::sync::RwLock::new(conn),
             holds_gate: true,
             _track: Track::in_flight(inner.tier),
-        })
+        };
+        // Dead before anything is sent (closed by the server or the network while idle): replace
+        // it now instead of failing the unit. On error, dropping the pin releases the slot.
+        if pin.conn().is_dead() {
+            inner.note_presend_retry(unit, "checkout");
+            pin.reconnect()?;
+        }
+        Ok(pin)
+    }
+
+    fn conn(&self) -> Arc<SlotConn> {
+        Arc::clone(
+            &self
+                .conn
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    /// Heal the pinned slot and continue on the fresh connection. Only for a unit that has sent
+    /// nothing yet: the pin holds the slot exclusively, so nobody else is on the old connection.
+    fn reconnect(&self) -> Result<Arc<SlotConn>, LifeError> {
+        let seen = self.conn();
+        seen.broken.store(true, Ordering::Release);
+        let fresh = self.tier.slots[self.index].heal(&seen, self.tier.tier)?;
+        *self
+            .conn
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::clone(&fresh);
+        Ok(fresh)
     }
 }
 
@@ -1161,6 +1255,16 @@ fn exec_kind(
     })
 }
 
+/// A unit that failed before any of it reached the server may run once more on a fresh
+/// connection: nothing it would write can have been applied. `sent` is set by the unit once its
+/// first message is accepted for sending; from then on a failure is returned as is (a write may
+/// have been applied). Statement preparation before that point has no effect on the server.
+fn presend_retryable(e: &LifeError, sent: bool, conn: &SlotConn) -> bool {
+    !sent
+        && !conn.deadline_closed.load(Ordering::Acquire)
+        && life_error_is_connectivity_heal_candidate(e)
+}
+
 /// A standalone statement on a shared slot; a connectivity error heals the slot and retries once.
 fn run_shared_with_heal(
     tier: &Arc<TierInner>,
@@ -1227,6 +1331,7 @@ fn contextual_unit(
     sql: &str,
     refs: &[&dyn ToSql],
     kind: Kind,
+    sent: &AtomicBool,
 ) -> Result<Out, LifeError> {
     let tier = "primary";
     let (begin, _) = conn
@@ -1245,6 +1350,7 @@ fn contextual_unit(
     let r = (|| -> Result<Out, LifeError> {
         let (st, _) = conn.stmts.get_or_prepare(h, sql).map_err(LifeError::from)?;
         let s_begin = h.query_raw(&begin, &[]).map_err(LifeError::from)?;
+        sent.store(true, Ordering::Release);
         let s_set = h.query_raw(&set, &arg_refs).map_err(LifeError::from)?;
         match kind {
             Kind::Execute => {
@@ -1326,6 +1432,8 @@ fn keep_first(first: &mut Option<LifeError>, e: LifeError) {
 /// - When a statement cannot be encoded after earlier ones were sent, the rest are not sent and
 ///   `ROLLBACK` replaces the `COMMIT`; with `commit == false` (inside a caller's transaction)
 ///   the caller's error path rolls back.
+/// - `sent` turns true once the first message is accepted for sending (see
+///   [`presend_retryable`]).
 fn pipeline(
     h: &Client,
     conn: &SlotConn,
@@ -1333,6 +1441,7 @@ fn pipeline(
     set: Option<&[OwnedParam]>,
     stmts: &[BatchStmt],
     commit: bool,
+    sent: &AtomicBool,
 ) -> Result<Vec<Out>, LifeError> {
     let tier = "primary";
     let r = (|| -> Result<Vec<Out>, LifeError> {
@@ -1386,6 +1495,7 @@ fn pipeline(
             Some(st) => Some(h.query_raw(st, &[]).map_err(LifeError::from)?),
             None => None,
         };
+        sent.store(true, Ordering::Release);
         let s_set = match (&set_st, set) {
             (Some(st), Some(params)) => {
                 let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
@@ -1687,6 +1797,15 @@ impl LifeguardPool {
         )
     }
 
+    /// Pre-send retries on the primary tier so far, `(at checkout, at send)`: units whose
+    /// connection was found dead before anything was sent and that moved to a fresh one.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn presend_retry_counts(&self) -> (u64, u64) {
+        let r = &self.primary.inner.presend_retries;
+        (r[0].load(Ordering::Relaxed), r[1].load(Ordering::Relaxed))
+    }
+
     /// Slots connected to the primary URL (writes and fallback reads).
     #[must_use]
     pub fn primary_pool_size(&self) -> usize {
@@ -1765,10 +1884,10 @@ impl LifeguardPool {
     pub fn exclusive_primary_write_executor(
         &self,
     ) -> Result<ExclusivePrimaryLifeExecutor<'_>, LifeError> {
-        let pin = Pin::acquire(&self.primary.inner)?;
+        let pin = Pin::acquire(&self.primary.inner, "session_transaction")?;
         Ok(ExclusivePrimaryLifeExecutor {
             pool: self,
-            handle: Mutex::new(Some(pin.conn.take_handle())),
+            handle: Mutex::new(Some(pin.conn().take_handle())),
             pin,
             pending_begin: Mutex::new(None),
         })
@@ -2057,15 +2176,59 @@ impl ExclusivePrimaryLifeExecutor<'_> {
             }
             return Ok(BatchResults::new(outs));
         }
-        let pending = self.take_pending_begin();
-        self.call(move |h, conn| {
-            let (begin, set) = match &pending {
-                Some(p) => (Some(p.begin), Some(p.params.as_slice())),
-                None => (None, None),
-            };
-            pipeline(h, conn, begin, set, &stmts, false)
-        })
+        match self.take_pending_begin() {
+            // The unit's first write: `BEGIN · rls_set_session · stmts`.
+            Some(p) => self.call_first(move |h, conn, sent| {
+                pipeline(
+                    h,
+                    conn,
+                    Some(p.begin),
+                    Some(p.params.as_slice()),
+                    &stmts,
+                    false,
+                    sent,
+                )
+            }),
+            None => self.call(move |h, conn| {
+                pipeline(h, conn, None, None, &stmts, false, &AtomicBool::new(false))
+            }),
+        }
         .map(BatchResults::new)
+    }
+
+    /// The unit's first write, run like [`Self::call`]. When it fails before anything reached the
+    /// server (the pinned connection turned out dead), the slot is healed and the write runs once
+    /// more on the fresh connection; nothing else has been sent on this unit's behalf.
+    fn call_first<T, F>(&self, f: F) -> Result<T, LifeError>
+    where
+        T: Send + 'static,
+        F: Fn(&Client, &SlotConn, &AtomicBool) -> Result<T, LifeError> + Send + Sync + 'static,
+    {
+        let f = Arc::new(f);
+        let g = Arc::clone(&f);
+        let watched = self.pin.conn();
+        let (r, sent) = self.call(move |h, conn| {
+            let sent = AtomicBool::new(false);
+            let r = g(h, conn, &sent);
+            Ok((r, sent.load(Ordering::Acquire)))
+        })?;
+        match r {
+            Err(e) if presend_retryable(&e, sent, &watched) => {
+                self.tier()
+                    .note_presend_retry("session_transaction", "send");
+                let Ok(fresh) = self.pin.reconnect() else {
+                    return Err(e);
+                };
+                let stale = self
+                    .handle
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .replace(fresh.take_handle());
+                drop(stale);
+                self.call(move |h, conn| f(h, conn, &AtomicBool::new(false)))
+            }
+            r => r,
+        }
     }
 
     /// Run `f` on the pinned handle within the reply deadline.
@@ -2085,10 +2248,10 @@ impl ExclusivePrimaryLifeExecutor<'_> {
                         .to_string(),
                 )
             })?;
-        let conn = Arc::clone(&self.pin.conn);
+        let conn = self.pin.conn();
         #[cfg(feature = "tracing")]
         let ctx = may_tracing::current();
-        let watched = Arc::clone(&self.pin.conn);
+        let watched = self.pin.conn();
         let out = guarded(&self.pin.tier, self.pin.index, &watched, move || {
             #[cfg(feature = "tracing")]
             let _ctx = may_tracing::set_current(ctx);
@@ -2132,8 +2295,8 @@ impl ExclusivePrimaryLifeExecutor<'_> {
                 sql: Arc::from(query),
                 params,
             }];
-            let mut outs = self.call(move |h, conn| {
-                pipeline(h, conn, Some(p.begin), Some(&p.params), &stmts, false)
+            let mut outs = self.call_first(move |h, conn, sent| {
+                pipeline(h, conn, Some(p.begin), Some(&p.params), &stmts, false, sent)
             })?;
             return outs.pop().ok_or_else(internal_kind_error);
         }
@@ -2185,7 +2348,7 @@ impl ExclusivePrimaryLifeExecutor<'_> {
 
     fn begin_with_sql(&self, args: &SessionArgs, begin_sql: &'static str) -> Result<(), LifeError> {
         let params: Vec<OwnedParam> = args.params.to_vec();
-        self.call(move |h, conn| {
+        self.call_first(move |h, conn, sent| {
             let (begin, _) = conn
                 .stmts
                 .get_or_prepare(h, begin_sql)
@@ -2196,6 +2359,7 @@ impl ExclusivePrimaryLifeExecutor<'_> {
                 .map_err(rls_error)?;
             let refs: Vec<&dyn ToSql> = params.iter().map(OwnedParam::as_sql_ref).collect();
             let sb = h.query_raw(&begin, &[]).map_err(LifeError::from)?;
+            sent.store(true, Ordering::Release);
             let ss = h.query_raw(&set, &refs).map_err(LifeError::from);
             let rb = drain(sb);
             let rs = match ss {
@@ -2323,7 +2487,7 @@ impl Drop for ExclusivePrimaryLifeExecutor<'_> {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
         {
-            self.pin.conn.put_handle(h);
+            self.pin.conn().put_handle(h);
         }
     }
 }

@@ -57,6 +57,22 @@ pub struct DatabaseConfig {
     /// bound; raise it for workloads with legitimately long statements. Default **120**.
     #[serde(default = "default_pool_reply_timeout_seconds")]
     pub pool_reply_timeout_seconds: u64,
+    /// TCP_NODELAY override for pool connections. Unset keeps the connection string / driver
+    /// default (on).
+    #[serde(default)]
+    pub tcp_nodelay: Option<bool>,
+    /// SO_KEEPALIVE override. Unset keeps the connection string / driver default (on).
+    #[serde(default)]
+    pub tcp_keepalives: Option<bool>,
+    /// Idle seconds before the first keepalive probe (driver default 60).
+    #[serde(default)]
+    pub tcp_keepalives_idle_seconds: Option<u64>,
+    /// Seconds between keepalive probes (driver default 10).
+    #[serde(default)]
+    pub tcp_keepalives_interval_seconds: Option<u64>,
+    /// Unanswered probes before the connection is dropped (driver default 5).
+    #[serde(default)]
+    pub tcp_keepalives_retries: Option<u32>,
 }
 
 fn default_db_url() -> String {
@@ -113,6 +129,11 @@ impl Default for DatabaseConfig {
             max_connection_lifetime_jitter_ms: 0,
             idle_liveness_interval_ms: default_idle_liveness_interval_ms(),
             pool_reply_timeout_seconds: default_pool_reply_timeout_seconds(),
+            tcp_nodelay: None,
+            tcp_keepalives: None,
+            tcp_keepalives_idle_seconds: None,
+            tcp_keepalives_interval_seconds: None,
+            tcp_keepalives_retries: None,
         }
     }
 }
@@ -143,6 +164,11 @@ impl DatabaseConfig {
     /// | `max_connection_lifetime_jitter_ms` | `LIFEGUARD__DATABASE__MAX_CONNECTION_LIFETIME_JITTER_MS` |
     /// | `pool_reply_timeout_seconds` | `LIFEGUARD__DATABASE__POOL_REPLY_TIMEOUT_SECONDS` |
     /// | `idle_liveness_interval_ms` | `LIFEGUARD__DATABASE__IDLE_LIVENESS_INTERVAL_MS` |
+    /// | `tcp_nodelay` | `LIFEGUARD__DATABASE__TCP_NODELAY` |
+    /// | `tcp_keepalives` | `LIFEGUARD__DATABASE__TCP_KEEPALIVES` |
+    /// | `tcp_keepalives_idle_seconds` | `LIFEGUARD__DATABASE__TCP_KEEPALIVES_IDLE_SECONDS` |
+    /// | `tcp_keepalives_interval_seconds` | `LIFEGUARD__DATABASE__TCP_KEEPALIVES_INTERVAL_SECONDS` |
+    /// | `tcp_keepalives_retries` | `LIFEGUARD__DATABASE__TCP_KEEPALIVES_RETRIES` |
     ///
     /// The environment layer is merged **after** the file and overrides matching keys (PRD R2.2).
     pub fn load() -> Result<Self, ConfigError> {
@@ -183,6 +209,8 @@ pub struct LifeguardPoolSettings {
     /// (pre-incident behavior); the default is **120s** so a wedged worker can never hang a
     /// caller forever.
     pub reply_timeout: Option<Duration>,
+    /// TCP socket overrides for every pool connection; default is no override (driver defaults).
+    pub tcp: crate::connection::TcpOptions,
 }
 
 impl Default for LifeguardPoolSettings {
@@ -198,6 +226,7 @@ impl Default for LifeguardPoolSettings {
             max_connection_lifetime_jitter: Duration::ZERO,
             idle_liveness_interval: None,
             reply_timeout: Some(Duration::from_secs(default_pool_reply_timeout_seconds())),
+            tcp: crate::connection::TcpOptions::default(),
         }
     }
 }
@@ -248,6 +277,17 @@ impl LifeguardPoolSettings {
             max_connection_lifetime_jitter,
             idle_liveness_interval,
             reply_timeout,
+            tcp: crate::connection::TcpOptions {
+                nodelay: cfg.tcp_nodelay,
+                keepalives: cfg.tcp_keepalives,
+                keepalives_idle: cfg
+                    .tcp_keepalives_idle_seconds
+                    .map(|s| Duration::from_secs(s.clamp(1, 7_200))),
+                keepalives_interval: cfg
+                    .tcp_keepalives_interval_seconds
+                    .map(|s| Duration::from_secs(s.clamp(1, 600))),
+                keepalives_retries: cfg.tcp_keepalives_retries.map(|n| n.clamp(1, 100)),
+            },
         }
     }
 }
@@ -260,6 +300,31 @@ mod tests {
 
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn tcp_settings_default_to_no_override() {
+        let s = LifeguardPoolSettings::from_database_config(&DatabaseConfig::default());
+        assert!(s.tcp.is_unset());
+        assert!(LifeguardPoolSettings::default().tcp.is_unset());
+    }
+
+    #[test]
+    fn tcp_settings_map_and_clamp() {
+        let cfg = DatabaseConfig {
+            tcp_nodelay: Some(false),
+            tcp_keepalives: Some(true),
+            tcp_keepalives_idle_seconds: Some(0),
+            tcp_keepalives_interval_seconds: Some(15),
+            tcp_keepalives_retries: Some(1_000),
+            ..DatabaseConfig::default()
+        };
+        let t = LifeguardPoolSettings::from_database_config(&cfg).tcp;
+        assert_eq!(t.nodelay, Some(false));
+        assert_eq!(t.keepalives, Some(true));
+        assert_eq!(t.keepalives_idle, Some(Duration::from_secs(1)));
+        assert_eq!(t.keepalives_interval, Some(Duration::from_secs(15)));
+        assert_eq!(t.keepalives_retries, Some(100));
+    }
 
     /// Serialize env mutation for `DatabaseConfig::load` tests (nextest runs tests in parallel).
     static ENV_LOCK: Mutex<()> = Mutex::new(());

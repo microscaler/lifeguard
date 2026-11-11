@@ -11,7 +11,7 @@
 
 use may_postgres::{Client, Error as PostgresError};
 use std::fmt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "tracing")]
 use crate::metrics::tracing_helpers;
@@ -57,6 +57,56 @@ impl From<PostgresError> for ConnectionError {
     }
 }
 
+/// TCP socket options applied to every connection a pool opens.
+///
+/// Each field is an override: **`None`** keeps whatever the connection string (or, failing that,
+/// the `may_postgres` driver default) says. The driver defaults are TCP_NODELAY on and keepalives
+/// on (60 s idle, 10 s interval, 5 probes), so a dead peer is noticed in about two minutes, well
+/// inside the idle reap window of typical cloud NAT / conntrack (about 10 minutes).
+///
+/// Set from [`crate::pool::DatabaseConfig`] (`tcp_*` keys, `LIFEGUARD__DATABASE__TCP_*` env) or
+/// directly on [`crate::pool::LifeguardPoolSettings::tcp`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TcpOptions {
+    /// TCP_NODELAY (disable Nagle).
+    pub nodelay: Option<bool>,
+    /// SO_KEEPALIVE.
+    pub keepalives: Option<bool>,
+    /// Idle time before the first keepalive probe.
+    pub keepalives_idle: Option<Duration>,
+    /// Time between keepalive probes.
+    pub keepalives_interval: Option<Duration>,
+    /// Unanswered probes before the connection is dropped.
+    pub keepalives_retries: Option<u32>,
+}
+
+impl TcpOptions {
+    /// `true` when no field overrides the connection string / driver defaults.
+    #[must_use]
+    pub fn is_unset(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Applies the set fields to a parsed driver config.
+    pub fn apply(&self, config: &mut may_postgres::Config) {
+        if let Some(v) = self.nodelay {
+            config.tcp_nodelay(v);
+        }
+        if let Some(v) = self.keepalives {
+            config.keepalives(v);
+        }
+        if let Some(v) = self.keepalives_idle {
+            config.keepalives_idle(v);
+        }
+        if let Some(v) = self.keepalives_interval {
+            config.keepalives_interval(v);
+        }
+        if let Some(v) = self.keepalives_retries {
+            config.keepalives_retries(v);
+        }
+    }
+}
+
 /// Establishes a connection to `PostgreSQL` using `may_postgres`
 ///
 /// # Arguments
@@ -88,19 +138,12 @@ impl From<PostgresError> for ConnectionError {
 /// is established synchronously and returns immediately with a `Client`
 /// that can be used for queries.
 ///
-/// ## TCP keepalive (operator / libpq)
+/// ## TCP options
 ///
-/// Lifeguard does not set OS TCP keepalive for you; pass **libpq** parameters on the URL so the
-/// driver enables keepalive on the socket (PostgreSQL docs: *libpq* connection parameters).
-/// Examples for URI query strings:
-///
-/// - `keepalives=1` — enable TCP keepalives
-/// - `keepalives_idle` — seconds before the first keepalive probe
-/// - `keepalives_interval` — seconds between probes
-/// - `keepalives_count` — probes before the connection is dropped
-///
-/// See the repository file `docs/POOL_TCP_KEEPALIVE.md` (or the same path on GitHub) for a short
-/// operator-oriented table (PRD R4.1).
+/// The driver turns on TCP_NODELAY and TCP keepalives by default. Connection-string keys
+/// (`tcp_nodelay`, `keepalives`, `keepalives_idle`, `keepalives_interval`, `keepalives_retries`)
+/// adjust them, and [`connect_with`] / pool [`TcpOptions`] override them. See
+/// `docs/POOL_TCP_KEEPALIVE.md` (PRD R4.1).
 ///
 /// # Errors
 ///
@@ -110,6 +153,16 @@ impl From<PostgresError> for ConnectionError {
 /// - Authentication fails
 /// - Database is unavailable
 pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
+    connect_with(connection_string, &TcpOptions::default())
+}
+
+/// [`connect`] with [`TcpOptions`] overrides applied on top of the connection string.
+///
+/// # Errors
+///
+/// As [`connect`]; an unparsable connection string is
+/// [`ConnectionError::PostgresError`].
+pub fn connect_with(connection_string: &str, tcp: &TcpOptions) -> Result<Client, ConnectionError> {
     #[cfg(feature = "tracing")]
     let _span = tracing_helpers::acquire_connection_span(); // created, not entered: see tracing_helpers
 
@@ -132,12 +185,13 @@ pub fn connect(connection_string: &str) -> Result<Client, ConnectionError> {
     // request coroutine. Spawning + joining is a few microseconds on a
     // path taken once per connection lifetime, and is correct from both
     // coroutine and thread context.
-    let owned = connection_string.to_string();
+    let mut config: may_postgres::Config = connection_string.parse()?;
+    tcp.apply(&mut config);
     let spawned = may::go!(
         may::coroutine::Builder::new()
             .name("lifeguard-connect".to_owned())
             .stack_size(0x100000),
-        move || may_postgres::connect(&owned)
+        move || config.connect()
     );
     let client = match spawned {
         Err(e) => {
@@ -280,6 +334,46 @@ pub fn check_connection_health_with_timeout(client: &Client) -> Result<bool, Con
     // For now, this is the same as check_connection_health
     // In the future, we could add explicit timeout handling
     check_connection_health(client)
+}
+
+#[cfg(test)]
+mod tcp_options_tests {
+    #![allow(clippy::expect_used)]
+    use super::TcpOptions;
+    use std::time::Duration;
+
+    #[test]
+    fn unset_options_leave_the_connection_string_alone() {
+        let mut c: may_postgres::Config = "host=localhost tcp_nodelay=0 keepalives_idle=30"
+            .parse()
+            .expect("parse");
+        let tcp = TcpOptions::default();
+        assert!(tcp.is_unset());
+        tcp.apply(&mut c);
+        assert!(!c.get_tcp_nodelay());
+        assert_eq!(c.get_keepalives_idle(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn set_options_override_the_connection_string() {
+        let mut c: may_postgres::Config = "host=localhost tcp_nodelay=0 keepalives=0"
+            .parse()
+            .expect("parse");
+        let tcp = TcpOptions {
+            nodelay: Some(true),
+            keepalives: Some(true),
+            keepalives_idle: Some(Duration::from_secs(45)),
+            keepalives_interval: Some(Duration::from_secs(7)),
+            keepalives_retries: Some(3),
+        };
+        assert!(!tcp.is_unset());
+        tcp.apply(&mut c);
+        assert!(c.get_tcp_nodelay());
+        assert!(c.get_keepalives());
+        assert_eq!(c.get_keepalives_idle(), Duration::from_secs(45));
+        assert_eq!(c.get_keepalives_interval(), Some(Duration::from_secs(7)));
+        assert_eq!(c.get_keepalives_retries(), Some(3));
+    }
 }
 
 #[cfg(test)]

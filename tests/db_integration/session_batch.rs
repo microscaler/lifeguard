@@ -17,13 +17,13 @@ const ORG_A: &str = "650e8400-e29b-41d4-a716-446655440001";
 const ORG_B: &str = "650e8400-e29b-41d4-a716-446655440002";
 const ROLE_PASSWORD: &str = "rls_test_role_pw";
 
-fn role_url(url: &str) -> String {
+pub(crate) fn role_url(url: &str) -> String {
     let (scheme, rest) = url.split_once("://").expect("postgres url scheme");
     let after_user = rest.rsplit_once('@').map_or(rest, |(_, after)| after);
     format!("{scheme}://rls_test_role:{ROLE_PASSWORD}@{after_user}")
 }
 
-fn ctx(org: &str) -> SessionContext {
+pub(crate) fn ctx(org: &str) -> SessionContext {
     SessionContext {
         tenant_id: "acme".to_string(),
         subject_id: uuid::Uuid::new_v4(),
@@ -37,7 +37,7 @@ fn ctx(org: &str) -> SessionContext {
 }
 
 /// A table with an org policy, 2 rows for A and 3 for B; returns `schema.table`.
-fn fixture() -> String {
+pub(crate) fn fixture() -> String {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
@@ -88,7 +88,7 @@ fn sum_count(pool: &LifeguardPool, t: &str, org: &str) -> (i64, i64) {
 }
 
 /// Superuser view of the table (bypasses RLS).
-fn total_rows(t: &str) -> i64 {
+pub(crate) fn total_rows(t: &str) -> i64 {
     let ctx = crate::context::get_test_context();
     let c = may_postgres::connect(&ctx.pg_url).expect("connect");
     c.query_one(format!("SELECT count(*)::int8 FROM {t}").as_str(), &[])
