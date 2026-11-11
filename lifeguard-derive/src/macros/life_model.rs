@@ -1065,10 +1065,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                         },
                                         "u8" => quote! {
                                             match value {
-                                                sea_query::Value::SmallInt(Some(v)) => {
-                                                    self.#field_name = Some(v as u8);
-                                                    Ok(())
-                                                }
+                                                sea_query::Value::SmallInt(Some(v)) => match <u8 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                                    // Checked: a negative or out-of-range value is an error, never a
+                                                    // silent wrap-around.
+                                                    Ok(n) => {
+                                                        self.#field_name = Some(n);
+                                                        Ok(())
+                                                    }
+                                                    Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                        column: stringify!(#column_variant).to_string(),
+                                                        expected: format!("SmallInt in range 0..={}", <u8>::MAX),
+                                                        actual: format!("SmallInt({})", v),
+                                                    }),
+                                                },
                                                 sea_query::Value::SmallInt(None) => {
                                                     self.#field_name = None;
                                                     Ok(())
@@ -1082,10 +1091,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                         },
                                         "u16" => quote! {
                                             match value {
-                                                sea_query::Value::Int(Some(v)) => {
-                                                    self.#field_name = Some(v as u16);
-                                                    Ok(())
-                                                }
+                                                sea_query::Value::Int(Some(v)) => match <u16 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                                    // Checked: a negative or out-of-range value is an error, never a
+                                                    // silent wrap-around.
+                                                    Ok(n) => {
+                                                        self.#field_name = Some(n);
+                                                        Ok(())
+                                                    }
+                                                    Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                        column: stringify!(#column_variant).to_string(),
+                                                        expected: format!("Int in range 0..={}", <u16>::MAX),
+                                                        actual: format!("Int({})", v),
+                                                    }),
+                                                },
                                                 sea_query::Value::Int(None) => {
                                                     self.#field_name = None;
                                                     Ok(())
@@ -1099,10 +1117,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                         },
                                         "u32" => quote! {
                                             match value {
-                                                sea_query::Value::BigInt(Some(v)) => {
-                                                    self.#field_name = Some(v as u32);
-                                                    Ok(())
-                                                }
+                                                sea_query::Value::BigInt(Some(v)) => match <u32 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                                    // Checked: a negative or out-of-range value is an error, never a
+                                                    // silent wrap-around.
+                                                    Ok(n) => {
+                                                        self.#field_name = Some(n);
+                                                        Ok(())
+                                                    }
+                                                    Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                        column: stringify!(#column_variant).to_string(),
+                                                        expected: format!("BigInt in range 0..={}", <u32>::MAX),
+                                                        actual: format!("BigInt({})", v),
+                                                    }),
+                                                },
                                                 sea_query::Value::BigInt(None) => {
                                                     self.#field_name = None;
                                                     Ok(())
@@ -1116,10 +1143,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                         },
                                         "u64" => quote! {
                                             match value {
-                                                sea_query::Value::BigInt(Some(v)) => {
-                                                    self.#field_name = Some(v as u64);
-                                                    Ok(())
-                                                }
+                                                sea_query::Value::BigInt(Some(v)) => match <u64 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                                    // Checked: a negative or out-of-range value is an error, never a
+                                                    // silent wrap-around.
+                                                    Ok(n) => {
+                                                        self.#field_name = Some(n);
+                                                        Ok(())
+                                                    }
+                                                    Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                        column: stringify!(#column_variant).to_string(),
+                                                        expected: format!("BigInt in range 0..={}", <u64>::MAX),
+                                                        actual: format!("BigInt({})", v),
+                                                    }),
+                                                },
                                                 sea_query::Value::BigInt(None) => {
                                                     self.#field_name = None;
                                                     Ok(())
@@ -1334,10 +1370,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 },
                                 "u8" => quote! {
                                     match value {
-                                        sea_query::Value::SmallInt(Some(v)) => {
-                                            self.#field_name = v as u8;
-                                            Ok(())
-                                        }
+                                        sea_query::Value::SmallInt(Some(v)) => match <u8 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                            // Checked: a negative or out-of-range value is an error, never a
+                                            // silent wrap-around.
+                                            Ok(n) => {
+                                                self.#field_name = n;
+                                                Ok(())
+                                            }
+                                            Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: format!("SmallInt in range 0..={}", <u8>::MAX),
+                                                actual: format!("SmallInt({})", v),
+                                            }),
+                                        },
                                         sea_query::Value::SmallInt(None) => {
                                             Err(lifeguard::ModelError::InvalidValueType {
                                                 column: stringify!(#column_variant).to_string(),
@@ -1354,10 +1399,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 },
                                 "u16" => quote! {
                                     match value {
-                                        sea_query::Value::Int(Some(v)) => {
-                                            self.#field_name = v as u16;
-                                            Ok(())
-                                        }
+                                        sea_query::Value::Int(Some(v)) => match <u16 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                            // Checked: a negative or out-of-range value is an error, never a
+                                            // silent wrap-around.
+                                            Ok(n) => {
+                                                self.#field_name = n;
+                                                Ok(())
+                                            }
+                                            Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: format!("Int in range 0..={}", <u16>::MAX),
+                                                actual: format!("Int({})", v),
+                                            }),
+                                        },
                                         sea_query::Value::Int(None) => {
                                             Err(lifeguard::ModelError::InvalidValueType {
                                                 column: stringify!(#column_variant).to_string(),
@@ -1374,10 +1428,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 },
                                 "u32" => quote! {
                                     match value {
-                                        sea_query::Value::BigInt(Some(v)) => {
-                                            self.#field_name = v as u32;
-                                            Ok(())
-                                        }
+                                        sea_query::Value::BigInt(Some(v)) => match <u32 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                            // Checked: a negative or out-of-range value is an error, never a
+                                            // silent wrap-around.
+                                            Ok(n) => {
+                                                self.#field_name = n;
+                                                Ok(())
+                                            }
+                                            Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: format!("BigInt in range 0..={}", <u32>::MAX),
+                                                actual: format!("BigInt({})", v),
+                                            }),
+                                        },
                                         sea_query::Value::BigInt(None) => {
                                             Err(lifeguard::ModelError::InvalidValueType {
                                                 column: stringify!(#column_variant).to_string(),
@@ -1394,10 +1457,19 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
                                 },
                                 "u64" => quote! {
                                     match value {
-                                        sea_query::Value::BigInt(Some(v)) => {
-                                            self.#field_name = v as u64;
-                                            Ok(())
-                                        }
+                                        sea_query::Value::BigInt(Some(v)) => match <u64 as ::core::convert::TryFrom<_>>::try_from(v) {
+                                            // Checked: a negative or out-of-range value is an error, never a
+                                            // silent wrap-around.
+                                            Ok(n) => {
+                                                self.#field_name = n;
+                                                Ok(())
+                                            }
+                                            Err(_) => Err(lifeguard::ModelError::InvalidValueType {
+                                                column: stringify!(#column_variant).to_string(),
+                                                expected: format!("BigInt in range 0..={}", <u64>::MAX),
+                                                actual: format!("BigInt({})", v),
+                                            }),
+                                        },
                                         sea_query::Value::BigInt(None) => {
                                             Err(lifeguard::ModelError::InvalidValueType {
                                                 column: stringify!(#column_variant).to_string(),
