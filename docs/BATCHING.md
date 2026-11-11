@@ -167,10 +167,19 @@ Semantics:
 - **Failure policy:** Strict by default, like the calls above; set
   `BatchWriterConfig::options.failure` (or `#[batch_failure = "bisect"]` on the entity) to hand only
   the rejected rows to the error handler, one row per call.
-- **Delivery:** at-least-once. A failed batch is retried `retries` times with exponential
-  backoff, then handed to the error handler. A retried batch may already be partly written (an
-  earlier chunk succeeded), so for exactly-once results use `Upsert` on a natural key: replays
-  converge to the same rows.
+- **Delivery:** a failed write is retried (up to `retries` times, exponential backoff) only when
+  that cannot write a row twice. Each `BatchError` carries a typed `kind` (`FailureKind`):
+  - retried: `NotSent` (the connection failed before the statement reached the server),
+    `Transient` (`40001`, `40P01`, pool acquire timeout);
+  - after send (`ConnectionLost`, `ReplyTimeout`): never for `Insert`; an `Upsert` only when its
+    conflict clause is `DO NOTHING` or only plain `col = EXCLUDED.col` assignments
+    (`update_columns`), so a replay converges. `qty = t.qty + EXCLUDED.qty` is not retried;
+  - `Data` (`22xxx`, `23xxx`) is never retried: it goes through the failure policy;
+  - anything else is not retried.
+
+  A retry resumes at the failing part: committed chunks are not written again or handed over.
+  What is not retried goes to the error handler with the error, so the caller can tell a
+  `ConnectionLost` insert (which may or may not have been applied) from a rejected row.
 - **Shutdown:** `close()` flushes everything and returns the final counters. Dropping an open
   writer closes it with a bounded wait; call `close()` explicitly so failures are seen.
 

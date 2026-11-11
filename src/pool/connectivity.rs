@@ -20,6 +20,7 @@ use std::io;
 pub(crate) fn life_error_is_connectivity_heal_candidate(err: &LifeError) -> bool {
     match err {
         LifeError::PostgresError(e) => postgres_error_is_connectivity_heal_candidate(e),
+        LifeError::NotSent(inner) => life_error_is_connectivity_heal_candidate(inner),
         _ => false,
     }
 }

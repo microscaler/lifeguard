@@ -101,7 +101,7 @@ pub mod batch;
 pub use batch::{
     delete_many, find_by_ids, insert_many, update_many, upsert_many, BatchDefaults, BatchError,
     BatchFailure, BatchOptions, BatchOutcome, BatchWriter, BatchWriterConfig, BatchWriterStats,
-    FailedRow, WriteMode,
+    FailedRow, FailureKind, WriteMode,
 };
 
 // Test helpers - Epic 01 Story 08

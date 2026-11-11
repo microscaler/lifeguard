@@ -33,7 +33,7 @@
 //! heuristic (see `connectivity` in this module) — not on ordinary SQL failures.
 
 pub mod config;
-mod connectivity;
+pub(crate) mod connectivity;
 pub mod owned_param;
 pub mod pooled;
 pub mod session_batch;

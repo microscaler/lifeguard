@@ -58,6 +58,7 @@ pub(crate) fn is_no_rows_error(error: &LifeError) -> bool {
         }
         LifeError::Pool(_)
         | LifeError::PoolAcquireTimeout { .. }
-        | LifeError::PoolReplyTimeout { .. } => false,
+        | LifeError::PoolReplyTimeout { .. }
+        | LifeError::NotSent(_) => false,
     }
 }

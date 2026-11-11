@@ -167,7 +167,8 @@ pub enum BatchFailure {
     ///   or `max_depth` halvings. Rows of a part that still fails go to
     ///   [`BatchOutcome::failed`]; every other row is written. That costs about `k · log2(n)`
     ///   extra statements for `k` bad rows in a chunk of `n`, against `n` for row by row.
-    /// - A **transient error** (`40001`, `40P01`, a pool acquire timeout) re-runs the whole part
+    /// - A **transient error** (`40001`, `40P01`, a pool acquire timeout, a connection that failed
+    ///   before the part was sent) re-runs the whole part
     ///   up to [`BatchOptions::transient_retries`] times, then returns [`BatchError`] without
     ///   splitting: halving would not help. A dropped connection (class `08`, I/O error) or a
     ///   reply timeout is returned at once: the part may already have been applied. (The pool
@@ -217,6 +218,62 @@ enum ChunkError {
     Other(ActiveModelError),
 }
 
+/// Why a batch statement failed, as far as a retry is concerned. See
+/// [`BatchError::kind`] and the [`super::writer`] retry rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FailureKind {
+    /// The connection failed before the statement reached the server
+    /// ([`LifeError::NotSent`]): running it again cannot write twice.
+    NotSent,
+    /// The server rejected the statement and rolled it back (`40001` serialization failure,
+    /// `40P01` deadlock), or no worker took it (pool acquire timeout): safe to run again.
+    Transient,
+    /// The connection was lost after the statement was sent: it may or may not have been applied.
+    ConnectionLost,
+    /// No reply within the pool's reply deadline: the statement may still have been applied.
+    ReplyTimeout,
+    /// Bad data in a row (SQLSTATE class `22` data exception, `23` integrity constraint).
+    Data,
+    /// Anything else (syntax, permissions, a record that failed validation before any write).
+    Other,
+}
+
+impl FailureKind {
+    /// Classify a statement's error.
+    #[must_use]
+    pub fn of(e: &LifeError) -> Self {
+        match e {
+            LifeError::NotSent(_) => Self::NotSent,
+            LifeError::PoolAcquireTimeout { .. } => Self::Transient,
+            LifeError::PoolReplyTimeout { .. } => Self::ReplyTimeout,
+            LifeError::PostgresError(pe) => {
+                match pe.code().map(may_postgres::error::SqlState::code) {
+                    Some("40001" | "40P01") => Self::Transient,
+                    Some(c) if c.starts_with("22") || c.starts_with("23") => Self::Data,
+                    _ if crate::pool::connectivity::life_error_is_connectivity_heal_candidate(
+                        e,
+                    ) =>
+                    {
+                        Self::ConnectionLost
+                    }
+                    // No SQLSTATE and not a recognised connectivity error: an I/O failure on a
+                    // connection that had the statement, so treated as lost after send.
+                    None => Self::ConnectionLost,
+                    Some(_) => Self::Other,
+                }
+            }
+            _ => Self::Other,
+        }
+    }
+
+    /// `true` when running the statement again cannot apply it twice.
+    #[must_use]
+    pub const fn safe_to_retry(self) -> bool {
+        matches!(self, Self::NotSent | Self::Transient)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ErrorClass {
     /// Bad data in some row: class 22 (data exception) or 23 (integrity constraint).
@@ -234,18 +291,11 @@ fn sqlstate(e: &LifeError) -> Option<String> {
 }
 
 fn classify(e: &LifeError) -> ErrorClass {
-    match e {
-        LifeError::PostgresError(pe) => match pe.code().map(may_postgres::error::SqlState::code) {
-            Some(c) if c.starts_with("22") || c.starts_with("23") => ErrorClass::RowData,
-            // The server rolled the statement back: safe to run it again.
-            Some("40001" | "40P01") => ErrorClass::Transient,
-            // Class 08 or no SQLSTATE (I/O error, closed connection): the part may have been
-            // applied before the connection failed, so it is not run again. A failure before it
-            // was sent is already retried once by the pool.
-            _ => ErrorClass::Other,
-        },
-        // Never reached a connection: nothing was sent.
-        LifeError::PoolAcquireTimeout { .. } => ErrorClass::Transient,
+    // A connection lost after send or a reply timeout is not re-run: the part may have been
+    // applied.
+    match FailureKind::of(e) {
+        FailureKind::Data => ErrorClass::RowData,
+        k if k.safe_to_retry() => ErrorClass::Transient,
         _ => ErrorClass::Other,
     }
 }
@@ -409,11 +459,12 @@ fn drive<M>(
         let mut todo = vec![(range, 0u32)];
         let mut first = true;
         while let Some((part, depth)) = todo.pop() {
-            let fail = |source: ActiveModelError, written: u64| BatchError {
+            let fail = |source: ActiveModelError, written: u64, kind: FailureKind| BatchError {
                 chunk: chunk_index,
                 rows: part.clone(),
                 rows_written_before: written,
                 source,
+                kind,
             };
             out.statements += 1;
             if !first {
@@ -455,8 +506,15 @@ fn drive<M>(
                         todo.push((part.start..mid, depth + 1));
                     }
                 }
-                Err(ChunkError::Db(e)) => return (Err(fail(db(&e), out.rows_affected)), extra),
-                Err(ChunkError::Other(e)) => return (Err(fail(e, out.rows_affected)), extra),
+                Err(ChunkError::Db(e)) => {
+                    return (
+                        Err(fail(db(&e), out.rows_affected, FailureKind::of(&e))),
+                        extra,
+                    )
+                }
+                Err(ChunkError::Other(e)) => {
+                    return (Err(fail(e, out.rows_affected, FailureKind::Other)), extra)
+                }
             }
         }
     }
@@ -553,6 +611,8 @@ pub struct BatchError {
     pub rows_written_before: u64,
     /// The underlying error.
     pub source: ActiveModelError,
+    /// What kind of failure it was: whether running the failed rows again could write twice.
+    pub kind: FailureKind,
 }
 
 /// For use inside closures that return [`LifeError`], e.g.
@@ -582,6 +642,7 @@ impl BatchError {
             rows: 0..0,
             rows_written_before: 0,
             source,
+            kind: FailureKind::Other,
         }
     }
 }
@@ -787,6 +848,7 @@ where
             rows: i..i + 1,
             rows_written_before: 0,
             source,
+            kind: FailureKind::Other,
         })?;
         match &columns {
             None => columns = Some(cols),
@@ -804,6 +866,7 @@ where
                         source: ActiveModelError::Other(format!(
                             "batch insert: record {i} sets different columns than record 0; one call writes one column set"
                         )),
+                        kind: FailureKind::Other,
                     });
                 }
             }
@@ -1021,6 +1084,7 @@ where
             rows: i..i + 1,
             rows_written_before: 0,
             source,
+            kind: FailureKind::Other,
         };
         rec.before_update().map_err(bad)?;
         crate::active_model::run_validators(&rec, crate::active_model::ValidateOp::Update)
@@ -1226,6 +1290,7 @@ where
             rows: range.clone(),
             rows_written_before: 0,
             source,
+            kind: FailureKind::Other,
         };
         let (arr, ty) = key_array(&ids[range.clone()]).map_err(fail)?;
         // The entity's own SELECT (projection, soft delete) with a marker condition that is then
@@ -1334,6 +1399,7 @@ mod tests {
             rows: 2000..3000,
             rows_written_before: 2000,
             source: ActiveModelError::Other("boom".into()),
+            kind: FailureKind::Other,
         };
         let s = e.to_string();
         assert!(

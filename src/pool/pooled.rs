@@ -481,11 +481,14 @@ impl WorkerPool {
                 (r, sent.load(Ordering::Acquire))
             });
             match out {
-                Some((Err(e), sent)) if !retried && presend_retryable(&e, sent, &watched) => {
+                Some((Err(e), sent)) if presend_retryable(&e, sent, &watched) => {
+                    if retried {
+                        break Some(Err(not_sent(e)));
+                    }
                     retried = true;
                     self.inner.note_presend_retry("rls_unit", "send");
                     if pin.reconnect().is_err() {
-                        break Some(Err(e));
+                        break Some(Err(not_sent(e)));
                     }
                 }
                 Some((r, _)) => break Some(r),
@@ -553,11 +556,14 @@ impl WorkerPool {
                 (r, sent.load(Ordering::Acquire))
             });
             match out {
-                Some((Err(e), sent)) if !retried && presend_retryable(&e, sent, &watched) => {
+                Some((Err(e), sent)) if presend_retryable(&e, sent, &watched) => {
+                    if retried {
+                        break Some(Err(not_sent(e)));
+                    }
                     retried = true;
                     self.inner.note_presend_retry("batch", "send");
                     if pin.reconnect().is_err() {
-                        break Some(Err(e));
+                        break Some(Err(not_sent(e)));
                     }
                 }
                 Some((r, _)) => break Some(r),
@@ -1048,7 +1054,7 @@ impl Pin {
         // it now instead of failing the unit. On error, dropping the pin releases the slot.
         if pin.conn().is_dead() {
             inner.note_presend_retry(unit, "checkout");
-            pin.reconnect()?;
+            pin.reconnect().map_err(not_sent)?;
         }
         Ok(pin)
     }
@@ -1265,6 +1271,15 @@ fn exec_kind(
 /// connection: nothing it would write can have been applied. `sent` is set by the unit once its
 /// first message is accepted for sending; from then on a failure is returned as is (a write may
 /// have been applied). Statement preparation before that point has no effect on the server.
+/// Mark a failure that happened before anything reached the server ([`LifeError::NotSent`]), so
+/// callers (the batch writer) can tell it from a failure after the request was sent.
+fn not_sent(e: LifeError) -> LifeError {
+    match e {
+        e @ LifeError::NotSent(_) => e,
+        e => LifeError::NotSent(Box::new(e)),
+    }
+}
+
 fn presend_retryable(e: &LifeError, sent: bool, conn: &SlotConn) -> bool {
     !sent
         && !conn.deadline_closed.load(Ordering::Acquire)
@@ -1295,7 +1310,7 @@ fn run_shared_with_heal(
     let name = tier.tier;
     let conn = if conn.is_dead() && !conn.deadline_closed.load(Ordering::Acquire) {
         tier.note_presend_retry(SHARED_UNIT, "checkout");
-        tier.slots[index].heal(&conn, name)?
+        tier.slots[index].heal(&conn, name).map_err(not_sent)?
     } else {
         conn
     };
@@ -1315,18 +1330,28 @@ fn run_shared_with_heal(
             };
             let fresh = tier.slots[index].heal(&conn, name);
             let (Some(stage), Ok(fresh)) = (stage, fresh) else {
-                return Err(e);
+                return Err(if stage == Some("send") {
+                    not_sent(e)
+                } else {
+                    e
+                });
             };
             tier.note_presend_retry(SHARED_UNIT, stage);
             let h2 = fresh.take_handle();
-            let r = exec_kind_tracked(name, &h2, &fresh, sql, refs, kind, &AtomicBool::new(false));
+            let sent2 = AtomicBool::new(false);
+            let r = exec_kind_tracked(name, &h2, &fresh, sql, refs, kind, &sent2);
             if !r
                 .as_ref()
                 .is_err_and(life_error_is_connectivity_heal_candidate)
             {
                 fresh.put_handle(h2);
             }
-            r
+            match r {
+                Err(e2) if presend_retryable(&e2, sent2.load(Ordering::Acquire), &fresh) => {
+                    Err(not_sent(e2))
+                }
+                r => r,
+            }
         }
         r => {
             conn.put_handle(h);
@@ -2342,7 +2367,7 @@ impl ExclusivePrimaryLifeExecutor<'_> {
                 self.tier()
                     .note_presend_retry("session_transaction", "send");
                 let Ok(fresh) = self.pin.reconnect() else {
-                    return Err(e);
+                    return Err(not_sent(e));
                 };
                 let stale = self
                     .handle
@@ -2350,7 +2375,15 @@ impl ExclusivePrimaryLifeExecutor<'_> {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .replace(fresh.take_handle());
                 drop(stale);
-                self.call(move |h, conn| f(h, conn, &AtomicBool::new(false)))
+                let (r, sent) = self.call(move |h, conn| {
+                    let sent = AtomicBool::new(false);
+                    let r = f(h, conn, &sent);
+                    Ok((r, sent.load(Ordering::Acquire)))
+                })?;
+                match r {
+                    Err(e) if presend_retryable(&e, sent, &fresh) => Err(not_sent(e)),
+                    r => r,
+                }
             }
             r => r,
         }

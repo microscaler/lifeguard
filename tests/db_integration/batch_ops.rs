@@ -331,7 +331,7 @@ fn batch_writer_hands_poison_batches_to_the_error_handler() {
         BatchWriterConfig {
             retries: 1,
             retry_backoff: Duration::from_millis(5),
-            // Strict: the whole batch is retried, then handed over.
+            // Strict: the batch is handed over without a retry (a duplicate key is a data error).
             options: BatchOptions::default(),
             ..BatchWriterConfig::default()
         },
@@ -340,7 +340,10 @@ fn batch_writer_hands_poison_batches_to_the_error_handler() {
     writer.push(rec(b, 1)).map_err(|_| "closed").expect("push");
     let stats = writer.close();
     assert_eq!(stats.failed, 1);
-    assert_eq!(stats.retries, 1);
+    assert_eq!(
+        stats.retries, 0,
+        "a data error goes to the policy, never the retry loop"
+    );
     assert_eq!(*failed.lock().expect("lock"), vec![1]);
 }
 
@@ -861,4 +864,185 @@ fn bench_ingest_row_by_row_vs_batched_vs_bisect() {
             &out.statements.to_string(),
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// BatchWriter retries: never a double write (connection-cutting proxy).
+
+/// What the error handler received: the failure kind and how many rows.
+type Handed = Arc<Mutex<Vec<(lifeguard::FailureKind, usize)>>>;
+
+/// A writer on a one-slot pool behind a [`crate::presend_retry::KillProxy`].
+fn cut_writer(
+    mode: WriteMode<Column>,
+    retries: u32,
+) -> (
+    crate::presend_retry::KillProxy,
+    BatchWriter<BatchItemRecord>,
+    Handed,
+) {
+    let _ = executor(); // schema
+    let ctx = crate::context::get_test_context();
+    let (proxy, url) = crate::presend_retry::through_kill_proxy(&ctx.pg_url);
+    let pool = PooledLifeExecutor::new(Arc::new(
+        LifeguardPool::new(&url, 1, Vec::new(), 0).expect("pool"),
+    ));
+    let failed = Arc::new(Mutex::new(Vec::new()));
+    let f = failed.clone();
+    let writer = BatchWriter::new(
+        pool,
+        mode,
+        BatchWriterConfig {
+            max_rows: 1_000,
+            max_delay: Duration::from_secs(60),
+            retries,
+            retry_backoff: Duration::from_millis(5),
+            ..BatchWriterConfig::default()
+        },
+        move |e, rows| f.lock().expect("lock").push((e.kind, rows.len())),
+    );
+    (proxy, writer, failed)
+}
+
+fn marked(id: i64, qty: i32, marker: &str) -> BatchItemRecord {
+    let mut r = rec(id, qty);
+    r.set_note(Some(marker.to_string()));
+    r
+}
+
+fn qty_of(exec: &MayPostgresExecutor, id: i64) -> Option<i32> {
+    find_by_ids::<Entity>(exec, &ids(id..id + 1), &BatchOptions::default())
+        .expect("find")
+        .first()
+        .map(|m| m.qty)
+}
+
+#[test]
+fn batch_writer_insert_cut_after_send_is_written_at_most_once() {
+    let exec = executor();
+    let b = id_base();
+    let (proxy, writer, failed) = cut_writer(WriteMode::Insert, 3);
+    // The marker rides in a row value: the proxy sees it in the statement's Bind, after send.
+    let marker = format!("lg-writer-insert-cut-{b}");
+    proxy.cut_on(&marker, 1);
+    writer
+        .push(marked(b, 1, &marker))
+        .map_err(|_| "closed")
+        .expect("push");
+    let stats = writer.close();
+    assert_eq!(stats.retries, 0, "an insert lost after send is not retried");
+    assert_eq!(stats.failed, 1);
+    assert_eq!(
+        *failed.lock().expect("lock"),
+        vec![(lifeguard::FailureKind::ConnectionLost, 1)]
+    );
+    assert!(count(&exec, b, b + 1) <= 1, "written at most once");
+}
+
+#[test]
+fn batch_writer_upsert_with_plain_set_is_retried_to_the_right_state() {
+    let exec = executor();
+    let b = id_base();
+    insert_many(&exec, &[rec(b, 1)], &BatchOptions::default()).expect("seed");
+    let (proxy, writer, failed) = cut_writer(
+        WriteMode::Upsert {
+            on_conflict: OnConflict::column(Column::Id)
+                .update_columns([Column::Qty, Column::Note])
+                .to_owned(),
+            key: vec![Column::Id],
+        },
+        3,
+    );
+    let marker = format!("lg-writer-upsert-cut-{b}");
+    proxy.cut_on(&marker, 1);
+    writer
+        .push(marked(b, 7, &marker))
+        .map_err(|_| "closed")
+        .expect("push");
+    let stats = writer.close();
+    assert_eq!(
+        stats.retries, 1,
+        "a replay-safe upsert is retried after a lost connection"
+    );
+    assert_eq!(stats.failed, 0);
+    assert!(failed.lock().expect("lock").is_empty());
+    assert_eq!(qty_of(&exec, b), Some(7));
+    assert_eq!(count(&exec, b, b + 1), 1);
+}
+
+#[test]
+fn batch_writer_upsert_with_an_expression_is_not_retried() {
+    let exec = executor();
+    let b = id_base();
+    insert_many(&exec, &[rec(b, 1)], &BatchOptions::default()).expect("seed");
+    let (proxy, writer, failed) = cut_writer(
+        WriteMode::Upsert {
+            on_conflict: OnConflict::column(Column::Id)
+                .value(
+                    Column::Qty,
+                    sea_query::Expr::cust("test_batch_items.qty + excluded.qty"),
+                )
+                .to_owned(),
+            key: vec![Column::Id],
+        },
+        3,
+    );
+    let marker = format!("lg-writer-upsert-expr-cut-{b}");
+    proxy.cut_on(&marker, 1);
+    writer
+        .push(marked(b, 5, &marker))
+        .map_err(|_| "closed")
+        .expect("push");
+    let stats = writer.close();
+    assert_eq!(
+        stats.retries, 0,
+        "replaying `qty = qty + excluded.qty` could add twice"
+    );
+    assert_eq!(stats.failed, 1);
+    assert_eq!(
+        *failed.lock().expect("lock"),
+        vec![(lifeguard::FailureKind::ConnectionLost, 1)]
+    );
+    assert_eq!(
+        qty_of(&exec, b),
+        Some(1),
+        "never applied twice (here: not at all)"
+    );
+}
+
+#[test]
+fn batch_writer_retries_a_deadlock() {
+    let exec = executor();
+    let b = id_base();
+    // The first insert of a `deadlock-` row raises 40P01; nextval is not rolled back, so the
+    // retry passes.
+    let ctx = crate::context::get_test_context();
+    let c = may_postgres::connect(&ctx.pg_url).expect("connect");
+    let seq = format!("lg_writer_deadlock_{}", b.unsigned_abs());
+    c.batch_execute(&format!(
+        "CREATE SEQUENCE {seq};
+         CREATE OR REPLACE FUNCTION {seq}_fn() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+           IF NEW.sku = 'deadlock-{b}' AND nextval('{seq}') = 1 THEN
+             RAISE EXCEPTION 'simulated deadlock' USING ERRCODE = '40P01';
+           END IF;
+           RETURN NEW;
+         END $$;
+         CREATE TRIGGER {seq}_trg BEFORE INSERT ON test_batch_items
+           FOR EACH ROW EXECUTE FUNCTION {seq}_fn();"
+    ))
+    .expect("trigger");
+    let (_proxy, writer, failed) = cut_writer(WriteMode::Insert, 3);
+    let mut r = rec(b, 3);
+    r.set_sku(format!("deadlock-{b}"));
+    writer.push(r).map_err(|_| "closed").expect("push");
+    let stats = writer.close();
+    c.batch_execute(&format!(
+        "DROP TRIGGER {seq}_trg ON test_batch_items; DROP FUNCTION {seq}_fn(); DROP SEQUENCE {seq};"
+    ))
+    .expect("cleanup");
+    assert_eq!(stats.retries, 1, "40P01 is retried");
+    assert_eq!(stats.failed, 0);
+    assert!(failed.lock().expect("lock").is_empty());
+    assert_eq!(count(&exec, b, b + 1), 1, "written once");
 }

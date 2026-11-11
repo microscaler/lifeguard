@@ -14,22 +14,36 @@
 //!   push is never overwritten by an earlier one. Within one batch, [`WriteMode::Upsert`] keeps
 //!   only the **last** row per key (PostgreSQL rejects a statement that updates the same row
 //!   twice), which is the same last-write-wins result.
-//! * **Delivery.** At-least-once. A failed batch is retried
-//!   [`BatchWriterConfig::retries`] times with backoff; then its rows go to the error handler
-//!   (dead letter) and the writer carries on. A retried batch may have been partly written (a
-//!   later chunk failed), so exactly-once needs idempotent writes: use [`WriteMode::Upsert`] keyed
-//!   on a natural key, which makes a replay converge to the same rows.
+//! * **Delivery.** A failed write is retried only when that cannot write a row twice, decided
+//!   from the typed failure ([`super::FailureKind`]):
+//!   - **always retried** (up to [`BatchWriterConfig::retries`] times, with backoff): the
+//!     connection failed before the statement was sent, a serialization failure (`40001`) or
+//!     deadlock (`40P01`), or a pool acquire timeout;
+//!   - **after send** (connection lost, reply timeout): never for [`WriteMode::Insert`]. A
+//!     [`WriteMode::Upsert`] is retried only when replaying it converges to the same rows: `DO
+//!     NOTHING`, or every update assignment a plain `col = EXCLUDED.col`
+//!     (`OnConflict::update_columns`). An assignment with an expression (`n = t.n + EXCLUDED.n`)
+//!     is not retried;
+//!   - **data errors** (`22xxx`, `23xxx`) are never retried: they go through the
+//!     [`super::BatchFailure`] policy (Strict: the batch goes to the error handler; Bisect: only
+//!     the bad rows do);
+//!   - anything else is not retried.
+//!
+//!   A retry resumes at the failing part: chunks before it were committed and are not written
+//!   again. Rows that are not retried go to the error handler (dead letter) with the
+//!   [`BatchError`], whose `kind` tells the caller what happened (a [`super::FailureKind::ConnectionLost`]
+//!   insert may or may not have been applied); the writer carries on.
 //! * **Shutdown.** [`BatchWriter::flush`] writes everything buffered and returns.
 //!   [`BatchWriter::close`] flushes and stops the flusher. Dropping an open writer closes it
 //!   (best effort, bounded wait); prefer an explicit `close` so errors are seen.
 
-use super::{insert_many, upsert_many, BatchError, BatchOptions};
+use super::{insert_many, upsert_many, BatchError, BatchOptions, FailureKind};
 use crate::active_model::{ActiveModelBehavior, ActiveModelTrait};
 use crate::executor::LifeExecutor;
 use crate::query::traits::{FromRow, LifeEntityName, LifeModelTrait};
 use may::sync::mpsc;
 use may::sync::Semphore;
-use sea_query::{Iden, OnConflict};
+use sea_query::{Alias, Iden, OnConflict, PostgresQueryBuilder, Query};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -58,7 +72,8 @@ pub struct BatchWriterConfig {
     pub max_delay: Duration,
     /// Rows that may wait to be written before `push` blocks.
     pub capacity: usize,
-    /// Retries of a failed batch before it goes to the error handler.
+    /// Retries of a failed batch before it goes to the error handler (only for failures that are
+    /// safe to retry; see the [module docs](self)).
     pub retries: u32,
     /// Delay before the first retry; doubles per retry.
     pub retry_backoff: Duration,
@@ -366,6 +381,11 @@ fn write_batch<R, X>(
     opts.returning = false;
     let mut attempt = 0u32;
     let exec: &dyn LifeExecutor = executor;
+    let replay_safe = match mode {
+        WriteMode::Insert => false,
+        WriteMode::Upsert { on_conflict, .. } => upsert_replay_safe(on_conflict),
+    };
+    let mut rows = rows;
     loop {
         let res = match mode {
             WriteMode::Insert => insert_many(exec, &rows, &opts),
@@ -398,6 +418,8 @@ fn write_batch<R, X>(
                                 rows: f.index..f.index + 1,
                                 rows_written_before: out.rows_affected,
                                 source: f.error,
+                                // Bisect isolated it: the database rejected this row.
+                                kind: FailureKind::Data,
                             };
                             on_error(&e, vec![row]);
                         }
@@ -405,21 +427,34 @@ fn write_batch<R, X>(
                 }
                 break;
             }
-            Err(e) if attempt < config.retries => {
-                attempt += 1;
-                counters.retries.fetch_add(1, Ordering::Relaxed);
-                log::warn!("lifeguard batch writer: retry {attempt} after: {e}");
-                may::coroutine::sleep(config.retry_backoff * 2u32.saturating_pow(attempt - 1));
-            }
             Err(e) => {
+                // Parts before the failing one were committed: never write them again, and do not
+                // hand them to the error handler either.
+                let start = e.rows.start.min(rows.len());
+                let rows_left = rows.split_off(start);
+                counters
+                    .written
+                    .fetch_add(e.rows_written_before, Ordering::Relaxed);
+                if attempt < config.retries && retry_allowed(e.kind, replay_safe) {
+                    attempt += 1;
+                    counters.retries.fetch_add(1, Ordering::Relaxed);
+                    log::warn!(
+                        "lifeguard batch writer: retry {attempt} ({:?}) after: {e}",
+                        e.kind
+                    );
+                    rows = rows_left;
+                    may::coroutine::sleep(config.retry_backoff * 2u32.saturating_pow(attempt - 1));
+                    continue;
+                }
                 counters
                     .failed
-                    .fetch_add(rows.len() as u64, Ordering::Relaxed);
+                    .fetch_add(rows_left.len() as u64, Ordering::Relaxed);
                 log::error!(
-                    "lifeguard batch writer: dropping {} rows after {attempt} retries: {e}",
-                    rows.len()
+                    "lifeguard batch writer: handing {} rows to the error handler ({:?}, after {attempt} retries): {e}",
+                    rows_left.len(),
+                    e.kind
                 );
-                on_error(&e, rows);
+                on_error(&e, rows_left);
                 break;
             }
         }
@@ -427,6 +462,53 @@ fn write_batch<R, X>(
     for _ in 0..n_in {
         room.post();
     }
+}
+
+/// Whether a failure of `kind` may be retried by the writer. Data errors never are: they belong
+/// to the [`super::BatchFailure`] policy.
+const fn retry_allowed(kind: FailureKind, replay_safe: bool) -> bool {
+    match kind {
+        FailureKind::NotSent | FailureKind::Transient => true,
+        FailureKind::ConnectionLost | FailureKind::ReplyTimeout => replay_safe,
+        _ => false,
+    }
+}
+
+/// `true` when replaying an upsert with this conflict clause converges to the same rows: `DO
+/// NOTHING`, or `DO UPDATE` whose every assignment is a plain `col = EXCLUDED.col`. Decided from
+/// the clause SeaQuery renders, conservatively: anything that is not exactly that shape
+/// (expressions, sub-queries) is not replay-safe.
+pub(crate) fn upsert_replay_safe(on_conflict: &OnConflict) -> bool {
+    let sql = Query::insert()
+        .into_table(Alias::new("t"))
+        .columns([Alias::new("c")])
+        .values_panic([1.into()])
+        .on_conflict(on_conflict.clone())
+        .to_string(PostgresQueryBuilder);
+    let Some(i) = sql.find(" ON CONFLICT ") else {
+        return false;
+    };
+    let clause = &sql[i..];
+    if clause.contains(" DO NOTHING") {
+        return true;
+    }
+    let Some(j) = clause.find(" DO UPDATE SET ") else {
+        return false;
+    };
+    let set = &clause[j + " DO UPDATE SET ".len()..];
+    // A conditional plain update is still idempotent; the condition itself is not inspected.
+    let set = set.split(" WHERE ").next().unwrap_or(set);
+    set.split(", ").all(|a| {
+        let Some((lhs, rhs)) = a.split_once(" = ") else {
+            return false;
+        };
+        let col = lhs.trim();
+        col.len() > 2
+            && col.starts_with('"')
+            && col.ends_with('"')
+            && !col[1..col.len() - 1].contains('"')
+            && rhs.trim() == format!("\"excluded\".{col}")
+    })
 }
 
 /// Keep the last row per key, in the order each key was last seen.
@@ -447,4 +529,33 @@ where
     keep.sort_unstable();
     let mut rows: Vec<Option<R>> = rows.into_iter().map(Some).collect();
     keep.into_iter().filter_map(|i| rows[i].take()).collect()
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use super::upsert_replay_safe;
+    use sea_query::{Alias, Expr, OnConflict};
+
+    #[test]
+    fn plain_update_columns_and_do_nothing_are_replay_safe() {
+        let oc = OnConflict::column(Alias::new("id"))
+            .update_columns([Alias::new("qty"), Alias::new("note")])
+            .to_owned();
+        assert!(upsert_replay_safe(&oc));
+        let oc = OnConflict::column(Alias::new("id")).do_nothing().to_owned();
+        assert!(upsert_replay_safe(&oc));
+    }
+
+    #[test]
+    fn expressions_are_not_replay_safe() {
+        let oc = OnConflict::column(Alias::new("id"))
+            .value(Alias::new("qty"), Expr::cust("t.qty + EXCLUDED.qty"))
+            .to_owned();
+        assert!(!upsert_replay_safe(&oc));
+        let oc = OnConflict::column(Alias::new("id"))
+            .update_column(Alias::new("note"))
+            .value(Alias::new("qty"), Expr::val(1))
+            .to_owned();
+        assert!(!upsert_replay_safe(&oc));
+    }
 }

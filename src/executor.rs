@@ -56,6 +56,19 @@ pub enum LifeError {
         /// Wall time from dispatch start until giving up on the reply.
         waited: Duration,
     },
+    /// The connection failed **before the request reached the server** (dead at checkout, or the
+    /// first message could not be handed over), even after the pool's one retry on a fresh
+    /// connection. Nothing the request would write can have been applied, so it is always safe to
+    /// run again. The inner error is the connection failure.
+    NotSent(Box<LifeError>),
+}
+
+impl LifeError {
+    /// `true` when nothing of the failed request reached the server ([`LifeError::NotSent`]).
+    #[must_use]
+    pub const fn was_not_sent(&self) -> bool {
+        matches!(self, LifeError::NotSent(_))
+    }
 }
 
 impl fmt::Display for LifeError {
@@ -86,6 +99,12 @@ impl fmt::Display for LifeError {
                 write!(
                     f,
                     "Pool error: timed out waiting for a worker reply after {waited:?}"
+                )
+            }
+            LifeError::NotSent(e) => {
+                write!(
+                    f,
+                    "not sent (the connection failed before the request reached the server): {e}"
                 )
             }
         }

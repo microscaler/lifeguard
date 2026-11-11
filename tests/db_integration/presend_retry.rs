@@ -20,7 +20,7 @@ const ORG_GUC: &str = "SELECT COALESCE(current_setting('app.organization_id', tr
 /// The marker that cuts a connection, and how many more cuts to make.
 type Marker = Arc<Mutex<(Option<Vec<u8>>, usize)>>;
 
-struct KillProxy {
+pub(crate) struct KillProxy {
     addr: SocketAddr,
     open: Arc<Mutex<Vec<(TcpStream, TcpStream)>>>,
     marker: Marker,
@@ -92,7 +92,7 @@ impl KillProxy {
     }
 
     /// Cut every open connection, as if each had died while idle.
-    fn cut_all(&self) {
+    pub(crate) fn cut_all(&self) {
         for (c, s) in self.open.lock().expect("lock").drain(..) {
             let _ = c.shutdown(Shutdown::Both);
             let _ = s.shutdown(Shutdown::Both);
@@ -100,9 +100,23 @@ impl KillProxy {
     }
 
     /// Cut the next `n` connections whose client bytes contain `marker`.
-    fn cut_on(&self, marker: &str, n: usize) {
+    pub(crate) fn cut_on(&self, marker: &str, n: usize) {
         *self.marker.lock().expect("lock") = (Some(marker.as_bytes().to_vec()), n);
     }
+}
+
+/// `url` routed through a new [`KillProxy`].
+pub(crate) fn through_kill_proxy(url: &str) -> (KillProxy, String) {
+    let (scheme, rest) = url.split_once("://").expect("scheme");
+    let (user, hostpath) = rest.rsplit_once('@').expect("userinfo");
+    let (hostport, path) = hostpath.split_once('/').unwrap_or((hostpath, "postgres"));
+    let backend = std::net::ToSocketAddrs::to_socket_addrs(hostport)
+        .expect("resolve")
+        .next()
+        .expect("addr");
+    let proxy = KillProxy::start(backend);
+    let url = format!("{scheme}://{user}@{}/{path}", proxy.addr);
+    (proxy, url)
 }
 
 /// A one-slot pool (every unit on the same slot) reaching PostgreSQL through a [`KillProxy`].
