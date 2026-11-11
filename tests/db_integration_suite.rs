@@ -89,3 +89,6 @@ mod rls_integration;
 
 #[path = "db_integration/presend_retry.rs"]
 mod presend_retry;
+
+#[path = "db_integration/many_to_many.rs"]
+mod many_to_many;

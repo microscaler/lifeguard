@@ -513,11 +513,9 @@ pub trait FindRelated: ModelTrait {
     /// entity). It is also **not** an automatic merge of a separate `Parent::find().scope(…)` query;
     /// you pass the parent predicate explicitly as `parent_scope`.
     ///
-    /// **Many-to-many:** if [`RelationDef::through_tbl`](crate::RelationDef::through_tbl) is set,
-    /// this method returns an error (`has_many_through` not supported yet). Until then, use
-    /// [`find_related`](Self::find_related) / [`find_related_scoped`](Self::find_related_scoped) on the
-    /// entity that is actually in `FROM`, or build a [`SelectQuery`] with explicit joins on the join
-    /// table ([`join_tbl_on_expr`](crate::join_tbl_on_expr) and relation metadata).
+    /// **Many-to-many** ([`RelationDef::through_tbl`](crate::RelationDef::through_tbl) set): the
+    /// query joins the junction table to the related table, then the source table to the junction
+    /// table, so `parent_scope` applies to the source rows linked through the junction.
     ///
     /// `parent_scope` must qualify columns on **`Self::Entity`**’s table (same as
     /// `Self::Entity::find().scope(…)`).
@@ -529,9 +527,12 @@ pub trait FindRelated: ModelTrait {
     {
         let rel_def = <Self::Entity as Related<R>>::to();
         if rel_def.through_tbl.is_some() {
-            return Err(LifeError::Other(
-                "find_related_parent_scoped: has_many_through is not supported yet".to_string(),
-            ));
+            let mut q = related_through_query::<R, Self>(&rel_def, self)?;
+            // Source table joined through the junction: source.pk = junction.through_from_col.
+            let (source_join, _) = rel_def.join_on_exprs()?;
+            q = q.inner_join(Self::Entity::default(), source_join);
+            q = q.filter(parent_scope.into_condition());
+            return Ok(q);
         }
         let join_on = join_tbl_on_expr(
             &rel_def.from_tbl,
@@ -563,6 +564,9 @@ where
         // So Self::Entity::to() returns RelationDef for the relationship from Self::Entity to R
         // This is the correct relationship direction for find_related()
         let rel_def = <Self::Entity as Related<R>>::to();
+        if rel_def.through_tbl.is_some() {
+            return related_through_query::<R, Self>(&rel_def, self);
+        }
 
         // Create a new query for the related entity
         let mut query = SelectQuery::new();
@@ -574,6 +578,74 @@ where
 
         Ok(query)
     }
+}
+
+/// The related rows of a many-to-many (`has_many_through`) relation:
+///
+/// ```sql
+/// SELECT related.* FROM related
+///   JOIN junction ON junction.through_to_col = related.to_col
+///  WHERE junction.through_from_col = <model's from_col value>
+/// ```
+///
+/// Only the related table's columns are selected (`related.*`), so a junction or source column
+/// with the same name (`id`) cannot shadow one of the related model's.
+fn related_through_query<R, M>(
+    rel_def: &RelationDef,
+    model: &M,
+) -> Result<SelectQuery<R>, LifeError>
+where
+    R: LifeModelTrait,
+    M: ModelTrait,
+{
+    let missing =
+        |what: &str| LifeError::Other(format!("has_many_through relation must set {what}"));
+    let through = rel_def
+        .through_tbl
+        .as_ref()
+        .ok_or_else(|| missing("through_tbl"))?;
+    let through_from = rel_def
+        .through_from_col
+        .as_ref()
+        .ok_or_else(|| missing("through_from_col"))?;
+    let through_to = rel_def
+        .through_to_col
+        .as_ref()
+        .ok_or_else(|| missing("through_to_col"))?;
+    if through_from.arity() != rel_def.from_col.arity()
+        || through_to.arity() != rel_def.to_col.arity()
+    {
+        return Err(LifeError::Other(
+            "has_many_through: junction key arity does not match the source/related keys"
+                .to_string(),
+        ));
+    }
+    let mut query = SelectQuery::<R>::new();
+    if !R::__lg_has_select_as() {
+        if let sea_query::TableRef::Table(name, alias) = &rel_def.to_tbl {
+            let table = match alias {
+                Some(a) => sea_query::TableName(None, a.clone()),
+                None => name.clone(),
+            };
+            query.query.clear_selects();
+            query
+                .query
+                .column(sea_query::ColumnRef::Asterisk(Some(table)));
+        }
+    }
+    query.query.join(
+        sea_query::JoinType::InnerJoin,
+        through.clone(),
+        join_tbl_on_expr(through, &rel_def.to_tbl, through_to, &rel_def.to_col),
+    );
+    // junction.through_from_col = the model's from_col values (the condition builder filters the
+    // relation's `to_tbl`/`to_col`, so point those at the junction).
+    let via_junction = RelationDef {
+        to_tbl: through.clone(),
+        to_col: through_from.clone(),
+        ..rel_def.clone()
+    };
+    Ok(query.filter(build_where_condition(&via_junction, model)?))
 }
 
 /// Trait for defining multi-hop relationship paths
