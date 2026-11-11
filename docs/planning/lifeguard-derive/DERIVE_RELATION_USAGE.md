@@ -6,6 +6,7 @@
 >
 > - `DeriveRelation` with `has_many` / `has_one` / `belongs_to`, `from`/`to` metadata, composite keys via `Identity` and default-column inference: `lifeguard-derive/src/macros/relation.rs` (inference at lines 933-1040), `src/relation/identity.rs:34`, `src/relation/def/struct_def.rs:62`; integration tests in `tests/db_integration/related_trait.rs` (composite `Identity::Binary` at line 634).
 > - The "Future Enhancements" item `has_many_through` has shipped: `relation.rs:681, 725-745, 1056` and `RelationType::HasManyThrough` (`src/relation/def/types.rs:16`). `RelationDef` now also carries `through_*` fields not listed in the doc's "RelationDef Structure" section.
+> - Limitation of the shipped `has_many_through`: `find_related` ignores the through table and filters with `build_where_condition` only (`src/relation/traits.rs:556-572`), so it can return wrong rows for through relations; `find_related_parent_scoped` rejects them (`traits.rs:531-533`). Eager loading does join the through table (`src/relation/eager.rs:309`).
 
 # DeriveRelation Macro Usage Guide
 
