@@ -1046,3 +1046,58 @@ fn batch_writer_retries_a_deadlock() {
     assert!(failed.lock().expect("lock").is_empty());
     assert_eq!(count(&exec, b, b + 1), 1, "written once");
 }
+
+// ---------------------------------------------------------------------------------------------
+// select_partial keeps filters, ordering and pagination.
+
+struct IdQty {
+    id: i64,
+    qty: i32,
+}
+
+impl lifeguard::FromRow for IdQty {
+    fn from_row(row: &may_postgres::Row) -> Result<Self, may_postgres::Error> {
+        Ok(Self {
+            id: row.try_get("id")?,
+            qty: row.try_get("qty")?,
+        })
+    }
+}
+
+impl lifeguard::PartialModelTrait for IdQty {
+    type Entity = Entity;
+    fn selected_columns() -> Vec<&'static str> {
+        vec!["id", "qty"]
+    }
+}
+
+#[test]
+fn select_partial_keeps_filter_order_and_pagination() {
+    use lifeguard::PartialModelBuilder;
+    let exec = executor();
+    let b = id_base();
+    let rows: Vec<BatchItemRecord> = (0..10)
+        .map(|i| rec(b + i, i32::try_from(i).expect("small")))
+        .collect();
+    insert_many(&exec, &rows, &BatchOptions::default()).expect("seed");
+    let page = |offset: u64| -> Vec<(i64, i32)> {
+        Entity::find()
+            .filter(Column::Id.gte(b))
+            .filter(Column::Id.lt(b + 10))
+            .filter(Column::Qty.gte(1))
+            .order_by(Column::Id, sea_query::Order::Desc)
+            .limit(3)
+            .offset(offset)
+            .select_partial::<IdQty>()
+            .all(&exec)
+            .expect("partial")
+            .into_iter()
+            .map(|p| (p.id, p.qty))
+            .collect()
+    };
+    // qty >= 1 drops row b (qty 0); newest first, three per page.
+    assert_eq!(page(0), vec![(b + 9, 9), (b + 8, 8), (b + 7, 7)]);
+    assert_eq!(page(3), vec![(b + 6, 6), (b + 5, 5), (b + 4, 4)]);
+    assert_eq!(page(6), vec![(b + 3, 3), (b + 2, 2), (b + 1, 1)]);
+    assert!(page(9).is_empty(), "past the last row");
+}

@@ -145,50 +145,12 @@ impl<E: LifeModelTrait, P: PartialModelTrait<Entity = E>> SelectPartialQuery<E, 
 
 impl<E: LifeModelTrait> super::traits::PartialModelBuilder<E> for SelectQuery<E> {
     fn select_partial<P: PartialModelTrait<Entity = E>>(mut self) -> SelectPartialQuery<E, P> {
-        // Define helper struct for table name (must be in scope before use)
-        struct TableName(&'static str);
-        impl sea_query::Iden for TableName {
-            fn unquoted(&self) -> &'static str {
-                self.0
-            }
+        // Replace only the select list: FROM (with its schema), joins, WHERE, GROUP BY, ORDER BY,
+        // LIMIT and OFFSET set earlier in the chain stay as they are.
+        self.query.clear_selects();
+        for column_name in P::selected_columns() {
+            self.query.column(column_name);
         }
-
-        // Get the column names from the partial model
-        let column_names = P::selected_columns();
-
-        // Note: We clone the query to attempt preservation, but since SelectStatement doesn't
-        // expose clause getters, we cannot actually preserve WHERE, ORDER BY, etc. when replacing columns.
-        // This is a known limitation of sea-query's API.
-        let _preserved_query = self.query.clone();
-
-        // Get table name (in case we need to rebuild FROM clause)
-        let entity = E::default();
-        let table_name = entity.table_name();
-
-        // Build a new query with only the partial model columns
-        // We'll preserve all other clauses from the original query
-        let mut new_query = sea_query::SelectStatement::default();
-        new_query.from(TableName(table_name));
-
-        // Add each column from the partial model
-        for column_name in column_names {
-            new_query.column(column_name);
-        }
-
-        // Preserve clauses from the original query
-        // Since SelectStatement doesn't expose clause getters or support column replacement,
-        // we cannot easily preserve WHERE, ORDER BY, LIMIT, OFFSET, etc. when replacing columns.
-        // This is a known limitation of sea-query's API.
-        //
-        // Workaround: Users should call select_partial() early in the query chain,
-        // before adding filters/ordering/pagination.
-        //
-        // TODO: Improve this when sea-query exposes clause getters or column replacement methods
-
-        // Replace the query with the new one (loses clauses - this is a known limitation
-        // of sea-query's SelectStatement API which doesn't expose clause getters)
-        self.query = new_query;
-
         SelectPartialQuery {
             query: self,
             _partial: std::marker::PhantomData,
@@ -391,14 +353,12 @@ mod tests {
     }
 
     // ============================================================================
-    // Clause Preservation Tests (Documenting sea-query API Limitation)
+    // Clause preservation: select_partial() replaces only the select list
     // ============================================================================
 
     #[test]
-    fn test_select_partial_loses_where_clause() {
-        // DOCUMENTED LIMITATION: select_partial() loses WHERE clauses
-        // This test verifies the documented behavior that clauses are lost
-        // when select_partial() is called after adding filters.
+    fn test_select_partial_keeps_where_clause() {
+        // select_partial() replaces only the select list: a filter added before it is kept.
 
         use crate::PartialModelBuilder;
 
@@ -423,21 +383,16 @@ mod tests {
             .filter(Expr::col("id").eq(1))
             .select_partial::<TestPartial>();
 
-        // Build SQL to verify WHERE clause is lost
         let (sql, _values) = query.query.query.build(sea_query::PostgresQueryBuilder);
-
-        // Verify WHERE clause is NOT in SQL (this documents the limitation)
-        // The SQL should only have SELECT id FROM test_entities (no WHERE)
-        assert!(!sql.to_uppercase().contains("WHERE"), 
-            "WHERE clause should be lost when select_partial() is called after filter() - this is a documented limitation");
-
-        // Verify the partial model columns ARE in SQL
-        assert!(sql.contains("id"), "Partial model columns should be in SQL");
+        assert_eq!(
+            sql, r#"SELECT "id" FROM "test_entities" WHERE "id" = $1"#,
+            "only the select list is replaced"
+        );
     }
 
     #[test]
-    fn test_select_partial_loses_order_by_clause() {
-        // DOCUMENTED LIMITATION: select_partial() loses ORDER BY clauses
+    fn test_select_partial_keeps_order_by_clause() {
+        // select_partial() keeps an ORDER BY added before it.
 
         use crate::PartialModelBuilder;
 
@@ -461,17 +416,13 @@ mod tests {
             .order_by("id", sea_query::Order::Asc)
             .select_partial::<TestPartial>();
 
-        // Build SQL to verify ORDER BY clause is lost
         let (sql, _values) = query.query.query.build(sea_query::PostgresQueryBuilder);
-
-        // Verify ORDER BY clause is NOT in SQL
-        assert!(!sql.to_uppercase().contains("ORDER BY"), 
-            "ORDER BY clause should be lost when select_partial() is called after order_by() - this is a documented limitation");
+        assert_eq!(sql, r#"SELECT "id" FROM "test_entities" ORDER BY "id" ASC"#);
     }
 
     #[test]
-    fn test_select_partial_loses_limit_offset_clauses() {
-        // DOCUMENTED LIMITATION: select_partial() loses LIMIT and OFFSET clauses
+    fn test_select_partial_keeps_limit_offset_clauses() {
+        // select_partial() keeps LIMIT and OFFSET added before it (pagination).
 
         use crate::PartialModelBuilder;
 
@@ -496,14 +447,12 @@ mod tests {
             .offset(20)
             .select_partial::<TestPartial>();
 
-        // Build SQL to verify LIMIT and OFFSET clauses are lost
-        let (sql, _values) = query.query.query.build(sea_query::PostgresQueryBuilder);
-
-        // Verify LIMIT and OFFSET clauses are NOT in SQL
-        assert!(!sql.to_uppercase().contains("LIMIT"), 
-            "LIMIT clause should be lost when select_partial() is called after limit() - this is a documented limitation");
-        assert!(!sql.to_uppercase().contains("OFFSET"), 
-            "OFFSET clause should be lost when select_partial() is called after offset() - this is a documented limitation");
+        let (sql, values) = query.query.query.build(sea_query::PostgresQueryBuilder);
+        assert_eq!(
+            sql,
+            r#"SELECT "id" FROM "test_entities" LIMIT $1 OFFSET $2"#
+        );
+        assert_eq!(values.0.len(), 2, "limit and offset are bound: {values:?}");
     }
 
     #[test]
@@ -543,7 +492,7 @@ mod tests {
             sql.to_uppercase().contains("WHERE"),
             "WHERE clause should be preserved when select_partial() is called early (workaround)"
         );
-        assert!(sql.to_uppercase().contains("ORDER BY"), 
+        assert!(sql.to_uppercase().contains("ORDER BY"),
             "ORDER BY clause should be preserved when select_partial() is called early (workaround)");
         assert!(
             sql.to_uppercase().contains("LIMIT"),
