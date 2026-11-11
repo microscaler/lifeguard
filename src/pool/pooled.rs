@@ -297,8 +297,9 @@ struct TierInner {
     last_timeout_report_ms: AtomicU64,
     timeouts_since_report: AtomicU64,
     next_watch: AtomicU64,
-    /// Pre-send retries: `[checkout, send]` (see [`presend_retryable`]).
-    presend_retries: [AtomicU64; 2],
+    /// Connection-failure retries: `[checkout, send, postsend_readonly]` (see
+    /// [`presend_retryable`] and [`is_plain_select`]).
+    presend_retries: [AtomicU64; 3],
 }
 
 /// One tier of slots (primary or replica).
@@ -370,7 +371,7 @@ impl WorkerPool {
             last_timeout_report_ms: AtomicU64::new(0),
             timeouts_since_report: AtomicU64::new(0),
             next_watch: AtomicU64::new(0),
-            presend_retries: [AtomicU64::new(0), AtomicU64::new(0)],
+            presend_retries: [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)],
         });
         if inner.idle_liveness.is_some()
             || inner.max_connection_lifetime.is_some()
@@ -582,12 +583,17 @@ impl WorkerPool {
 impl TierInner {
     /// A unit's connection was dead before anything was sent and the unit moves to a fresh one.
     fn note_presend_retry(&self, unit: &'static str, stage: &'static str) {
-        self.presend_retries[usize::from(stage == "send")].fetch_add(1, Ordering::Relaxed);
+        let i = match stage {
+            "checkout" => 0,
+            "send" => 1,
+            _ => 2,
+        };
+        self.presend_retries[i].fetch_add(1, Ordering::Relaxed);
         #[cfg(feature = "metrics")]
         METRICS.record_pool_presend_retry(unit, stage);
         log::warn!(
-            "lifeguard pool ({}): {unit} connection was dead at {stage}, before anything was sent; \
-             retrying once on a fresh connection",
+            "lifeguard pool ({}): {unit} connection failed ({stage}); retrying once on a fresh \
+             connection",
             self.tier
         );
     }
@@ -1265,7 +1271,19 @@ fn presend_retryable(e: &LifeError, sent: bool, conn: &SlotConn) -> bool {
         && life_error_is_connectivity_heal_candidate(e)
 }
 
-/// A standalone statement on a shared slot; a connectivity error heals the slot and retries once.
+/// The `unit` label of standalone statements on a shared slot.
+const SHARED_UNIT: &str = "shared_statement";
+
+/// A standalone statement on a shared slot. A connectivity error always heals the slot; the
+/// statement itself runs once more on the fresh connection only when that cannot apply it twice:
+///
+/// - `checkout`: the slot's connection was already dead before the statement started;
+/// - `send`: preparing it or handing over its first message failed, so nothing reached the
+///   server (see [`presend_retryable`]);
+/// - `postsend_readonly`: it was sent, but it is a plain `SELECT` ([`is_plain_select`]).
+///
+/// Any other failure after the statement was sent is returned: a write may have been applied.
+/// Never more than one retry; never after the reply deadline closed the connection.
 fn run_shared_with_heal(
     tier: &Arc<TierInner>,
     index: usize,
@@ -1275,18 +1293,33 @@ fn run_shared_with_heal(
     kind: Kind,
 ) -> Result<Out, LifeError> {
     let name = tier.tier;
+    let conn = if conn.is_dead() && !conn.deadline_closed.load(Ordering::Acquire) {
+        tier.note_presend_retry(SHARED_UNIT, "checkout");
+        tier.slots[index].heal(&conn, name)?
+    } else {
+        conn
+    };
     let h = conn.take_handle();
-    match exec_kind(name, &h, &conn, sql, refs, kind) {
+    let sent = AtomicBool::new(false);
+    match exec_kind_tracked(name, &h, &conn, sql, refs, kind, &sent) {
         // Closed by the reply-deadline watchdog: the caller is out of time, so no retry.
         Err(e) if conn.deadline_closed.load(Ordering::Acquire) => Err(e),
         Err(e) if life_error_is_connectivity_heal_candidate(&e) => {
             conn.broken.store(true, Ordering::Release);
-            let fresh = match tier.slots[index].heal(&conn, name) {
-                Ok(f) => f,
-                Err(_) => return Err(e),
+            let stage = if !sent.load(Ordering::Acquire) {
+                Some("send")
+            } else if is_plain_select(sql) {
+                Some("postsend_readonly")
+            } else {
+                None
             };
+            let fresh = tier.slots[index].heal(&conn, name);
+            let (Some(stage), Ok(fresh)) = (stage, fresh) else {
+                return Err(e);
+            };
+            tier.note_presend_retry(SHARED_UNIT, stage);
             let h2 = fresh.take_handle();
-            let r = exec_kind(name, &h2, &fresh, sql, refs, kind);
+            let r = exec_kind_tracked(name, &h2, &fresh, sql, refs, kind, &AtomicBool::new(false));
             if !r
                 .as_ref()
                 .is_err_and(life_error_is_connectivity_heal_candidate)
@@ -1300,6 +1333,82 @@ fn run_shared_with_heal(
             r
         }
     }
+}
+
+/// [`exec_kind`] through `query_raw`, setting `sent` once the statement's message is accepted for
+/// sending (preparing it, or a cache hit, sends nothing that changes the server).
+fn exec_kind_tracked(
+    tier: &'static str,
+    h: &Client,
+    conn: &SlotConn,
+    sql: &str,
+    refs: &[&dyn ToSql],
+    kind: Kind,
+    sent: &AtomicBool,
+) -> Result<Out, LifeError> {
+    let out = timed(tier, sql, || {
+        let (out, lookup) = conn.stmts.with_statement(h, sql, |st| {
+            let stream = h.query_raw(st, refs)?;
+            sent.store(true, Ordering::Release);
+            match kind {
+                Kind::Execute => count(stream).map(Out::Count),
+                Kind::QueryOpt | Kind::QueryAll => {
+                    stream.collect::<Result<Vec<Row>, _>>().map(Out::All)
+                }
+            }
+        })?;
+        #[cfg(feature = "metrics")]
+        METRICS.record_statement_cache(lookup == Lookup::Hit, tier);
+        let _ = lookup;
+        Ok(out)
+    })?;
+    match (kind, out) {
+        (Kind::QueryOpt, Out::All(rows)) => crate::executor::at_most_one(rows).map(Out::Opt),
+        (_, out) => Ok(out),
+    }
+}
+
+/// A statement that is safe to run again after it may have reached the server: a plain `SELECT`.
+///
+/// Deliberately conservative, from the text alone: it must start with `SELECT` (so no
+/// data-modifying `WITH`, which PostgreSQL only allows at the top level), and must not lock rows
+/// (`FOR UPDATE` / `FOR NO KEY UPDATE` / `FOR SHARE` / `FOR KEY SHARE`), create a table
+/// (`SELECT … INTO`) or call a known side-effecting built-in (sequences, `pg_notify`, advisory
+/// locks, `set_config`, large objects, the RLS context helper). Anything else, including a leading
+/// comment, counts as not idempotent. A `SELECT` of a user function that writes cannot be told
+/// apart: callers with such statements should not rely on this retry.
+fn is_plain_select(sql: &str) -> bool {
+    let s = sql.trim_start();
+    if !s.get(..6).is_some_and(|h| h.eq_ignore_ascii_case("select")) {
+        return false;
+    }
+    if !s[6..].starts_with(|c: char| c.is_whitespace() || c == '(') {
+        return false;
+    }
+    let norm = format!(
+        " {} ",
+        s.to_ascii_lowercase()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    const DENY: [&str; 14] = [
+        " for update",
+        " for no key update",
+        " for share",
+        " for key share",
+        " into ",
+        "nextval(",
+        "setval(",
+        "pg_notify(",
+        "pg_advisory",
+        "set_config(",
+        "lo_",
+        "rls_set_session",
+        "dblink",
+        ";",
+    ];
+    !DENY.iter().any(|d| norm.contains(d))
 }
 
 fn drain(stream: may_postgres::RowStream) -> Result<(), may_postgres::Error> {
@@ -1804,6 +1913,14 @@ impl LifeguardPool {
     pub fn presend_retry_counts(&self) -> (u64, u64) {
         let r = &self.primary.inner.presend_retries;
         (r[0].load(Ordering::Relaxed), r[1].load(Ordering::Relaxed))
+    }
+
+    /// Plain `SELECT`s on the primary tier retried once after a connection failure that came
+    /// after they were sent (`postsend_readonly`).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn postsend_readonly_retry_count(&self) -> u64 {
+        self.primary.inner.presend_retries[2].load(Ordering::Relaxed)
     }
 
     /// Slots connected to the primary URL (writes and fallback reads).
@@ -2983,5 +3100,48 @@ mod session_args_tests {
         let ctx = context();
         let args = SessionArgs::new(&ctx).map(Arc::new).ok();
         assert!(args.is_some());
+    }
+}
+
+#[cfg(test)]
+mod plain_select_tests {
+    use super::is_plain_select;
+
+    #[test]
+    fn plain_selects_are_retryable() {
+        for q in [
+            "SELECT 1",
+            "  select id, name FROM t WHERE id = $1",
+            "SELECT\n count(*) FROM t",
+            "SELECT(1)",
+            "SELECT * FROM t WHERE note = 'x' ORDER BY id",
+        ] {
+            assert!(is_plain_select(q), "{q}");
+        }
+    }
+
+    #[test]
+    fn anything_else_is_not() {
+        for q in [
+            "INSERT INTO t VALUES (1)",
+            "UPDATE t SET a = 1",
+            "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d",
+            "SELECT * FROM t FOR UPDATE",
+            "SELECT * FROM t FOR NO KEY UPDATE SKIP LOCKED",
+            "SELECT * FROM t\nFOR SHARE",
+            "SELECT * FROM t FOR KEY SHARE",
+            "SELECT a INTO new_t FROM t",
+            "SELECT nextval('s')",
+            "SELECT pg_notify('c', 'x')",
+            "SELECT pg_advisory_lock(1)",
+            "SELECT set_config('a.b', 'c', false)",
+            "SELECT public.rls_set_session($1)",
+            "/* c */ SELECT 1",
+            "SELECTx",
+            "selec",
+            "",
+        ] {
+            assert!(!is_plain_select(q), "{q}");
+        }
     }
 }

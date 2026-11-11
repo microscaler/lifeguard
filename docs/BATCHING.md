@@ -224,8 +224,10 @@ in half and retries each half, down to single rows. The bad rows come back in
 `BatchOutcome::failed` with their input index and error, and every other row is written. That
 costs about `k · log2(n)` extra statements for `k` bad rows in a chunk of `n` (a 1000-row chunk
 with 3 bad rows takes about 53 statements), against `n` for row by row. Transient errors
-(serialization failure, deadlock, dropped connection) re-run the chunk instead, up to
-`transient_retries` times.
+(serialization failure, deadlock, pool acquire timeout) re-run the chunk instead, up to
+`transient_retries` times. A dropped connection or reply timeout is returned without a re-run: the
+chunk may already have been applied (the pool itself retries once when the connection failed
+before the chunk was sent).
 
 ### When Bisect is safe
 

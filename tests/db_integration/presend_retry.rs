@@ -268,3 +268,140 @@ fn a_failure_after_the_unit_sent_is_returned_and_not_retried() {
     assert_eq!(pool.presend_retry_counts(), (0, 0));
     assert_eq!(total_rows(&t), before, "not retried");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Standalone statements on a shared slot (no session context).
+
+/// A table without RLS that the pool's role can write; returns its name.
+fn plain_table() -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let t = format!("presend_plain_{}_{n}", std::process::id());
+    let ctx = crate::context::get_test_context();
+    let c = may_postgres::connect(&ctx.pg_url).expect("connect");
+    c.batch_execute(&format!(
+        "CREATE TABLE {t} (id SERIAL PRIMARY KEY, v TEXT NOT NULL);
+         GRANT SELECT, INSERT ON {t} TO rls_test_role;
+         GRANT USAGE ON SEQUENCE {t}_id_seq TO rls_test_role;"
+    ))
+    .expect("plain table");
+    t
+}
+
+fn shared(pool: &Arc<LifeguardPool>) -> PooledLifeExecutor {
+    PooledLifeExecutor::new(Arc::clone(pool))
+}
+
+fn insert(
+    exec: &PooledLifeExecutor,
+    t: &str,
+    sql_tag: &str,
+    v: &str,
+) -> Result<u64, lifeguard::LifeError> {
+    exec.execute_values(
+        &format!("INSERT INTO {t} (v) VALUES ($1) /* {sql_tag} */"),
+        &Values(vec![Value::from(v)]),
+    )
+}
+
+fn warm(exec: &PooledLifeExecutor) {
+    let one: i32 = exec
+        .query_one_values("SELECT 1", &no_params())
+        .expect("warm")
+        .get(0);
+    assert_eq!(one, 1);
+}
+
+#[test]
+fn a_shared_insert_cut_after_send_is_returned_and_not_retried() {
+    let t = plain_table();
+    let (proxy, pool) = setup();
+    let exec = shared(&pool);
+    warm(&exec);
+    // The marker rides in the parameter: seen in the statement's Bind, after it was prepared.
+    let marker = "lg-shared-after-send";
+    proxy.cut_on(marker, 1);
+    let r = insert(&exec, &t, "plain", marker);
+    assert!(r.is_err(), "the cut after sending is returned: {r:?}");
+    assert_eq!(pool.presend_retry_counts(), (0, 0));
+    assert_eq!(pool.postsend_readonly_retry_count(), 0);
+    assert!(total_rows(&t) <= 1, "written at most once");
+    assert_eq!(total_rows(&t), 0, "not retried");
+    // The slot was healed: the next statement works.
+    assert_eq!(insert(&exec, &t, "plain", "after").expect("healed"), 1);
+}
+
+#[test]
+fn a_shared_insert_on_a_connection_dead_at_checkout_is_retried_and_written_once() {
+    let t = plain_table();
+    let (proxy, pool) = setup();
+    let exec = shared(&pool);
+    warm(&exec);
+    proxy.cut_all();
+    settle();
+    assert_eq!(
+        insert(&exec, &t, "plain", "once").expect("insert on the healed slot"),
+        1
+    );
+    assert_eq!(total_rows(&t), 1, "written exactly once");
+    assert_eq!(pool.presend_retry_counts(), (1, 0));
+}
+
+#[test]
+fn a_shared_insert_failing_before_it_sends_is_retried_once() {
+    let t = plain_table();
+    let (proxy, pool) = setup();
+    let exec = shared(&pool);
+    warm(&exec);
+    // The marker rides in the SQL text: seen in the Parse, before the statement is sent.
+    let marker = "lg-shared-presend";
+    proxy.cut_on(marker, 1);
+    assert_eq!(
+        insert(&exec, &t, marker, "once").expect("retried insert"),
+        1
+    );
+    assert_eq!(total_rows(&t), 1, "written exactly once");
+    assert_eq!(pool.presend_retry_counts(), (0, 1));
+}
+
+#[test]
+fn a_shared_select_cut_after_send_is_retried_once() {
+    let (proxy, pool) = setup();
+    let exec = shared(&pool);
+    warm(&exec);
+    let marker = "lg-shared-select-after-send";
+    proxy.cut_on(marker, 1);
+    let got: String = exec
+        .query_one_values("SELECT $1::text", &Values(vec![Value::from(marker)]))
+        .expect("retried select")
+        .get(0);
+    assert_eq!(got, marker);
+    assert_eq!(pool.postsend_readonly_retry_count(), 1);
+    assert_eq!(pool.presend_retry_counts(), (0, 0));
+}
+
+#[test]
+fn a_shared_statement_is_never_retried_twice() {
+    let t = plain_table();
+    let (proxy, pool) = setup();
+    let exec = shared(&pool);
+    warm(&exec);
+
+    let marker = "lg-shared-select-always";
+    proxy.cut_on(marker, usize::MAX);
+    let r = exec.query_one_values("SELECT $1::text", &Values(vec![Value::from(marker)]));
+    assert!(r.is_err(), "second failure is returned");
+    assert_eq!(pool.postsend_readonly_retry_count(), 1);
+
+    let marker = "lg-shared-insert-always";
+    proxy.cut_on(marker, usize::MAX);
+    let r = insert(&exec, &t, marker, "never");
+    assert!(r.is_err(), "second failure is returned");
+    // The SELECT left its retry connection cut, so this insert may first heal it at checkout;
+    // what matters is a single send-stage retry.
+    assert_eq!(pool.presend_retry_counts().1, 1);
+    assert_eq!(total_rows(&t), 0);
+
+    proxy.cut_on(marker, 0);
+    warm(&exec);
+}

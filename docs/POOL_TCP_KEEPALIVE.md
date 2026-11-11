@@ -65,3 +65,19 @@ Retries are counted in `lifeguard_pool_presend_retry_total{unit, stage}` (`unit`
 `batch` or `session_transaction`) and logged at `warn`. With keepalive on, most connections that
 die while idle are already marked closed at checkout; these retries turn that into a successful unit
 instead of an error to the caller.
+
+### Standalone statements (shared slots)
+
+A statement run without a session context (on a shared slot) follows the same rule. A
+connectivity error always heals the slot, and the statement runs once more on the fresh
+connection only when that cannot apply it twice:
+
+| Stage | When |
+|---|---|
+| `checkout` | The slot's connection was already dead before the statement started. |
+| `send` | Preparing it or handing over its message failed: nothing reached the server. |
+| `postsend_readonly` | It was sent, but it is a plain `SELECT`: starts with `SELECT`, no row locks (`FOR UPDATE` / `FOR SHARE` …), no `SELECT … INTO`, no known side-effecting built-in (sequences, `pg_notify`, advisory locks, `set_config`, large objects). Anything else, including a leading comment, is not retried. A `SELECT` that calls a user function with side effects cannot be told apart from the text; avoid relying on this retry for such statements. |
+
+Any other failure after the statement was sent is returned (a write may have been applied). These
+retries count under `unit="shared_statement"`. Batch writes in `Bisect` mode no longer re-run a
+chunk after a dropped connection or reply timeout, for the same reason.

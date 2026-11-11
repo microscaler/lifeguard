@@ -167,9 +167,11 @@ pub enum BatchFailure {
     ///   or `max_depth` halvings. Rows of a part that still fails go to
     ///   [`BatchOutcome::failed`]; every other row is written. That costs about `k · log2(n)`
     ///   extra statements for `k` bad rows in a chunk of `n`, against `n` for row by row.
-    /// - A **transient error** (`40001`, `40P01`, class `08`, a dropped connection, a pool
-    ///   timeout) re-runs the whole part up to [`BatchOptions::transient_retries`] times, then
-    ///   returns [`BatchError`] without splitting: halving would not help.
+    /// - A **transient error** (`40001`, `40P01`, a pool acquire timeout) re-runs the whole part
+    ///   up to [`BatchOptions::transient_retries`] times, then returns [`BatchError`] without
+    ///   splitting: halving would not help. A dropped connection (class `08`, I/O error) or a
+    ///   reply timeout is returned at once: the part may already have been applied. (The pool
+    ///   retries a part once by itself when its connection failed before it was sent.)
     /// - **Any other error** returns [`BatchError`] at once.
     ///
     /// Each part is its own statement, so on a pool executor (autocommit) a failed part rolls back
@@ -219,7 +221,7 @@ enum ChunkError {
 enum ErrorClass {
     /// Bad data in some row: class 22 (data exception) or 23 (integrity constraint).
     RowData,
-    /// Worth a re-run of the same statement: 40001, 40P01, class 08, connection or pool timeout.
+    /// Worth a re-run of the same statement: 40001, 40P01, or a pool acquire timeout.
     Transient,
     Other,
 }
@@ -235,15 +237,15 @@ fn classify(e: &LifeError) -> ErrorClass {
     match e {
         LifeError::PostgresError(pe) => match pe.code().map(may_postgres::error::SqlState::code) {
             Some(c) if c.starts_with("22") || c.starts_with("23") => ErrorClass::RowData,
+            // The server rolled the statement back: safe to run it again.
             Some("40001" | "40P01") => ErrorClass::Transient,
-            Some(c) if c.starts_with("08") => ErrorClass::Transient,
-            Some(_) => ErrorClass::Other,
-            // No SQLSTATE: I/O error or closed connection.
-            None => ErrorClass::Transient,
+            // Class 08 or no SQLSTATE (I/O error, closed connection): the part may have been
+            // applied before the connection failed, so it is not run again. A failure before it
+            // was sent is already retried once by the pool.
+            _ => ErrorClass::Other,
         },
-        LifeError::PoolAcquireTimeout { .. } | LifeError::PoolReplyTimeout { .. } => {
-            ErrorClass::Transient
-        }
+        // Never reached a connection: nothing was sent.
+        LifeError::PoolAcquireTimeout { .. } => ErrorClass::Transient,
         _ => ErrorClass::Other,
     }
 }
