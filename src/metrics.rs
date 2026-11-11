@@ -144,6 +144,10 @@ impl LifeguardMetrics {
             .expect("failed to build prometheus exporter");
         let meter_provider = SdkMeterProvider::builder().with_reader(exporter).build();
         let meter = meter_provider.meter("lifeguard");
+        // Counter instrument names carry no `_total`: the exporter appends it to every monotonic
+        // counter (and would turn `foo_total` into `foo_total_total`). It would also append a unit
+        // suffix (`_seconds`, `_bytes`) if a unit were set; names here carry the unit and set none.
+        // `exported_names_have_exactly_one_suffix` checks the scrape output.
 
         let pool_size = meter
             .u64_gauge("lifeguard_pool_size")
@@ -175,7 +179,7 @@ impl LifeguardMetrics {
             .build();
 
         let query_errors = meter
-            .u64_counter("lifeguard_query_errors_total")
+            .u64_counter("lifeguard_query_errors")
             .with_description("Total query errors")
             .build();
 
@@ -185,28 +189,28 @@ impl LifeguardMetrics {
             .build();
 
         let pool_acquire_timeout_total = meter
-            .u64_counter("lifeguard_pool_acquire_timeout_total")
+            .u64_counter("lifeguard_pool_acquire_timeout")
             .with_description("Pool acquire timeouts waiting for a worker slot")
             .build();
 
         let pool_reply_timeout_total = meter
-            .u64_counter("lifeguard_pool_reply_timeout_total")
+            .u64_counter("lifeguard_pool_reply_timeout")
             .with_description("Dispatched jobs whose worker reply missed the reply deadline (wedged worker or overlong statement)")
             .build();
 
         let pool_slot_heal_total = meter
-            .u64_counter("lifeguard_pool_slot_heal_total")
+            .u64_counter("lifeguard_pool_slot_heal")
             .with_description("Slot heal reconnects after connectivity errors")
             .build();
         let pool_presend_retry_total = meter
-            .u64_counter("lifeguard_pool_presend_retry_total")
+            .u64_counter("lifeguard_pool_presend_retry")
             .with_description(
                 "Units retried once on a fresh connection because theirs was dead before anything was sent",
             )
             .build();
 
         let pool_connection_rotated_total = meter
-            .u64_counter("lifeguard_pool_connection_rotated_total")
+            .u64_counter("lifeguard_pool_connection_rotated")
             .with_description("Connections rotated due to max_connection_lifetime policy")
             .build();
 
@@ -217,7 +221,7 @@ impl LifeguardMetrics {
             .build();
 
         let statement_cache_total = meter
-            .u64_counter("lifeguard_statement_cache_total")
+            .u64_counter("lifeguard_statement_cache")
             .with_description("Pooled prepared-statement lookups (result = hit | miss)")
             .build();
 
@@ -1162,5 +1166,66 @@ mod tests {
         let _span3 = tracing_helpers::release_connection_span();
         let _span4 = tracing_helpers::pool_slot_heal_span();
         // Just verify they don't panic
+    }
+}
+
+#[cfg(all(test, feature = "metrics"))]
+mod exported_name_tests {
+    use super::{prometheus_scrape_text, METRICS};
+
+    /// Every OTel counter, recorded once so it appears in the scrape.
+    fn touch_all() {
+        METRICS.record_query_error(Some("primary"));
+        METRICS.record_pool_acquire_timeout("primary");
+        METRICS.record_pool_reply_timeout("primary");
+        METRICS.record_pool_slot_heal("primary");
+        METRICS.record_pool_presend_retry("rls_unit", "checkout");
+        METRICS.record_pool_connection_rotated("primary");
+        METRICS.record_statement_cache(true, "primary");
+    }
+
+    fn series_names() -> Vec<String> {
+        let mut names: Vec<String> = prometheus_scrape_text()
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+            .filter_map(|l| l.split(['{', ' ']).next().map(str::to_owned))
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    #[test]
+    fn exported_names_have_exactly_one_suffix() {
+        touch_all();
+        let names = series_names();
+        for want in [
+            "lifeguard_query_errors_total",
+            "lifeguard_pool_acquire_timeout_total",
+            "lifeguard_pool_reply_timeout_total",
+            "lifeguard_pool_slot_heal_total",
+            "lifeguard_pool_presend_retry_total",
+            "lifeguard_pool_connection_rotated_total",
+            "lifeguard_statement_cache_total",
+        ] {
+            assert!(
+                names.iter().any(|n| n == want),
+                "{want} missing from {names:?}"
+            );
+        }
+        for n in &names {
+            for doubled in [
+                "_total_total",
+                "_seconds_seconds",
+                "_bytes_bytes",
+                "_seconds_total_total",
+            ] {
+                assert!(!n.contains(doubled), "doubled suffix in {n}");
+            }
+            assert!(
+                !n.ends_with("_total") || n.matches("_total").count() == 1,
+                "more than one _total in {n}"
+            );
+        }
     }
 }

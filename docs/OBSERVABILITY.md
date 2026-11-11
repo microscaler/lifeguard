@@ -75,6 +75,8 @@ When the `metrics` feature is enabled, Lifeguard exposes the following Prometheu
 
 ### Metrics
 
+**Counter names.** The OpenTelemetry Prometheus exporter appends `_total` to every counter, so the instruments are named without it (`lifeguard_query_errors`) and exported once-suffixed (`lifeguard_query_errors_total`). Up to and including lifeguard da8e290 these were exported as `..._total_total`; dashboards migrating across the rename should query both spellings until the old series age out (GMP rejects `__name__=~`, so add the two expressions). `metrics::exported_name_tests` checks the scrape output for doubled suffixes.
+
 | Metric Name | Type | Labels | Description |
 |------------|------|--------|-------------|
 | `lifeguard_pool_size` | Gauge | — | Total pool worker slots (primary + replica) |
