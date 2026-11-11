@@ -1,3 +1,13 @@
+> **Status:** Implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - `Identity` enum: `src/relation/identity.rs:34`; `RelationDef`: `src/relation/def/struct_def.rs:62`; `Related::to() -> RelationDef`: `src/relation/traits.rs:394`; `build_where_condition`: `src/relation/def/condition.rs:306`; `From<RelationDef> for Condition` / `join_tbl_on_condition`: `condition.rs:85, 153`; `ModelTrait::get_primary_key_identity` / `get_primary_key_values`: `src/model.rs:138, 162`.
+> - Still open (the doc's own unchecked items): no migration guide for the `Related::to()` return-type change was found in `CHANGELOG.md` or `docs/`; no `find_related` performance benchmark.
+> - The legacy `RelationMetadata` trait still exists and is re-exported (`src/relation/traits.rs:340`, `src/lib.rs:188`) although `find_related` no longer uses it.
+
 # Design Document: RelationMetadata and Composite Primary Key Support
 
 ## Overview

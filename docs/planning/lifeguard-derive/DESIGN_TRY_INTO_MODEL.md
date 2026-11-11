@@ -1,3 +1,13 @@
+> **Status:** Partially implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - Phases 1, 2 and 4 shipped (the doc's `Status: Design Phase` header and unchecked checklist are stale): trait and blanket `M -> M` impl in `src/model/try_into_model.rs:64, 91`, re-exported at `src/lib.rs:168`; `DeriveTryIntoModel` with `model`, `error`, `map_from`, `convert` in `lifeguard-derive/src/macros/try_into_model.rs`; tests in `lifeguard-derive/tests/test_try_into_model.rs` plus six `compile_error_try_into_model_*` UI tests in `lifeguard-derive/tests/ui/`; example `examples/try_into_model_example.rs`; mapping row in `SEAORM_LIFEGUARD_MAPPING.md:48`.
+> - Phase 3 is only partly done although its tasks are ticked in the body: custom conversion functions (`convert`) exist; validation hooks, field-renaming strategies (snake_case/camelCase), and nested-struct conversion do not (no matching code in `try_into_model.rs`). The `optional` field attribute is parsed but unused (`try_into_model.rs:165`, `_is_optional`).
+> - §8 future items not started: `TryFromModel`, collection conversions (`Vec<DTO> -> Vec<Model>`).
+
 # Design Document: TryIntoModel Trait Implementation
 
 **Date:** 2025-01-27  

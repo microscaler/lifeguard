@@ -1,3 +1,14 @@
+> **Status:** Implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - `ActiveModelTrait::{insert, update, save, delete}` in `src/active_model/traits.rs:163, 284, 314, 478`; the `LifeRecord` derive generates them (`lifeguard-derive/src/macros/life_record.rs:1622, 1770, 1834`) with PK and RETURNING extraction (`life_record.rs:155-156`).
+> - Parameter binding helper is `with_converted_params` in `src/active_model/conversion.rs:15` (the doc's `src/active_model.rs` path predates the module split).
+> - Hook-persistence integration tests: `tests/db_integration/active_model_crud.rs:2117, 2185, 2258`.
+> - Later change the doc does not describe: `LifeRecord` fields are `ActiveValue<T>` rather than `Option<T>` (`CHANGELOG.md:154-156`), so the doc's `get().is_none()` wording for auto-increment is historical.
+
 # CRUD Operations Implementation Plan
 
 ## Overview

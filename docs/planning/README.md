@@ -34,6 +34,10 @@ These files can be used by documentation generators to create comprehensive docu
 
 Generated: 2026-01-22
 
+## Status-labelled docs
+
+- [`STATUS_INDEX.md`](./STATUS_INDEX.md): status (implemented / partial / proposed / superseded), evidence and remaining work for the 13 early ORM design docs in `root/` and `lifeguard-derive/`.
+
 ## Active design docs (pooling)
 
 - [`DESIGN_CONNECTION_POOLING.md`](./DESIGN_CONNECTION_POOLING.md) — in-process pool behavior, metrics, PRD §9 decisions (companion to [`PRD_CONNECTION_POOLING.md`](./PRD_CONNECTION_POOLING.md)).

@@ -1,3 +1,13 @@
+> **Status:** Implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - The audit's rule holds: no `TypeId`-keyed registry exists in `src/`, `lifeguard-derive/src/` or `lifeguard-migrate/src/`, and relations use the struct-based `RelationDef` (`src/relation/def/struct_def.rs:62`) as recommended.
+> - Drift since the audit (not `TypeId`-keyed, but static maps the next audit should classify): `MIGRATION_REGISTRY` (`src/migration/registry.rs:14`, keyed by migration version) and `EXPR_CACHE` (`src/query/column/definition.rs:19`, a string cache). The `src/query/column.rs` file the doc cites is now `src/query/column/`.
+> - A byte-identical copy of this document also lives at `docs/planning/audits/REGISTRY_PATTERN_AUDIT.md`.
+
 # Registry Pattern Audit
 
 ## Overview

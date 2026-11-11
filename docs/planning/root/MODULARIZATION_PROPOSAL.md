@@ -1,3 +1,13 @@
+> **Status:** Partially implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - Phases 1-5 shipped: `src/query/` (`mod.rs`, `traits.rs`, `select.rs`, `execution.rs`, `value_conversion.rs`, `error_handling.rs`, `column/{column_trait,definition,type_mapping}.rs`, `primary_key.rs`), `src/active_model/{traits,value,error,conversion}.rs`, `src/relation/{traits,helpers,identity}.rs` + `src/relation/def/{types,struct_def,condition}.rs`, `src/partial_model/{traits,query}.rs`; the old single files (`src/query.rs`, `src/active_model.rs`, `src/relation.rs`, `src/partial_model.rs`) are gone.
+> - Missing from the "Complete Proposed Structure": `src/query/{insert,update,delete,join}.rs`, `src/active_model/{insert,update,delete}.rs`, `src/relation/def/builder.rs`; `src/model.rs` (690 lines) still sits beside `src/model/` (which holds only `try_into_model.rs`).
+> - Success criterion 1 ("No file exceeds 800 lines") no longer holds: `src/relation/eager.rs` 3370, `src/pool/pooled.rs` 2303, `src/query/execution.rs` 2009, `src/relation/traits.rs` 1984, `src/executor.rs` 1365, `src/query/select.rs` 1169, `src/active_model/traits.rs` 1054 lines.
+
 # Lifeguard Modularization Proposal
 
 ## Executive Summary

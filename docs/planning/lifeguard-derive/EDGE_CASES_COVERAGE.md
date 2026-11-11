@@ -1,3 +1,13 @@
+> **Status:** Partially implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - The test file this doc names, `lifeguard-derive/tests/test_edge_cases.rs` (37 tests), does not exist on main and appears in no commit on any branch (`git log --all -- lifeguard-derive/tests/test_edge_cases.rs` is empty), so the per-area "Covered" lists cannot be checked against it.
+> - Present: the hook-persistence integration tests (`tests/db_integration/active_model_crud.rs:2117, 2185, 2258`); partial models now select explicit columns instead of `SELECT *` (`src/partial_model/query.rs:170-176`); join conditions come from `RelationDef` (`src/relation/def/condition.rs:85, 153`), which covers the "automatic join condition" recommendation.
+> - Still open: table aliasing for several joins to the same table, and subqueries inside JOIN conditions (no API found in `src/query/select.rs` or `src/relation/`); large-dataset performance testing is not tracked here.
+
 # Comprehensive Edge Case Coverage
 
 This document tracks edge case coverage for all Lifeguard features.

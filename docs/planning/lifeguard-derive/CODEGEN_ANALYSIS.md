@@ -1,3 +1,13 @@
+> **Status:** Implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - The recommended codegen path exists: `lifeguard-codegen` is a workspace member (`Cargo.toml:14`) with a `partial-model` subcommand (`lifeguard-codegen/src/main.rs:31`, handler at line 54).
+> - Generated partial models are checked in under `lifeguard-derive/tests/generated/` (`user_partial.rs`, `user_partial_with_column_name.rs`, `user_id_only.rs`, `user_partial_snake_case.rs`) and exercised by `lifeguard-derive/tests/test_derive_partial_model_codegen.rs`; `test_derive_partial_model.rs:1-9` records the migration to codegen.
+> - Not done: codegen for `LifeModel` or other macros (the doc's "consider codegen for other problematic macros") - only partial models are generated.
+
 # Codegen Analysis: Would It Fix E0284 Errors?
 
 ## Summary

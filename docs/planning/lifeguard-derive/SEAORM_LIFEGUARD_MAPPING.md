@@ -1,3 +1,13 @@
+> **Status:** Partially implemented
+>
+> **Verified against:** main @ bf68b3a, 2026-11-11
+>
+> **Evidence:**
+>
+> - Living parity map; many rows are accurate (e.g. `TryIntoModel` row at line 48 matches `src/model/try_into_model.rs:64`).
+> - Stale rows: §8 (lines 241-244) and §14 (lines 1172-1223) still mark `foreign_key`, `check`, `composite_unique`, `table_comment` and multi-column indexes as "Missing", but they are parsed in `lifeguard-derive/src/attributes.rs:417, 426, 575, 584, 613` and emitted by `lifeguard-migrate/src/sql_generator.rs` (`REFERENCES` line 221, `CHECK` lines 275-282, `COMMENT ON TABLE` line 420). The §10 summary percentages predate these.
+> - Still missing (no code found in `lifeguard-derive/src/`): `DeriveModelEx`, `DeriveActiveModel`, `DeriveActiveModelEx`, `DeriveIntoActiveModel`, `DeriveActiveEnum`, `FromJsonQueryResult`, `DeriveValueType`, `DeriveDisplay`, `DeriveIden`.
+
 # SeaORM/SeaQuery → Lifeguard Mapping
 
 ## Overview
