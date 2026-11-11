@@ -53,15 +53,15 @@ lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }
 # Channel utilities (may be used for new pool design)
 crossbeam-channel = "0.5"
 
-# Observability (optional via features) — pins match BRRTRouter / microscaler-observability 0.31.
-opentelemetry = { version = "0.31", features = ["testing"], optional = true }
-opentelemetry-prometheus = { version = "0.31.0", optional = true }
-opentelemetry_sdk = { version = "0.31", default-features = false, features = ["metrics"], optional = true }
+# Observability (optional via features) — pins match BRRTRouter / microscaler-observability 0.33.
+opentelemetry = { version = "0.33", features = ["testing"], optional = true }
+opentelemetry-prometheus = { version = "0.33", optional = true }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["metrics"], optional = true }
 prometheus = { version = "0.14", optional = true }
 tracing = { version = "0.1.41", optional = true }
 # Coroutine-scoped span context (ADR-0001/0002): lifeguard spans nest under the may
 # coroutine's current span without ever reading the thread's span stack.
-may_tracing = { git = "https://github.com/microscaler/may_tracing.git", tag = "v0.1.1", optional = true }
+may_tracing = { git = "https://github.com/microscaler/may_tracing.git", tag = "v0.1.2", optional = true }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["std", "registry"], optional = true }
 
 # Utilities
@@ -131,10 +131,7 @@ test-helpers = []
 # Derive + async-graphql re-export; frozen for existing use — not expanded for BFF/dashboards.
 graphql = ["lifeguard-derive/graphql", "dep:async-graphql"]
 
-# Align SDK with BRRTRouter / microscaler-observability (git pin matches their `[patch.crates-io]`).
 [patch.crates-io]
-opentelemetry = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "965078315b58ae14725721735f1c8e2bc2d3b445" }
-opentelemetry_sdk = { git = "https://github.com/open-telemetry/opentelemetry-rust", rev = "965078315b58ae14725721735f1c8e2bc2d3b445" }
 # One `may` for this workspace's own builds and tests: the microscaler fork's integration branch
 # (crates.io may plus fixes not yet released upstream, such as sub-millisecond park timeouts).
 # It applies only when building this workspace; dependents choose their own `may`.
