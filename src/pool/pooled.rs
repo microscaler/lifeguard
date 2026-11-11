@@ -1363,7 +1363,15 @@ fn exec_kind_tracked(
         Ok(out)
     })?;
     match (kind, out) {
-        (Kind::QueryOpt, Out::All(rows)) => crate::executor::at_most_one(rows).map(Out::Opt),
+        (Kind::QueryOpt, Out::All(rows)) => {
+            let r = crate::executor::at_most_one(rows).map(Out::Opt);
+            // More than one row is a query error, as when `Client::query_opt` reported it.
+            #[cfg(feature = "metrics")]
+            if r.is_err() {
+                METRICS.record_query_error_class(Some(tier), crate::metrics::sqlstate_class(None));
+            }
+            r
+        }
         (_, out) => Ok(out),
     }
 }
