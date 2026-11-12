@@ -150,7 +150,8 @@ pub fn checked_int_from_row_expr<I: quote::ToTokens>(
         }) if path.segments.len() == 1 => path.segments.first()?.ident.to_string(),
         _ => return None,
     };
-    let storage = lifeguard_typemap::integer_storage(&ident).filter(|s| s.converts())?;
+    let storage = lifeguard_typemap::integer_storage(&ident)
+        .filter(lifeguard_typemap::IntegerStorage::converts)?;
     let signed = proc_macro2::Ident::new(storage.read_as, proc_macro2::Span::call_site());
     let convert = quote! {
         <#inner as ::core::convert::TryFrom<#signed>>::try_from(v).map_err(|_| {
