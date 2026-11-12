@@ -32,4 +32,5 @@ jobs:
       ref: ${{ inputs.ref }}
       version: ${{ inputs.version }}
     secrets:
+      REPO_TOKEN: ${{ secrets.REPO_PAT }}
       RELEASE_NOTES_API_KEY: ${{ secrets.RELEASE_NOTES_API_KEY }}
