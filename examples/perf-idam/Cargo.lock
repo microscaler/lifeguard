@@ -1163,6 +1163,7 @@ dependencies = [
  "fake",
  "libc",
  "lifeguard-derive",
+ "lifeguard-typemap",
  "log",
  "may",
  "may_minihttp",
@@ -1192,6 +1193,7 @@ dependencies = [
 name = "lifeguard-derive"
 version = "0.1.0"
 dependencies = [
+ "lifeguard-typemap",
  "proc-macro2",
  "quote",
  "syn 3.0.9",
@@ -1222,6 +1224,10 @@ dependencies = [
  "toml",
  "uuid",
 ]
+
+[[package]]
+name = "lifeguard-typemap"
+version = "0.1.0"
 
 [[package]]
 name = "litemap"
