@@ -1289,7 +1289,7 @@ dependencies = [
 [[package]]
 name = "may_postgres"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/may_postgres.git?branch=integration%2Fmicroscaler-fork#932ea07b12b8e2a515572a35039ef15537d6fd8e"
+source = "git+https://github.com/microscaler/may_postgres.git?tag=v0.1.1#932ea07b12b8e2a515572a35039ef15537d6fd8e"
 dependencies = [
  "byteorder",
  "bytes",
@@ -1355,7 +1355,7 @@ dependencies = [
 [[package]]
 name = "microscaler-timing"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/microscaler-observability.git?branch=main#4bcc9333668b15af88b09ce6ec3e215b5261a06a"
+source = "git+https://github.com/microscaler/microscaler-observability.git?tag=v0.1.4#e85aaad340a7cd4380c3ec417240dd3aa521cbb8"
 dependencies = [
  "microscaler-timing-macros",
 ]
@@ -1363,11 +1363,11 @@ dependencies = [
 [[package]]
 name = "microscaler-timing-macros"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/microscaler-observability.git?branch=main#4bcc9333668b15af88b09ce6ec3e215b5261a06a"
+source = "git+https://github.com/microscaler/microscaler-observability.git?tag=v0.1.4#e85aaad340a7cd4380c3ec417240dd3aa521cbb8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 3.0.9",
 ]
 
 [[package]]

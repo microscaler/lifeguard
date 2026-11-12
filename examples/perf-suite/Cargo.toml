@@ -19,8 +19,8 @@ observability = ["lifeguard/metrics", "lifeguard/tracing"]
 lifeguard = { path = "../../", default-features = false }
 lifeguard-derive = { path = "../../lifeguard-derive" }
 may = "0.3"
-may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "integration/microscaler-fork", features = ["with-chrono-0_4"] }
-may-redis = { git = "https://github.com/microscaler/may_redis.git", rev = "3889ac42dfe7b9e8e4ae984dccc3936193a24379" }
+may_postgres = { git = "https://github.com/microscaler/may_postgres.git", tag = "v0.1.1", features = ["with-chrono-0_4"] }
+may-redis = { git = "https://github.com/microscaler/may_redis.git", tag = "v0.1.1" }
 sea-query = { version = "1.0.2", features = ["with-chrono", "with-uuid", "with-json"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
