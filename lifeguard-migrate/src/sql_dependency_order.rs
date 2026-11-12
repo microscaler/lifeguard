@@ -192,6 +192,18 @@ pub fn order_migrations_by_foreign_key_sql(
     Ok(out)
 }
 
+/// True for a rollback migration: anything under a `rollback/` directory, or named `*.down.sql`.
+///
+/// Rollbacks are never part of the forward apply order. Listing one in `apply_order.txt` would
+/// run it on the next release, undoing the migration it reverses.
+#[must_use]
+pub fn is_rollback_migration_path(rel: &str) -> bool {
+    let rel = rel.replace('\\', "/");
+    rel.ends_with(".down.sql") || rel.split('/').any(|seg| seg == "rollback")
+}
+
+/// Forward migration files under `dir`, recursively. Rollback migrations (see
+/// [`is_rollback_migration_path`]) and macOS resource forks are skipped.
 fn collect_sql_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if !dir.is_dir() {
         return Ok(());
@@ -199,9 +211,16 @@ fn collect_sql_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> 
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if path.is_dir() {
+            if name == "rollback" {
+                continue;
+            }
             collect_sql_files(&path, out)?;
         } else if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+            if name.ends_with(".down.sql") {
+                continue;
+            }
             // macOS AppleDouble resource forks (._foo.sql) are not valid UTF-8 SQL; ignore.
             if path
                 .file_name()
@@ -724,6 +743,13 @@ pub fn write_apply_order_file(migrations_dir: &Path) -> Result<(), String> {
         );
     }
 
+    // Hard guard: never write an apply order that would run a rollback on release.
+    if let Some(bad) = ordered.iter().find(|rel| is_rollback_migration_path(rel)) {
+        return Err(format!(
+            "refusing to write apply_order.txt: {bad} is a rollback migration and must never be applied in order"
+        ));
+    }
+
     let out_path = migrations_dir.join("apply_order.txt");
     let mut f = fs::File::create(&out_path).map_err(|e| e.to_string())?;
     writeln!(
@@ -743,6 +769,57 @@ mod tests {
     use super::*;
     use std::io::BufRead;
     use tempfile::tempdir;
+
+    #[test]
+    fn apply_order_never_lists_rollback_migrations() {
+        let dir = tempdir().expect("tempdir");
+        let m = dir.path();
+        fs::create_dir_all(m.join("market/rollback")).expect("mkdir");
+        fs::write(
+            m.join("market/20260101000000_a.sql"),
+            "CREATE TABLE IF NOT EXISTS a (id INT PRIMARY KEY);\n",
+        )
+        .expect("write");
+        fs::write(
+            m.join("market/rollback/20260102000000_a.down.sql"),
+            "DROP TABLE IF EXISTS a;\n",
+        )
+        .expect("write");
+        fs::write(
+            m.join("market/20260103000000_b.down.sql"),
+            "DROP TABLE IF EXISTS b;\n",
+        )
+        .expect("write");
+        write_apply_order_file(m).expect("write apply order");
+        let listed: Vec<String> = fs::read_to_string(m.join("apply_order.txt"))
+            .expect("read apply order")
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .map(str::to_string)
+            .collect();
+        assert_eq!(listed, vec!["market/20260101000000_a.sql".to_string()]);
+    }
+
+    #[test]
+    fn rollback_migration_paths_are_recognised() {
+        for p in [
+            "market/rollback/20261110150000_x.sql",
+            "rollback/x.sql",
+            "orders/x.down.sql",
+            "x.down.sql",
+            "market\\rollback\\x.sql",
+        ] {
+            assert!(is_rollback_migration_path(p), "{p}");
+        }
+        for p in [
+            "market/20261110150000_x.sql",
+            "market/20261110150000_pw_rollbacks.sql",
+            "rollbacks/x.sql",
+            "market/x_down.sql",
+        ] {
+            assert!(!is_rollback_migration_path(p), "{p}");
+        }
+    }
 
     #[test]
     fn extract_created_tables_multiple_per_file() {
