@@ -11,6 +11,7 @@ readme = "README.md"
 [workspace]
 members = [
     "lifeguard-derive",
+    "lifeguard-typemap",
     "lifeguard-codegen",
     "lifeguard-migrate",
     "tests-integration",
@@ -49,6 +50,7 @@ microscaler-timing = { git = "https://github.com/microscaler/microscaler-observa
 
 # Procedural macros for ORM
 lifeguard-derive = { path = "lifeguard-derive", version = "0.1.0" }
+lifeguard-typemap = { path = "lifeguard-typemap", version = "0.1.0" }
 
 # Channel utilities (may be used for new pool design)
 crossbeam-channel = "0.5"

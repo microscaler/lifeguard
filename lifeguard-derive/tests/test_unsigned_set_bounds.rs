@@ -196,3 +196,22 @@ fn get_then_set_round_trips_at_the_bounds() {
         round_trips(&mut m, col);
     }
 }
+
+/// Migrations use the inferred column type, so it must be the type `FromRow` decodes.
+#[test]
+fn inferred_column_types_match_what_from_row_reads() {
+    for (col, sql, nullable) in [
+        (Column::Small, "SMALLINT", false),
+        (Column::Medium, "INTEGER", false),
+        (Column::Large, "BIGINT", false),
+        (Column::Huge, "BIGINT", false),
+        (Column::OptSmall, "SMALLINT", true),
+        (Column::OptMedium, "INTEGER", true),
+        (Column::OptLarge, "BIGINT", true),
+        (Column::OptHuge, "BIGINT", true),
+    ] {
+        let def = col.column_def();
+        assert_eq!(def.column_type.as_deref(), Some(sql), "{col:?}");
+        assert_eq!(def.nullable, nullable, "{col:?}");
+    }
+}

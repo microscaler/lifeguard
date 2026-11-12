@@ -11,6 +11,7 @@ name = "lifeguard-codegen"
 path = "src/main.rs"
 
 [dependencies]
+lifeguard-typemap = { path = "../lifeguard-typemap", version = "0.1.0" }
 # CLI argument parsing
 clap = { version = "4.6", features = ["derive"] }
 # JSON parsing for field definitions

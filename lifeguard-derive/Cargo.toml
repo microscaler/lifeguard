@@ -13,6 +13,7 @@ proc-macro = true
 syn = { version = "3.0", features = ["full", "parsing", "extra-traits"] }
 quote = "1.0"
 proc-macro2 = "1.0"
+lifeguard-typemap = { path = "../lifeguard-typemap", version = "0.1.0" }
 
 [dev-dependencies]
 may_postgres = { git = "https://github.com/microscaler/may_postgres.git", branch = "integration/microscaler-fork" }

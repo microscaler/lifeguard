@@ -99,7 +99,7 @@ pub fn derive_partial_model(input: TokenStream) -> TokenStream {
         // Handle unsigned integer types by converting to signed first
         let get_expr = {
             // Check if this is an unsigned integer type
-            crate::type_conversion::unsigned_from_row_expr(
+            crate::type_conversion::checked_int_from_row_expr(
                 field_type,
                 &col_idx_lit,
                 column_name_str,

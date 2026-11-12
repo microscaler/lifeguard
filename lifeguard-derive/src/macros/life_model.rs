@@ -135,13 +135,14 @@ fn infer_sql_type_from_rust_type(ty: &Type) -> Option<String> {
         if segments.len() == 1 {
             if let Some(first_seg) = segments.first() {
                 let first_ident = first_seg.ident.to_string();
-                match first_ident.as_str() {
-                    "i8" | "i16" | "i32" | "u8" | "u16" | "u32" => {
-                        return Some("INTEGER".to_string())
-                    }
-                    "i64" | "u64" => return Some("BIGINT".to_string()),
-                    "bool" => return Some("BOOLEAN".to_string()),
-                    _ => {}
+                // Integer fields use the shared mapping, so the generated column is the type the
+                // derived FromRow decodes: i8, i16 and u8 SMALLINT, i32 and u16 INTEGER, i64,
+                // u32 and u64 BIGINT.
+                if let Some(storage) = lifeguard_typemap::integer_storage(&first_ident) {
+                    return Some(storage.sql.to_string());
+                }
+                if first_ident == "bool" {
+                    return Some("BOOLEAN".to_string());
                 }
             }
         }
@@ -1675,7 +1676,7 @@ pub fn derive_life_model(input: TokenStream) -> TokenStream {
             }
             // Handle unsigned integer types
             else {
-                crate::type_conversion::unsigned_from_row_expr(
+                crate::type_conversion::checked_int_from_row_expr(
                     field_type,
                     &col_idx_lit,
                     column_name_str,

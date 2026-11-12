@@ -171,18 +171,30 @@ fn generate_partial_model_code(
         // Handle unsigned integer types (convert to signed first)
         // Note: row.get() returns the value directly (not Result), but we use try_get for error handling
         // Use exact matching (like the macro does) to avoid matching types like "u128", "u8x4", etc.
-        let get_expr = match field.ty.as_str() {
-            "u8" | "u16" | "u32" | "u64" => {
-                let signed_type = match field.ty.as_str() {
-                    "u8" => "i16",
-                    "u16" => "i32",
-                    "u32" | "u64" => "i64",
-                    _ => unreachable!(), // This should never happen due to outer match
-                };
-                format!("            {}: {{\n                let val: {} = row.try_get::<&str, {}>(\"{}\")?;\n                val as {}\n            }},", 
-                        field.name, signed_type, signed_type, column_name, field.ty)
-            }
-            _ => {
+        // Postgres has no one-byte or unsigned types: for i8 and uN read the signed column type
+        // from the shared mapping and convert with a checked try_from, so an out-of-range value
+        // is a row error rather than a wrapped number. `Option<T>` reads `Option` of that type.
+        let (inner_ty, optional) = field
+            .ty
+            .strip_prefix("Option<")
+            .and_then(|s| s.strip_suffix('>'))
+            .map_or((field.ty.as_str(), false), |inner| (inner.trim(), true));
+        let get_expr = match lifeguard_typemap::integer_storage(inner_ty).filter(|s| s.converts()) {
+            Some(storage) if optional => format!(
+                "            {name}: match row.try_get::<&str, Option<{signed}>>(\"{col}\")? {{\n                Some(val) => Some(<{ty}>::try_from(val).map_err(|_| lifeguard::from_row_unsigned_try_from_failed(row, \"{col}\"))?),\n                None => None,\n            }},",
+                name = field.name,
+                signed = storage.read_as,
+                col = column_name,
+                ty = inner_ty
+            ),
+            Some(storage) => format!(
+                "            {name}: {{\n                let val: {signed} = row.try_get::<&str, {signed}>(\"{col}\")?;\n                <{ty}>::try_from(val).map_err(|_| lifeguard::from_row_unsigned_try_from_failed(row, \"{col}\"))?\n            }},",
+                name = field.name,
+                signed = storage.read_as,
+                col = column_name,
+                ty = inner_ty
+            ),
+            None => {
                 format!(
                     "            {}: row.try_get::<&str, {}>(\"{}\")?,",
                     field.name, field.ty, column_name
@@ -247,18 +259,18 @@ mod tests {
 
         // Verify u8 generates conversion code (i16 -> u8)
         assert!(code.contains("let val: i16 = row.try_get::<&str, i16>"));
-        assert!(code.contains("val as u8"));
+        assert!(code.contains("<u8>::try_from(val)"));
 
         // Verify u16 generates conversion code (i32 -> u16)
         assert!(code.contains("let val: i32 = row.try_get::<&str, i32>"));
-        assert!(code.contains("val as u16"));
+        assert!(code.contains("<u16>::try_from(val)"));
 
         // Verify u32 generates conversion code (i64 -> u32)
         assert!(code.contains("let val: i64 = row.try_get::<&str, i64>"));
-        assert!(code.contains("val as u32"));
+        assert!(code.contains("<u32>::try_from(val)"));
 
         // Verify u64 generates conversion code (i64 -> u64)
-        assert!(code.contains("val as u64"));
+        assert!(code.contains("<u64>::try_from(val)"));
     }
 
     /// Test that types starting with "u" but not exact matches are NOT treated as unsigned
@@ -335,6 +347,60 @@ mod tests {
         assert!(!code.contains("val as"));
     }
 
+    /// `Option<uN>` reads `Option` of the signed type and converts each value with try_from.
+    #[test]
+    fn test_optional_unsigned_types() {
+        let fields = vec![
+            FieldDef {
+                name: "a".to_string(),
+                ty: "Option<u8>".to_string(),
+                column_name: None,
+            },
+            FieldDef {
+                name: "b".to_string(),
+                ty: "Option<u32>".to_string(),
+                column_name: None,
+            },
+        ];
+
+        let code = generate_partial_model_code("TestModel", "crate::TestEntity", &fields);
+
+        assert!(code.contains("row.try_get::<&str, Option<i16>>(\"a\")?"));
+        assert!(code.contains("Some(<u8>::try_from(val)"));
+        assert!(code.contains("row.try_get::<&str, Option<i64>>(\"b\")?"));
+        assert!(code.contains("Some(<u32>::try_from(val)"));
+        assert!(!code.contains("val as"));
+    }
+
+    /// `i8` reads SMALLINT as `i16` and converts with try_from; `i16` reads directly.
+    #[test]
+    fn test_i8_reads_smallint() {
+        let fields = vec![
+            FieldDef {
+                name: "t".to_string(),
+                ty: "i8".to_string(),
+                column_name: None,
+            },
+            FieldDef {
+                name: "o".to_string(),
+                ty: "Option<i8>".to_string(),
+                column_name: None,
+            },
+            FieldDef {
+                name: "s".to_string(),
+                ty: "i16".to_string(),
+                column_name: None,
+            },
+        ];
+
+        let code = generate_partial_model_code("TestModel", "crate::TestEntity", &fields);
+
+        assert!(code.contains("let val: i16 = row.try_get::<&str, i16>(\"t\")?;"));
+        assert!(code.contains("<i8>::try_from(val)"));
+        assert!(code.contains("row.try_get::<&str, Option<i16>>(\"o\")?"));
+        assert!(code.contains("s: row.try_get::<&str, i16>(\"s\")?,"));
+    }
+
     /// Test mixed types (some unsigned, some not)
     #[test]
     fn test_mixed_types() {
@@ -360,7 +426,7 @@ mod tests {
 
         // u8 should have conversion
         assert!(code.contains(
-            "let val: i16 = row.try_get::<&str, i16>(\"id\")?;\n                val as u8"
+            "let val: i16 = row.try_get::<&str, i16>(\"id\")?;\n                <u8>::try_from(val)"
         ));
 
         // String should be direct

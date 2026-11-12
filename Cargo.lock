@@ -1531,6 +1531,7 @@ dependencies = [
  "libc",
  "lifeguard-derive",
  "lifeguard-migrate",
+ "lifeguard-typemap",
  "log",
  "may",
  "may_minihttp",
@@ -1564,6 +1565,7 @@ name = "lifeguard-codegen"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "lifeguard-typemap",
  "serde",
  "serde_json",
 ]
@@ -1576,6 +1578,7 @@ dependencies = [
  "chrono",
  "lazy_static",
  "lifeguard",
+ "lifeguard-typemap",
  "may_postgres",
  "proc-macro2",
  "quote",
@@ -1622,6 +1625,10 @@ dependencies = [
  "toml",
  "uuid",
 ]
+
+[[package]]
+name = "lifeguard-typemap"
+version = "0.1.0"
 
 [[package]]
 name = "link-section"

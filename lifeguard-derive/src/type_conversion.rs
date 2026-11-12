@@ -132,12 +132,12 @@ pub fn unwrap_option_inner_type(ty: &Type) -> &Type {
     ty
 }
 
-/// `FromRow` read expression for an unsigned integer field: `u8`, `u16`, `u32` or `u64`, or an
-/// `Option` of one. Postgres has no unsigned types, so the column is read as the signed type that
-/// holds the whole range (`u8` as `i16`, `u16` as `i32`, `u32` and `u64` as `i64`) and converted
-/// with `try_from`: a negative or out-of-range value is a row error, never a wrapped number.
-/// `None` for any other field type.
-pub fn unsigned_from_row_expr<I: quote::ToTokens>(
+/// `FromRow` read expression for an integer field that Postgres cannot store as-is: `i8`, `u8`,
+/// `u16`, `u32` or `u64`, or an `Option` of one. The column is read as the signed type that holds
+/// the whole range (`i8` and `u8` as `i16`, `u16` as `i32`, `u32` and `u64` as `i64`; the shared
+/// `lifeguard_typemap` mapping, which migrations also use) and converted with `try_from`: an
+/// out-of-range value is a row error, never a wrapped number. `None` for any other field type.
+pub fn checked_int_from_row_expr<I: quote::ToTokens>(
     field_type: &Type,
     col_idx: &I,
     column_name: &str,
@@ -150,12 +150,8 @@ pub fn unsigned_from_row_expr<I: quote::ToTokens>(
         }) if path.segments.len() == 1 => path.segments.first()?.ident.to_string(),
         _ => return None,
     };
-    let signed = match ident.as_str() {
-        "u8" => quote! { i16 },
-        "u16" => quote! { i32 },
-        "u32" | "u64" => quote! { i64 },
-        _ => return None,
-    };
+    let storage = lifeguard_typemap::integer_storage(&ident).filter(|s| s.converts())?;
+    let signed = proc_macro2::Ident::new(storage.read_as, proc_macro2::Span::call_site());
     let convert = quote! {
         <#inner as ::core::convert::TryFrom<#signed>>::try_from(v).map_err(|_| {
             lifeguard::from_row_unsigned_try_from_failed(row, #column_name)

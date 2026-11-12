@@ -403,9 +403,12 @@ impl ColumnDefinition {
             "i32" => Some("Integer".to_string()),
             "i64" => Some("BigInt".to_string()),
             "i16" => Some("SmallInt".to_string()),
-            "i8" => Some("TinyInt".to_string()),
-            "u32" => Some("Unsigned".to_string()),
-            "u64" => Some("BigUnsigned".to_string()),
+            // Postgres has no one-byte or unsigned types: the shared mapping gives the signed
+            // column type that holds the whole range (i8 and u8 SMALLINT, u16 INTEGER, u32 and
+            // u64 BIGINT).
+            narrow if lifeguard_typemap::integer_storage(narrow).is_some_and(|s| s.converts()) => {
+                lifeguard_typemap::integer_storage(narrow).map(|s| s.sql.to_string())
+            }
             "String" => Some("String".to_string()),
             "bool" => Some("Boolean".to_string()),
             "f32" => Some("Float".to_string()),
@@ -451,6 +454,26 @@ impl ColumnDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_rust_type_maps_unsigned_with_the_shared_mapping() {
+        for (rust, sql, nullable) in [
+            ("i8", "SMALLINT", false),
+            ("Option<i8>", "SMALLINT", true),
+            ("u8", "SMALLINT", false),
+            ("u16", "INTEGER", false),
+            ("u32", "BIGINT", false),
+            ("u64", "BIGINT", false),
+            ("Option<u8>", "SMALLINT", true),
+            ("Option<u16>", "INTEGER", true),
+            ("Option<u32>", "BIGINT", true),
+            ("Option<u64>", "BIGINT", true),
+        ] {
+            let def = ColumnDefinition::from_rust_type(rust, false, false);
+            assert_eq!(def.column_type.as_deref(), Some(sql), "{rust}");
+            assert_eq!(def.nullable, nullable, "{rust}");
+        }
+    }
 
     #[test]
     fn test_column_definition_default() {

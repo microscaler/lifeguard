@@ -162,18 +162,18 @@ The derive macros support a wide range of Rust types:
 
 Postgres has no unsigned integer types. An unsigned field is stored in the signed column type that holds its whole range, and every conversion between the two is checked:
 
-| Field | Column `FromRow` reads | `ModelTrait::get` returns | `ModelTrait::set` accepts |
+| Field | Column type (migrations and `FromRow`) | `ModelTrait::get` returns | `ModelTrait::set` accepts |
 |-------|------------------------|---------------------------|---------------------------|
 | `u8`  | `SMALLINT` | `Value::SmallInt` | `SmallInt` in `0..=255` |
 | `u16` | `INTEGER`  | `Value::Int`      | `Int` in `0..=65535` |
 | `u32` | `BIGINT`   | `Value::BigInt`   | `BigInt` in `0..=4294967295` |
 | `u64` | `BIGINT`   | `Value::BigUnsigned` | `BigUnsigned` (any value), or `BigInt` in `0..=i64::MAX` |
 
-`Option<...>` of each behaves the same, with NULL as `None`. A negative or out-of-range value is an error, never a wrapped number: `set` returns `ModelError::InvalidValueType` and leaves the field unchanged, and `FromRow` returns a row error.
+`i8` and `i16` fields use `SMALLINT` too; an `i8` is read as `i16` and converted with `try_from`, so a stored value outside `-128..=127` is a row error. `Option<...>` of each behaves the same, with NULL as `None`. A negative or out-of-range value is an error, never a wrapped number: `set` returns `ModelError::InvalidValueType` and leaves the field unchanged, and `FromRow` returns a row error.
 
 A `u64` field can hold any `u64` in memory, and `set(col, get(col))` round-trips every value. A `BIGINT` column cannot store values above `i64::MAX` (9223372036854775807), so binding one as a query parameter fails with `BigUnsigned value ... exceeds i64::MAX` before anything is sent. For the full `u64` range in the database, use a `NUMERIC(20)` column with a `rust_decimal::Decimal` field.
 
-The column types above are what `FromRow` decodes. Create the columns with those types: an `INTEGER` column will not decode into a `u8` or `u32` field.
+One shared mapping (the `lifeguard-typemap` crate) drives the column type that generated migrations infer, the type `FromRow` decodes, `ColumnDefinition::from_rust_type` and `lifeguard-codegen`, so a table created from a generated migration always decodes into its model. A hand-written table must use the same column types: an `INTEGER` column will not decode into a `u8` or `u32` field. An explicit `#[column_type = "..."]` still overrides the inferred type.
 
 ## Testing
 

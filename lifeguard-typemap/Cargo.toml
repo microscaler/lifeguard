@@ -1,0 +1,9 @@
+[package]
+name = "lifeguard-typemap"
+version = "0.1.0"
+edition = "2021"
+description = "Storage mapping for unsigned integer fields in Lifeguard ORM (shared by the derive, runtime, migrations and codegen)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/microscaler/lifeguard"
+
+[dependencies]
