@@ -30,7 +30,7 @@ use crate::generated_migration_diff::{
     accumulate_table_baselines_from_dir, build_service_migration_body_from_accumulated,
     combined_old_section, normalize_table_sql_blob, service_migration_is_empty, TableBaselineParts,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -86,7 +86,7 @@ pub fn write_per_table_migration_file(
 ) -> std::io::Result<EmissionOutcome> {
     fs::create_dir_all(service_dir)?;
 
-    let existing = find_existing_per_table_files(service_dir, table_name)?;
+    let baseline = accumulate_table_parts_from_dir(service_dir, table_name)?;
     let header_text = header
         .map(|h| {
             format!(
@@ -97,14 +97,12 @@ pub fn write_per_table_migration_file(
         .unwrap_or_default();
     let fresh_trimmed = fresh_sql.trim();
 
-    if existing.is_empty() {
+    let Some(parts) = baseline else {
         let path = service_dir.join(format!("{timestamp}_{table_name}.sql"));
         let content = format!("{header_text}{fresh_trimmed}\n");
         fs::write(&path, content)?;
         return Ok(EmissionOutcome::Initial { path });
-    }
-
-    let parts = accumulate_per_table_parts_from_files(&existing)?;
+    };
     let combined = combined_old_section(&parts);
 
     // Fast-skip: merged effective schema (including all prior ALTER/ADD/CREATE deltas) already
@@ -223,29 +221,27 @@ pub fn accumulate_per_table_baselines_from_dir(
 
     let mut per_table: BTreeMap<String, TableBaselineParts> = BTreeMap::new();
     if service_dir.is_dir() {
-        // Group per-table files by table slug, ordered by parsed timestamp within each group.
-        let mut groups: BTreeMap<String, Vec<(u64, PathBuf)>> = BTreeMap::new();
-        for entry in fs::read_dir(service_dir)?.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
+        // Every table a migration file names: canonical `<ts>_<table>.sql` slugs plus the targets
+        // of CREATE TABLE / ALTER TABLE / CREATE INDEX statements in any file.
+        let mut tables: BTreeSet<String> = BTreeSet::new();
+        for path in migration_files_in_dir(service_dir)? {
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            if is_macos_resource_fork_file_name(name) {
-                continue;
+            if let Some((_, table)) = parse_per_table_migration_filename(name) {
+                tables.insert(table);
             }
-            let Some((ts, table)) = parse_per_table_migration_filename(name) else {
-                continue;
-            };
-            groups.entry(table).or_default().push((ts, path));
+            let content = fs::read_to_string(&path)?;
+            for stmt in statements(strip_migration_file_header(&content)) {
+                if let Some(t) = baseline_statement_table(&stmt) {
+                    tables.insert(t);
+                }
+            }
         }
-        for (table, mut entries) in groups {
-            entries.sort_by_key(|(ts, _)| *ts);
-            let paths: Vec<PathBuf> = entries.into_iter().map(|(_, p)| p).collect();
-            let parts = accumulate_per_table_parts_from_files(&paths)?;
-            per_table.insert(table, parts);
+        for table in tables {
+            if let Some(parts) = accumulate_table_parts_from_dir(service_dir, &table)? {
+                per_table.insert(table, parts);
+            }
         }
     }
 
@@ -256,6 +252,253 @@ pub fn accumulate_per_table_baselines_from_dir(
         out.insert(k, v);
     }
     Ok(out)
+}
+
+/// Forward migration files directly in `service_dir`, in filename (timestamp) order. Rollback
+/// migrations (`*.down.sql`) and macOS resource forks are skipped; subdirectories such as
+/// `rollback/` are not read.
+fn migration_files_in_dir(service_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    if !service_dir.is_dir() {
+        return Ok(files);
+    }
+    for entry in fs::read_dir(service_dir)?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if is_macos_resource_fork_file_name(name)
+            || !name.ends_with(".sql")
+            || crate::sql_dependency_order::is_rollback_migration_path(name)
+        {
+            continue;
+        }
+        files.push(path);
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// SQL statements in `sql`, each ending in `;`. Unsplittable text (an unterminated quote) is
+/// returned as a single statement.
+fn statements(sql: &str) -> Vec<String> {
+    match crate::tracked::split_statements(sql) {
+        Ok(stmts) => stmts
+            .into_iter()
+            .map(|(_, stmt)| format!("{};", stmt.trim()))
+            .collect(),
+        Err(_) => vec![sql.trim().to_string()],
+    }
+}
+
+/// The statement with leading `--` comment lines removed.
+fn without_leading_comments(stmt: &str) -> &str {
+    let mut rest = stmt.trim_start();
+    while rest.starts_with("--") {
+        rest = rest
+            .split_once('\n')
+            .map_or("", |(_, tail)| tail)
+            .trim_start();
+    }
+    rest
+}
+
+/// Unqualified, unquoted, lower-cased table name from a possibly schema-qualified identifier
+/// token (`pricewhisperer.pw_orders`, `"pw_orders"`, `pw_orders(`).
+fn bare_table_name(token: &str) -> Option<String> {
+    let ident = token.split('(').next()?.trim_end_matches(';');
+    let last = ident.rsplit('.').next()?.trim_matches('"');
+    (!last.is_empty()).then(|| last.to_ascii_lowercase())
+}
+
+/// The table a statement shapes, for baseline purposes: `CREATE TABLE`, `ALTER TABLE` and
+/// `CREATE [UNIQUE] INDEX .. ON`. `None` for anything else.
+fn baseline_statement_table(stmt: &str) -> Option<String> {
+    let body = without_leading_comments(stmt);
+    let words: Vec<&str> = body.split_whitespace().collect();
+    let upper: Vec<String> = words.iter().map(|w| w.to_ascii_uppercase()).collect();
+    let at = |i: usize| upper.get(i).map(String::as_str);
+    let mut i;
+    match (at(0), at(1)) {
+        (Some("CREATE"), Some("TABLE")) => {
+            i = 2;
+            if at(i) == Some("IF") && at(i + 1) == Some("NOT") && at(i + 2) == Some("EXISTS") {
+                i += 3;
+            }
+        }
+        (Some("ALTER"), Some("TABLE")) => {
+            i = 2;
+            if at(i) == Some("IF") && at(i + 1) == Some("EXISTS") {
+                i += 2;
+            }
+            if at(i) == Some("ONLY") {
+                i += 1;
+            }
+        }
+        (Some("CREATE"), Some("INDEX" | "UNIQUE")) => {
+            i = upper.iter().position(|w| w == "ON")? + 1;
+            if at(i) == Some("ONLY") {
+                i += 1;
+            }
+        }
+        _ => return None,
+    }
+    bare_table_name(words.get(i)?)
+}
+
+/// Split `text` at commas outside parentheses and single-quoted strings.
+fn split_top_level_commas(text: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let mut quoted = false;
+    for c in text.chars() {
+        match c {
+            '\'' => quoted = !quoted,
+            '(' if !quoted => depth += 1,
+            ')' if !quoted => depth = depth.saturating_sub(1),
+            ',' if !quoted && depth == 0 => {
+                parts.push(std::mem::take(&mut current));
+                continue;
+            }
+            _ => {}
+        }
+        current.push(c);
+    }
+    parts.push(current);
+    parts
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+/// `ALTER TABLE t clause, clause;` (possibly over several lines) as one single-line
+/// `ALTER TABLE t clause;` per clause, the shape the baseline column parser reads. Whitespace is
+/// collapsed; anything that is not an `ALTER TABLE` is returned unchanged.
+fn alter_clauses_one_per_line(stmt: &str) -> String {
+    let collapsed = without_leading_comments(stmt)
+        .trim()
+        .trim_end_matches(';')
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let words: Vec<&str> = collapsed.split(' ').collect();
+    let upper: Vec<String> = words.iter().map(|w| w.to_ascii_uppercase()).collect();
+    let at = |i: usize| upper.get(i).map(String::as_str);
+    if at(0) != Some("ALTER") || at(1) != Some("TABLE") {
+        return stmt.to_string();
+    }
+    let mut name = 2;
+    if at(name) == Some("IF") && at(name + 1) == Some("EXISTS") {
+        name += 2;
+    }
+    if at(name) == Some("ONLY") {
+        name += 1;
+    }
+    if name + 1 >= words.len() {
+        return stmt.to_string();
+    }
+    let header = words[..=name].join(" ");
+    split_top_level_commas(&words[name + 1..].join(" "))
+        .into_iter()
+        .map(|clause| format!("{header} {clause};"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `content` without its lifeguard `-- Migration:` header, but only when the text
+/// [`strip_migration_file_header`] would drop is all comments and blank lines. A hand-written file
+/// whose comment block runs straight into SQL has no blank line after its header, and stripping
+/// up to the first blank line would drop its first statements.
+fn without_generated_header(content: &str) -> &str {
+    let stripped = strip_migration_file_header(content);
+    let dropped = &content[..content.len() - stripped.len()];
+    if dropped
+        .lines()
+        .all(|line| line.trim().is_empty() || line.trim_start().starts_with("--"))
+    {
+        stripped
+    } else {
+        content
+    }
+}
+
+/// Merged baseline for `table_name` from every forward migration file in `service_dir`, in
+/// filename (timestamp) order. A canonical `<ts>_<table_name>.sql` file contributes its whole
+/// payload, as before. Any other file contributes its statements that create, alter or index
+/// `table_name`, so tables created inside another table's file and columns added by hand-written
+/// migrations with other names are part of the baseline. `None` when no file mentions the table.
+///
+/// # Errors
+///
+/// Returns an I/O error when the directory or a file cannot be read.
+pub fn accumulate_table_parts_from_dir(
+    service_dir: &Path,
+    table_name: &str,
+) -> std::io::Result<Option<TableBaselineParts>> {
+    let mut parts = TableBaselineParts::default();
+    let mut found = false;
+    for path in migration_files_in_dir(service_dir)? {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let canonical =
+            parse_per_table_migration_filename(name).is_some_and(|(_, slug)| slug == table_name);
+        let content = fs::read_to_string(&path)?;
+        let payload = without_generated_header(&content).trim();
+        if canonical {
+            if payload.is_empty() {
+                continue;
+            }
+            found = true;
+            // The whole payload, unless the file also creates, alters or indexes other tables
+            // (a hand-written file creating two tables): then only this table's statements.
+            let stmts = statements(payload);
+            let foreign =
+                |stmt: &String| baseline_statement_table(stmt).is_some_and(|t| t != table_name);
+            let own = if stmts.iter().any(foreign) {
+                stmts
+                    .iter()
+                    .filter(|stmt| !foreign(*stmt))
+                    .map(|stmt| without_leading_comments(stmt))
+                    .collect::<Vec<_>>()
+                    .join(
+                        "
+",
+                    )
+            } else {
+                payload.to_string()
+            };
+            if payload_is_full_object(&own) {
+                parts.last_create_section = Some(own);
+                parts.delta_section_fragments.clear();
+            } else {
+                parts.delta_section_fragments.push(own);
+            }
+            continue;
+        }
+        for stmt in statements(payload) {
+            if baseline_statement_table(&stmt).as_deref() != Some(table_name) {
+                continue;
+            }
+            found = true;
+            let body = without_leading_comments(&stmt).to_string();
+            let upper = body.to_ascii_uppercase();
+            if upper.starts_with("CREATE TABLE") {
+                parts.last_create_section = Some(body);
+                parts.delta_section_fragments.clear();
+            } else if upper.starts_with("ALTER TABLE") {
+                parts
+                    .delta_section_fragments
+                    .push(alter_clauses_one_per_line(&body));
+            } else {
+                parts.delta_section_fragments.push(body);
+            }
+        }
+    }
+    Ok(found.then_some(parts))
 }
 
 /// Find all files in `service_dir` that belong to `table_name` under the per-table layout.
@@ -325,6 +568,85 @@ fn strip_table_section_header(body: &str, table_name: &str) -> String {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn baseline_includes_statements_from_every_forward_migration_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d = dir.path();
+        fs::write(
+            d.join("20260101000000_a.sql"),
+            "CREATE TABLE IF NOT EXISTS s.a (\n    id INTEGER PRIMARY KEY\n);\n\
+             CREATE TABLE IF NOT EXISTS s.b (\n    id INTEGER PRIMARY KEY\n);\n",
+        )
+        .expect("write");
+        fs::write(
+            d.join("20260102000000_a_extra_columns.sql"),
+            "ALTER TABLE s.a ADD COLUMN IF NOT EXISTS note TEXT;\n",
+        )
+        .expect("write");
+        fs::create_dir_all(d.join("rollback")).expect("mkdir");
+        fs::write(
+            d.join("rollback/20260103000000_a.down.sql"),
+            "ALTER TABLE s.a ADD COLUMN IF NOT EXISTS rolled_back TEXT;\n",
+        )
+        .expect("write");
+        fs::write(
+            d.join("20260104000000_a.down.sql"),
+            "ALTER TABLE s.a ADD COLUMN IF NOT EXISTS also_rolled_back TEXT;\n",
+        )
+        .expect("write");
+
+        let columns = |table: &str| -> Vec<String> {
+            let parts = accumulate_table_parts_from_dir(d, table)
+                .expect("read")
+                .expect("baseline");
+            crate::generated_migration_diff::column_map_from_merged_baseline(&parts)
+                .into_keys()
+                .collect()
+        };
+        // `note` comes from a hand-written file with another name; rollbacks never count.
+        assert_eq!(columns("a"), vec!["id", "note"]);
+        // A multi-line ALTER with several ADD COLUMN clauses counts every clause.
+        fs::write(
+            d.join("20260105000000_a_state.sql"),
+            "ALTER TABLE s.a\n    ADD COLUMN IF NOT EXISTS state VARCHAR(12) NOT NULL DEFAULT 'x,y',\n    \
+             ADD COLUMN IF NOT EXISTS amount NUMERIC(18, 6);\n",
+        )
+        .expect("write");
+        assert_eq!(columns("a"), vec!["amount", "id", "note", "state"]);
+        // `b` is created inside `a`'s file.
+        assert_eq!(columns("b"), vec!["id"]);
+        assert!(accumulate_table_parts_from_dir(d, "c")
+            .expect("read")
+            .is_none());
+    }
+
+    #[test]
+    fn baseline_statement_targets() {
+        for (stmt, table) in [
+            (
+                "CREATE TABLE IF NOT EXISTS pricewhisperer.pw_orders (id INT)",
+                Some("pw_orders"),
+            ),
+            ("CREATE TABLE t(id INT)", Some("t")),
+            (
+                "-- note\nALTER TABLE IF EXISTS ONLY \"s\".\"T1\" ADD COLUMN x INT",
+                Some("t1"),
+            ),
+            (
+                "CREATE UNIQUE INDEX IF NOT EXISTS i ON s.t USING btree (a)",
+                Some("t"),
+            ),
+            ("CREATE INDEX i ON ONLY t (a)", Some("t")),
+            (
+                "CREATE OR REPLACE FUNCTION f() RETURNS trigger AS $$ BEGIN END $$",
+                None,
+            ),
+            ("INSERT INTO t VALUES (1)", None),
+        ] {
+            assert_eq!(baseline_statement_table(stmt).as_deref(), table, "{stmt}");
+        }
+    }
 
     fn write(path: &Path, body: &str) {
         fs::write(path, body).expect("write test fixture");
@@ -483,6 +805,51 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .ends_with("_widgets.sql"));
+    }
+
+    #[test]
+    fn baseline_keeps_statements_that_follow_a_comment_block_without_a_blank_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d = dir.path();
+        fs::write(
+            d.join("20260101000000_t.sql"),
+            "-- Migration: t\n-- Generated: 20260101000000\n\nCREATE TABLE IF NOT EXISTS s.t (\n    id INT PRIMARY KEY\n);\n",
+        )
+        .unwrap();
+        fs::write(
+            d.join("20260102000000_t_more.sql"),
+            "-- Migration: t_more\n-- Generated: 20260102000000\n-- Notes that run straight into SQL.\nALTER TABLE s.t\n    ADD COLUMN IF NOT EXISTS a TEXT NOT NULL DEFAULT 'x, y',\n    ADD COLUMN IF NOT EXISTS b INT;\nALTER TABLE s.u\n    ADD COLUMN IF NOT EXISTS c INT;\n\nCREATE INDEX IF NOT EXISTS t_a ON s.t (a);\n",
+        )
+        .unwrap();
+        let parts = accumulate_table_parts_from_dir(d, "t").unwrap().unwrap();
+        let combined = crate::generated_migration_diff::combined_old_section(&parts);
+        assert!(
+            combined.contains(
+                "ALTER TABLE s.t ADD COLUMN IF NOT EXISTS a TEXT NOT NULL DEFAULT 'x, y';"
+            ),
+            "{combined}"
+        );
+        assert!(
+            combined.contains("ALTER TABLE s.t ADD COLUMN IF NOT EXISTS b INT;"),
+            "{combined}"
+        );
+        assert!(
+            combined.contains("CREATE INDEX IF NOT EXISTS t_a ON s.t (a);"),
+            "{combined}"
+        );
+        assert!(!combined.contains("s.u"), "{combined}");
+    }
+
+    #[test]
+    fn generated_header_is_stripped_only_when_nothing_but_comments_precede_the_blank_line() {
+        let generated =
+            "-- Migration: x\n-- Generated: 20260101000000\n\nALTER TABLE x ADD COLUMN y INT;\n";
+        assert_eq!(
+            without_generated_header(generated),
+            "ALTER TABLE x ADD COLUMN y INT;\n"
+        );
+        let hand_written = "-- Migration: x\n-- notes\nALTER TABLE x ADD COLUMN y INT;\n\nCREATE INDEX i ON x (y);\n";
+        assert_eq!(without_generated_header(hand_written), hand_written);
     }
 
     #[test]
