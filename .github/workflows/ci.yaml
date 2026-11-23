@@ -62,7 +62,7 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Start CI stack (Postgres primary + replica + Redis)
-        uses: hoverkraft-tech/compose-action@b659c744ee9bed25aea2307c017ad849bd104433 # v3.2.0
+        uses: hoverkraft-tech/compose-action@cdaf49f2d715a87c3387e86cb35c772b14f0efe0 # v3.2.1
         with:
           compose-file: .github/docker/docker-compose.yml
           up-flags: -d --wait
@@ -197,7 +197,7 @@ jobs:
           key: cargo-perf-idam-${{ runner.os }}-${{ hashFiles('examples/perf-idam/Cargo.lock') }}
 
       - name: Start CI stack (Postgres primary + replica + Redis)
-        uses: hoverkraft-tech/compose-action@b659c744ee9bed25aea2307c017ad849bd104433 # v3.2.0
+        uses: hoverkraft-tech/compose-action@cdaf49f2d715a87c3387e86cb35c772b14f0efe0 # v3.2.1
         with:
           compose-file: .github/docker/docker-compose.yml
           up-flags: -d --wait
