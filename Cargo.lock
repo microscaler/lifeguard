@@ -1776,7 +1776,7 @@ dependencies = [
 [[package]]
 name = "microscaler-timing"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/microscaler-observability.git?tag=v0.1.4#e85aaad340a7cd4380c3ec417240dd3aa521cbb8"
+source = "git+https://github.com/microscaler/microscaler-observability.git?tag=v0.1.5#7413dabf5e76fcc44e6b37e313468c23fc9bac8c"
 dependencies = [
  "microscaler-timing-macros",
 ]
@@ -1784,7 +1784,7 @@ dependencies = [
 [[package]]
 name = "microscaler-timing-macros"
 version = "0.1.0"
-source = "git+https://github.com/microscaler/microscaler-observability.git?tag=v0.1.4#e85aaad340a7cd4380c3ec417240dd3aa521cbb8"
+source = "git+https://github.com/microscaler/microscaler-observability.git?tag=v0.1.5#7413dabf5e76fcc44e6b37e313468c23fc9bac8c"
 dependencies = [
  "proc-macro2",
  "quote",
